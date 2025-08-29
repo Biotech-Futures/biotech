@@ -20,15 +20,31 @@ export default defineConfigWithVueTs(
 
   pluginVue.configs['flat/essential'],
   vueTsConfigs.recommended,
-  
+
   {
     ...pluginVitest.configs.recommended,
     files: ['src/**/__tests__/*'],
   },
-  
+
   {
     ...pluginPlaywright.configs['flat/recommended'],
     files: ['e2e/**/*.{test,spec}.{js,ts,jsx,tsx}'],
   },
+
+  {
+    files: ['**/*.{ts,tsx,vue}'],
+    languageOptions: {
+      parserOptions: {
+        // Option A (recommended): let it discover tsconfigs automatically
+        projectService: true,
+
+        // Option B: be explicit
+        // project: ['./tsconfig.json', './tsconfig.node.json'],
+        tsconfigRootDir: __dirname,
+        extraFileExtensions: ['.vue'],
+      },
+    },
+  },
+
   skipFormatting,
 )
