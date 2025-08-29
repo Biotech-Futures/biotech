@@ -3,8 +3,7 @@
 To keep our collaboration structured and consistent, please follow these guidelines:
 
 1. **Branching**
-   - Each workflow (Workstream 1, 2, 3, etc.) should have **one dedicated branch**.  
-   - Name the branch clearly (e.g., `workstream-1`, `workstream-2`).
+   - Each workflow (Workstream 1, 2, 3) should have **one dedicated branch**.  
 
 2. **Development**
    - All work for that workflow should be committed to its branch.
