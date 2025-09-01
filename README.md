@@ -16,6 +16,10 @@ To keep our collaboration structured and consistent, please follow these guideli
    - When ready to merge changes, create a **pull request into `main`**.  
    - Request reviews from at least one teammate before merging.
 
+> ❗
+>
+> This flow ensures that we are constantly pulling from and merging `main` into our `Workstream` branches, avoiding our branches being both behind and ahead of `main`.
+
 5. **Main Branch**
    - The `main` branch should always remain **stable** and **deployment-ready**.
    - Direct commits to `main` are **not allowed**.
