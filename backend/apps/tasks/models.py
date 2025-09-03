@@ -1,34 +1,74 @@
 # TASKS MODELS
 
 from django.db import models
+from django.utils import timezone
+from django.db.models import Q
+
 
 class Milestone(models.Model):
-    milestone_id = models.IntegerField(primary_key=True)
-    group = models.ForeignKey(Groups, models.DO_NOTHING)
+    group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE)
     milestone_name = models.CharField(max_length=255)
-    completed = models.BooleanField()
-    deleted_flag = models.BooleanField()
+    completed = models.BooleanField(default=False)
+    deleted_flag = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'milestone'
+        verbose_name = "Milestone"
+        indexes = [
+            # regular indexes
+            models.Index(fields=['group']),
+            models.Index(fields=['completed']),
+            models.Index(fields=['deleted_flag']),
+        ]
 
 class TaskAssignees(models.Model):
-    pk = models.CompositePrimaryKey('task_id', 'user_id')
-    task = models.ForeignKey('Tasks', models.DO_NOTHING)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
-    assigned_datetime = models.DateTimeField()
-    deleted_flag = models.BooleanField()
+    task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="task_assignees")
+    user = models.ForeignKey('users.Users', on_delete=models.CASCADE, related_name="task_assignees")
+    pk = models.CompositePrimaryKey('task', 'user')
+    assigned_datetime = models.DateTimeField(default=timezone.now)
+    deleted_flag = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'task_assignees'
+        verbose_name = "Task Assignees"
+    
+    indexes = [
+            # regular indexes
+            models.Index(fields=['task']),
+            models.Index(fields=['user']),
+            models.Index(fields=['assigned_datetime']),
+
+            # index by task active status
+            models.Index(
+                name='ta_active_by_task',
+                fields=['task'],
+                condition=Q(deleted_flag=False)
+            ),
+
+            # index by user active status
+            models.Index(
+                name='ta_active_by_user',
+                fields=['user'],
+                condition=Q(deleted_flag=False)
+            ),
+        ]
 
 class Tasks(models.Model):
-    task_id = models.IntegerField(primary_key=True)
     task_name = models.CharField(max_length=255)
     due_date = models.DateTimeField()
-    deleted_flag = models.BooleanField()
-    milestone = models.ForeignKey(Milestone, models.DO_NOTHING)
+    deleted_flag = models.BooleanField(default=False)
+    # maybe a task can exist without being attached to a milestone? and if milestne deleted then set null
+    milestone = models.ForeignKey('Milestone', null=True, blank=True, on_delete=models.SET_NULL)
     task_description = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
         db_table = 'tasks'
+        verbose_name = "Tasks"
+        ordering = ["-due_date"]
+        indexes = [
+            # index for maybe grouping by due date?
+            models.Index(fields=['due_date']),
+            # index for grouping by milestone
+            models.Index(fields=['milestone'])
+        ]
+        
