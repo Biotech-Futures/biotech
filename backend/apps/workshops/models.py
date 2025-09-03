@@ -9,7 +9,6 @@ class WorkshopAttendance(models.Model):
     responded = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'workshop_attendance'
 
 class Workshops(models.Model):
@@ -26,5 +25,4 @@ class Workshops(models.Model):
     deleted_datetime = models.DateTimeField()
 
     class Meta:
-        managed = False
         db_table = 'workshops'

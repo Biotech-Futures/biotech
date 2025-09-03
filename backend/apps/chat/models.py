@@ -9,7 +9,6 @@ class MessageAttachments(models.Model):
     attachment_filename = models.CharField(max_length=255)
 
     class Meta:
-        managed = False
         db_table = 'message_attachments'
 
 class Messages(models.Model):
@@ -21,5 +20,4 @@ class Messages(models.Model):
     deleted_flag = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'messages'

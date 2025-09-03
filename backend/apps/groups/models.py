@@ -8,7 +8,6 @@ class GroupMembers(models.Model):
     user = models.ForeignKey('Users', models.DO_NOTHING)
 
     class Meta:
-        managed = False
         db_table = 'group_members'
 
 class Groups(models.Model):
@@ -20,7 +19,6 @@ class Groups(models.Model):
     deleted_datetime = models.DateTimeField()
 
     class Meta:
-        managed = False
         db_table = 'groups'
 
 class Tracks(models.Model):
@@ -29,7 +27,6 @@ class Tracks(models.Model):
     state = models.OneToOneField(CountryStates, models.DO_NOTHING)
 
     class Meta:
-        managed = False
         db_table = 'tracks'
 
 class Countries(models.Model):
@@ -37,7 +34,6 @@ class Countries(models.Model):
     country_name = models.CharField(max_length=255)
 
     class Meta:
-        managed = False
         db_table = 'countries'
 
 class CountryStates(models.Model):
@@ -46,6 +42,5 @@ class CountryStates(models.Model):
     state_name = models.CharField(max_length=255)
 
     class Meta:
-        managed = False
         db_table = 'country_states'
 

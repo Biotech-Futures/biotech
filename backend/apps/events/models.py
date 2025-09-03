@@ -11,7 +11,6 @@ class EventInvite(models.Model):
     rsvp_status = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'event_invite'
 
 class EventTargetGroup(models.Model):
@@ -20,7 +19,6 @@ class EventTargetGroup(models.Model):
     group = models.ForeignKey('Groups', models.DO_NOTHING)
 
     class Meta:
-        managed = False
         db_table = 'event_target_group'
 
 class EventTargetRole(models.Model):
@@ -29,7 +27,6 @@ class EventTargetRole(models.Model):
     role = models.ForeignKey('Roles', models.DO_NOTHING)
 
     class Meta:
-        managed = False
         db_table = 'event_target_role'
 
 class EventTargetTrack(models.Model):
@@ -38,7 +35,6 @@ class EventTargetTrack(models.Model):
     track = models.ForeignKey('Tracks', models.DO_NOTHING)
 
     class Meta:
-        managed = False
         db_table = 'event_target_track'
 
 class Events(models.Model):
@@ -56,5 +52,4 @@ class Events(models.Model):
     is_virtual = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'events'

@@ -6,7 +6,6 @@ class AdminProfile(models.Model):
     admin = models.OneToOneField('Users', models.DO_NOTHING, primary_key=True)
 
     class Meta:
-        managed = False
         db_table = 'admin_profile'
 
 class AreasOfInterest(models.Model):
@@ -14,7 +13,6 @@ class AreasOfInterest(models.Model):
     interest_desc = models.CharField(max_length=255)
 
     class Meta:
-        managed = False
         db_table = 'areas_of_interest'
 
 class Background(models.Model):
@@ -22,7 +20,6 @@ class Background(models.Model):
     background_desc_unique_field = models.CharField(db_column='background_desc (UNIQUE)', unique=True, max_length=255)  # Field name made lowercase. Field renamed to remove unsuitable characters. Field renamed because it ended with '_'.
 
     class Meta:
-        managed = False
         db_table = 'background'
 
 

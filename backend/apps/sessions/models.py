@@ -9,7 +9,6 @@ class Sessions(models.Model):
     isloggedin = models.BooleanField(db_column='isLoggedin')  # Field name made lowercase.
 
     class Meta:
-        managed = False
         db_table = 'sessions'
 
 class Alerts(models.Model):
@@ -20,5 +19,4 @@ class Alerts(models.Model):
     resolved = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'alerts'

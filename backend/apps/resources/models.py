@@ -8,7 +8,6 @@ class ResourceRoles(models.Model):
     role = models.ForeignKey('Roles', models.DO_NOTHING)
 
     class Meta:
-        managed = False
         db_table = 'resource_roles'
 
 class Resources(models.Model):
@@ -21,7 +20,6 @@ class Resources(models.Model):
     deleted_datetime = models.DateTimeField()
 
     class Meta:
-        managed = False
         db_table = 'resources'
 
 class RoleAssignmentHistory(models.Model):
@@ -32,7 +30,6 @@ class RoleAssignmentHistory(models.Model):
     valid_to = models.DateTimeField()
 
     class Meta:
-        managed = False
         db_table = 'role_assignment_history'
 
 class Roles(models.Model):
@@ -40,5 +37,4 @@ class Roles(models.Model):
     role_name = models.CharField(unique=True, max_length=255)
 
     class Meta:
-        managed = False
         db_table = 'roles'

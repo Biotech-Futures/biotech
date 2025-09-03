@@ -9,7 +9,6 @@ class CertificateType(models.Model):
     requires_expiry = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'certificate_type'
 
 class MentorCertificate(models.Model):
@@ -24,5 +23,4 @@ class MentorCertificate(models.Model):
     verified = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'mentor_certificate'

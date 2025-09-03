@@ -10,7 +10,6 @@ class Milestone(models.Model):
     deleted_flag = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'milestone'
 
 class TaskAssignees(models.Model):
@@ -21,7 +20,6 @@ class TaskAssignees(models.Model):
     deleted_flag = models.BooleanField()
 
     class Meta:
-        managed = False
         db_table = 'task_assignees'
 
 class Tasks(models.Model):
@@ -33,5 +31,4 @@ class Tasks(models.Model):
     task_description = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
-        managed = False
         db_table = 'tasks'
