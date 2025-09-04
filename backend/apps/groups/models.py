@@ -22,7 +22,7 @@ class Groups(models.Model):
         constraints = [
             # Ensure deleted_flag is True if deleted_datetime is set
             models.CheckConstraint(
-                check=Q(deleted_datetime__isnull=True) | Q(deleted_flag=True),
+                condition=Q(deleted_datetime__isnull=True) | Q(deleted_flag=True),
                 name='deleted_flag_true_if_deleted_datetime'
             ),
             # Ensure group names are unique within the same track
@@ -32,9 +32,19 @@ class Groups(models.Model):
             ),
             # Ensure deleted_datetime is after creation_datetime if set
             models.CheckConstraint(
-                check=Q(deleted_datetime__gte=F('creation_datetime')) | Q(deleted_datetime__isnull=True),
+                condition=Q(deleted_datetime__gte=F('creation_datetime')) | Q(deleted_datetime__isnull=True),
                 name='deleted_after_creation'
-)
+            ),
+            # Ensure group_name is not empty
+            models.CheckConstraint(
+                check=~Q(group_name=''),
+                name='group_name_not_empty'
+            ),
+            # Ensure creation_datetime is not in the future
+            models.CheckConstraint(
+                condition=Q(creation_datetime__lte=models.functions.Now()),
+                name='group_creation_not_future'
+            ),  
         ]
     
     def __str__(self):
@@ -49,7 +59,12 @@ class GroupMembers(models.Model):
             models.UniqueConstraint(
                 fields=['group', 'user'],
                 name='unique_group_user'
-            )
+            ),
+            # Ensure a user can only be a member of an active (not deleted) group
+            models.CheckConstraint(
+                condition=Q(group__deleted_flag=False),
+                name='group_member_only_if_group_active'
+            ),
         ] # Composite unique constraint to ensure each user is unique per group, as composite keys aren't natively supported
         indexes = [
             models.Index(fields=['group']),
@@ -79,6 +94,9 @@ class CountryStates(models.Model):
 
     class Meta:
         db_table = 'country_states'
+        constraints = [
+            models.UniqueConstraint(fields=['country', 'state_name'], name='unique_state_per_country')
+        ]
 
     def __str__(self):
         return f"{self.state_name}, {self.country.country_name}"
