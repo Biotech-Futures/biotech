@@ -3,122 +3,179 @@
 from django.db import models
 
 class AdminProfile(models.Model):
-    admin = models.OneToOneField('Users', models.DO_NOTHING, primary_key=True)
+    admin = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete admin profile if user is deleted
 
     class Meta:
         db_table = 'admin_profile'
+        verbose_name = "Admin Profile"
+        verbose_name_plural = "Admin Profiles"
+
+    def __str__(self):
+        return str(self.admin)
 
 class AreasOfInterest(models.Model):
-    interest_id = models.IntegerField(primary_key=True)
+    interest_id = models.BigAutoField(primary_key=True)
     interest_desc = models.CharField(max_length=255)
 
     class Meta:
         db_table = 'areas_of_interest'
+        verbose_name = "Area of Interest"
+        verbose_name_plural = "Areas of Interest"
+
+        indexes = [
+            models.Index(fields=['interest_desc']),
+        ]
+
+    def __str__(self):
+        return self.interest_desc
+        
 
 class Background(models.Model):
-    background_id = models.IntegerField(primary_key=True)
+    background_id = models.BigAutoField(primary_key=True)
     background_desc_unique_field = models.CharField(db_column='background_desc (UNIQUE)', unique=True, max_length=255)  # Field name made lowercase. Field renamed to remove unsuitable characters. Field renamed because it ended with '_'.
 
     class Meta:
         db_table = 'background'
+        verbose_name = "Background"
+        verbose_name_plural = "Backgrounds"
 
-
-
-
-
-
-
-
-
-
-
-
-
+    def __str__(self):
+        return self.background_desc
 
 class MentorProfile(models.Model):
-    user = models.OneToOneField('Users', models.DO_NOTHING, primary_key=True)
-    background = models.ForeignKey(Background, models.DO_NOTHING)
+    user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete mentor profile if user is deleted
+    background = models.ForeignKey(Background, on_delete=models.PROTECT)
     institution = models.CharField(db_column='Institution', max_length=255)  # Field name made lowercase.
     mentor_reason = models.CharField(max_length=255)
     max_grp_cnt = models.IntegerField()
 
     class Meta:
-        managed = False
+        managed = True # ***should this be false? this means that no migrations will be handled when we make the changes to this model***
         db_table = 'mentor_profile'
-
-
-
-
+        verbose_name = "Mentor Profile"
+        verbose_name_plural = "Mentor Profiles"
+    
+    def __str__(self):
+        return f"Mentor: {self.user}"
 
 
 class RelationshipType(models.Model):
-    relationship_type_id = models.IntegerField(primary_key=True)
+    relationship_type_id = models.BigAutoField(primary_key=True)
     relationship_type = models.CharField(unique=True, max_length=255)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'relationship_type'
+        verbose_name = "Relationship Type"
+        verbose_name_plural = "Relationship Types"
 
+    def __str__(self):
+        return self.relationship_type
 
 
 
 
 class StudentInterest(models.Model):
-    pk = models.CompositePrimaryKey('interest_id', 'user_id')
-    interest_id = models.IntegerField(unique=True)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    interest = models.ForeignKey(AreasOfInterest, on_delete=models.CASCADE) # changed to cascade, might need review but i think it reflects what should happen, like if an interest category is deleted it will follow through here
+    user = models.ForeignKey('users.Users', on_delete=models.CASCADE)
 
     class Meta:
-        managed = False
+        managed = True # ***should this be false? this means that no migrations will be handled when we make the changes to this model***
         db_table = 'student_interest'
+        verbose_name = "Student Interest"
+        verbose_name_plural = "Student Interests"
+        constraints = [
+            models.PrimaryKeyConstraint(fields=['interest', 'user'], name='pk_student_interest')
+        ]
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['interest']),
+        ]
+
+    def __str__(self):
+        return f"{self.user} interested in {self.interest}"
 
 
 class StudentProfile(models.Model):
-    user = models.OneToOneField('Users', models.DO_NOTHING, primary_key=True)
+    user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True)
     pg_first_name = models.CharField(max_length=255)
     pg_last_name = models.CharField(max_length=255)
-    parent_guardian_flag = models.CharField(max_length=255)
-    supervisor = models.ForeignKey('SupervisorProfile', models.DO_NOTHING)
-    interest = models.ForeignKey(AreasOfInterest, models.DO_NOTHING)
+    parent_guardian_flag = models.CharField(max_length=255,) # should this be boolean instead?
+    supervisor = models.ForeignKey('SupervisorProfile', on_delete=models.PROTECT)
+    interest = models.ForeignKey(AreasOfInterest, on_delete=models.PROTECT)
     school_name = models.CharField(max_length=255)
     year_lvl = models.CharField(max_length=255)
-    has_join_permission = models.BooleanField()
+    has_join_permission = models.BooleanField(default=False)
 
     class Meta:
-        managed = False
+        managed = True # ***should this be false? this means that no migrations will be handled when we make the changes to this model***
         db_table = 'student_profile'
+        verbose_name = "Student Profile"
+        verbose_name_plural = "Student Profiles"
+        indexes = [
+            models.Index(fields=['supervisor']),
+            models.Index(fields=['interest']),
+        ]
+
+    def __str__(self):
+        return str(self.user)
 
 
 class StudentSupervisor(models.Model):
-    pk = models.CompositePrimaryKey('student_user_id', 'supervisor_user_id')
-    student_user = models.ForeignKey(StudentProfile, models.DO_NOTHING)
-    supervisor_user = models.ForeignKey('SupervisorProfile', models.DO_NOTHING)
-    relationship_type = models.ForeignKey(RelationshipType, models.DO_NOTHING)
+    student_user = models.ForeignKey(StudentProfile, on_delete=models.CASCADE)
+    supervisor_user = models.ForeignKey('SupervisorProfile', on_delete=models.CASCADE) # same consideration here not sure if we want to keep this for record purposes if a supervisor is deleted
+    relationship_type = models.ForeignKey(RelationshipType, on_delete=models.PROTECT)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'student_supervisor'
+        verbose_name = "Student Supervisor"
+        verbose_name_plural = "Student Supervisors"
+        constraints = [
+            models.PrimaryKeyConstraint(fields=['student_user', 'supervisor_user'], name='pk_student_supervisor')
+        ]
+        indexes = [
+            models.Index(fields=['student_user']),
+            models.Index(fields=['supervisor_user']),
+        ]
+    
+    def __str__(self):
+        return f"{self.student_user} -> {self.supervisor_user} ({self.relationship_type})"
 
 
 class SupervisorProfile(models.Model):
-    user = models.OneToOneField('Users', models.DO_NOTHING, primary_key=True)
+    user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete supervisor profile if user is deleted, but might need review if we want to keep the profile for record purposes
     school_name = models.CharField(max_length=255)
 
     class Meta:
-        managed = False
+        managed = True # ***should this be false? this means that no migrations will be handled when we make the changes to this model***
         db_table = 'supervisor_profile'
+        verbose_name = "Supervisor Profile"
+        verbose_name_plural = "Supervisor Profiles"
+
+    def __str__(self):
+        return str(self.user)
 
 
 
 class Users(models.Model):
-    user_id = models.IntegerField(primary_key=True)
+    user_id = models.BigAutoField(primary_key=True)
     first_name = models.CharField(max_length=255)
     last_name = models.CharField(max_length=255)
-    email = models.CharField(max_length=255)
-    status = models.BooleanField()
-    track = models.ForeignKey(Tracks, models.DO_NOTHING)
-    state = models.ForeignKey(CountryStates, models.DO_NOTHING)
+    email = models.CharField(max_length=255, unique=True)
+    status = models.BooleanField(default=False)
+    track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT)
+    state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'users'
+        verbose_name = "User"
+        verbose_name_plural = "Users"
+        indexes = [
+            models.Index(fields=['track']),
+            models.Index(fields=['state']),
+        ]
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name}"
