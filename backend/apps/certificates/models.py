@@ -26,3 +26,5 @@ class MentorCertificate(models.Model):
 
     class Meta:
         db_table = 'mentor_certificate'
+        verbose_name = "Mentor Certificate"
+        verbose_name_plural = "Mentor Certificates" # Just added some verbose names for better admin readability

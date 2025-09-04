@@ -3,21 +3,43 @@
 from django.db import models
 
 class MessageAttachments(models.Model):
-    pk = models.CompositePrimaryKey('attachment_id', 'message_id')
     attachment_id = models.BigIntegerField()
     message = models.ForeignKey('Messages', models.DO_NOTHING)
     attachment_filename = models.CharField(max_length=255)
 
     class Meta:
         db_table = 'message_attachments'
+        verbose_name = "Message Attachment"
+        verbose_name_plural = "Message Attachments"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['attachment_id', 'message'],
+                name='unique_attachment_per_message'
+            )
+        ] # Composite unique constraint to ensure each attachment_id is unique per message, as composite keys aren't natively supported
+
+    def __str__(self):
+        return f"Attachment {self.attachment_id} for Message {self.message.message_id}"
 
 class Messages(models.Model):
-    message_id = models.BigIntegerField(primary_key=True)
-    sender_user = models.ForeignKey('Users', models.DO_NOTHING)
-    group = models.ForeignKey(Groups, models.DO_NOTHING)
+    message_id = models.BigAutoField(primary_key=True) # Auto-incrementing primary key
+    sender_user = models.ForeignKey('Users', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
+    group = models.ForeignKey('groups.Groups', on_delete=models.CASCADE)
+    # group = models.ForeignKey(
+    #     'groups.Groups', on_delete=models.SET_NULL, null=True, blank=True
+    #      ) 
+    # Set null to allow messages to persist if group is deleted 
+    # - *this is a consideration if we want to have historical messages*
+    # for now I've left it as cascade to delete messages if group is deleted
     message_text = models.CharField(max_length=255)
     sent_datetime = models.DateTimeField()
     deleted_flag = models.BooleanField()
 
     class Meta:
         db_table = 'messages'
+        verbose_name = "Message"
+        verbose_name_plural = "Messages"
+        ordering = ['sent_datetime']  # default order: oldest first
+
+    def __str__(self):
+        return f"{self.sender_user} -> {self.group}: {self.message_text[:20]}" # String representation for easier for messages
