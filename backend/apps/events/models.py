@@ -5,7 +5,7 @@ from django.db import models
 class EventInvite(models.Model):
     event = models.ForeignKey('Events', on_delete=models.CASCADE)
     user = models.ForeignKey('users.Users', on_delete=models.CASCADE) # changed to CASCADE to maintain referential integrity
-    sent_datetime = models.DateTimeField()
+    sent_datetime = models.DateTimeField(default=models.functions.Now)
     attendance_status = models.BooleanField(default=False) # changed to default False to avoid null values
     rsvp_status = models.BooleanField(default=False) # changed to default False to avoid null values
 
@@ -14,7 +14,13 @@ class EventInvite(models.Model):
         verbose_name = "Event Invite"
         verbose_name_plural = "Event Invites"
         constraints = [
-            models.UniqueConstraint(fields=['event', 'user'], name='unique_event_user') # we remove the composite and add this constraint since django will add a default id field and composite keys arent natively supported
+            models.UniqueConstraint(fields=['event', 'user'], name='unique_event_user'), # we remove the composite and add this constraint since django will add a default id field and composite keys arent natively supported
+
+            # Ensure attendance can only be True if RSVP is also True
+            models.CheckConstraint(
+                check=models.Q(attendance_status=False) | models.Q(rsvp_status=True),
+                name='check_attendance_requires_rsvp'
+            ),
         ]
         indexes = [
             models.Index(fields=['event']),
@@ -76,14 +82,13 @@ class EventTargetTrack(models.Model):
         return f"{self.track} targeted for {self.event}"
 
 class Events(models.Model):
-    event_id = models.BigAutoField(primary_key=True)
     event_name = models.CharField(max_length=255)
     description = models.CharField(max_length=255, blank=True, null=True)
     start_datetime = models.DateTimeField()
     ends_datetime = models.DateTimeField()
-    location = models.CharField(max_length=255)
-    humanitix_link = models.CharField(max_length=255)
-    host_user = models.ForeignKey('users.Users', on_delete=models.PROTECT)
+    location = models.CharField(max_length=255, blank=True, null=True) # Allow null/blank for virtual events
+    humanitix_link = models.URLField(max_length=255)
+    host_user = models.ForeignKey('users.Users', on_delete=models.SET_NULL, null=True, blank=True) # Set null to allow events to persist if host user is deleted
     deleted_flag = models.BooleanField(default=False)
     deleted_datetime = models.DateTimeField(default=None, blank=True, null=True) # Allow null/blank for events that aren't deleted
     event_image = models.CharField(db_column='event_image(IMG)', max_length=255, blank=True, null=True)  # Field name made lowercase. Field renamed to remove unsuitable characters. Field renamed because it ended with '_'.     
@@ -97,6 +102,26 @@ class Events(models.Model):
         indexes = [
             models.Index(fields=['start_datetime']),
             models.Index(fields=['host_user']),
+        ]
+        constraints = [
+            # Ensure event end is after start
+            models.CheckConstraint(
+                check=models.Q(ends_datetime__gt=models.F('start_datetime')),
+                name='check_event_end_after_start'
+            ),
+            # Ensure deleted_flag is True for deleted events and False otherwise
+            models.CheckConstraint(
+                check=(
+                    models.Q(deleted_flag=False) |
+                    (models.Q(deleted_flag=True) & models.Q(deleted_datetime__isnull=False))
+                ),
+                name='check_deleted_flag_and_datetime'
+            ),
+            # Ensure virtual events don't have a location 
+            models.CheckConstraint(
+                check=models.Q(is_virtual=False) | models.Q(location__isnull=True),
+                name='check_virtual_location_null'
+            ),
         ]
 
     def __str__(self):
