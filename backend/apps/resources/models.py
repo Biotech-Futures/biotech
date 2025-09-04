@@ -1,6 +1,7 @@
 # RESOURCES & ROLES MODELS
 
 from django.db import models
+from django.db.models import Q
 
 class ResourceRoles(models.Model):
     resource = models.ForeignKey('Resources', on_delete=models.CASCADE) # changed to regular FK, as one to one would force limit a resource to one role only
@@ -8,6 +9,9 @@ class ResourceRoles(models.Model):
 
     class Meta:
         db_table = 'resource_roles'
+        indexes = [
+            models.Index(fields=['role'])
+        ]
         constraints = [
             models.PrimaryKeyConstraint(fields=['resource', 'role'], name='pk_resource_role')
         ]
@@ -18,10 +22,9 @@ class ResourceRoles(models.Model):
         return f"{self.resource} -> {self.role}"
 
 class Resources(models.Model):
-    resource_id = models.BigAutoField(primary_key=True)
     resource_name = models.CharField(max_length=255, blank=True, null=True)
     resource_description = models.CharField(max_length=255)
-    upload_datetime = models.DateTimeField(auto_now_add=True)
+    upload_datetime = models.DateTimeField(default=models.functions.Now)
     uploader_user_id = models.IntegerField()
     deleted_flag = models.BooleanField(default=False)
     deleted_datetime = models.DateTimeField(blank=True, null=True)
@@ -33,14 +36,35 @@ class Resources(models.Model):
         indexes = [
             models.Index(fields=['uploader_user_id']),
         ]
+        constraints = [
+            # Ensure deleted_flag is always either True or False
+            models.CheckConstraint(
+                condition=Q(deleted_datetime__isnull=True) | Q(deleted_flag=True),
+                name='deleted_flag_true_if_deleted_datetime'
+            ),
+            # Ensure resource names are unique if provided
+            models.CheckConstraint(
+                condition=Q(deleted_datetime__gte=F('upload_datetime')) | Q(deleted_datetime__isnull=True),
+                name='deleted_after_upload'
+            ),
+            # Ensure resource_description is not empty
+            models.CheckConstraint(
+                condition=~Q(resource_description=''),
+                name='resource_description_not_empty'
+            ),
+            # Ensure upload_datetime is not in the future
+            models.CheckConstraint(
+                condition=Q(upload_datetime__lte=models.functions.Now()),
+                name='resource_upload_not_future'
+            ),
+        ]
 
     def __str__(self):
         return self.resource_name or f"Resource {self.resource_id}"
 
 class RoleAssignmentHistory(models.Model):
-    assignment_id = models.IntegerField(primary_key=True)
-    user = models.OneToOneField('users.Users', on_delete=models.PROTECT) # Protect to maintain history integrity ? not too sure on this one
-    role = models.ForeignKey('Roles', on_delete=models.PROTECT) # Same here also changed to regular FK as one to one would limit a user to one role only. if historical could they have multiple roles?
+    user = models.OneToOneField('users.Users', on_delete=models.PROTECT) 
+    role = models.ForeignKey('Roles', on_delete=models.PROTECT) 
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
 
@@ -49,7 +73,12 @@ class RoleAssignmentHistory(models.Model):
         verbose_name = "Role Assignment History"
         verbose_name_plural = "Role Assignment Histories"
         constraints = [
-            models.UniqueConstraint(fields=['user', 'role', 'valid_from'], name='unique_user_role_start')
+            models.UniqueConstraint(fields=['user', 'role', 'valid_from'], name='unique_user_role_start'),
+            # Ensure valid_to is after valid_from if valid_to is set
+            models.CheckConstraint(
+                condition=Q(valid_to__gte=F('valid_from')),
+                name='valid_to_after_valid_from'
+            ),
         ]
         indexes = [
             models.Index(fields=['user']),
@@ -66,6 +95,14 @@ class Roles(models.Model):
         db_table = 'roles'
         verbose_name = "Role"
         verbose_name_plural = "Roles"
+
+        constraints = [
+            # Ensure role names are unique and not empty
+            models.CheckConstraint(
+                condition=~Q(role_name=''),
+                name='role_name_not_empty'
+            )
+        ]
 
     def __str__(self):
         return self.role_name
