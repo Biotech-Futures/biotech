@@ -22,7 +22,7 @@ class Milestone(models.Model):
         ]
 
 class TaskAssignees(models.Model):
-    task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="task_assignees")
+    task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="assignments")
     user = models.ForeignKey('users.Users', on_delete=models.CASCADE, related_name="task_assignees")
     pk = models.CompositePrimaryKey('task', 'user')
     assigned_datetime = models.DateTimeField(default=timezone.now)
@@ -52,6 +52,13 @@ class TaskAssignees(models.Model):
                 condition=Q(deleted_flag=False)
             ),
         ]
+    
+    constraints = [
+        models.UniqueConstraint(
+            fields=(['task', 'user']),
+            name="unique_task_user"
+        )
+    ]
 
 class Tasks(models.Model):
     task_name = models.CharField(max_length=255)

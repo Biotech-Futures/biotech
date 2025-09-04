@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.db.models import Q
 
 class Sessions(models.Model):
-    user = models.ForeignKey('users.Users', on_delete=models.DO_NOTHING)
+    user = models.ForeignKey('users.Users', on_delete=models.CASCADE)
     access_datetime = models.DateTimeField(default=timezone.now)
     isloggedin = models.BooleanField(db_column='isLoggedin')  # Field name made lowercase.
 
