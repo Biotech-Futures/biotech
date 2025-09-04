@@ -1,6 +1,7 @@
 # CERTIFICATES MODELS
 
 from django.db import models
+from django.db.models import Q
 
 class CertificateType(models.Model):
     certificate_type = models.CharField(unique=True, max_length=255)
@@ -34,6 +35,10 @@ class MentorCertificate(models.Model):
             models.UniqueConstraint(
                 fields=['mentor_profile', 'certificate_type', 'certificate_number'],
                 name='unique_certificate_per_mentor'
+            ),
+            models.CheckConstraint(
+                check=Q(expires_at__isnull=True) | Q(expires_at__gte=models.functions.Now()) | Q(verified=False),
+                name='cannot_verify_expired_certificate'
             ),
         ]
     
