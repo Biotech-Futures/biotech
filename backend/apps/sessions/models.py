@@ -3,6 +3,7 @@
 from django.db import models
 from django.utils import timezone
 from django.db.models import Q
+from django.db.models.functions import Now
 
 class Sessions(models.Model):
     user = models.ForeignKey('users.Users', on_delete=models.CASCADE)
@@ -21,13 +22,12 @@ class Sessions(models.Model):
             # no same sessions
             models.UniqueConstraint(fields=["user", "access_datetime"], name="unique_user_session"),
             # check a session is not in future
-            models.CheckConstraint(condition=Q(access_datetime__lte=timezone.now()),
+            models.CheckConstraint(condition=Q(access_datetime__lte=Now()),
                                    name="access_not_in_future"),
-            # maybe have a constraint that ensures only one active session? eg check isLoggedIn
         ]
 
 class Alerts(models.Model):
-    session = models.ForeignKey('Sessions', on_delete=models.CASCADE)
+    session = models.ForeignKey('Sessions', on_delete=models.CASCADE, related_name="alerts")
     alert_timestamp = models.DateTimeField(default=timezone.now)
     error_reason = models.CharField(max_length=255)
     resolved = models.BooleanField(default=False)
@@ -38,7 +38,8 @@ class Alerts(models.Model):
         ordering = ["-alert_timestamp"]
         indexes = [
             models.Index(fields=['session']),
-            models.Index(fields=['resolved'])
+            models.Index(fields=['resolved']),
+            models.Index(fields=['alert_timestamp'])
         ]
         constraints = [
             # no exact duplicates of alerts
@@ -48,7 +49,7 @@ class Alerts(models.Model):
             ),
             # no empty reason for alert
             models.CheckConstraint(
-                check=~Q(error_reason=''),
+                condition=~Q(error_reason=''),
                 name='alert_reason_not_empty'
             ),
         ]
