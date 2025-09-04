@@ -63,8 +63,8 @@ class Resources(models.Model):
         return self.resource_name or f"Resource {self.resource_id}"
 
 class RoleAssignmentHistory(models.Model):
-    user = models.OneToOneField('users.Users', on_delete=models.PROTECT) 
-    role = models.ForeignKey('Roles', on_delete=models.PROTECT) 
+    user = models.OneToOneField('users.Users', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if user is deleted
+    role = models.ForeignKey('Roles', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if role is deleted
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
 
