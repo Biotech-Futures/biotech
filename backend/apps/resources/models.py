@@ -3,34 +3,60 @@
 from django.db import models
 
 class ResourceRoles(models.Model):
-    pk = models.CompositePrimaryKey('resource_id', 'role_id')
-    resource = models.OneToOneField('Resources', models.DO_NOTHING)
-    role = models.ForeignKey('Roles', models.DO_NOTHING)
+    resource = models.ForeignKey('Resources', on_delete=models.CASCADE) # changed to regular FK, as one to one would force limit a resource to one role only
+    role = models.ForeignKey('Roles', on_delete=models.CASCADE)
 
     class Meta:
         db_table = 'resource_roles'
+        constraints = [
+            models.PrimaryKeyConstraint(fields=['resource', 'role'], name='pk_resource_role')
+        ]
+        verbose_name = "Resource Role"
+        verbose_name_plural = "Resource Roles"
+
+    def __str__(self):
+        return f"{self.resource} -> {self.role}"
 
 class Resources(models.Model):
-    resource_id = models.IntegerField(primary_key=True)
+    resource_id = models.BigAutoField(primary_key=True)
     resource_name = models.CharField(max_length=255, blank=True, null=True)
     resource_description = models.CharField(max_length=255)
-    upload_datetime = models.DateTimeField()
+    upload_datetime = models.DateTimeField(auto_now_add=True)
     uploader_user_id = models.IntegerField()
-    deleted_flag = models.BooleanField()
-    deleted_datetime = models.DateTimeField()
+    deleted_flag = models.BooleanField(default=False)
+    deleted_datetime = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'resources'
+        verbose_name = "Resource"
+        verbose_name_plural = "Resources"
+        indexes = [
+            models.Index(fields=['uploader_user_id']),
+        ]
+
+    def __str__(self):
+        return self.resource_name or f"Resource {self.resource_id}"
 
 class RoleAssignmentHistory(models.Model):
     assignment_id = models.IntegerField(primary_key=True)
-    user = models.OneToOneField('Users', models.DO_NOTHING)
-    role = models.OneToOneField('Roles', models.DO_NOTHING)
-    valid_from = models.DateTimeField(unique=True)
+    user = models.OneToOneField('users.Users', on_delete=models.PROTECT) # Protect to maintain history integrity ? not too sure on this one
+    role = models.ForeignKey('Roles', on_delete=models.PROTECT) # Same here also changed to regular FK as one to one would limit a user to one role only. if historical could they have multiple roles?
+    valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
 
     class Meta:
         db_table = 'role_assignment_history'
+        verbose_name = "Role Assignment History"
+        verbose_name_plural = "Role Assignment Histories"
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'role', 'valid_from'], name='unique_user_role_start')
+        ]
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['role']),
+        ]
+    def __str__(self):
+        return f"{self.user} as {self.role} from {self.valid_from} to {self.valid_to or 'present'}"
 
 class Roles(models.Model):
     role_id = models.IntegerField(primary_key=True)
@@ -38,3 +64,8 @@ class Roles(models.Model):
 
     class Meta:
         db_table = 'roles'
+        verbose_name = "Role"
+        verbose_name_plural = "Roles"
+
+    def __str__(self):
+        return self.role_name
