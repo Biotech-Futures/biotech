@@ -17,13 +17,16 @@ class MessageAttachments(models.Model):
                 name='unique_attachment_per_message'
             )
         ] # Composite unique constraint to ensure each attachment_id is unique per message, as composite keys aren't natively supported
+        indexes = [
+            models.Index(fields=['message']),
+        ]
 
     def __str__(self):
         return f"Attachment {self.attachment_id} for Message {self.message.message_id}"
 
 class Messages(models.Model):
     message_id = models.BigAutoField(primary_key=True) # Auto-incrementing primary key
-    sender_user = models.ForeignKey('Users', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
+    sender_user = models.ForeignKey('users.Users', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
     group = models.ForeignKey('groups.Groups', on_delete=models.CASCADE)
     # group = models.ForeignKey(
     #     'groups.Groups', on_delete=models.SET_NULL, null=True, blank=True
@@ -40,6 +43,7 @@ class Messages(models.Model):
         verbose_name = "Message"
         verbose_name_plural = "Messages"
         ordering = ['sent_datetime']  # default order: oldest first
+        index = models.Index(fields=['group', 'sent_datetime'])
 
     def __str__(self):
         return f"{self.sender_user} -> {self.group}: {self.message_text[:20]}" # String representation for easier for messages

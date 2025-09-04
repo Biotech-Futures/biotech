@@ -10,6 +10,7 @@ class CertificateType(models.Model):
 
     class Meta:
         db_table = 'certificate_type'
+        index = models.Index(fields=['certificate_type'])
 
 class MentorCertificate(models.Model):
     certificate_id = models.AutoField(primary_key=True) # Auto-incrementing primary key
@@ -28,3 +29,4 @@ class MentorCertificate(models.Model):
         db_table = 'mentor_certificate'
         verbose_name = "Mentor Certificate"
         verbose_name_plural = "Mentor Certificates" # Just added some verbose names for better admin readability
+        index = models.Index(fields=['mentor_profile', 'certificate_type'])
