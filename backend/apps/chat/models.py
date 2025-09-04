@@ -4,7 +4,7 @@ from django.db import models
 
 class MessageAttachments(models.Model):
     attachment_id = models.BigIntegerField()
-    message = models.ForeignKey('Messages', models.DO_NOTHING)
+    message = models.ForeignKey('Messages',on_delete=models.CASCADE)
     attachment_filename = models.CharField(max_length=255)
 
     class Meta:
@@ -15,7 +15,11 @@ class MessageAttachments(models.Model):
             models.UniqueConstraint(
                 fields=['attachment_id', 'message'],
                 name='unique_attachment_per_message'
-            )
+            ),
+            models.UniqueConstraint(
+                fields=['message', 'attachment_filename'],
+                name='unique_filename_per_message'
+            ), # Ensure each filename is unique per message
         ] # Composite unique constraint to ensure each attachment_id is unique per message, as composite keys aren't natively supported
         indexes = [
             models.Index(fields=['message']),
@@ -25,7 +29,6 @@ class MessageAttachments(models.Model):
         return f"Attachment {self.attachment_id} for Message {self.message.message_id}"
 
 class Messages(models.Model):
-    message_id = models.BigAutoField(primary_key=True) # Auto-incrementing primary key
     sender_user = models.ForeignKey('users.Users', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
     group = models.ForeignKey('groups.Groups', on_delete=models.CASCADE)
     # group = models.ForeignKey(
@@ -35,7 +38,7 @@ class Messages(models.Model):
     # - *this is a consideration if we want to have historical messages*
     # for now I've left it as cascade to delete messages if group is deleted
     message_text = models.CharField(max_length=255)
-    sent_datetime = models.DateTimeField()
+    sent_datetime = models.DateTimeField(default=models.functions.Now)
     deleted_flag = models.BooleanField()
 
     class Meta:
@@ -43,7 +46,22 @@ class Messages(models.Model):
         verbose_name = "Message"
         verbose_name_plural = "Messages"
         ordering = ['sent_datetime']  # default order: oldest first
-        index = models.Index(fields=['group', 'sent_datetime'])
+        constraints = [
+            # Avoid duplicate messages from the same user in the same group at the exact same time
+            models.UniqueConstraint(
+                fields=['sender_user', 'group', 'sent_datetime'],
+                name='unique_message_per_user_per_time'
+            ),
+            # Ensure deleted_flag is always either True or False
+            models.CheckConstraint(
+                check=models.Q(deleted_flag__in=[True, False]),
+                name='deleted_flag_boolean'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['group', 'sent_datetime']),
+            models.Index(fields=['sender_user']),
+        ]
 
     def __str__(self):
         return f"{self.sender_user} -> {self.group}: {self.message_text[:20]}" # String representation for easier for messages
