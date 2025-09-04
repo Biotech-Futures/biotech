@@ -1,6 +1,7 @@
 # EVENTS MODELS
 
 from django.db import models
+from django.db.models import Q
 
 class EventInvite(models.Model):
     event = models.ForeignKey('Events', on_delete=models.CASCADE)
@@ -18,9 +19,13 @@ class EventInvite(models.Model):
 
             # Ensure attendance can only be True if RSVP is also True
             models.CheckConstraint(
-                check=models.Q(attendance_status=False) | models.Q(rsvp_status=True),
+                condition=models.Q(attendance_status=False) | models.Q(rsvp_status=True),
                 name='check_attendance_requires_rsvp'
             ),
+            models.CheckConstraint(
+                condition=models.Q(sent_datetime__lte=models.functions.Now()),
+                name='check_invite_sent_datetime_not_future'
+            )
         ]
         indexes = [
             models.Index(fields=['event']),
@@ -106,12 +111,12 @@ class Events(models.Model):
         constraints = [
             # Ensure event end is after start
             models.CheckConstraint(
-                check=models.Q(ends_datetime__gt=models.F('start_datetime')),
+                condition=models.Q(ends_datetime__gt=models.F('start_datetime')),
                 name='check_event_end_after_start'
             ),
             # Ensure deleted_flag is True for deleted events and False otherwise
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(deleted_flag=False) |
                     (models.Q(deleted_flag=True) & models.Q(deleted_datetime__isnull=False))
                 ),
@@ -119,7 +124,7 @@ class Events(models.Model):
             ),
             # Ensure virtual events don't have a location 
             models.CheckConstraint(
-                check=models.Q(is_virtual=False) | models.Q(location__isnull=True),
+                condition=models.Q(is_virtual=False) | models.Q(location__isnull=True),
                 name='check_virtual_location_null'
             ),
         ]
