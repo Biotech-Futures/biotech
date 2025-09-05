@@ -38,6 +38,7 @@ class Workshops(models.Model):
         indexes = [
             models.Index(fields=['start_datetime']),
             models.Index(fields=['group']),
+            models.Index(fields=['host_user'])
         ]
 
     def __str__(self):

@@ -130,7 +130,7 @@ class StudentProfile(models.Model):
         ),
         # Ensure year level in expected range (9-12)
         models.CheckConstraint(
-            condition=Q(year_lvl__in=[str(i) for i in range(9, 12)]),
+            condition=Q(year_lvl__in=[str(i) for i in range(9, 13)]),
             name='student_year_lvl_valid'
         ),
         # Ensure has_join_permission is True only if parent_guardian_flag is True
@@ -158,9 +158,6 @@ class StudentSupervisor(models.Model):
         db_table = 'student_supervisor'
         verbose_name = "Student Supervisor"
         verbose_name_plural = "Student Supervisors"
-        constraints = [
-            models.PrimaryKeyConstraint(fields=['student_user', 'supervisor_user'], name='pk_student_supervisor')
-        ]
         indexes = [
             models.Index(fields=['student_user']),
             models.Index(fields=['supervisor_user']),
