@@ -1,9 +1,9 @@
 # CHAT MODELS
 
 from django.db import models
+from django.utils import timezone
 
 class MessageAttachments(models.Model):
-    attachment_id = models.BigIntegerField()
     message = models.ForeignKey('Messages',on_delete=models.CASCADE)
     attachment_filename = models.CharField(max_length=255)
 
@@ -26,7 +26,7 @@ class MessageAttachments(models.Model):
         ]
 
     def __str__(self):
-        return f"Attachment {self.attachment_id} for Message {self.message.message_id}"
+        return f"Attachment {self.id} for Message {self.message.id}"
 
 class Messages(models.Model):
     sender_user = models.ForeignKey('users.Users', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
@@ -38,8 +38,8 @@ class Messages(models.Model):
     # - *this is a consideration if we want to have historical messages*
     # for now I've left it as cascade to delete messages if group is deleted
     message_text = models.CharField(max_length=255)
-    sent_datetime = models.DateTimeField(default=models.functions.Now)
-    deleted_flag = models.BooleanField()
+    sent_datetime = models.DateTimeField(default=timezone.now)
+    deleted_flag = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'messages'
@@ -54,7 +54,7 @@ class Messages(models.Model):
             ),
             # Ensure deleted_flag is always either True or False
             models.CheckConstraint(
-                check=models.Q(deleted_flag__in=[True, False]),
+                condition=models.Q(deleted_flag__in=[True, False]),
                 name='deleted_flag_boolean'
             ),
         ]
