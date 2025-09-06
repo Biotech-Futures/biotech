@@ -2,11 +2,12 @@
 
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 class EventInvite(models.Model):
     event = models.ForeignKey('Events', on_delete=models.CASCADE)
     user = models.ForeignKey('users.Users', on_delete=models.CASCADE) # changed to CASCADE to maintain referential integrity
-    sent_datetime = models.DateTimeField(default=models.functions.Now)
+    sent_datetime = models.DateTimeField(default=timezone.now)
     attendance_status = models.BooleanField(default=False) # changed to default False to avoid null values
     rsvp_status = models.BooleanField(default=False) # changed to default False to avoid null values
 
