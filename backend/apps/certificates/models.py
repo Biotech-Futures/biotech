@@ -5,8 +5,8 @@ from django.db.models import Q
 
 class CertificateType(models.Model):
     certificate_type = models.CharField(unique=True, max_length=255)
-    requires_number = models.BooleanField()
-    requires_expiry = models.BooleanField()
+    requires_number = models.BooleanField(default=False)
+    requires_expiry = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'certificate_type'
@@ -42,7 +42,7 @@ class MentorCertificate(models.Model):
                 name='unique_certificate_per_mentor'
             ),
             models.CheckConstraint(
-                check=Q(expires_at__isnull=True) | Q(expires_at__gte=models.functions.Now()) | Q(verified=False),
+                condition=Q(expires_at__isnull=True) | Q(expires_at__gte=models.functions.Now()) | Q(verified=False),
                 name='cannot_verify_expired_certificate'
             ),
         ]
