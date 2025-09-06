@@ -10,7 +10,10 @@ class CertificateType(models.Model):
 
     class Meta:
         db_table = 'certificate_type'
-        indexes = models.Index(fields=['certificate_type'])
+        indexes = [
+            models.Index(fields=['certificate_type'])
+        ]
+        
     
     def __str__(self):
         return self.certificate_type
@@ -29,7 +32,9 @@ class MentorCertificate(models.Model):
         db_table = 'mentor_certificate'
         verbose_name = "Mentor Certificate"
         verbose_name_plural = "Mentor Certificates" # Just added some verbose names for better admin readability
-        indexes = models.Index(fields=['mentor_profile', 'certificate_type'])
+        indexes = [
+            models.Index(fields=['mentor_profile', 'certificate_type'])
+            ]
         constraints = [
             # Ensure a mentor cannot have duplicate certificates of the same type with the same number
             models.UniqueConstraint(

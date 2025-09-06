@@ -59,12 +59,8 @@ class GroupMembers(models.Model):
             models.UniqueConstraint(
                 fields=['group', 'user'],
                 name='unique_group_user'
-            ),
-            # Ensure a user can only be a member of an active (not deleted) group
-            models.CheckConstraint(
-                condition=Q(group__deleted_flag=False),
-                name='group_member_only_if_group_active'
-            ),
+            )
+            # TODO: implement some sort of constraint or check which only allows a user to be added to an active (not deleted) group
         ] # Composite unique constraint to ensure each user is unique per group, as composite keys aren't natively supported
         indexes = [
             models.Index(fields=['group']),

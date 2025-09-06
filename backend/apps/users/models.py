@@ -137,13 +137,7 @@ class StudentProfile(models.Model):
         models.CheckConstraint(
             condition=Q(has_join_permission=False) | Q(parent_guardian_flag=True),
             name='permission_requires_parent_guardian'
-        ),
-        # Ensure has_join_permission is True only if the associated user is active
-        models.CheckConstraint(
-            condition=Q(has_join_permission=False) | Q(user__is_active=True),
-            name='permission_requires_active_user'
-        ),
-        ]
+        )
 
     def __str__(self):
         return str(self.user)
@@ -151,7 +145,7 @@ class StudentProfile(models.Model):
 
 class StudentSupervisor(models.Model):
     student_user = models.ForeignKey(StudentProfile, on_delete=models.CASCADE)
-    supervisor_user = models.ForeignKey('SupervisorProfile', on_delete=models.SET_NULL) # made SET NULL to allow student-supervisor relationships to persist if a supervisor profile is deleted, but might need review if we want to delete the relationship instead
+    supervisor_user = models.ForeignKey('SupervisorProfile', on_delete=models.SET_NULL, null=True) # made SET NULL to allow student-supervisor relationships to persist if a supervisor profile is deleted, but might need review if we want to delete the relationship instead
     relationship_type = models.ForeignKey(RelationshipType, on_delete=models.PROTECT)
 
     class Meta:

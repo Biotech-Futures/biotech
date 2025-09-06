@@ -13,7 +13,7 @@ class ResourceRoles(models.Model):
             models.Index(fields=['role'])
         ]
         constraints = [
-            models.PrimaryKeyConstraint(fields=['resource', 'role'], name='pk_resource_role')
+            models.UniqueConstraint(fields=['resource', 'role'], name='pk_resource_role')
         ]
         verbose_name = "Resource Role"
         verbose_name_plural = "Resource Roles"
