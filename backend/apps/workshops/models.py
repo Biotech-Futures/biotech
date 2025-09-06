@@ -3,14 +3,14 @@
 from django.db import models
 
 class WorkshopAttendance(models.Model):
-    workshop = models.OneToOneField('Workshops', on_delete=models.CASCADE)
+    workshop = models.ForeignKey('Workshops', on_delete=models.CASCADE)
     user = models.ForeignKey('users.Users', on_delete=models.CASCADE)
     responded = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'workshop_attendance'
         constraints = [
-            models.PrimaryKeyConstraint(fields=['workshop', 'user'], name='pk_workshop_attendance')
+            models.UniqueConstraint(fields=['workshop', 'user'], name='pk_workshop_attendance')
         ]
         verbose_name = "Workshop Attendance"
         verbose_name_plural = "Workshop Attendances"
