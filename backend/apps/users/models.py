@@ -34,7 +34,7 @@ class Background(models.Model):
         verbose_name_plural = "Backgrounds"
 
     def __str__(self):
-        return self.background_desc
+        return self.background_desc_unique_field
 
 class MentorProfile(models.Model):
     user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete mentor profile if user is deleted
@@ -83,7 +83,7 @@ class StudentInterest(models.Model):
         verbose_name = "Student Interest"
         verbose_name_plural = "Student Interests"
         constraints = [
-            models.PrimaryKeyConstraint(fields=['interest', 'user'], name='pk_student_interest')
+            models.UniqueConstraint(fields=['interest', 'user'], name='pk_student_interest')
         ]
         indexes = [
             models.Index(fields=['user']),
@@ -138,15 +138,16 @@ class StudentProfile(models.Model):
             condition=Q(has_join_permission=False) | Q(parent_guardian_flag=True),
             name='permission_requires_parent_guardian'
         )
+        ]
 
     def __str__(self):
         return str(self.user)
 
 
 class StudentSupervisor(models.Model):
-    student_user = models.ForeignKey(StudentProfile, on_delete=models.CASCADE)
+    student_user = models.ForeignKey('StudentProfile', on_delete=models.CASCADE)
     supervisor_user = models.ForeignKey('SupervisorProfile', on_delete=models.SET_NULL, null=True) # made SET NULL to allow student-supervisor relationships to persist if a supervisor profile is deleted, but might need review if we want to delete the relationship instead
-    relationship_type = models.ForeignKey(RelationshipType, on_delete=models.PROTECT)
+    relationship_type = models.ForeignKey('RelationshipType', on_delete=models.PROTECT)
 
     class Meta:
         db_table = 'student_supervisor'
@@ -159,7 +160,7 @@ class StudentSupervisor(models.Model):
 
         constraints = [
             # Composite primary key on (student_user, supervisor_user)
-            models.PrimaryKeyConstraint(fields=['student_user', 'supervisor_user'], name='pk_student_supervisor'),
+            models.UniqueConstraint(fields=['student_user', 'supervisor_user'], name='pk_student_supervisor'),
             # Ensure relationship_type is not null
             models.CheckConstraint(condition=~Q(relationship_type=None), name='relationship_type_not_null'),
             # Ensure student_user is not null
