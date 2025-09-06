@@ -1,7 +1,8 @@
 # RESOURCES & ROLES MODELS
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, F
+from django.utils import timezone
 
 class ResourceRoles(models.Model):
     resource = models.ForeignKey('Resources', on_delete=models.CASCADE) # changed to regular FK, as one to one would force limit a resource to one role only
@@ -24,7 +25,7 @@ class ResourceRoles(models.Model):
 class Resources(models.Model):
     resource_name = models.CharField(max_length=255, blank=True, null=True)
     resource_description = models.CharField(max_length=255)
-    upload_datetime = models.DateTimeField(default=models.functions.Now)
+    upload_datetime = models.DateTimeField(default=timezone.now)
     uploader_user_id = models.IntegerField()
     deleted_flag = models.BooleanField(default=False)
     deleted_datetime = models.DateTimeField(blank=True, null=True)
@@ -60,13 +61,13 @@ class Resources(models.Model):
         ]
 
     def __str__(self):
-        return self.resource_name or f"Resource {self.resource_id}"
+        return self.resource_name or f"Resource {self.id}"
 
 class RoleAssignmentHistory(models.Model):
-    user = models.OneToOneField('users.Users', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if user is deleted
+    user = models.ForeignKey('users.Users', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if user is deleted
     role = models.ForeignKey('Roles', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if role is deleted
     valid_from = models.DateTimeField()
-    valid_to = models.DateTimeField()
+    valid_to = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'role_assignment_history'
@@ -88,7 +89,6 @@ class RoleAssignmentHistory(models.Model):
         return f"{self.user} as {self.role} from {self.valid_from} to {self.valid_to or 'present'}"
 
 class Roles(models.Model):
-    role_id = models.IntegerField(primary_key=True)
     role_name = models.CharField(unique=True, max_length=255)
 
     class Meta:
