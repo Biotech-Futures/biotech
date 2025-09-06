@@ -20,11 +20,13 @@ class Milestone(models.Model):
             models.Index(fields=['completed']),
             models.Index(fields=['deleted_flag']),
         ]
+        
+    def __str__(self):
+        return f"Milestone: {self.milestone_name} (Group: {self.group})"
 
 class TaskAssignees(models.Model):
     task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="assignments")
     user = models.ForeignKey('users.Users', on_delete=models.CASCADE, related_name="task_assignees")
-    pk = models.CompositePrimaryKey('task', 'user')
     assigned_datetime = models.DateTimeField(default=timezone.now)
     deleted_flag = models.BooleanField(default=False)
 
@@ -32,33 +34,36 @@ class TaskAssignees(models.Model):
         db_table = 'task_assignees'
         verbose_name = "Task Assignees"
     
-    indexes = [
-            # regular indexes
-            models.Index(fields=['task']),
-            models.Index(fields=['user']),
-            models.Index(fields=['assigned_datetime']),
+        indexes = [
+                # regular indexes
+                models.Index(fields=['task']),
+                models.Index(fields=['user']),
+                models.Index(fields=['assigned_datetime']),
 
-            # index by task active status
-            models.Index(
-                name='ta_active_by_task',
-                fields=['task'],
-                condition=Q(deleted_flag=False)
-            ),
+                # index by task active status
+                models.Index(
+                    name='ta_active_by_task',
+                    fields=['task'],
+                    condition=Q(deleted_flag=False)
+                ),
 
-            # index by user active status
-            models.Index(
-                name='ta_active_by_user',
-                fields=['user'],
-                condition=Q(deleted_flag=False)
-            ),
-        ]
+                # index by user active status
+                models.Index(
+                    name='ta_active_by_user',
+                    fields=['user'],
+                    condition=Q(deleted_flag=False)
+                ),
+            ]
     
-    constraints = [
-        models.UniqueConstraint(
-            fields=(['task', 'user']),
-            name="unique_task_user"
-        )
-    ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=(['task', 'user']),
+                name="unique_task_user"
+            )
+        ]
+
+    def __str__(self):
+        return f"TaskAssignee: {self.user} assigned to {self.task} at {self.assigned_datetime}"
 
 class Tasks(models.Model):
     task_name = models.CharField(max_length=255)
@@ -78,4 +83,6 @@ class Tasks(models.Model):
             # index for grouping by milestone
             models.Index(fields=['milestone'])
         ]
+    def __str__(self):
+        return f"Task: {self.task_name} (Due: {self.due_date})"
         
