@@ -25,6 +25,8 @@ class Sessions(models.Model):
             models.CheckConstraint(condition=Q(access_datetime__lte=Now()),
                                    name="access_not_in_future"),
         ]
+    def __str__(self):
+        return f"Session for {self.user} at {self.access_datetime}"
 
 class Alerts(models.Model):
     session = models.ForeignKey('Sessions', on_delete=models.CASCADE, related_name="alerts")
@@ -53,3 +55,5 @@ class Alerts(models.Model):
                 name='alert_reason_not_empty'
             ),
         ]
+    def __str__(self):
+        return f"Alert for {self.session} at {self.alert_timestamp}: {self.error_reason}"
