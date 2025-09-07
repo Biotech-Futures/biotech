@@ -24,7 +24,7 @@ class Groups(models.Model):
         constraints = [
             # Ensure deleted_flag is True if deleted_datetime is set
             models.CheckConstraint(
-                condition=(
+                check=(
                     (Q(deleted_flag=True)  & Q(deleted_datetime__isnull=False)) |
                     (Q(deleted_flag=False) & Q(deleted_datetime__isnull=True))
                 ),
@@ -37,17 +37,17 @@ class Groups(models.Model):
             ),
             # Ensure deleted_datetime is after creation_datetime if set
             models.CheckConstraint(
-                condition=Q(deleted_datetime__gte=F('creation_datetime')) | Q(deleted_datetime__isnull=True),
+                check=Q(deleted_datetime__gte=F('creation_datetime')) | Q(deleted_datetime__isnull=True),
                 name='deleted_after_creation'
             ),
             # Ensure group_name is not empty
             models.CheckConstraint(
-                condition=Length(Trim('group_name')) > 0,
+                check=Q(Trim('group_name') != ""),
                 name='group_name_not_empty'
             ),
             # Ensure creation_datetime is not in the future
             models.CheckConstraint(
-                condition=Q(creation_datetime__lte=models.functions.Now()),
+                check=Q(creation_datetime__lte=models.functions.Now()),
                 name='group_creation_not_future'
             ),  
         ]

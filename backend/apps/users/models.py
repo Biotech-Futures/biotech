@@ -2,6 +2,8 @@
 
 from django.db import models
 from django.db.models import Q, F
+from django.utils import timezone
+from datetime import timedelta
 
 class AdminProfile(models.Model):
     admin = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete admin profile if user is deleted
@@ -50,7 +52,7 @@ class MentorProfile(models.Model):
         constraints = [
             # Ensure max_grp_cnt is not negative
             models.CheckConstraint(
-                condition=Q(max_grp_cnt__gte=0),
+                check=Q(max_grp_cnt__gte=0),
                 name='mentor_max_grp_non_negative'
             ),
         ]
@@ -116,26 +118,26 @@ class StudentProfile(models.Model):
         constraints = [
         # Ensure first and last names are not empty
         models.CheckConstraint(
-            condition=~Q(pg_first_name=''),
+            check=~Q(pg_first_name=''),
             name='student_first_name_not_empty'
         ),
         models.CheckConstraint(
-            condition=~Q(pg_last_name=''),
+            check=~Q(pg_last_name=''),
             name='student_last_name_not_empty'
         ),
         # Ensure school_name is not empty
         models.CheckConstraint(
-            condition=~Q(school_name=''),
+            check=~Q(school_name=''),
             name='student_school_name_not_empty'
         ),
         # Ensure year level in expected range (9-12)
         models.CheckConstraint(
-            condition=Q(year_lvl__in=[str(i) for i in range(9, 13)]),
+            check=Q(year_lvl__in=[str(i) for i in range(9, 13)]),
             name='student_year_lvl_valid'
         ),
         # Ensure has_join_permission is True only if parent_guardian_flag is True
         models.CheckConstraint(
-            condition=Q(has_join_permission=False) | Q(parent_guardian_flag=True),
+            check=Q(has_join_permission=False) | Q(parent_guardian_flag=True),
             name='permission_requires_parent_guardian'
         )
         ]
@@ -162,11 +164,11 @@ class StudentSupervisor(models.Model):
             # Composite primary key on (student_user, supervisor_user)
             models.UniqueConstraint(fields=['student_user', 'supervisor_user'], name='pk_student_supervisor'),
             # Ensure relationship_type is not null
-            models.CheckConstraint(condition=~Q(relationship_type=None), name='relationship_type_not_null'),
+            models.CheckConstraint(check=~Q(relationship_type=None), name='relationship_type_not_null'),
             # Ensure student_user is not null
-            models.CheckConstraint(condition=~Q(student_user=None), name='student_user_not_null'),
+            models.CheckConstraint(check=~Q(student_user=None), name='student_user_not_null'),
             # Ensure supervisor_user is not null
-            models.CheckConstraint(condition=~Q(student_user=F('supervisor_user')), name='no_self_supervision'),
+            models.CheckConstraint(check=~Q(student_user=F('supervisor_user')), name='no_self_supervision'),
         ]
     
     def __str__(self):
@@ -206,3 +208,18 @@ class Users(models.Model):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
+    
+# to store OTP during the short expiry timeframe  
+class LoginCode(models.Model):
+    user = models.ForeignKey('users.Users', on_delete=models.CASCADE, related_name="login_codes")
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "login_codes"
+        indexes = [models.Index(fields=["user", "code"])]
+
+    def is_valid(self):
+        return not self.used and timezone.now() < self.expires_at

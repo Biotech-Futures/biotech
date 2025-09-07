@@ -44,14 +44,14 @@ class TaskAssignees(models.Model):
                 models.Index(
                     name='ta_active_by_task',
                     fields=['task'],
-                    condition=Q(deleted_flag=False)
+                    check=Q(deleted_flag=False)
                 ),
 
                 # index by user active status
                 models.Index(
                     name='ta_active_by_user',
                     fields=['user'],
-                    condition=Q(deleted_flag=False)
+                    check=Q(deleted_flag=False)
                 ),
             ]
     

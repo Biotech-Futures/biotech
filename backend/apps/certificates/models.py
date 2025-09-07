@@ -42,7 +42,7 @@ class MentorCertificate(models.Model):
                 name='unique_certificate_per_mentor'
             ),
             models.CheckConstraint(
-                condition=Q(expires_at__isnull=True) | Q(expires_at__gte=models.functions.Now()) | Q(verified=False),
+                check=Q(expires_at__isnull=True) | Q(expires_at__gte=models.functions.Now()) | Q(verified=False),
                 name='cannot_verify_expired_certificate'
             ),
         ]

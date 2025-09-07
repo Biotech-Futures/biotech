@@ -40,22 +40,22 @@ class Resources(models.Model):
         constraints = [
             # Ensure deleted_flag is always either True or False
             models.CheckConstraint(
-                condition=Q(deleted_datetime__isnull=True) | Q(deleted_flag=True),
+                check=Q(deleted_datetime__isnull=True) | Q(deleted_flag=True),
                 name='deleted_flag_true_if_deleted_datetime'
             ),
             # Ensure resource names are unique if provided
             models.CheckConstraint(
-                condition=Q(deleted_datetime__gte=F('upload_datetime')) | Q(deleted_datetime__isnull=True),
+                check=Q(deleted_datetime__gte=F('upload_datetime')) | Q(deleted_datetime__isnull=True),
                 name='deleted_after_upload'
             ),
             # Ensure resource_description is not empty
             models.CheckConstraint(
-                condition=~Q(resource_description=''),
+                check=~Q(resource_description=''),
                 name='resource_description_not_empty'
             ),
             # Ensure upload_datetime is not in the future
             models.CheckConstraint(
-                condition=Q(upload_datetime__lte=models.functions.Now()),
+                check=Q(upload_datetime__lte=models.functions.Now()),
                 name='resource_upload_not_future'
             ),
         ]
@@ -77,7 +77,7 @@ class RoleAssignmentHistory(models.Model):
             models.UniqueConstraint(fields=['user', 'role', 'valid_from'], name='unique_user_role_start'),
             # Ensure valid_to is after valid_from if valid_to is set
             models.CheckConstraint(
-                condition=Q(valid_to__gte=F('valid_from')),
+                check=Q(valid_to__gte=F('valid_from')),
                 name='valid_to_after_valid_from'
             ),
         ]
@@ -99,7 +99,7 @@ class Roles(models.Model):
         constraints = [
             # Ensure role names are unique and not empty
             models.CheckConstraint(
-                condition=~Q(role_name=''),
+                check=~Q(role_name=''),
                 name='role_name_not_empty'
             )
         ]

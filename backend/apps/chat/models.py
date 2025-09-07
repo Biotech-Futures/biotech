@@ -54,7 +54,7 @@ class Messages(models.Model):
             ),
             # Ensure deleted_flag is always either True or False
             models.CheckConstraint(
-                condition=models.Q(deleted_flag__in=[True, False]),
+                check=models.Q(deleted_flag__in=[True, False]),
                 name='deleted_flag_boolean'
             ),
         ]

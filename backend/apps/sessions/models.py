@@ -22,7 +22,7 @@ class Sessions(models.Model):
             # no same sessions
             models.UniqueConstraint(fields=["user", "access_datetime"], name="unique_user_session"),
             # check a session is not in future
-            models.CheckConstraint(condition=Q(access_datetime__lte=Now()),
+            models.CheckConstraint(check=Q(access_datetime__lte=Now()),
                                    name="access_not_in_future"),
         ]
     def __str__(self):
@@ -51,7 +51,7 @@ class Alerts(models.Model):
             ),
             # no empty reason for alert
             models.CheckConstraint(
-                condition=~Q(error_reason=''),
+                check=~Q(error_reason=''),
                 name='alert_reason_not_empty'
             ),
         ]
