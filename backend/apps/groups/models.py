@@ -41,8 +41,13 @@ class Groups(models.Model):
                 name='deleted_after_creation'
             ),
             # Ensure group_name is not empty
+            # models.CheckConstraint(
+            #     condition=Length(Trim('group_name')) > 0,
+            #     name='group_name_not_empty'
+            # ),
+            ##### Replaced the problematic constraint with:
             models.CheckConstraint(
-                condition=Length(Trim('group_name')) > 0,
+                check=~Q(group_name__regex=r'^\s*$'),
                 name='group_name_not_empty'
             ),
             # Ensure creation_datetime is not in the future
