@@ -1,29 +1,38 @@
 // Minimal Pinia auth store for router guard compatibility
 import { defineStore } from 'pinia'
+import { mockUsers } from '@/data/mock.js'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: null as null | { id: string; name: string; isAdmin?: boolean },
-    isAuthenticated: false
+    user: null as null | { id: string; name: string; email: string; role: string }
   }),
   getters: {
-    initials(state) {
-      if (!state.user || !state.user.name) return ''
-      return state.user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()
-    },
-    isAdmin(state) {
-      return !!(state.user && state.user.isAdmin)
-    }
+    isAuthenticated: (s) => !!s.user,
+    isAdmin: (s) => s.user?.role === 'admin',
+    initials: (s) =>
+      s.user ? s.user.name.split(' ').map(n => n[0]).join('').toUpperCase() : '—'
   },
   actions: {
-    hydrate() {
-      // Placeholder: load user from localStorage or API if needed
-      this.user = null
-      this.isAuthenticated = false
+    // Login by email (simulate magic link success)
+    loginByEmail(email: string) {
+      const u = mockUsers.find(
+        x => x.email.toLowerCase() === String(email || '').toLowerCase()
+      )
+      if (!u) {
+        throw new Error('No such user. Use one of mock emails (e.g. admin@btf.org).')
+      }
+      this.user = u
+      try { localStorage.setItem('auth.user', JSON.stringify(u)) } catch {}
     },
     logout() {
       this.user = null
-      this.isAuthenticated = false
+      try { localStorage.removeItem('auth.user') } catch {}
+    },
+    hydrate() {
+      try {
+        const raw = localStorage.getItem('auth.user')
+        if (raw) this.user = JSON.parse(raw)
+      } catch {}
     }
   }
 })

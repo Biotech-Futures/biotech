@@ -1,30 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import LoginPage from '../views/LoginPage.vue'
-import DashboardPage from '../views/DashboardPage.vue'
-import GroupDetailPage from '../views/GroupDetailPage.vue'
-import ResourcesPage from '../views/ResourcesPage.vue'
-import EventsPage from '../views/EventsPage.vue'
-import ProfilePage from '../views/ProfilePage.vue'
-import AdminPage from '../views/AdminPage.vue'
-import AnnouncementsPage from '../views/AnnouncementsPage.vue'
+import routes from './routes'
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: [
-    { path: '/', redirect: '/login' },
-    { path: '/login', component: LoginPage },
-    { path: '/dashboard', component: DashboardPage },
-    { path: '/groups', component: DashboardPage },
-    { path: '/groups/:id', component: GroupDetailPage },
-    { path: '/resources', component: ResourcesPage },
-    { path: '/resources/:id', component: ResourcesPage },
-    { path: '/events', component: EventsPage },
-    { path: '/profile', component: ProfilePage },
-    { path: '/admin', component: AdminPage },
-    { path: '/announcements', component: AnnouncementsPage },
-    { path: '/contact', component: () => import('../views/ContactPage.vue') },
-    { path: '/:pathMatch(.*)*', redirect: '/login' }
-  ]
+  routes
 })
 
 // Auth guard
