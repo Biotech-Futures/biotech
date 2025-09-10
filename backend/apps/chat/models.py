@@ -5,6 +5,7 @@ from django.utils import timezone
 
 class MessageAttachments(models.Model):
     message = models.ForeignKey('Messages',on_delete=models.CASCADE)
+    attachment_id = models.CharField(max_length=255, unique=True)  # Add this line
     attachment_filename = models.CharField(max_length=255)
 
     class Meta:

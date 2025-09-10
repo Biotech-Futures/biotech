@@ -26,7 +26,7 @@ class Resources(models.Model):
     resource_name = models.CharField(max_length=255, blank=True, null=True)
     resource_description = models.CharField(max_length=255)
     upload_datetime = models.DateTimeField(default=timezone.now)
-    uploader_user_id = models.IntegerField()
+    uploader_user_id = models.ForeignKey('users.Users', on_delete=models.PROTECT)
     deleted_flag = models.BooleanField(default=False)
     deleted_datetime = models.DateTimeField(blank=True, null=True)
 

@@ -43,6 +43,11 @@ INSTALLED_APPS = [
     'apps.chat',
     'apps.resources',
     'apps.integrations',
+    'apps.events',
+    'apps.user_sessions',
+    'apps.tasks',
+    'apps.workshops',
+    'apps.certificates',
     'drf_spectacular'
 ]
 
