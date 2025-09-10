@@ -1,10 +1,10 @@
 // Minimal Pinia auth store for router guard compatibility
 import { defineStore } from 'pinia'
-import { mockUsers } from '@/data/mock.js'
+import { type MockUser, mockUsers } from '../data/mock'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    user: null as null | { id: string; name: string; email: string; role: string }
+    user: null as MockUser | null
   }),
   getters: {
     isAuthenticated: (s) => !!s.user,
@@ -13,7 +13,7 @@ export const useAuthStore = defineStore('auth', {
       s.user ? s.user.name.split(' ').map(n => n[0]).join('').toUpperCase() : '—'
   },
   actions: {
-    // Login by email (simulate magic link success)
+    // Login by email (mock magic link)
     loginByEmail(email: string) {
       const u = mockUsers.find(
         x => x.email.toLowerCase() === String(email || '').toLowerCase()
