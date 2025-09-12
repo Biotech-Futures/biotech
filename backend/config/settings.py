@@ -48,7 +48,9 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
-    'drf_spectacular'
+    'drf_spectacular',
+    'rest_framework',
+    'django_filters',
 ]
 
 REST_FRAMEWORK = {
