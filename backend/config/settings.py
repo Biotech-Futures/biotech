@@ -121,7 +121,7 @@ DATABASES = {
         "OPTIONS": {"sslmode": "require",
                     "connect_timeout": 5,
                     },
-            "CONN_MAX_AGE": 0,
+            "CONN_MAX_AGE": 0
 
     }
 }
