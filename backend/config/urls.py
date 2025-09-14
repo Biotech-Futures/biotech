@@ -23,5 +23,6 @@ urlpatterns = [
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
     path("resources/", include("apps.resources.urls")),
-    path("integrations/", include("apps.integrations.urls"))
+    path("integrations/", include("apps.integrations.urls")),
+    path('api-auth/', include('rest_framework.urls')), # for browsable API login
 ]

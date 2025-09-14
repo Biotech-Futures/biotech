@@ -48,7 +48,13 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
-    'drf_spectacular'
+    # third-party apps
+    'drf_spectacular',
+    'rest_framework',
+    'django_filters',
+    'drf_spectacular_sidecar',
+    'corsheaders',
+    'channels',
 ]
 
 AUTH_USER_MODEL = 'users.User'
@@ -117,7 +123,7 @@ DATABASES = {
         "OPTIONS": {"sslmode": "require",
                     "connect_timeout": 5,
                     },
-            "CONN_MAX_AGE": 0,
+            "CONN_MAX_AGE": 0
 
     }
 }
