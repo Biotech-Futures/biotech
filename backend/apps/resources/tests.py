@@ -1,10 +1,12 @@
 from django.test import TestCase
 
-from datetime import date
+from datetime import date, datetime
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
+from django.apps import apps as dj_apps
 
 from .models import Roles, RoleAssignmentHistory
 
@@ -42,28 +44,72 @@ class RolesApiTests(TestCase):
 class RoleAssignmentsApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        User = get_user_model()
 
-        self.me = User.objects.create_user(username="me@example.com", password="pw12345")
+        # Auth user (whatever your AUTH_USER_MODEL is)
+        AuthUser = get_user_model()
+        self.me = AuthUser.objects.create_user(username="me", password="pw12345")
         self.client.force_authenticate(self.me)
 
-        self.u1 = User.objects.create_user(username="u1@example.com", password="pw")
-        self.u2 = User.objects.create_user(username="u2@example.com", password="pw")
+        # Assignment users must be from your custom users app
+        # Users = dj_apps.get_model('users', 'Users')
+        # try:
+        #     self.u1 = Users.objects.create_user(username="u1", email="u1@example.com", password="pw")
+        #     self.u2 = Users.objects.create_user(username="u2", email="u2@example.com", password="pw")
+        # except TypeError:
+        #     try:
+        #         self.u1 = Users.objects.create_user(email="u1@example.com", password="pw")
+        #         self.u2 = Users.objects.create_user(email="u2@example.com", password="pw")
+        #     except Exception:
+        #         self.u1 = Users.objects.create(email="u1@example.com", username="u1")
+        #         self.u2 = Users.objects.create(email="u2@example.com", username="u2")
+        Users = dj_apps.get_model('users', 'Users')
+        Countries = dj_apps.get_model('groups', 'Countries')
+        CountryStates = dj_apps.get_model('groups', 'CountryStates')
+        Tracks = dj_apps.get_model('groups', 'Tracks')
+
+        # Step 1: Minimal chain to satisfy FKs
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="Data Science", state=state)
 
         self.r_admin = Roles.objects.create(role_name="admin")
-        self.r_view = Roles.objects.create(role_name="viewer")
+        self.r_view  = Roles.objects.create(role_name="viewer")
 
-        # Windows: [from, to] where to=None means "still active"
-        # u1 has two assignments with a gapless split across the year
+        # Step 2: Create Users with required fields
+        self.u1 = Users.objects.create(
+            first_name="Alice",
+            last_name="Tester",
+            email="u1@example.com",
+            track=track,
+            state=state,
+        )
+
+        self.u2 = Users.objects.create(
+            first_name="Bob",
+            last_name="Tester",
+            email="u2@example.com",
+            track=track,
+            state=state,
+        )
+
+        # Step 3: Create role assignment history (with timezone-aware datetimes)
         self.a1 = RoleAssignmentHistory.objects.create(
-            user=self.u1, role=self.r_admin, valid_from=date(2025, 1, 1), valid_to=date(2025, 6, 30)
+            user=self.u1,
+            role=self.r_admin,
+            valid_from=timezone.make_aware(datetime(2025, 1, 1)),
+            valid_to=timezone.make_aware(datetime(2025, 6, 30)),
         )
         self.a2 = RoleAssignmentHistory.objects.create(
-            user=self.u1, role=self.r_view, valid_from=date(2025, 7, 1), valid_to=None
+            user=self.u1,
+            role=self.r_view,
+            valid_from=timezone.make_aware(datetime(2025, 7, 1)),
+            valid_to=None,
         )
-        # u2 unrelated
         self.a3 = RoleAssignmentHistory.objects.create(
-            user=self.u2, role=self.r_view, valid_from=date(2025, 3, 1), valid_to=date(2025, 3, 31)
+            user=self.u2,
+            role=self.r_view,
+            valid_from=timezone.make_aware(datetime(2025, 3, 1)),
+            valid_to=timezone.make_aware(datetime(2025, 3, 31)),
         )
 
     def _get(self, **params):

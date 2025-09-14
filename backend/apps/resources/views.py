@@ -1,15 +1,17 @@
 from django.shortcuts import render
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
-from .models import Roles
+from .models import Roles, RoleAssignmentHistory
 from .serializers import RoleSerializer, RoleAssignmentHistorySerializer
 
 from django.db.models import Q
+from datetime import datetime
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import permissions
 
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Roles.objects.all()
+    queryset = Roles.objects.all().order_by('role_name')
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated]
     ordering = ['role_name']
@@ -36,6 +38,13 @@ class RoleAssignmentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
         v_from = parse_date(v_from_s) if v_from_s else None
         v_to   = parse_date(v_to_s) if v_to_s else None
+
+        # Date conversion to make aware datetime
+        if v_from:
+            v_from = timezone.make_aware(datetime.combine(v_from, datetime.min.time()))
+
+        if v_to:
+            v_to = timezone.make_aware(datetime.combine(v_to, datetime.min.time()))
 
         if v_from and not v_to: # only valid_from provided: keep rows that have not ended before v_from
             qs = qs.filter(Q(valid_to__isnull=True) | Q(valid_to__gte=v_from))
