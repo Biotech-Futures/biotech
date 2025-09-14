@@ -1,10 +1,10 @@
 from rest_framework import serializers
 from .models import RoleAssignmentHistory, Roles
-from apps.users.models import Users
+from apps.users.models import User
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Users
+        model = User
         fields = ['id', 'first_name', 'last_name', 'email']
 
 class RoleSerializer(serializers.ModelSerializer):

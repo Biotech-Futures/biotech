@@ -1,10 +1,11 @@
 # USER MODELS
-
+from django.conf import settings
 from django.db import models
 from django.db.models import Q, F
+from django.contrib.auth.models import AbstractUser, BaseUserManager
 
 class AdminProfile(models.Model):
-    admin = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete admin profile if user is deleted
+    admin = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete admin profile if user is deleted
 
     class Meta:
         db_table = 'admin_profile'
@@ -37,7 +38,7 @@ class Background(models.Model):
         return self.background_desc_unique_field
 
 class MentorProfile(models.Model):
-    user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete mentor profile if user is deleted
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete mentor profile if user is deleted
     background = models.ForeignKey(Background, on_delete=models.PROTECT)
     institution = models.CharField(db_column='Institution', max_length=255)  # Field name made lowercase.
     mentor_reason = models.CharField(max_length=255)
@@ -76,7 +77,7 @@ class RelationshipType(models.Model):
 
 class StudentInterest(models.Model):
     interest = models.ForeignKey(AreasOfInterest, on_delete=models.CASCADE) # changed to cascade, might need review but i think it reflects what should happen, like if an interest category is deleted it will follow through here
-    user = models.ForeignKey('users.Users', on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
     class Meta:
         db_table = 'student_interest'
@@ -95,7 +96,7 @@ class StudentInterest(models.Model):
 
 
 class StudentProfile(models.Model):
-    user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     pg_first_name = models.CharField(max_length=255)
     pg_last_name = models.CharField(max_length=255)
     parent_guardian_flag = models.BooleanField(default=False) 
@@ -165,8 +166,8 @@ class StudentSupervisor(models.Model):
             models.CheckConstraint(condition=~Q(relationship_type=None), name='relationship_type_not_null'),
             # Ensure student_user is not null
             models.CheckConstraint(condition=~Q(student_user=None), name='student_user_not_null'),
-            # Ensure supervisor_user is not null
-            models.CheckConstraint(condition=~Q(student_user=F('supervisor_user')), name='no_self_supervision'),
+            # Ensure supervisor_user is not null - UPDATE: allows supervisor_user to be null or if not null, that they are not the same
+            models.CheckConstraint(condition=Q(supervisor_user__isnull=True) | ~Q(student_user=F('supervisor_user')), name='no_self_supervision'),
         ]
     
     def __str__(self):
@@ -174,7 +175,7 @@ class StudentSupervisor(models.Model):
 
 
 class SupervisorProfile(models.Model):
-    user = models.OneToOneField('users.Users', on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete supervisor profile if user is deleted, but might need review if we want to keep the profile for record purposes
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True) # Changed to CASCADE to delete supervisor profile if user is deleted, but might need review if we want to keep the profile for record purposes
     school_name = models.CharField(max_length=255)
 
     class Meta:
@@ -184,25 +185,87 @@ class SupervisorProfile(models.Model):
 
     def __str__(self):
         return str(self.user)
+    
+
+# ---- AUTH USER ---- #
+
+class UserManager(BaseUserManager):
+    use_in_migrations = True
+    
+    def create_user(self, *, email: str, password: str = None, **extra):
+        if not email:
+            raise ValueError("Email is required")
+        email = self.normalize_email(email).lower()
+        user = self.model(
+            email=email,
+            **extra # for is_superuser etc
+        )
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
+        user.save(using=self._db)
+        return user
+    
+    def create_superuser(self, email, password, **extra):
+        if not password:
+            raise ValueError("Superusers must have a password")
+        extra.setdefault("first_name", "")
+        extra.setdefault("last_name", "")
+        extra.setdefault("is_staff", True)
+        extra.setdefault("is_superuser", True)
+        return self.create_user(email=email, password=password, **extra)
 
 
 
-class Users(models.Model):
-    first_name = models.CharField(max_length=255)
-    last_name = models.CharField(max_length=255)
-    email = models.CharField(max_length=255, unique=True)
+class User(AbstractUser):
+    username = None
+    email = models.EmailField(unique=True)
+    # note first_name and last_name come pre-built in AbstractUser
+    first_name = models.CharField(max_length=255, blank=False)
+    last_name  = models.CharField(max_length=255, blank=False)
+    track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT,
+                              null=True, blank=True, related_name='users')
+    state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT,
+                              null=True, blank=True, related_name='users')
     status = models.BooleanField(default=False)
-    track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT)
-    state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT)
+    # is_staff is already defined in AbstractUser
+    # is_staff   = models.BooleanField(default=False)
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ["first_name", "last_name"]
+
+    objects = UserManager()
 
     class Meta:
-        db_table = 'users'
+        db_table = "users"
         verbose_name = "User"
         verbose_name_plural = "Users"
         indexes = [
-            models.Index(fields=['track']),
-            models.Index(fields=['state']),
+            models.Index(fields=["track"]),
+            models.Index(fields=["state"]),
         ]
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name}"
+        name = f"{self.first_name} {self.last_name}".strip()
+        return name or self.email
+
+# class Users(models.Model):
+#     first_name = models.CharField(max_length=255)
+#     last_name = models.CharField(max_length=255)
+#     email = models.CharField(max_length=255, unique=True)
+#     status = models.BooleanField(default=False)
+#     track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT)
+#     state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT)
+
+#     class Meta:
+#         db_table = 'users'
+#         verbose_name = "User"
+#         verbose_name_plural = "Users"
+#         indexes = [
+#             models.Index(fields=['track']),
+#             models.Index(fields=['state']),
+#         ]
+
+#     def __str__(self):
+#         return f"{self.first_name} {self.last_name}"
