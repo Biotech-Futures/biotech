@@ -1,5 +1,5 @@
 # TASKS MODELS
-
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from django.db.models import Q
@@ -26,7 +26,7 @@ class Milestone(models.Model):
 
 class TaskAssignees(models.Model):
     task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="assignments")
-    user = models.ForeignKey('users.Users', on_delete=models.CASCADE, related_name="task_assignees")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_assignees")
     assigned_datetime = models.DateTimeField(default=timezone.now)
     deleted_flag = models.BooleanField(default=False)
 

@@ -1,8 +1,7 @@
 # GROUPS MODELS
-
+from django.conf import settings
 from django.db import models
 from django.db.models import Q, F
-from django.db.models.functions import Trim, Length
 from django.utils import timezone
 
 class Groups(models.Model):
@@ -62,7 +61,7 @@ class Groups(models.Model):
 
 class GroupMembers(models.Model):
     group = models.ForeignKey('Groups', models.CASCADE) # thinking cascade since if a group is deleted, members should be removed from that group
-    user = models.ForeignKey('users.Users', models.CASCADE) # Cascade to remove user from group if user is deleted
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, models.CASCADE) # Cascade to remove user from group if user is deleted
     class Meta:
         db_table = 'group_members'
         constraints = [

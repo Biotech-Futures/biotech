@@ -1,5 +1,5 @@
 # CHAT MODELS
-
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -30,7 +30,7 @@ class MessageAttachments(models.Model):
         return f"Attachment {self.id} for Message {self.message.id}"
 
 class Messages(models.Model):
-    sender_user = models.ForeignKey('users.Users', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
+    sender_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT) # Protect to prevent deletion if referenced by messages
     group = models.ForeignKey('groups.Groups', on_delete=models.CASCADE)
     # group = models.ForeignKey(
     #     'groups.Groups', on_delete=models.SET_NULL, null=True, blank=True
