@@ -22,7 +22,8 @@ urlpatterns = [
     path("users/", include("apps.users.urls")),
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
-    path("resources/", include("apps.resources.urls")),
+    path("resources/", include("apps.resources.urls")), 
+    # Archie: Hey team, to fit to issue 58's endpoint link requirement, should I change this to path("api/v1/", include("apps.resources.urls")),
     path("integrations/", include("apps.integrations.urls")),
     path('api-auth/', include('rest_framework.urls')), # for browsable API login
 ]
