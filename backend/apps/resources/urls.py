@@ -1,11 +1,8 @@
-from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import RoleViewSet, RoleAssignmentHistoryViewSet
 
 router = DefaultRouter()
-router.register('roles', views.RoleViewSet)
+router.register(r"roles", RoleViewSet, basename="roles")
+router.register(r"role-assignments", RoleAssignmentHistoryViewSet, basename="role-assignments")
 
-urlpatterns = [
-    path('api/v1/', include(router.urls)),
-    
-]
+urlpatterns = router.urls
