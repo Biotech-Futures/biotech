@@ -1,5 +1,6 @@
 # RESOURCES & ROLES MODELS
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q, F
 from django.utils import timezone
@@ -26,7 +27,7 @@ class Resources(models.Model):
     resource_name = models.CharField(max_length=255, blank=True, null=True)
     resource_description = models.CharField(max_length=255)
     upload_datetime = models.DateTimeField(default=timezone.now)
-    uploader_user_id = models.ForeignKey('users.Users', on_delete=models.PROTECT)
+    uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     deleted_flag = models.BooleanField(default=False)
     deleted_datetime = models.DateTimeField(blank=True, null=True)
 
@@ -64,7 +65,7 @@ class Resources(models.Model):
         return self.resource_name or f"Resource {self.id}"
 
 class RoleAssignmentHistory(models.Model):
-    user = models.ForeignKey('users.Users', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if user is deleted
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if user is deleted
     role = models.ForeignKey('Roles', on_delete=models.SET_NULL, null=True) # Set null to allow history to persist if role is deleted
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField(blank=True, null=True)
