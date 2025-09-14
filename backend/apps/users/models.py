@@ -222,8 +222,8 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True)
     # note first_name and last_name come pre-built in AbstractUser
-    # first_name = models.CharField(max_length=255, blank=True)
-    # last_name  = models.CharField(max_length=255, blank=True)
+    first_name = models.CharField(max_length=255, blank=False)
+    last_name  = models.CharField(max_length=255, blank=False)
     track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT,
                               null=True, blank=True, related_name='users')
     state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT,
