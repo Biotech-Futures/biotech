@@ -2,7 +2,7 @@ from django.shortcuts import render
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from .models import Roles
-from .serializers import RoleSerializer
+from .serializers import RoleSerializer, RoleAssignmentHistorySerializer
 
 from django.db.models import Q
 from django.utils.dateparse import parse_date
