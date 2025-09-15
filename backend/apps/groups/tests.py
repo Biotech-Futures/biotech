@@ -139,3 +139,62 @@ class GroupMemberApiTests(TestCase):
         self.client.logout()
         response = self.client.get(self.by_group_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+class TrackApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = get_user_model().objects.create_user(
+            email="admin@test.com", password="adminpass", is_staff=True
+        )
+        self.normal_user = get_user_model().objects.create_user(
+            email="user@test.com", password="userpass", is_staff=False
+        )
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="Track 1", state=self.state)
+        self.list_url = reverse("tracks-list")
+        self.detail_url = reverse("tracks-detail", args=[self.track.id])
+
+    def test_list_tracks_authenticated(self):
+        self.client.force_authenticate(user=self.normal_user)
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_list_tracks_unauthenticated(self):
+        self.client.logout()
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_retrieve_track_authenticated(self):
+        self.client.force_authenticate(user=self.normal_user)
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_track_unauthenticated(self):
+        self.client.logout()
+        response = self.client.get(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_track_admin_only(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.post(
+            self.list_url,
+            {"track_name": "Track 2", "state": self.state.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_track_non_admin_forbidden(self):
+        self.client.force_authenticate(user=self.normal_user)
+        response = self.client.post(
+            self.list_url,
+            {"track_name": "Track 2", "state": self.state.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_track_unauthenticated_forbidden(self):
+        self.client.logout()
+        response = self.client.post(
+            self.list_url,
+            {"track_name": "Track 2", "state": self.state.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
