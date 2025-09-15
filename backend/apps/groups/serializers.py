@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Countries, GroupMembers
+from .models import Countries, GroupMembers, Tracks
 
 class CountrySerializer(serializers.ModelSerializer):
   class Meta:
@@ -10,3 +10,8 @@ class GroupMemberSerializer(serializers.ModelSerializer):
   class Meta:
     model = GroupMembers
     fields = ['id', 'group', 'user']
+
+class TrackSerializer(serializers.ModelSerializer):
+  class Meta:
+    model = Tracks
+    fields = ['id', 'track_name', 'state']
