@@ -46,3 +46,31 @@ class UserListHTMLView(generics.ListAPIView):
         if email_param is not None:
             queryset = queryset.filter(email=email_param)
         return queryset
+    
+#issue 43
+class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    queryset = User.objects.select_related("track","state")
+    permission_classes = [permissions.AllowAny]
+    renderer_classes = [TemplateHTMLRenderer]
+    template_name = "users/details.html"
+
+    def get_serializer_class(self):
+        return UserSerializer
+
+    
+    def patch(self, request, *args, **kwargs):
+        user = self.get_object()
+        data=request.data
+        if "status" in data:
+            user.status = data["status"]
+            user.save(update_fields=["status"])
+
+        if "role_id" in data:
+            role = get_object_or_404(Roles, pk=data["role_id"])
+            now = timezone.now()
+
+            with transaction.atomic():
+                # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
+                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=104))
+
+        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
