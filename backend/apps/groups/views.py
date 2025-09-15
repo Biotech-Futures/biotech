@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from rest_framework import viewsets
+from rest_framework import viewsets, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
@@ -38,7 +38,7 @@ class TrackViewSet(viewsets.ModelViewSet):
     queryset = Tracks.objects.all()
     serializer_class = TrackSerializer
     http_method_names = ['get', 'post', 'put', 'patch'] # disable delete 
-    filter_backends = [viewsets.filters.OrderingFilter, viewsets.filters.SearchFilter]
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['track_name', 'id']
     search_fields = ['track_name']
 
