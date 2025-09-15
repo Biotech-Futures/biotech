@@ -3,7 +3,8 @@
 To keep our collaboration structured and consistent, please follow these guidelines:
 
 1. **Branching**
-   - Each workflow (Workstream 1, 2, 3) should have **one dedicated branch**.  
+   - Each workflow (Workstream 1, 2, 3, etc.) should have **one dedicated branch**.  
+   - Name the branch clearly (e.g., `workstream-1`, `workstream-2`).
 
 2. **Development**
    - All work for that workflow should be committed to its branch.
@@ -17,8 +18,7 @@ To keep our collaboration structured and consistent, please follow these guideli
 4. **Main Branch**
    - The `main` branch should always remain **stable** and **deployment-ready**.
    - Direct commits to `main` are **not allowed**.
-  
-5. **.gitignore**
-   - Add rules to exclude compiled object files (e.g., `*.o`, `*.obj`) so they are not tracked in the repo.  
-   - Add rules to exclude poll-related files or directories (e.g., `poll/` or `*.poll`).  
-   - Ensure the `.gitignore` is committed so everyone follows the same rules.
+
+
+
+
