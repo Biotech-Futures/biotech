@@ -48,10 +48,11 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
+    'apps.services', #remove if buggy. 
     # third-party apps
     'drf_spectacular',
     'rest_framework',
-    'django_filters',
+    # 'django_filters',  # temporarily disabled
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
@@ -118,19 +119,13 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "appdb",
-        "USER": "kosin",
-        "PASSWORD": "t3$t1NG_postgresql_DB!",
-        "HOST": 'azure-postgresql-db-trial.postgres.database.azure.com',
+        "NAME": "biotech_db",
+        "USER": "postgres",
+        "PASSWORD": "zackzzzzzo3z",
+        "HOST": "localhost",
         "PORT": "5432",
-        "OPTIONS": {"sslmode": "require",
-                    "connect_timeout": 5,
-                    },
-            "CONN_MAX_AGE": 0
-
     }
 }
-
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
@@ -161,6 +156,14 @@ USE_I18N = True
 
 USE_TZ = True
 
+# Email configuration for development
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
+EMAIL_PORT = 2525
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
+EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
@@ -171,3 +174,7 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+#OTP things
+MAILTRAP_TOKEN = "94f919803239d1ca9274ca682a670eaa"

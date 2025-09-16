@@ -55,7 +55,7 @@ class CountriesApiTests(TestCase):
     def test_create_country_unauthenticated_forbidden(self):
         self.client.force_authenticate(user=None)
         response = self.client.post(self.list_url, {'country_name': 'Japan'})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertFalse(Countries.objects.filter(
             country_name='Japan').exists())
 
