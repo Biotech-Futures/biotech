@@ -32,12 +32,11 @@ class RolesApiTests(TestCase):
 
     def test_roles_list_ok_and_ordered(self):
         self.client.force_authenticate(self.me)
-        url = reverse("roles-list")  # -> /resources/roles/ with your current config
+        url = reverse("roles-list")  
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
         self.assertEqual(len(data), 2)
-        # Should be ordered by role_name per view
         self.assertEqual([r["role_name"] for r in data], ["admin", "viewer"])
 
 
