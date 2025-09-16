@@ -1,20 +1,58 @@
-from django.shortcuts import render
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
+# from django.shortcuts import render
+# from rest_framework import viewsets
+# from rest_framework.permissions import IsAuthenticated
+# from .models import Roles, RoleAssignmentHistory
+# from .serializers import RoleSerializer, RoleAssignmentHistorySerializer
+
+# from django.db.models import Q
+# from datetime import datetime
+# from django.utils import timezone
+# from django.utils.dateparse import parse_date
+# from rest_framework import permissions
+
+# class RoleViewSet(viewsets.ReadOnlyModelViewSet):
+#     queryset = Roles.objects.all().order_by('role_name')
+#     serializer_class = RoleSerializer
+#     permission_classes = [IsAuthenticated]
+#     ordering = ['role_name']
+#     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+#     def get_permissions(self):
+#         if self.request.method in ("POST", "PATCH", "DELETE"):
+#             return [IsAdminUser()]
+#         return [IsAuthenticated()]
+
+from rest_framework import mixins, viewsets, permissions
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .models import Roles, RoleAssignmentHistory
 from .serializers import RoleSerializer, RoleAssignmentHistorySerializer
-
 from django.db.models import Q
-from datetime import datetime
-from django.utils import timezone
 from django.utils.dateparse import parse_date
-from rest_framework import permissions
+from django.utils import timezone
+from datetime import datetime
 
-class RoleViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Roles.objects.all().order_by('role_name')
+class RoleViewSet(mixins.ListModelMixin,
+                  mixins.RetrieveModelMixin,
+                  mixins.CreateModelMixin,
+                  mixins.UpdateModelMixin,
+                  mixins.DestroyModelMixin,
+                  viewsets.GenericViewSet):
+    """
+    GET    /.../roles/           (list)
+    GET    /.../roles/{id}/      (retrieve)
+    POST   /.../roles/           (create)
+    PATCH  /.../roles/{id}/      (partial update)
+    DELETE /.../roles/{id}/      (destroy)
+    """
+    queryset = Roles.objects.all().order_by("role_name")
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated]
-    ordering = ['role_name']
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if self.request.method in ("POST", "PATCH", "DELETE"):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
 
 class RoleAssignmentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = RoleAssignmentHistorySerializer

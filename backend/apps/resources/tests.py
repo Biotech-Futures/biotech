@@ -171,3 +171,38 @@ class RoleAssignmentsApiTests(TestCase):
             return (user_id, role_id, row["valid_from"])
         keys = [key(r) for r in data]
         self.assertEqual(keys, sorted(keys))
+
+class RoleManagementApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        # Reader (not staff)
+        self.user = get_user_model().objects.create_user(password="pw12345", email = "test_email@gmail.com")
+        # Admin
+        self.admin = get_user_model().objects.create_user(password="pw123456", email = "admin_test_email@gmail.com", is_staff = True)
+
+    def test_create_requires_admin(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(reverse("roles-list"), {"role_name": "Editor"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_update_delete_happy_path(self):
+        self.client.force_authenticate(self.admin)
+
+        # create
+        r = self.client.post(reverse("roles-list"), {"role_name": "Editor"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        rid = r.json()["id"]
+
+        # patch (partial)
+        r = self.client.patch(reverse("roles-detail", args=[rid]), {"role_name": "EditorPlus"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.json()["role_name"], "EditorPlus")
+
+        # uniqueness (case-insensitive)
+        self.client.post(reverse("roles-list"), {"role_name": "Viewer"}, format="json")
+        r = self.client.patch(reverse("roles-detail", args=[rid]), {"role_name": "viewer"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # delete
+        r = self.client.delete(reverse("roles-detail", args=[rid]))
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
