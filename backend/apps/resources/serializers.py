@@ -12,6 +12,17 @@ class RoleSerializer(serializers.ModelSerializer):
         model = Roles
         fields = ['id', 'role_name']
 
+    def validate_role_name(self, value: str) -> str:
+        name = (value or "").strip()
+        if not name:
+            raise serializers.ValidationError("role_name cannot be blank.")
+        qs = Roles.objects.filter(role_name__iexact=name)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A role with this name already exists.")
+        return name
+
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
