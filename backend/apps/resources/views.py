@@ -54,9 +54,14 @@ class RoleViewSet(mixins.ListModelMixin,
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
-class RoleAssignmentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
+                                  viewsets.ReadOnlyModelViewSet):
     serializer_class = RoleAssignmentHistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in ("PATCH",):
+            return [permissions.IsAdminUser()]
+        return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
         qs = (RoleAssignmentHistory.objects
@@ -74,26 +79,32 @@ class RoleAssignmentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
         if role_id:
             qs = qs.filter(role_id=role_id)
 
+        # Aware filter window (prevents naive datetime warnings)
         v_from = parse_date(v_from_s) if v_from_s else None
         v_to   = parse_date(v_to_s) if v_to_s else None
-
-        # Date conversion to make aware datetime
         if v_from:
             v_from = timezone.make_aware(datetime.combine(v_from, datetime.min.time()))
-
         if v_to:
             v_to = timezone.make_aware(datetime.combine(v_to, datetime.min.time()))
 
-        if v_from and not v_to: # only valid_from provided: keep rows that have not ended before v_from
+        if v_from and not v_to:
             qs = qs.filter(Q(valid_to__isnull=True) | Q(valid_to__gte=v_from))
-
-        if v_to and not v_from: # only valid_to provided: keep rows that started on/before v_to
+        if v_to and not v_from:
             qs = qs.filter(valid_from__lte=v_to)
-
-        if v_from and v_to: # both provided: interval overlap with [v_from, v_to]
+        if v_from and v_to:
             qs = qs.filter(
                 Q(valid_to__isnull=True) | Q(valid_to__gte=v_from),
                 Q(valid_from__lte=v_to),
             )
 
         return qs.order_by("user_id", "role_id", "valid_from")
+
+    # Optional: prevent edits to closed (historical) rows
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.valid_to and instance.valid_to < timezone.now():
+            return Response(
+                {"detail": "Cannot modify a closed assignment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().partial_update(request, *args, **kwargs)
