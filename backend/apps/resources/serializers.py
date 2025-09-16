@@ -1,6 +1,10 @@
 from rest_framework import serializers
 from .models import RoleAssignmentHistory, Roles
 from apps.users.models import User
+from datetime import datetime, time, date
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -24,21 +28,59 @@ class RoleSerializer(serializers.ModelSerializer):
         return name
 
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
+    # Keep nested read-only shape for GETs:
     user = UserSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
+
+    # Accept role updates via role_id on PATCH:
+    role_id = serializers.PrimaryKeyRelatedField(
+        queryset=Roles.objects.all(),
+        source="role",
+        write_only=True,
+        required=False,
+    )
+
     is_active = serializers.SerializerMethodField()
 
     class Meta:
         model = RoleAssignmentHistory
-        fields = [
-            'id',
-            'user',
-            'role',
-            'valid_from',
-            'valid_to',
-            'is_active'
-        ]
+        fields = ["id", "user", "role", "role_id", "valid_from", "valid_to", "is_active"]
 
     def get_is_active(self, obj):
-        """Check if the role assignment is currently active"""
-        return obj.valid_to is None
+        return obj.valid_to is None or obj.valid_to >= timezone.now()
+
+    # ---- helpers to accept both YYYY-MM-DD and datetimes, and make them TZ-aware
+    def _coerce_dt(self, value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, date):
+            dt = datetime.combine(value, time.min)
+        elif isinstance(value, str):
+            dt = parse_datetime(value)
+            if dt is None:
+                d = parse_date(value)
+                if d:
+                    dt = datetime.combine(d, time.min)
+            if dt is None:
+                raise serializers.ValidationError("Invalid datetime/date format.")
+        else:
+            return value
+
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt)
+        return dt
+
+    def validate(self, attrs):
+        # Only for fields being updated in PATCH
+        if "valid_from" in attrs:
+            attrs["valid_from"] = self._coerce_dt(attrs["valid_from"])
+        if "valid_to" in attrs:
+            attrs["valid_to"] = self._coerce_dt(attrs["valid_to"])
+
+        v_from = attrs.get("valid_from") or getattr(self.instance, "valid_from", None)
+        v_to   = attrs.get("valid_to", None)
+        if v_from and v_to and v_to < v_from:
+            raise serializers.ValidationError("valid_to cannot be before valid_from.")
+        return attrs
