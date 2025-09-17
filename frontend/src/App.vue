@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import logo from '@/assets/btf-logo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,7 +31,7 @@ const go = (path: string) => {
       <div class="header-content">
         <div class="logo-section">
           <RouterLink to="/dashboard" class="logo">
-            <div class="logo-icon">BTF</div>
+            <div class="logo-icon"><img :src="logo" alt="BIOTech Futures" /></div>
             <span class="logo-text">BIOTech Futures Hub</span>
           </RouterLink>
         </div>

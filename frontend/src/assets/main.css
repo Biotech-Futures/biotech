@@ -109,6 +109,13 @@ h5 { font-size: 1rem; font-weight: 500; }
   font-weight: bold;
 }
 
+/* using an image inside the logo circle */
+.logo-icon img {
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
+}
+
 .logo-text {
   font-size: 1.25rem;
   font-weight: 600;
