@@ -119,11 +119,16 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "biotech_db",
-        "USER": "postgres",
-        "PASSWORD": "zackzzzzzo3z",
-        "HOST": "localhost",
+        "NAME": "appdb",
+        "USER": "kosin",
+        "PASSWORD": "t3$t1NG_postgresql_DB!",
+        "HOST": 'azure-postgresql-db-trial.postgres.database.azure.com',
         "PORT": "5432",
+        "OPTIONS": {"sslmode": "require",
+                    "connect_timeout": 5,
+                    },
+            "CONN_MAX_AGE": 0
+
     }
 }
 # Password validation
