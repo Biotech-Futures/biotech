@@ -1,9 +1,25 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import routes from "@/router/routes.ts"
+import { createRouter, createWebHashHistory } from 'vue-router'
+import routes from './routes'
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes: routes,
+  history: createWebHashHistory(),
+  routes
+})
+
+// Auth guard
+import { useAuthStore } from '../stores/auth'
+router.beforeEach((to, from, next) => {
+  const publicPaths = ['/login']
+  const auth = useAuthStore()
+  if (!auth.user) auth.hydrate()
+
+  if (!publicPaths.includes(to.path) && !auth.isAuthenticated) {
+    next('/login')
+  } else if (to.path === '/login' && auth.isAuthenticated) {
+    next('/dashboard')
+  } else {
+    next()
+  }
 })
 
 export default router
