@@ -9,9 +9,37 @@ from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
 from.models import User
 from apps.resources.models import Roles, RoleAssignmentHistory
-from .serializers import UserSerializer, UserStatusPatchSerializer, RoleSerializer, RoleAssignmentHistorySerializer
+from .serializers import UserSerializer, UserStatusPatchSerializer, RoleSerializer, RoleAssignmentHistorySerializer, UnifiedRegisterSerializer
 
 # Create your views here.
+#Issue 37
+class UnifiedRegisterView(generics.CreateAPIView):
+    """
+    Handles registration for students, mentors, and supervisors.
+    Qualtrics/SharePoint submissions will POST here.
+    """
+    queryset = User.objects.all()
+    serializer_class = UnifiedRegisterSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        role = request.data.get("role")
+        return Response(
+            {
+                "id": user.id,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": role,
+                "status": "created"
+            },
+            status=status.HTTP_201_CREATED
+        )
+
 #Issue 41
 class UsersRetrieveView(generics.RetrieveAPIView):
     queryset = User.objects.select_related("track","state")
