@@ -78,6 +78,7 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # Add CORS middleware for frontend communication
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -119,16 +120,11 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "appdb",
-        "USER": "kosin",
-        "PASSWORD": "t3$t1NG_postgresql_DB!",
-        "HOST": 'azure-postgresql-db-trial.postgres.database.azure.com',
+        "NAME": "biotech_db",
+        "USER": "postgres",
+        "PASSWORD": "zackzzzzzo3z",
+        "HOST": "localhost",
         "PORT": "5432",
-        "OPTIONS": {"sslmode": "require",
-                    "connect_timeout": 5,
-                    },
-            "CONN_MAX_AGE": 0
-
     }
 }
 # Password validation
@@ -180,6 +176,19 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
+# CORS settings for frontend communication
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Your frontend URL (Vite default)
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",  # Alternative frontend ports
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# Magic link redirect configuration
+MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click
+LOGIN_REDIRECT_URL = "http://localhost:5173/auth/callback"       # Alternative setting name
 
 #OTP things
 MAILTRAP_TOKEN = "94f919803239d1ca9274ca682a670eaa"

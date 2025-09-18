@@ -16,10 +16,13 @@ class SendLoginCodeView(APIView):
     authentication_classes = []
     def post(self, request):
         email = request.data.get("email")
+        # edbert: Added redirect_url parameter to support frontend callback
+        redirect_url = request.data.get("redirect_url")
         if not email:
             return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        sent = auth_service.send_login_code(email)
+        # edbert: Pass redirect_url to auth service
+        sent = auth_service.send_login_code(email, redirect_url)
         if sent:
             return Response({"message": "Login code sent"}, status=status.HTTP_200_OK)
         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -70,19 +73,14 @@ def magic_login(request):
     user = User.objects.get(email=email)
     refresh = RefreshToken.for_user(user)
 
-    return JsonResponse(
-        {
-            "access_token": str(refresh.access_token),
-            "refresh_token": str(refresh),
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-            },
-        },
-        status=200,
-    )
+    # edbert: Redirect to frontend with tokens as URL parameters instead of returning JSON
+    from django.conf import settings
+    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/#/auth/callback')
+
+    # edbert: Add tokens as query parameters for frontend to capture
+    redirect_url = f"{frontend_callback}?access_token={str(refresh.access_token)}&refresh_token={str(refresh)}&user_id={user.id}&email={user.email}&first_name={user.first_name}&last_name={user.last_name}"
+
+    return redirect(redirect_url)
 
 
 @require_http_methods(["GET"])
@@ -109,7 +107,7 @@ def test_email_template(request):
             content_type="text/html"
         )
 
-
+#to be deleted.
 @require_http_methods(["GET"])
 def test_email_preview(request):
     """

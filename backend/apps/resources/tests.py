@@ -182,3 +182,102 @@ class RoleAssignmentsApiTests(TestCase):
             return (user_id, role_id, row["valid_from"])
         keys = [key(r) for r in data]
         self.assertEqual(keys, sorted(keys))
+
+class RoleManagementApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        # Reader (not staff)
+        self.user = get_user_model().objects.create_user(password="pw12345", email = "test_email@gmail.com")
+        # Admin
+        self.admin = get_user_model().objects.create_user(password="pw123456", email = "admin_test_email@gmail.com", is_staff = True)
+
+    def test_create_requires_admin(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(reverse("roles-list"), {"role_name": "Editor"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_update_delete_happy_path(self):
+        self.client.force_authenticate(self.admin)
+
+        # create
+        r = self.client.post(reverse("roles-list"), {"role_name": "Editor"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        rid = r.json()["id"]
+
+        # patch (partial)
+        r = self.client.patch(reverse("roles-detail", args=[rid]), {"role_name": "EditorPlus"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.json()["role_name"], "EditorPlus")
+
+        # uniqueness (case-insensitive)
+        self.client.post(reverse("roles-list"), {"role_name": "Viewer"}, format="json")
+        r = self.client.patch(reverse("roles-detail", args=[rid]), {"role_name": "viewer"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # delete
+        r = self.client.delete(reverse("roles-detail", args=[rid]))
+        self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
+
+class RoleAssignmentPatchApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        AuthUser = get_user_model()
+        # admin vs non-admin
+        self.non_admin = AuthUser.objects.create_user(email="reader@example.com", password="pw")
+        self.admin = AuthUser.objects.create_user(email="admin@example.com", password="pw", is_staff=True)
+
+        # FK chain for Users
+        Countries = dj_apps.get_model('groups', 'Countries')
+        CountryStates = dj_apps.get_model('groups', 'CountryStates')
+        Tracks = dj_apps.get_model('groups', 'Tracks')
+        Users = dj_apps.get_model('users', 'User')
+
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="Data Science", state=state)
+
+        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com", track=track, state=state)
+
+        self.r_admin = Roles.objects.create(role_name="admin")
+        self.r_view  = Roles.objects.create(role_name="viewer")
+
+        # Active assignment (open-ended)
+        self.a = RoleAssignmentHistory.objects.create(
+            user=self.u1,
+            role=self.r_view,
+            valid_from=timezone.make_aware(datetime(2025, 1, 1)),
+            valid_to=None,
+        )
+
+    def _url(self, pk):
+        return reverse("role-assignments-detail", args=[pk])
+
+    def test_patch_requires_admin(self):
+        # unauthenticated -> 401
+        resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # non-admin -> 403
+        self.client.force_authenticate(self.non_admin)
+        resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_change_role(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["role"]["id"], self.r_admin.id)
+
+    def test_patch_close_assignment_with_valid_to(self):
+        self.client.force_authenticate(self.admin)
+        close_dt = timezone.make_aware(datetime(2025, 6, 30))
+        resp = self.client.patch(self._url(self.a.id), {"valid_to": close_dt.isoformat()}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(resp.json()["valid_to"])
+
+    def test_patch_invalid_date_order(self):
+        self.client.force_authenticate(self.admin)
+        # valid_to before valid_from -> 400
+        bad_dt = timezone.make_aware(datetime(2024, 12, 31))
+        resp = self.client.patch(self._url(self.a.id), {"valid_to": bad_dt.isoformat()}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
