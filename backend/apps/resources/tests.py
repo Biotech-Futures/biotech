@@ -11,13 +11,15 @@ from django.apps import apps as dj_apps
 from .models import Roles, RoleAssignmentHistory
 
 # Create your tests here.
+
+
 class RolesApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         User = get_user_model()
 
         # Auth user to hit endpoints guarded by IsAuthenticated
-        self.me = User.objects.create_user(email="me@example.com", first_name="Test", last_name="User", password="pw12345")
+        self.me = User.objects.create_user(password="pw12345", email = "test_email@gmail.com")
 
         # Some roles (unordered on purpose to check ordering in response)
         self.viewer = Roles.objects.create(role_name="viewer")
@@ -30,12 +32,11 @@ class RolesApiTests(TestCase):
 
     def test_roles_list_ok_and_ordered(self):
         self.client.force_authenticate(self.me)
-        url = reverse("roles-list")  # -> /resources/roles/ with your current config
+        url = reverse("roles-list")  
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
         self.assertEqual(len(data), 2)
-        # Should be ordered by role_name per view
         self.assertEqual([r["role_name"] for r in data], ["admin", "viewer"])
 
 
@@ -45,22 +46,10 @@ class RoleAssignmentsApiTests(TestCase):
 
         # Auth user (whatever your AUTH_USER_MODEL is)
         AuthUser = get_user_model()
-        self.me = AuthUser.objects.create_user(email="me@example.com", first_name="Test", last_name="User", password="pw12345")
+        self.me = AuthUser.objects.create_user(password="pw12345", email = "test_email@gmail.com")
         self.client.force_authenticate(self.me)
 
-        # Assignment users must be from your custom users app
-        # Users = dj_apps.get_model('users', 'Users')
-        # try:
-        #     self.u1 = Users.objects.create_user(username="u1", email= "u1@example.com", password="pw")
-        #     self.u2 = Users.objects.create_user(username="u2", email="u2@example.com", password="pw")
-        # except TypeError:
-        #     try:
-        #         self.u1 = Users.objects.create_user(email="u1@example.com", password="pw")
-        #         self.u2 = Users.objects.create_user(email="u2@example.com", password="pw")
-        #     except Exception:
-        #         self.u1 = Users.objects.create(email="u1@example.com", username="u1")
-        #         self.u2 = Users.objects.create(email="u2@example.com", username="u2")
-        Users = dj_apps.get_model('users', 'User')
+        User = dj_apps.get_model('users', 'User')
         Countries = dj_apps.get_model('groups', 'Countries')
         CountryStates = dj_apps.get_model('groups', 'CountryStates')
         Tracks = dj_apps.get_model('groups', 'Tracks')
@@ -74,7 +63,7 @@ class RoleAssignmentsApiTests(TestCase):
         self.r_view  = Roles.objects.create(role_name="viewer")
 
         # Step 2: Create Users with required fields
-        self.u1 = Users.objects.create(
+        self.u1 = User.objects.create(
             first_name="Alice",
             last_name="Tester",
             email="u1@example.com",
@@ -82,7 +71,7 @@ class RoleAssignmentsApiTests(TestCase):
             state=state,
         )
 
-        self.u2 = Users.objects.create(
+        self.u2 = User.objects.create(
             first_name="Bob",
             last_name="Tester",
             email="u2@example.com",
