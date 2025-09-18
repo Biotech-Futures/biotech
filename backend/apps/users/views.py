@@ -9,7 +9,7 @@ from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
 from.models import User
 from apps.resources.models import Roles, RoleAssignmentHistory
-from .serializers import UserSerializer, UserStatusPatchSerializer, RoleSerializer, RoleAssignmentHistorySerializer
+from .serializers import UserSerializer, UserStatusPatchSerializer
 
 # Create your views here.
 #Issue 41
@@ -74,3 +74,15 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
                 RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=104))
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+    
+#issue 40
+class MeRetrieveView(generics.RetrieveAPIView):
+    # queryset = User.objects.select_related("track","state")
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [TemplateHTMLRenderer]
+    template_name = "users/details.html"
+
+    def get_object(self):
+        obj = self.request.user
+        return obj
