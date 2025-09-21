@@ -1,12 +1,16 @@
-from django.shortcuts import render
-from rest_framework import viewsets, filters
+from django.utils import timezone
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from rest_framework import viewsets, filters, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from .models import Groups, Countries, GroupMembers, Tracks, CountryStates
-from .serializers import CountrySerializer, GroupMemberSerializer, TrackSerializer
+from .serializers import CountrySerializer, GroupMemberSerializer, TrackSerializer, GroupSerializer
 
 # Create your views here.
+
+User = get_user_model()
 
 class CountryViewSet(viewsets.ModelViewSet):
   queryset = Countries.objects.all()
@@ -34,6 +38,8 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(members, many=True)
         return Response(serializer.data)
     
+    #TODO: expand by addung endpoints to implement logic of adding and removing members
+    
 class TrackViewSet(viewsets.ModelViewSet):
     queryset = Tracks.objects.all()
     serializer_class = TrackSerializer
@@ -46,3 +52,51 @@ class TrackViewSet(viewsets.ModelViewSet):
         if self.action in ["list", "retrieve"]:
             return [IsAuthenticated()]
         return [IsAdminUser()]
+    
+class GroupViewSet(viewsets.ModelViewSet):
+    serializer_class = GroupSerializer
+
+    # by default, don't include the deleted flags. only show if include_deleted in query param
+    def get_queryset(self):
+        qs = Groups.objects.all()
+        include_deleted = self.request.query_params.get('include_deleted')
+        if not include_deleted:
+            qs = qs.filter(deleted_flag=False)
+        return qs
+    
+    # read for authenticated and write for authorised
+    def get_permissions(self):
+        # what does members mean here?
+        if self.action in ['list', 'retrieve']:
+            # what does this even really do/mean? why is it in a list
+            return [IsAuthenticated()]
+        # who determines if the user is an admin or has permissions?
+        return [IsAdminUser()]
+
+    def destroy(self, request, *args, **kwargs):
+        # how does django know what object to get?
+        group = self.get_object()
+        if group.deleted_flag:
+            # means group is alr deleted but no errors
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        group.deleted_flag = True
+        group.deleted_datetime = timezone.now()
+        group.save(update_fields=['deleted_flag', 'deleted_datetime'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    
+
+
+        
+
+"""
+GET /groups/ - list groups
+POST /groups/ - create group
+GET /groups/{id} - retrieve group
+PUT/PATCH /groups/{id} - update a group
+
+maybe look into these custom actions
+GET /groups/{id}/members - list members in a group?
+POST /groups/{id}/add-members/ - bulk add using user_id
+POST /groups/{id}/remove-members/ - bulk remove members using user id
+and optional soft delete: DELETE /groups/{id} - to set deleted_flag=True
+"""
