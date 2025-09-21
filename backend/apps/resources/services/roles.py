@@ -3,6 +3,7 @@ from django.contrib.auth.models import Group
 from django.db import transaction
 from apps.resources.models import Roles, RoleAssignmentHistory
 
+# ===============================RBAC ROLES DJANGO GROUP FUNCTIONS===============================
 def _ensure_group(role_name: str) -> Group:
   """
   ensures there exists a Django group with given role name.
@@ -36,6 +37,7 @@ def grant_role(user, role: Roles, start=None):
   group = _ensure_group(role.role_name)
   user.groups.add(group)
 
+
 @transaction.atomic
 def revoke_role(user, role: Roles, end=None):
   """
@@ -53,39 +55,38 @@ def revoke_role(user, role: Roles, end=None):
     None. If the group does not exist, the exception is silently ignored.
   """
   end = end or timezone.now()
-  # find the record of the role
+
+  # find the record of the role and close it
   RoleAssignmentHistory.objects.filter(
       user=user, 
       role=role,
       valid_to__isnull=True
   ).update(valid_to=end)
 
-
-  # remove the group
+  # remove the group record 
   try: 
     group = Group.objects.get(name=role.role_name)
     user.groups.remove(group)
   except Group.DoesNotExist:
     pass
   
+  # Check if user has any other active roles
+  has_other_roles = RoleAssignmentHistory.objects.filter(
+      user=user,
+      valid_from__lte=end,
+      valid_to__isnull=True
+  ).exclude(role=role).exists()
+  
+  if not has_other_roles:
+      # Assign default role
+      try:
+          default_role = Roles.objects.get(role_name='basic_user')
+          grant_role(user, default_role, start=end)
+      except Roles.DoesNotExist:
+          # Log this situation as it indicates a configuration issue
+          logger.error(f"Default role 'basic_user' not found when revoking role for user {user.id}")
 
- # Check if user has any other active roles
-    has_other_roles = RoleAssignmentHistory.objects.filter(
-        user=user,
-        valid_from__lte=end,
-        valid_to__isnull=True
-    ).exclude(role=role).exists()
-    
-    if not has_other_roles:
-        # Assign default role
-        try:
-            default_role = Roles.objects.get(role_name='basic_user')
-            grant_role(user, default_role, start=end)
-        except Roles.DoesNotExist:
-            # Log this situation as it indicates a configuration issue
-            logger.error(f"Default role 'basic_user' not found when revoking role for user {user.id}")
-
-  def ensure_user_has_role(user):
+def ensure_user_has_role(user): ##JUST FOR DEFAULT ROLES =====> JUST AN ADDITIONAL FUNCTION 
     """
     Ensures user always has some role assigned
     """
@@ -97,7 +98,6 @@ def revoke_role(user, role: Roles, end=None):
     ).exists()
     
     if not has_active_role:
-        default_role = Roles.objects.get(role_name='basic_user')  # or whatever your default role is
-        grant_role(user, default_role)
+        default_role = Roles.objects.get(role_name='basic_user')  # Setting to default role 
 
 

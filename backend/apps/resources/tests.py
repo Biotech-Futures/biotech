@@ -1,4 +1,6 @@
 from django.test import TestCase
+import logging
+
 
 from datetime import date, datetime
 from django.utils import timezone
@@ -9,13 +11,12 @@ from rest_framework import status
 from django.apps import apps as dj_apps
 
 from .models import Roles, RoleAssignmentHistory
+from .services.roles import grant_role, revoke_role, ensure_user_has_role
 
 # Create your tests here.
-
-
 class RolesApiTests(TestCase):
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient()  ###ADDED THIS LINE         
         User = get_user_model()
 
         # Auth user to hit endpoints guarded by IsAuthenticated
@@ -270,3 +271,139 @@ class RoleAssignmentPatchApiTests(TestCase):
         bad_dt = timezone.make_aware(datetime(2024, 12, 31))
         resp = self.client.patch(self._url(self.a.id), {"valid_to": bad_dt.isoformat()}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+
+    # ===============================RBAC ROLES DJANGO GROUP FUNCTIONS===============================
+if not Roles.objects.filter(role_name='basic_user').exists():
+    basic_role = Roles.objects.create(role_name='basic_user')
+    print(f"Created role: {basic_role.role_name}")
+else:
+    print("basic_user role already exists")
+logger = logging.getLogger(__name__) 
+
+class TestRevokeUserRole(TestCase):
+    def setUp(self):  # Changed from setup_users_and_roles
+        """Set up test data for revoke_user_role tests"""
+        # Create FK chain for Users
+        Countries = dj_apps.get_model('groups', 'Countries')
+        CountryStates = dj_apps.get_model('groups', 'CountryStates')
+        Tracks = dj_apps.get_model('groups', 'Tracks')
+        Users = dj_apps.get_model('users', 'User')
+
+        # Create required FK objects
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="Data Science", state=self.state)
+
+        # Create test user 
+        self.user = Users.objects.create(
+            first_name="John",
+            last_name="Doe",
+            email="user@test.com",
+            track=self.track,
+            state=self.state,
+        )
+
+        # Create test roles
+        self.student = Roles.objects.create(role_name="student")
+        self.mentor = Roles.objects.create(role_name="mentor")
+        self.basic = Roles.objects.create(role_name="basic_user")
+
+    def setup_users_and_roles(self, db):
+        # Users
+        self.user = User.objects.create(email="user@test.com", password="pw12345")
+        # Roles
+        self.student = Roles.objects.create(role_name="student")
+        self.mentor = Roles.objects.create(role_name="mentor")
+        self.basic = Roles.objects.create(role_name="basic_user")
+
+    def test_revoke_closes_history_and_removes_group(self):
+        grant_role(self.user, self.student)
+        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
+        assert self.user.groups.filter(name="student").exists()
+
+        revoke_role(self.user, self.student)
+
+        hist = RoleAssignmentHistory.objects.get(user=self.user, role=self.student)
+        assert hist.valid_to is not None
+        assert not self.user.groups.filter(name="student").exists()
+
+    def test_revoke_assigns_default_if_no_other_roles(self):
+        grant_role(self.user, self.student)
+        revoke_role(self.user, self.student)
+
+        # student role closed
+        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
+        # default role active
+        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
+        assert self.user.groups.filter(name="basic_user").exists()
+
+    def test_revoke_does_not_assign_default_if_other_active_roles(self):
+        grant_role(self.user, self.student)
+        grant_role(self.user, self.mentor)
+
+        revoke_role(self.user, self.student)
+
+        # mentor role still active
+        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.mentor, valid_to__isnull=True).exists()
+        # no basic_user assigned
+        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
+
+    def test_revoke_is_idempotent(self):
+        grant_role(self.user, self.student)
+        revoke_role(self.user, self.student)
+        # second revoke should not break anything
+        revoke_role(self.user, self.student)
+
+        hist = RoleAssignmentHistory.objects.get(user=self.user, role=self.student)
+        assert hist.valid_to is not None
+        assert not self.user.groups.filter(name="student").exists()
+
+    def test_revoke_backdated_end_date(self):
+        start_time = timezone.now()
+        grant_role(self.user, self.student, start=start_time)
+        backdated_end = start_time + timezone.timedelta(days=1)
+
+        revoke_role(self.user, self.student, end=backdated_end)
+
+        hist = RoleAssignmentHistory.objects.get(user=self.user, role=self.student)
+        assert hist.valid_to is not None
+        assert hist.valid_to >= backdated_end
+
+    # User = get_user_model()
+
+    # # Get your admin user
+    # user = User.objects.get(email='test@gmail.com')
+    # print(f"Testing with user: {user.email}")
+
+    # # Get or create a role
+    # role = Roles.objects.first()
+    # if not role:
+    #     role = Roles.objects.create(role_name='test_role')
+    #     print(f"Created role: {role.role_name}")
+    # else:
+    #     print(f"Using role: {role.role_name}")
+
+    # # Test grant
+    # print("\n=== GRANTING ROLE ===")
+    # grant_role(user, role)
+    # print("Role granted")
+
+    # # Check groups
+    # print(f"User groups: {list(user.groups.all())}")
+
+    # # Test revoke
+    # print("\n=== REVOKING ROLE ===")
+    # revoke_role(user, role)
+    # print("Role revoked")
+
+    # # Check groups again
+    # print(f"User groups after revoke: {list(user.groups.all())}")
+
+    # # Check history
+    # from apps.resources.models import RoleAssignmentHistory
+    # history = RoleAssignmentHistory.objects.filter(user=user, role=role)
+    # print(f"\nRole history entries: {history.count()}")
+    # for entry in history:
+    #     print(f"  - {entry.valid_from} to {entry.valid_to or 'present'}")
