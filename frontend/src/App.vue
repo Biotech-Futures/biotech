@@ -1,80 +1,176 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
-import HelloWorld from './components/HelloWorld.vue'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
+import { useAuthStore } from './stores/auth'
+import logo from '@/assets/btf-logo.png'
+
+const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
+
+const isLoginPage = computed(() => route.path === '/login')
+
+const showNotifications = ref(false)
+const hasNotifications = ref(true)
+const toggleNotifications = () => {
+  showNotifications.value = !showNotifications.value
+  if (showNotifications.value) hasNotifications.value = false
+}
+
+// Quick jump: close panel after clicking menu item
+const go = (path: string) => {
+  showNotifications.value = false
+  router.push(path)
+}
 </script>
 
 <template>
-  <header>
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
+  <div class="app-container">
+    <!-- Header: hidden on login page -->
+    <header class="header" v-if="!isLoginPage">
+      <div class="header-content">
+        <div class="logo-section">
+          <RouterLink to="/dashboard" class="logo">
+            <div class="logo-icon"><img :src="logo" alt="BIOTech Futures" /></div>
+            <span class="logo-text">BIOTech Futures Hub</span>
+          </RouterLink>
+        </div>
 
-      <nav>
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/login">Login</RouterLink>
-        <RouterLink to="/dashboard">User Dashboard</RouterLink>
-      </nav>
+        <div class="header-nav">
+          <input type="text" class="search-bar" placeholder="Search Program" />
+          <div class="user-menu">
+            <div style="position: relative;">
+              <div class="user-avatar" @click="toggleNotifications">
+                {{ auth.initials }}
+                <span v-if="hasNotifications" class="notification-badge"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="main-layout" v-if="!isLoginPage">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <nav class="sidebar-nav">
+          <li class="sidebar-item">
+            <RouterLink
+              to="/dashboard"
+              class="sidebar-link"
+              :class="{ active: route.path === '/dashboard' }"
+            >
+              <i class="fas fa-home sidebar-icon"></i><span>Home</span>
+            </RouterLink>
+          </li>
+
+          <li class="sidebar-item">
+            <RouterLink
+              to="/groups"
+              class="sidebar-link"
+              :class="{ active: route.path.includes('/groups') }"
+            >
+              <i class="fas fa-users sidebar-icon"></i><span>Groups</span>
+            </RouterLink>
+          </li>
+
+          <li class="sidebar-item">
+            <RouterLink
+              to="/events"
+              class="sidebar-link"
+              :class="{ active: route.path === '/events' }"
+            >
+              <i class="fas fa-calendar sidebar-icon"></i><span>Events</span>
+            </RouterLink>
+          </li>
+
+          <li class="sidebar-item">
+            <RouterLink
+              to="/resources"
+              class="sidebar-link"
+              :class="{ active: route.path === '/resources' }"
+            >
+              <i class="fas fa-book sidebar-icon"></i><span>Resources</span>
+            </RouterLink>
+          </li>
+
+          <li class="sidebar-item">
+            <RouterLink
+              to="/announcements"
+              class="sidebar-link"
+              :class="{ active: route.path === '/announcements' }"
+            >
+              <i class="fas fa-bullhorn sidebar-icon"></i><span>Announcements</span>
+            </RouterLink>
+          </li>
+
+          <li class="sidebar-item" v-if="auth.isAdmin">
+            <RouterLink
+              to="/admin"
+              class="sidebar-link"
+              :class="{ active: route.path === '/admin' }"
+            >
+              <i class="fas fa-cog sidebar-icon"></i><span>Admin Panel</span>
+            </RouterLink>
+          </li>
+        </nav>
+      </aside>
+
+      <!-- 内容区 -->
+      <RouterView />
     </div>
-  </header>
 
-  <RouterView />
+    <!-- 登录页（全屏） -->
+    <RouterView v-else />
+
+    <!-- Notification Panel（仅保留两个菜单项） -->
+    <div :class="['notification-panel', { show: showNotifications }]" v-if="!isLoginPage">
+      <div class="notification-header">
+        <h4 style="margin: 0;">Notifications</h4>
+        <button
+          @click="showNotifications = false"
+          style="background: none; border: none; color: white; cursor: pointer;"
+          aria-label="Close"
+        >
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <div class="notification-list">
+        <div
+          class="notification-item"
+          role="button"
+          tabindex="0"
+          @click="go('/profile')"
+          @keydown.enter="go('/profile')"
+        >
+          <i class="fas fa-user" style="margin-right: 0.5rem; color: var(--dark-green);"></i>
+          <strong>Edit your profile</strong>
+        </div>
+
+        <div
+          class="notification-item"
+          role="button"
+          tabindex="0"
+          @click="go('/contact')"
+          @keydown.enter="go('/contact')"
+        >
+          <i class="fas fa-headset" style="margin-right: 0.5rem; color: var(--dark-green);"></i>
+          <strong>Contact administrator</strong>
+        </div>
+
+        <!-- Optional: Logout -->
+        <div
+          class="notification-item"
+          role="button"
+          tabindex="0"
+          @click="auth.logout(); go('/login')"
+          @keydown.enter="auth.logout(); go('/login')"
+        >
+          <i class="fas fa-sign-out-alt" style="margin-right: 0.5rem; color: var(--dark-green);"></i>
+          <strong>Log out</strong>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
-
-<style scoped>
-header {
-  line-height: 1.5;
-  max-height: 100vh;
-}
-
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
-}
-
-nav {
-  width: 100%;
-  font-size: 12px;
-  text-align: center;
-  margin-top: 2rem;
-}
-
-nav a.router-link-exact-active {
-  color: var(--color-text);
-}
-
-nav a.router-link-exact-active:hover {
-  background-color: transparent;
-}
-
-nav a {
-  display: inline-block;
-  padding: 0 1rem;
-  border-left: 1px solid var(--color-border);
-}
-
-nav a:first-of-type {
-  border: 0;
-}
-
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
-  }
-
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  nav {
-    text-align: left;
-    margin-left: -1rem;
-    font-size: 1rem;
-
-    padding: 1rem 0;
-    margin-top: 1rem;
-  }
-}
-</style>
