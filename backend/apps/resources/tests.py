@@ -274,13 +274,13 @@ class RoleAssignmentPatchApiTests(TestCase):
 
 
 
-    # ===============================RBAC ROLES DJANGO GROUP FUNCTIONS===============================
-if not Roles.objects.filter(role_name='basic_user').exists():
-    basic_role = Roles.objects.create(role_name='basic_user')
-    print(f"Created role: {basic_role.role_name}")
-else:
-    print("basic_user role already exists")
-logger = logging.getLogger(__name__) 
+    # ===============================REVOKE ROLES FUNCTIONS===============================
+# if not Roles.objects.filter(role_name='basic_user').exists():
+#     basic_role = Roles.objects.create(role_name='basic_user')
+#     print(f"Created role: {basic_role.role_name}")
+# else:
+#     print("basic_user role already exists")
+# logger = logging.getLogger(__name__) 
 
 class TestRevokeUserRole(TestCase):
     def setUp(self):  # Changed from setup_users_and_roles

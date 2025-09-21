@@ -3,7 +3,6 @@ from django.contrib.auth.models import Group
 from django.db import transaction
 from apps.resources.models import Roles, RoleAssignmentHistory
 
-# ===============================RBAC ROLES DJANGO GROUP FUNCTIONS===============================
 def _ensure_group(role_name: str) -> Group:
   """
   ensures there exists a Django group with given role name.
