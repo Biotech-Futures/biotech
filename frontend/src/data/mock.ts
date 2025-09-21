@@ -1,0 +1,122 @@
+export interface MockUser {
+  id: number;
+  name: string;
+  email: string;
+  role: 'mentor' | 'student' | 'admin' | 'supervisor';
+  track: string;
+  status: string;
+}
+
+export interface MockGroup {
+  id: string;
+  name: string;
+  members: number;
+  status: string;
+  mentor: string;
+}
+
+export interface MockResource {
+  id: number;
+  title: string;
+  type: string;
+  updated: string;
+  role: string;
+}
+
+export interface MockEvent {
+  id: number;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  type: string;
+}
+
+export interface MockAnnouncement {
+  id: number;
+  title: string;
+  date: string;
+  author: string;
+  summary: string;
+  audience: string;
+  link?: string;
+  route?: string | null;
+}
+
+export const mockUsers: MockUser[] = [
+  { id: 1, name: 'Anita Pickard', email: 'anita.pickard@email.com', role: 'mentor', track: 'AUS-NSW', status: 'active' },
+  { id: 2, name: 'Yilin Guo', email: 'yilin.guo@email.com', role: 'student', track: 'AUS-NSW', status: 'active' },
+  { id: 3, name: 'Claudia Zhang', email: 'claudia.zhang@email.com', role: 'student', track: 'AUS-NSW', status: 'active' },
+  { id: 4, name: 'Zhujin Wang', email: 'zhujin.wang@email.com', role: 'student', track: 'AUS-NSW', status: 'active' },
+  { id: 5, name: 'William Nixon', email: 'william.nixon@biotech.com', role: 'admin', track: 'Global', status: 'active' }
+];
+
+export const mockGroups: MockGroup[] = [
+  { id: 'BTF046', name: 'BTF046', members: 4, status: 'Schedule Event', mentor: 'Anita Pickard' },
+  { id: 'BTF001', name: 'BTF001', members: 5, status: 'Schedule Event', mentor: 'Anita Pickard' }
+];
+
+export const mockResources: MockResource[] = [
+  { id: 1, title: '2025 Challenge Guidebook', type: 'document', updated: '5 hours ago', role: 'all' },
+  { id: 2, title: 'Frequently Asked Questions', type: 'document', updated: '1 day ago', role: 'all' },
+  { id: 3, title: 'Mentor Handbook', type: 'document', updated: '3 days ago', role: 'mentor' },
+  { id: 4, title: 'Conversation Starters', type: 'document', updated: '1 week ago', role: 'all' },
+  { id: 5, title: 'Marking rubrics and submission details', type: 'document', updated: '2 weeks ago', role: 'mentor' },
+  { id: 6, title: 'Mentor Info Session Recording and Slides', type: 'video', updated: '1 month ago', role: 'mentor' },
+  { id: 7, title: 'Student Workshop Templates', type: 'template', updated: '3 days ago', role: 'student' },
+  { id: 8, title: 'Supervisor Assessment Guide', type: 'guide', updated: '1 week ago', role: 'supervisor' }
+];
+
+export const mockEvents: MockEvent[] = [
+  { id: 1, title: 'Program Kickoff',            date: '2025-09-15', time: '10:00 AM', location: 'Sydney University', type: 'in-person' },
+  { id: 2, title: 'Mentor Training Event',   date: '2025-09-20', time: '2:00 PM',  location: 'Online',            type: 'virtual'   },
+  { id: 3, title: 'Student Orientation',        date: '2025-09-22', time: '3:00 PM',  location: 'Online',            type: 'virtual'   },
+  { id: 4, title: 'Mid-Program Check-in',       date: '2025-10-15', time: '4:00 PM',  location: 'Online',            type: 'virtual'   },
+  { id: 5, title: 'Final Presentations',        date: '2025-11-20', time: '9:00 AM',  location: 'Sydney University', type: 'in-person' }
+];
+
+export const mockAnnouncements: MockAnnouncement[] = [
+  {
+    id: 101,
+    title: 'Welcome to the 2025 BIOTech Futures Challenge',
+    date: '2025-09-01T09:00:00+10:00',
+    author: 'Program Team',
+    summary: 'Kickoff details, timelines, and how to get started with your mentor group.',
+    audience: 'all'
+  },
+  {
+    id: 102,
+    title: 'Mentor Info Session Slides Available',
+    date: '2025-09-03T18:00:00+10:00',
+    author: 'Mentor Coordination',
+    summary: 'Download the slides and recording from our first mentor info session.',
+    link: 'https://example.org/mentor-info-slides',
+    audience: 'mentor'
+  },
+  {
+    id: 103,
+    title: 'Submission Rubrics Updated',
+    date: '2025-09-04T10:30:00+10:00',
+    author: 'Academic Committee',
+    summary: 'We have refined scoring criteria. Please review before planning your events.',
+    route: null,
+    audience: 'mentor'
+  },
+  {
+    id: 104,
+    title: 'Student Orientation Session Reminder',
+    date: '2025-09-05T14:00:00+10:00',
+    author: 'Student Services',
+    summary: "Don't forget to attend the mandatory orientation session scheduled for next week.",
+    audience: 'student'
+  },
+  {
+    id: 105,
+    title: 'Supervisor Guidelines Released',
+    date: '2025-09-06T11:00:00+10:00',
+    author: 'Academic Committee',
+    summary: 'New guidelines for supervisors have been published in the resources section.',
+    audience: 'supervisor'
+  }
+];
+
