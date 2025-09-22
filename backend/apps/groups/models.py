@@ -5,6 +5,12 @@ from django.db.models import Q, F
 from django.utils import timezone
 
 class Groups(models.Model):
+    group_number = models.CharField(max_length=50, # to hold something that comes from qualtrics like R_49n3r8XlHkOmYKJ_1
+                                           unique=True, 
+                                           null=False, 
+                                           blank=False,
+                                           db_index=True
+                                           )
     group_name = models.CharField(max_length=255)
     track = models.ForeignKey('Tracks', on_delete=models.PROTECT) # Protect to prevent deletion when referenced track is gone 
     # I thought this might be good just in case tracks are deleted but groups should persist in the instance tracks are moved or removed

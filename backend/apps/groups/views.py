@@ -55,6 +55,7 @@ class TrackViewSet(viewsets.ModelViewSet):
     
 class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
+    lookup_field = "group_number" # we will look up with groups/R_12skjXJde/ instead of groups/12/
 
     # by default, don't include the deleted flags. only show if include_deleted in query param
     def get_queryset(self):
