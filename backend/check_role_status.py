@@ -1,6 +1,39 @@
 #!/usr/bin/env python3
 """
-Quick script to check user role status
+Role Status Checker 
+
+This script provides comprehensive role status checking for users in the Django RBAC system.
+It examines both Django's built-in group system and the custom business logic role tracking.
+
+What it checks:
+1. Current Django Groups (Active Permissions)
+   - Shows which Django groups the user belongs to
+   - These groups control actual permissions in the system
+   - Represents what the user can currently do
+
+2. Current Active Roles (Business Logic)
+   - Shows active roles from RoleAssignmentHistory table
+   - These are the business domain roles (Student, Mentor, etc.)
+   - Tracks role assignments with start/end dates
+
+3. Complete Role History
+   - Shows all role assignments for the user over time
+   - Includes both active and historical roles
+   - Displays start and end dates for each role assignment
+
+Usage:
+    python check_role_status.py <user_id>     # Check specific user
+    python check_role_status.py               # Show available roles
+
+Examples:
+    python check_role_status.py 1             # Check user with ID 1
+    python check_role_status.py 5             # Check user with ID 5
+
+This tool is useful for:
+- Debugging role assignment issues
+- Verifying grant/revoke operations worked correctly
+- Understanding user permissions and role history
+- Troubleshooting RBAC system problems
 """
 import os
 import sys
@@ -11,6 +44,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from apps.resources.models import Roles, RoleAssignmentHistory
 from django.contrib.auth.models import Group
 
@@ -35,7 +69,8 @@ def check_user_roles(user_id):
         print(f"\n2. CURRENT ACTIVE ROLES (Business Logic):")
         active_roles = RoleAssignmentHistory.objects.filter(
             user=user, 
-            valid_to__isnull=True  # No end date = currently active
+            valid_from__lte=timezone.now(),  # Role has started
+            valid_to__isnull=True  # Role hasn't ended
         )
         if active_roles:
             for role_hist in active_roles:
