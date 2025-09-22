@@ -22,6 +22,7 @@ class GroupSerializer(serializers.ModelSerializer):
     fields = ['id', 'group_name', 'track', 'creation_datetime', 'deleted_flag', 'deleted_datetime'] 
     read_only_fields = ['id', 'creation_datetime', 'deleted_flag', 'deleted_datetime']
 
+
 # for bulk endpoints, rejects empty lists + non-positive integers
 class BulkUserSerializer(serializers.Serializer):
   user_ids = serializers.ListField(

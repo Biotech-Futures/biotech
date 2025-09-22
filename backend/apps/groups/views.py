@@ -58,23 +58,18 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     # by default, don't include the deleted flags. only show if include_deleted in query param
     def get_queryset(self):
-        qs = Groups.objects.all()
-        include_deleted = self.request.query_params.get('include_deleted')
-        if not include_deleted:
-            qs = qs.filter(deleted_flag=False)
-        return qs
+        raw = (self.request.query_params.get('include_deleted') or '').lower().strip()
+        if raw == 'true' and self.request.user.is_staff:
+            return Groups.objects.all()
+        return Groups.objects.filter(deleted_flag=False)
     
     # read for authenticated and write for authorised
     def get_permissions(self):
-        # what does members mean here?
         if self.action in ['list', 'retrieve']:
-            # what does this even really do/mean? why is it in a list
             return [IsAuthenticated()]
-        # who determines if the user is an admin or has permissions?
         return [IsAdminUser()]
 
     def destroy(self, request, *args, **kwargs):
-        # how does django know what object to get?
         group = self.get_object()
         if group.deleted_flag:
             # means group is alr deleted but no errors
