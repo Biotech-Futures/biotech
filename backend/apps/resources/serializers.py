@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import RoleAssignmentHistory, Roles
+from .models import RoleAssignmentHistory, Roles, Resources, ResourceRoles
 from apps.users.models import User
 from datetime import datetime, time, date
 from django.utils import timezone
@@ -84,3 +84,103 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
         if v_from and v_to and v_to < v_from:
             raise serializers.ValidationError("valid_to cannot be before valid_from.")
         return attrs
+
+class ResourcesSerializer(serializers.ModelSerializer):
+    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    uploader_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source='uploader_user_id',
+        write_only=True,
+        required=False
+    )
+    
+    # Role visibility fields
+    visible_roles = RoleSerializer(source='resource_roles', many=True, read_only=True)
+    role_ids = serializers.ListField(
+        child=serializers.PrimaryKeyRelatedField(queryset=Roles.objects.all()),
+        write_only=True,
+        required=False,
+        help_text="List of role IDs that can access this resource"
+    )
+    
+    class Meta:
+        model = Resources
+        fields = [
+            'id', 
+            'resource_name', 
+            'resource_description', 
+            'upload_datetime', 
+            'uploader', 
+            'uploader_id',
+            'deleted_flag', 
+            'deleted_datetime',
+            'visible_roles',
+            'role_ids'
+        ]
+        read_only_fields = ['id', 'upload_datetime', 'deleted_datetime']
+
+    def validate_resource_description(self, value):
+        """Ensure description is not empty"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Resource description cannot be empty.")
+        return value.strip()
+
+    def validate_resource_name(self, value):
+        """Clean and validate resource name"""
+        if value:
+            return value.strip()
+        return value
+
+    def validate_role_ids(self, value):
+        """Validate that role_ids are not empty if provided"""
+        if value is not None and len(value) == 0:
+            raise serializers.ValidationError("At least one role must be specified for visibility.")
+        return value
+
+    def create(self, validated_data):
+        """Create resource and assign roles"""
+        role_ids = validated_data.pop('role_ids', [])
+        
+        # Set uploader to current user if not specified
+        if 'uploader_user_id' not in validated_data:
+            validated_data['uploader_user_id'] = self.context['request'].user
+        
+        resource = super().create(validated_data)
+        
+        # Assign roles to resource
+        for role_id in role_ids:
+            ResourceRoles.objects.create(resource=resource, role=role_id)
+        
+        return resource
+
+    def update(self, instance, validated_data):
+        """Update resource and roles"""
+        role_ids = validated_data.pop('role_ids', None)
+        
+        resource = super().update(instance, validated_data)
+        
+        # Update roles if provided
+        if role_ids is not None:
+            # Remove existing role assignments
+            ResourceRoles.objects.filter(resource=resource).delete()
+            # Add new role assignments
+            for role_id in role_ids:
+                ResourceRoles.objects.create(resource=resource, role=role_id)
+        
+        return resource
+
+class ResourceListSerializer(serializers.ModelSerializer):
+    """Simplified serializer for list view"""
+    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    visible_roles = RoleSerializer(source='resource_roles', many=True, read_only=True)
+    
+    class Meta:
+        model = Resources
+        fields = [
+            'id', 
+            'resource_name', 
+            'resource_description', 
+            'upload_datetime', 
+            'uploader',
+            'visible_roles'
+        ]

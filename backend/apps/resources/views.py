@@ -22,7 +22,7 @@
 #             return [IsAdminUser()]
 #         return [IsAuthenticated()]
 
-from rest_framework import mixins, viewsets, permissions
+from rest_framework import mixins, viewsets, permissions, status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .models import Roles, RoleAssignmentHistory
 from .serializers import RoleSerializer, RoleAssignmentHistorySerializer
@@ -108,3 +108,153 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return super().partial_update(request, *args, **kwargs)
+
+
+# ================RESOURCES API================
+class ResourcesViewSet(mixins.ListModelMixin,
+                      mixins.RetrieveModelMixin,
+                      mixins.CreateModelMixin,
+                      mixins.UpdateModelMixin,
+                      mixins.DestroyModelMixin,
+                      viewsets.GenericViewSet):
+    """
+    Resources CRUD API:
+    
+    POST   /resources/           (create)
+    GET    /resources/           (List)
+    GET    /resources/{id}/      (Retrieve one resource)
+    PATCH  /resources/{id}/      (Update)
+    DELETE /resources/{id}/      (Delete)
+    """
+    
+    permission_classes = [IsAuthenticated]
+    pagination_class = ResourcesPagination
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_serializer_class(self):
+        """Use different serializers for list vs detail"""
+        if self.action == 'list':
+            return ResourceListSerializer
+        return ResourcesSerializer
+
+    def get_queryset(self):
+        """Filter resources based on user permissions and query params"""
+        user = self.request.user
+        
+        # Get user's current roles
+        user_roles = self._get_user_roles(user)
+        
+        # Base queryset - only non-deleted resources
+        queryset = Resources.objects.filter(
+            deleted_flag=False
+        ).select_related('uploader_user_id').prefetch_related('resource_roles__role')
+        
+        # Filter by user's role access
+        if not user.is_staff:
+            # Regular users can only see resources they uploaded or resources visible to their roles
+            queryset = queryset.filter(
+                Q(uploader_user_id=user) |  # Resources they uploaded
+                Q(resource_roles__role__in=user_roles)  # Resources visible to their roles
+            ).distinct()
+        
+        # Apply filters
+        queryset = self._apply_filters(queryset)
+        
+        return queryset.order_by('-upload_datetime')
+
+    def _get_user_roles(self, user):
+        """Get user's current active roles"""
+        now = timezone.now()
+        return RoleAssignmentHistory.objects.filter(
+            user=user,
+            valid_from__lte=now,
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        ).values_list('role', flat=True)
+
+    def _apply_filters(self, queryset):
+        """Apply query parameter filters"""
+        params = self.request.query_params
+        
+        # Filter by uploader
+        uploader_id = params.get('uploader_id')
+        if uploader_id:
+            queryset = queryset.filter(uploader_user_id=uploader_id)
+        
+        # Filter by role (group)
+        role = params.get('role')
+        if role:
+            queryset = queryset.filter(resource_roles__role__role_name__icontains=role)
+        
+        # Search in name and description
+        search = params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(resource_name__icontains=search) |
+                Q(resource_description__icontains=search)
+            )
+        
+        # Order by
+        order = params.get('order', 'newest')
+        if order == 'oldest':
+            queryset = queryset.order_by('upload_datetime')
+        elif order == 'name':
+            queryset = queryset.order_by('resource_name')
+        elif order == 'newest':
+            queryset = queryset.order_by('-upload_datetime')
+        
+        return queryset
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['create']:
+            # Only authenticated users can create resources
+            return [IsAuthenticated()]
+        elif self.action in ['update', 'partial_update']:
+            # Only admins can update resource metadata and roles
+            return [IsAdminUser()]
+        elif self.action in ['destroy']:
+            # Only admins can soft delete
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        """Set uploader to current user"""
+        serializer.save(uploader_user_id=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Get single resource with visibility check"""
+        instance = self.get_object()
+        
+        # Check if user has access to this resource
+        if not self._user_can_access_resource(request.user, instance):
+            return Response(
+                {"detail": "You don't have permission to access this resource."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def _user_can_access_resource(self, user, resource):
+        """Check if user can access a specific resource"""
+        # Admins can access everything
+        if user.is_staff:
+            return True
+        
+        # Users can access resources they uploaded
+        if resource.uploader_user_id == user:
+            return True
+        
+        # Check if user has any of the required roles
+        user_roles = self._get_user_roles(user)
+        resource_roles = resource.resource_roles.values_list('role', flat=True)
+        
+        return any(role in resource_roles for role in user_roles)
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft delete resource"""
+        instance = self.get_object()
+        instance.deleted_flag = True
+        instance.deleted_datetime = timezone.now()
+        instance.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)     
