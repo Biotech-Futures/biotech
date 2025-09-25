@@ -30,6 +30,13 @@ from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from datetime import datetime
+# ================================Testing RevokeEndpoint (TO BE DELETED)==============================================
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework import status
+from .services.roles import revoke_role, grant_role
+from django.contrib.auth import get_user_model
+# ================================Testing RevokeEndpoint (TO BE DELETED)==============================================
 
 class RoleViewSet(mixins.ListModelMixin,
                   mixins.RetrieveModelMixin,
@@ -258,3 +265,129 @@ class ResourcesViewSet(mixins.ListModelMixin,
         instance.deleted_datetime = timezone.now()
         instance.save()
         return Response(status=status.HTTP_204_NO_CONTENT)     
+    # ================================Testing RevokeEndpoint (TO BE DELETED)==============================================
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def revoke_role(self, request):
+        """
+        Test the revoke_django_role function
+        POST /resources/role-assignments/revoke_role/
+        Body: {
+            "user_id": 1,
+            "role_id": 2,
+            "end": "2024-06-30T10:30:00Z"  # optional
+        }
+        """
+        user_id = request.data.get('user_id')
+        role_id = request.data.get('role_id')
+        end_date = request.data.get('end')
+        
+        if not user_id or not role_id:
+            return Response(
+                {"error": "user_id and role_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            User = get_user_model()
+            user = User.objects.get(id=user_id)
+            role = Roles.objects.get(id=role_id)
+            
+            # Parse end date if provided
+            if end_date:
+                from django.utils.dateparse import parse_datetime
+                end_date = parse_datetime(end_date)
+            
+            # Call your revoke_role function
+            revoke_role(user, role, end=end_date)
+            
+            return Response(
+                {
+                    "message": f"Role '{role.role_name}' revoked from user '{user.email}'",
+                    "details": {
+                        "user_id": user.id,
+                        "role_id": role.id,
+                        "end_time": end_date or timezone.now(),
+                        "user_groups": list(user.groups.values_list('name', flat=True))
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Roles.DoesNotExist:
+            return Response(
+                {"error": "Role not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def grant_role(self, request):
+        """
+        Test the grant_role function
+        POST /resources/role-assignments/grant_role/
+        Body: {
+            "user_id": 1,
+            "role_id": 2,
+            "start": "2024-01-01T10:30:00Z"  # optional
+        }
+        """
+        user_id = request.data.get('user_id')
+        role_id = request.data.get('role_id')
+        start_date = request.data.get('start')
+        
+        if not user_id or not role_id:
+            return Response(
+                {"error": "user_id and role_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            User = get_user_model()
+            user = User.objects.get(id=user_id)
+            role = Roles.objects.get(id=role_id)
+            
+            # Parse start date if provided
+            if start_date:
+                from django.utils.dateparse import parse_datetime
+                start_date = parse_datetime(start_date)
+            
+            # Call the grant_role function
+            grant_role(user, role, start=start_date)
+            
+            return Response(
+                {
+                    "message": f"Role '{role.role_name}' granted to user '{user.email}'",
+                    "details": {
+                        "user_id": user.id,
+                        "role_id": role.id,
+                        "start_time": start_date or timezone.now(),
+                        "user_groups": list(user.groups.values_list('name', flat=True))
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Roles.DoesNotExist:
+            return Response(
+                {"error": "Role not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
