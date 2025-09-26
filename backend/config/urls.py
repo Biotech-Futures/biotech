@@ -1,0 +1,30 @@
+"""
+URL configuration for config project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("users/", include("apps.users.urls")),
+    path("groups/", include("apps.groups.urls")),
+    path("chat/", include("apps.chat.urls")),
+    path("resources/", include("apps.resources.urls")), 
+    # Archie: Hey team, to fit to issue 58's endpoint link requirement, should I change this to path("api/v1/", include("apps.resources.urls")),
+    path("integrations/", include("apps.integrations.urls")),
+    path("services/", include("apps.services.urls")), #remove if buggy (Ed)
+    path('api-auth/', include('rest_framework.urls')), # for browsable API login
+]

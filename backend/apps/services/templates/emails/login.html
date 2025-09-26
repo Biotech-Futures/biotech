@@ -1,0 +1,132 @@
+{% load static %}
+<!-- FORMAT SETUP START -->
+  <title>BIOTech Futures: Log in securely</title>
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
+  <style>
+    :root {
+      color-scheme: light dark;
+      supported-color-schemes: light dark;
+    }
+@media only screen and (max-device-width: 600px) {
+  .mobileCell { display:block !important; width:100% !important; }
+  /*[if mso] .verticalSpacer { display:none; height:0 !important; } /* MSO will ignore anyway */
+}
+  </style>
+
+  <!-- Preheader (hidden) -->
+  <div style="display:none; overflow:hidden; line-height:1px; opacity:0; max-height:0; max-width:0; color:transparent;">
+    Use your magic link to log in instantly. Prefer a code? Your OTP is inside.
+  </div>
+
+  <div style="font-size:max(16px,1rem); background:#f1f1f1; background-color:#f1f1f1; width:100%;">
+    <!--[if mso]>
+    <table role="presentation" width="100%" align="center" bgcolor="#f1f1f1" style="font-family:Helvetica, Arial, sans-serif; background:#f1f1f1;"><tr><td style="padding:25px;">
+    <![endif]-->
+    <div style="max-width:580px; margin:0 auto; padding:25px;">
+      <table role="presentation" style="width:100%; max-width:580px;">
+        <!-- FORMAT SETUP END -->
+
+        <!-- LOGO START -->
+        <tr><td style="padding:0 0 14px 0;">
+          <table role="presentation" style="width:100%; max-width:580px;">
+            <tbody>
+              <tr>
+                <td style="vertical-align:middle;">
+                  <p style="margin:0; font-size:30px; font-family:Helvetica, Arial, sans-serif;">BIOTech Futures</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </td></tr>
+        <!-- LOGO END -->
+
+        <!-- STRAPLINE START -->
+        <tr><td>
+          <h1 style="font-family:Helvetica, Arial, sans-serif; margin:0; font-size:1.5em; color:#424242; font-weight:normal;">
+            <span style="display:inline-block; margin-bottom:0.25em; font-size:0.75em; color:#767676; font-weight:300;">Hi {{ First_Name }},</span><br>
+            Log in to <span style="color:#307054;">BIOTech Futures</span>
+          </h1>
+          <p style="font-family:Helvetica, Arial, sans-serif; font-size:0.9em; color:#424242; margin:10px 0 0 0;">
+            For the fastest way in, use your magic link below. It expires in {{EXPIRY_MINUTES}} minutes.
+          </p>
+        </td></tr>
+
+        <!-- MAGIC LINK CTA (prominent) -->
+        <tr><td style="padding:18px 0 4px 0; text-align:center;">
+          <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="{{MAGIC_LINK}}" style="height:44px;v-text-anchor:middle;width:260px;" arcsize="8%" strokecolor="#007253" fillcolor="#C3EBCA">
+              <w:anchorlock/>
+              <center style="color:#007253; font-family:Helvetica, Arial, sans-serif; font-size:16px; letter-spacing:0.3px;">Log in instantly</center>
+            </v:roundrect>
+          <![endif]-->
+          <!--[if !mso]><!-- -->
+          <a href="{{ MAGIC_LINK }}" style="background:#C3EBCA; border:1px solid #007253; color:#007253; display:inline-block; padding:12px 24px; text-decoration:none; font-family:Helvetica, Arial, sans-serif; font-size:20px; letter-spacing:0.3px; border-radius:6px; text-underline-color:#0153BD;">
+            Log in instantly
+          </a>
+          <!--<![endif]-->
+        </td></tr>
+
+        <!-- Magic link fallback text -->
+        <tr><td>
+          <p style="font-family:Helvetica, Arial, sans-serif; font-size:0.8em; color:#424242; margin:10px 0 0 0; word-break:break-word;">
+            If the button doesn't work, copy and paste this link into your browser:<br>
+            <a href="{{ MAGIC_LINK }}" style="color:#307054; text-underline-color:#307054;">{{MAGIC_LINK}}</a>
+          </p>
+        </td></tr>
+        
+
+        <!-- Divider -->
+        <tr><td style="padding:18px 0 0 0;">
+          <hr style="border:0; height:1px; background:#d7d7d7; color:#c0c0c0; margin:0;">
+        </td></tr>
+
+<!-- OTP ALTERNATIVE (subtle) -->
+<tr>
+  <td style="padding:16px 0 0 0;">
+    <p style="font-family:Helvetica, Arial, sans-serif; font-size:0.8em; color:#767676; margin:0 0 8px 0;">
+      Working from a different device? Use this one-time code instead:
+    </p>
+
+    <div style="text-align:center;">
+      <span style="font-family:'Courier New', Courier, monospace; font-size:20px; letter-spacing:0.18em; display:inline-block; padding:10px 14px;">
+        {{ OTP_CODE }}
+      </span>
+    </div>
+
+    <p style="margin:8px 0 0 0; font-size:0.75em; color:#767676; text-align:left;">
+      This code also expires in {{EXPIRY_MINUTES}} minutes. Don't share it with anyone.
+    </p>
+  </td>
+</tr>
+
+
+        <!-- Security note -->
+        <tr><td style="padding-top:16px;">
+          <p style="font-family:Helvetica, Arial, sans-serif; font-size:0.75em; color:#424242; margin:0;">
+            If you didn't request this, you can safely ignore this email. 
+          </p>
+        </td></tr>
+
+        <!-- FOOTER START -->
+        <tr><td style="padding-top:20px;">
+          <hr style="border:0; height:1px; background:#d7d7d7; color:#c0c0c0; margin:0">
+          <p style="font-family:Helvetica, Arial, sans-serif; font-size:0.625em; color:#424242; margin:12px 0 0 0;">
+            Copyright © @{outputs('Compose_current_year')} BIOTech Futures, NSW 2006 Australia.
+            Please add <a style="color:#307054; text-underline-color:#307054;" href="mailto:biotech.futures@sydney.edu.au">biotech.futures@sydney.edu.au</a> to your address book or safe senders list to ensure you continue to receive service emails.
+            <a style="color:#307054; text-underline-color:#307054;" href="https://www.biotechfutures.org/">BIOTech Futures</a>
+          </p>
+        </td></tr>
+        <!-- FOOTER END -->
+
+      </table>
+    </div>
+    <!--[if mso]></td></tr></table><![endif]-->
+  </div>
