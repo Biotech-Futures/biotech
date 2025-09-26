@@ -7,7 +7,7 @@ from rest_framework import serializers, generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile
+from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, RelationshipType, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates
 from .serializers import UserSerializer, UserStatusPatchSerializer
@@ -122,7 +122,7 @@ class UserRegisterView(APIView):
         user.last_name = databody["Surname"]
 
         country, created = Countries.objects.get_or_create(country_name=databody["Country"])
-        print(country)
+        
         if databody["Country"] == "Australia":
             user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Region"])
             if databody["Region"] == "NSW":
@@ -158,15 +158,34 @@ class UserRegisterView(APIView):
         sup_role = get_object_or_404(Roles, pk=2)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
         
+        #relationshiptype check
+        if databody["SupervisorEmail"] == databody["GuardianEmail"]:
+            rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Guardian")
+            pgflag = True
+        else:
+            rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Supervisor")
+            pgflag = False
+
+        #supervisorprofile creation
+        supprof, supprof_created = SupervisorProfile.objects.get_or_create(user=sup, school_name=databody["SchoolName"])
+
         #studentprofile creation
         sp = StudentProfile.objects.create(
             user=user,
             pg_first_name=databody["GuardianName"],
             pg_last_name=databody["GuardianSurname"],
-            supervisor=SupervisorProfile.objects.get_or_create(user=sup, school_name=databody["SchoolName"])[0],
+            parent_guardian_flag=pgflag,
+            supervisor=supprof,
             interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
             school_name=databody["SchoolName"],
             year_lvl=databody["YearLevel"]
+        )
+
+        #studentsupervisor creation
+        ss = StudentSupervisor.objects.create(
+            student_user=sp,
+            supervisor_user=supprof,
+            relationship_type=rel
         )
 
         #interest
