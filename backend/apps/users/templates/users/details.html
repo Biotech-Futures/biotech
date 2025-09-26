@@ -1,0 +1,9 @@
+<h1>Search Specific UID</h1>
+{% if current_role_id == 4 %}
+{{ first_name }}  {{ last_name }} | status:{{ status }} | email:{{ email }} | track:{{ track }} | state:{{ state }} | role:{{ current_role_name }}
+| parent: {{ pg_firstname }} {{ pg_lastname }} | year: {{ year_lvl }} | school: {{ school_name }} 
+| join permission: {{ join_perm }}
+{% else %}
+{{ first_name }}  {{ last_name }} | status:{{ status }} | email:{{ email }} | track:{{ track }} | state:{{ state }} | role:{{ current_role_name }}
+| institution: {{ ment_inst }} | background: {{ ment_bg }} | reason: {{ ment_reason }}
+{% endif %}
