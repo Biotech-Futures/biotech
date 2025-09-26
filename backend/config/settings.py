@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'emailing',
+    'matching',
     # our apps
     'apps.users',
     'apps.groups',
@@ -49,6 +51,8 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.services', #remove if buggy. 
+    'apps.'
+
     # third-party apps
     'drf_spectacular',
     'rest_framework',
