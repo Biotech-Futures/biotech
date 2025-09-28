@@ -14,6 +14,8 @@ class Groups(models.Model):
     group_name = models.CharField(max_length=255)
     track = models.ForeignKey('Tracks', on_delete=models.PROTECT) # Protect to prevent deletion when referenced track is gone 
     # I thought this might be good just in case tracks are deleted but groups should persist in the instance tracks are moved or removed
+    cohort_year = models.IntegerField(blank=False, null=False, default=lambda: timezone.now().year, db_index=True, help_text="Group Cohort Year (e.g. 2025)")
+    # cohort field created for yearly group cycles
     creation_datetime = models.DateTimeField(default=timezone.now) # Default to current time on creation
     deleted_flag = models.BooleanField(default=False) # Default to False for better data integrity
     deleted_datetime = models.DateTimeField(null=True, blank=True) # Allow null/blank for groups that aren't deleted
