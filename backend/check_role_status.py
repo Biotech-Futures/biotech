@@ -54,8 +54,21 @@ def check_user_roles(user_id):
     """Check all role information for a user"""
     try:
         user = User.objects.get(id=user_id)
+        #================DISPLAY ROLE INFORMATION================
         print(f"\n=== ROLE STATUS FOR USER {user_id} ({user.email}) ===")
-        
+
+        #================DISPLAY USER INFORMATION, ONLY FOR DEBUGGING PURPOSES================
+        print(f"\n=== ROLE STATUS FOR USER {user_id} ===")
+        print(f"Email: {user.email}")
+        print(f"First Name: {user.first_name}")
+        print(f"Last Name: {user.last_name}")
+        print(f"Username: {user.username}")
+        print(f"Is Staff: {user.is_staff}")
+        print(f"Is Active: {user.is_active}")
+        print(f"Date Joined: {user.date_joined}")
+        print(f"Last Login: {user.last_login}")
+        #================DISPLAY USER INFORMATION, ONLY FOR DEBUGGING PURPOSES================
+
         # 1. Current Django Groups (active permissions)
         print(f"\n1. CURRENT DJANGO GROUPS (Active Permissions):")
         groups = user.groups.all()

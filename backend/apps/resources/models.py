@@ -24,7 +24,7 @@ class ResourceRoles(models.Model):
         return f"{self.resource} -> {self.role}"
 
 class Resources(models.Model):
-    resource_name = models.CharField(max_length=255, blank=True, null=True)
+    resource_name = models.CharField(max_length=255)
     resource_description = models.CharField(max_length=255)
     upload_datetime = models.DateTimeField(default=timezone.now)
     uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)

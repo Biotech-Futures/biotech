@@ -87,18 +87,20 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
 
 class ResourcesSerializer(serializers.ModelSerializer):
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
+
+    # Users can only see input: user ID
     uploader_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
         source='uploader_user_id',
         write_only=True,
-        required=False
+        required=True #Set to Required field
     )
     
     # Role visibility fields
-    visible_roles = RoleSerializer(source='resource_roles', many=True, read_only=True)
+    visible_roles = serializers.SerializerMethodField()
     role_ids = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Roles.objects.all()),
-        write_only=True,
+        write_only=True, 
         required=False,
         help_text="List of role IDs that can access this resource"
     )
@@ -110,12 +112,12 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'resource_name', 
             'resource_description', 
             'upload_datetime', 
-            'uploader', 
-            'uploader_id',
+            'uploader',  # read-only field for display
+            'uploader_id',  # write-only field for input
             'deleted_flag', 
             'deleted_datetime',
-            'visible_roles',
-            'role_ids'
+            'visible_roles', ##Custom Field (to be used for appending ResourceRoles data) 
+            'role_ids' ##Custom Field (to be used for appending ResourceRoles data) 
         ]
         read_only_fields = ['id', 'upload_datetime', 'deleted_datetime']
 
@@ -126,20 +128,44 @@ class ResourcesSerializer(serializers.ModelSerializer):
         return value.strip()
 
     def validate_resource_name(self, value):
-        """Clean and validate resource name"""
-        if value:
-            return value.strip()
-        return value
+        """Clean and validate resource name - cannot be null or empty"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Resource name cannot be empty.")
+        
+        cleaned_name = value.strip()
+        
+        # Check for duplicate resource names (excluding deleted resources)
+        existing_resources = Resources.objects.filter(
+            resource_name__iexact=cleaned_name,
+            deleted_flag=False
+        )
+        
+        # If updating, exclude current instance from duplicate check
+        if self.instance:
+            existing_resources = existing_resources.exclude(id=self.instance.id)
+        
+        if existing_resources.exists():
+            raise serializers.ValidationError(
+                f"A resource with the name '{cleaned_name}' already exists. Please choose a different name."
+            )
+        
+        return cleaned_name
 
     def validate_role_ids(self, value):
         """Validate that role_ids are not empty if provided"""
         if value is not None and len(value) == 0:
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
+    
+    def get_visible_roles(self, obj):
+        """Get the roles that can access this resource"""
+        from .models import ResourceRoles
+        resource_roles = ResourceRoles.objects.filter(resource=obj).select_related('role')
+        return RoleSerializer([rr.role for rr in resource_roles], many=True).data
 
     def create(self, validated_data):
-        """Create resource and assign roles"""
-        role_ids = validated_data.pop('role_ids', [])
+        """Create resource and specify roles for visibility (ResourceRoles)"""
+        role_ids = validated_data.pop('role_ids', []) 
         
         # Set uploader to current user if not specified
         if 'uploader_user_id' not in validated_data:
@@ -147,7 +173,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
         
         resource = super().create(validated_data)
         
-        # Assign roles to resource
+        # Assign roles to resource (ResourceRoles)
         for role_id in role_ids:
             ResourceRoles.objects.create(resource=resource, role=role_id)
         
@@ -172,7 +198,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
-    visible_roles = RoleSerializer(source='resource_roles', many=True, read_only=True)
+    visible_roles = RoleSerializer(source='resourceroles_set__role', many=True, read_only=True)
     
     class Meta:
         model = Resources

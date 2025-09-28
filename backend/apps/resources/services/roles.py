@@ -14,27 +14,67 @@ def _ensure_group(role_name: str) -> Group:
   return Group.objects.get_or_create(name=role_name)[0]
 
 @transaction.atomic
-def grant_role(user, role: Roles, start=None):
+def grant_role(user, role: Roles, start=None, revoke_others=True):
   """
-  closes off an existing role and adds a new one to history, then adds to group
+  Grants a role to a user, optionally revoking other active roles.
+  
   Args:
     user (User): the user to grant the role
     role (Roles): the role object in our business domain
     start (dateTime): the start of the new role. defaults to Now
+    revoke_others (bool): if True, revokes all other active roles. if False, allows multiple roles.
   Returns:
-    None
+    dict: Information about what was done
   """
   start = start or timezone.now()
+  
+  # Get current active roles before changes
+  current_active_roles = RoleAssignmentHistory.objects.filter(
+      user=user, 
+      valid_to__isnull=True
+  ).values_list('role__role_name', flat=True)
+  
+  result = {
+      'granted_role': role.role_name,
+      'revoked_roles': [],
+      'had_existing': len(current_active_roles) > 0
+  }
 
-  # if there an a same role, close open interval
-  RoleAssignmentHistory.objects.filter(user=user, role=role, valid_to__isnull=True).update(valid_to=start)
+  if revoke_others:
+    # Revoke ALL other active roles (not just the same role)
+    active_assignments = RoleAssignmentHistory.objects.filter(
+        user=user, 
+        valid_to__isnull=True
+    ).exclude(role=role)
+    
+    for assignment in active_assignments:
+        result['revoked_roles'].append(assignment.role.role_name)
+        # Close the role assignment
+        assignment.valid_to = start
+        assignment.save()
+        
+        # Remove from Django groups
+        try:
+            group = Group.objects.get(name=assignment.role.role_name)
+            user.groups.remove(group)
+        except Group.DoesNotExist:
+            pass
+  else:
+    # Only close the same role if it exists
+    RoleAssignmentHistory.objects.filter(
+        user=user, 
+        role=role, 
+        valid_to__isnull=True
+    ).update(valid_to=start)
 
-  # then open a new role interval for tracking
+  # Create new role assignment
   RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=start)
   
-  # finally get or create and add to django perm group.
+  # Add to Django group
   group = _ensure_group(role.role_name)
   user.groups.add(group)
+  
+  return result
 
 
 @transaction.atomic
