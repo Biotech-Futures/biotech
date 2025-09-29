@@ -171,10 +171,11 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                     )
             
             # Call the grant_role function
-            result = grant_role(user, role, start=start_date, revoke_others=revoke_others)
+            result = grant_role(user, role, start=start_date, revoke_others=revoke_others, force=force)
             
             response_data = {
-                "message": f"Role '{role.role_name}' granted to user '{user.email}'",
+                "message": result.get('message', f"Role '{role.role_name}' granted to user '{user.email}'"),
+                "action_taken": result.get('action_taken'),
                 "details": {
                     "user_id": user.id,
                     "role_id": role.id,
@@ -182,13 +183,17 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                     "user_groups": list(user.groups.values_list('name', flat=True)),
                     "granted_role": result['granted_role'],
                     "revoked_roles": result['revoked_roles'],
-                    "had_existing_roles": result['had_existing']
+                    "had_existing_roles": result['had_existing'],
+                    "duplicate_role": result.get('duplicate_role', False)
                 }
             }
             
             # Add warning if roles were revoked
             if result['revoked_roles']:
                 response_data["warning"] = f"Revoked existing roles: {', '.join(result['revoked_roles'])}"
+            
+            if result.get('duplicate_role') and not force:
+                response_data["info"] = "User already had this role - extended the duration instead of creating duplicate"
             
             return Response(response_data, status=status.HTTP_200_OK)
             
@@ -278,6 +283,24 @@ class ResourcesPagination(pagination.PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
     max_page_size = 100
+    
+    def get_page_size(self, request):
+        """Override to add debugging and ensure page_size works"""
+        if self.page_size_query_param:
+            # Handle both Django and DRF requests
+            if hasattr(request, 'query_params'):
+                page_size = request.query_params.get(self.page_size_query_param)
+            else:
+                page_size = request.GET.get(self.page_size_query_param)
+            
+            if page_size is not None:
+                try:
+                    page_size = int(page_size)
+                    if page_size > 0:
+                        return min(page_size, self.max_page_size)
+                except (KeyError, ValueError):
+                    pass
+        return self.page_size
 
 class ResourcesViewSet(mixins.ListModelMixin,
                       mixins.RetrieveModelMixin,
@@ -387,7 +410,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
-        """Set uploader to current user"""
+        """Automatically set uploader to the authenticated user - users can only upload as themselves"""
         serializer.save(uploader_user_id=self.request.user)
 
     def retrieve(self, request, *args, **kwargs):

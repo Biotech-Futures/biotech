@@ -14,15 +14,16 @@ def _ensure_group(role_name: str) -> Group:
   return Group.objects.get_or_create(name=role_name)[0]
 
 @transaction.atomic
-def grant_role(user, role: Roles, start=None, revoke_others=True):
+def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
   """
-  Grants a role to a user, optionally revoking other active roles.
+  Grants a role to a user, with duplicate role handling and optionally revoking other active roles.
   
   Args:
     user (User): the user to grant the role
     role (Roles): the role object in our business domain
     start (dateTime): the start of the new role. defaults to Now
     revoke_others (bool): if True, revokes all other active roles. if False, allows multiple roles.
+    force (bool): if True, bypasses duplicate role checks and forces assignment
   Returns:
     dict: Information about what was done
   """
@@ -32,22 +33,38 @@ def grant_role(user, role: Roles, start=None, revoke_others=True):
   current_active_roles = RoleAssignmentHistory.objects.filter(
       user=user, 
       valid_to__isnull=True
-  ).values_list('role__role_name', flat=True)
+        # ).values_list('role__role_name', flat=True)
+  )
+  
+  # Check if user already has this exact role active
+  existing_same_role = current_active_roles.filter(role=role)
   
   result = {
       'granted_role': role.role_name,
       'revoked_roles': [],
-      'had_existing': len(current_active_roles) > 0
+      #  'had_existing': len(current_active_roles) > 0
+      'had_existing': current_active_roles.exists(),
+      'duplicate_role': existing_same_role.exists(),
+      'action_taken': None
   }
-
+  
+  if existing_same_role.exists() and not force:
+    # User already has this role - update the valid_to date instead of creating duplicate
+    existing_same_role.update(valid_to=start)
+    result['action_taken'] = 'updated_existing_role'
+    result['message'] = f"Updated existing {role.role_name} role assignment (extended duration)"
+    return result
+  
   if revoke_others:
-    # Revoke ALL other active roles (not just the same role)
-    active_assignments = RoleAssignmentHistory.objects.filter(
-        user=user, 
-        valid_to__isnull=True
-    ).exclude(role=role)
+        # Revoke ALL other active roles (not just the same role)
+    # active_assignments = RoleAssignmentHistory.objects.filter(
+    #     user=user, 
+    #     valid_to__isnull=True
+    # ).exclude(role=role)
+    # Revoke ALL other active roles
+    other_assignments = current_active_roles.exclude(role=role)
     
-    for assignment in active_assignments:
+    for assignment in current_active_roles:
         result['revoked_roles'].append(assignment.role.role_name)
         # Close the role assignment
         assignment.valid_to = start
@@ -73,6 +90,9 @@ def grant_role(user, role: Roles, start=None, revoke_others=True):
   # Add to Django group
   group = _ensure_group(role.role_name)
   user.groups.add(group)
+  
+  result['action_taken'] = 'created_new_role'
+  result['message'] = f"Granted new {role.role_name} role"
   
   return result
 

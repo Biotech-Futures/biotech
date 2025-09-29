@@ -88,13 +88,13 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
 class ResourcesSerializer(serializers.ModelSerializer):
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
 
-    # Users can only see input: user ID
-    uploader_id = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(),
-        source='uploader_user_id',
-        write_only=True,
-        required=True #Set to Required field
-    )
+    # uploader_id is automatically set to the authenticated user - no need for input field    # Users can only see input: user ID
+    # uploader_id = serializers.PrimaryKeyRelatedField(
+    #     queryset=User.objects.all(),
+    #     source='uploader_user_id',
+    #     write_only=True,
+    #     required=True #Set to Required field
+    # )
     
     # Role visibility fields
     visible_roles = serializers.SerializerMethodField()
@@ -112,8 +112,9 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'resource_name', 
             'resource_description', 
             'upload_datetime', 
-            'uploader',  # read-only field for display
-            'uploader_id',  # write-only field for input
+            # 'uploader',  # read-only field for display
+            # 'uploader_id',  # write-only field for input
+            'uploader',  # read-only field for display (automatically set)
             'deleted_flag', 
             'deleted_datetime',
             'visible_roles', ##Custom Field (to be used for appending ResourceRoles data) 
@@ -157,6 +158,12 @@ class ResourcesSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
     
+    # uploader_id validation removed - it's automatically set to authenticated user
+        # def validate_uploader_id(self, value):
+        # """Validate that uploader_id is provided and not empty"""
+        # if value is None:
+        #     raise serializers.ValidationError("Uploader ID is required and cannot be empty.")
+        # return value
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
         from .models import ResourceRoles
@@ -167,9 +174,9 @@ class ResourcesSerializer(serializers.ModelSerializer):
         """Create resource and specify roles for visibility (ResourceRoles)"""
         role_ids = validated_data.pop('role_ids', []) 
         
-        # Set uploader to current user if not specified
-        if 'uploader_user_id' not in validated_data:
-            validated_data['uploader_user_id'] = self.context['request'].user
+        # uploader_user_id is automatically set by perform_create in the viewset        # Set uploader to current user if not specified
+        # if 'uploader_user_id' not in validated_data:
+        #     validated_data['uploader_user_id'] = self.context['request'].user
         
         resource = super().create(validated_data)
         

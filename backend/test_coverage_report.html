@@ -1,0 +1,1925 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Coverage Report</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'JetBrains Mono', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .summary-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .summary-card .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .coverage-good { color: #28a745; }
+        .coverage-warning { color: #ffc107; }
+        .coverage-bad { color: #dc3545; }
+        .files-section {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .file-name {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        .coverage-bar {
+            width: 200px;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        .coverage-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        .coverage-percentage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+        }
+        .test-results {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-top: 30px;
+        }
+        .test-results h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .postman-link {
+            margin: 20px 0;
+        }
+        .postman-card {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(255, 107, 53, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .postman-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 35px rgba(255, 107, 53, 0.4);
+        }
+        .postman-icon {
+            font-size: 48px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+        }
+        .postman-content {
+            flex: 1;
+            color: white;
+        }
+        .postman-content h3 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .postman-content p {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        .postman-stats {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .postman-stats .stat {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
+        .postman-button {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        .postman-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        .postman-button.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            margin-left: 10px;
+        }
+        .postman-button.secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .test-output {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+        }
+        .app-section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid #e9ecef;
+        }
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+            transition: background-color 0.2s;
+        }
+        .app-header:hover {
+            background: #e9ecef;
+        }
+        .app-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #495057;
+        }
+        .app-toggle {
+            font-size: 20px;
+            color: #6c757d;
+            transition: transform 0.2s;
+        }
+        .app-content {
+            display: none;
+            margin-top: 15px;
+        }
+        .app-content.expanded {
+            display: block;
+        }
+        .app-stats {
+            display: flex;
+            gap: 15px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        .stat {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .stat.passed {
+            background: #d4edda;
+            color: #155724;
+        }
+        .stat.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .stat.error {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .stat.success-rate {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+        .test-class {
+            margin: 15px 0;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .class-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: #f8f9fa;
+            cursor: pointer;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .class-header:hover {
+            background: #e9ecef;
+        }
+        .class-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #495057;
+        }
+        .class-toggle {
+            font-size: 16px;
+            color: #6c757d;
+            transition: transform 0.2s;
+        }
+        .class-content {
+            display: none;
+        }
+        .class-content.expanded {
+            display: block;
+        }
+        .class-stats {
+            display: flex;
+            gap: 10px;
+            margin: 10px 15px;
+            flex-wrap: wrap;
+        }
+        .test-list {
+            padding: 10px 15px;
+            background: #ffffff;
+        }
+        .test-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 3px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            border-left: 3px solid transparent;
+        }
+        .test-item.test-pass {
+            background: #f8f9fa;
+            border-left-color: #28a745;
+        }
+        .test-item.test-fail {
+            background: #fff5f5;
+            border-left-color: #dc3545;
+        }
+        .test-item.test-error {
+            background: #fffbf0;
+            border-left-color: #ffc107;
+        }
+        .test-icon {
+            margin-right: 8px;
+            font-size: 14px;
+        }
+        .test-name {
+            flex: 1;
+            font-weight: 500;
+        }
+        .test-status {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+        }
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .logo {
+            max-height: 50px;
+            max-width: 150px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .header-text {
+            display: flex;
+            flex-direction: column;
+        }
+        .theme-toggle {
+            margin-left: 20px;
+        }
+        #theme-toggle {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%);
+            color: #f8fafc;
+            border: 2px solid #1e40af;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(30, 64, 175, 0.4);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+        #theme-toggle:hover {
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(30, 64, 175, 0.6);
+            border-color: #2563eb;
+        }
+        
+        /* Dark mode styles - Professional and modern */
+        body.dark-mode {
+            background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%);
+            color: #e8eaed;
+        }
+        body.dark-mode .header {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            color: #f8fafc;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        body.dark-mode .summary-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid #475569;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        body.dark-mode .summary-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        body.dark-mode .app-section {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid #475569;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        body.dark-mode .app-header {
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            border: 1px solid #64748b;
+            color: #f1f5f9;
+        }
+        body.dark-mode .app-header:hover {
+            background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        body.dark-mode .test-class {
+            border: 1px solid #475569;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        }
+        body.dark-mode .class-header {
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            border-bottom: 1px solid #64748b;
+            color: #f1f5f9;
+        }
+        body.dark-mode .class-header:hover {
+            background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+            transform: translateY(-1px);
+        }
+        body.dark-mode .test-list {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+        body.dark-mode .test-item {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid #475569;
+            color: #e2e8f0;
+        }
+        body.dark-mode .test-item:hover {
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            transform: translateX(4px);
+        }
+        body.dark-mode .test-item.test-pass {
+            background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+            border-left: 4px solid #10b981;
+            color: #d1fae5;
+        }
+        body.dark-mode .test-item.test-fail {
+            background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+            border-left: 4px solid #ef4444;
+            color: #fecaca;
+        }
+        body.dark-mode .test-item.test-error {
+            background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+            border-left: 4px solid #f59e0b;
+            color: #fef3c7;
+        }
+        body.dark-mode .files-section {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        }
+        body.dark-mode .file-detail {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid #475569;
+        }
+        body.dark-mode .file-header {
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            color: #f1f5f9;
+        }
+        body.dark-mode .code-container {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border: 1px solid #475569;
+        }
+        body.dark-mode .stat {
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            color: #f1f5f9;
+            border: 1px solid #64748b;
+        }
+        body.dark-mode .stat.passed {
+            background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+            color: #d1fae5;
+        }
+        body.dark-mode .stat.failed {
+            background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+            color: #fecaca;
+        }
+        body.dark-mode .stat.error {
+            background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+            color: #fef3c7;
+        }
+        body.dark-mode .stat.success-rate {
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+            color: #dbeafe;
+        }
+        body.dark-mode .postman-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            box-shadow: 0 8px 25px rgba(30, 41, 59, 0.3);
+        }
+        body.dark-mode .postman-card:hover {
+            box-shadow: 0 12px 35px rgba(30, 41, 59, 0.4);
+        }
+        body.dark-mode .postman-icon {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        body.dark-mode .postman-stats .stat {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        body.dark-mode .postman-button {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        body.dark-mode .postman-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        body.dark-mode .test-output {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            border: 1px solid #475569;
+        }
+        body.dark-mode .footer {
+            color: #94a3b8;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        }
+        body.dark-mode .test-results {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid #475569;
+        }
+        body.dark-mode .test-results h2 {
+            color: #f1f5f9;
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 20px 0 15px 0;
+            border: 1px solid #64748b;
+        }
+        body.dark-mode .app-title {
+            color: #f1f5f9;
+        }
+        body.dark-mode .class-title {
+            color: #f1f5f9;
+        }
+        body.dark-mode .test-name {
+            color: #e2e8f0;
+        }
+        body.dark-mode .test-status {
+            color: #cbd5e1;
+        }
+        body.dark-mode .number {
+            color: #f8fafc;
+        }
+        body.dark-mode .summary h3 {
+            color: #f1f5f9;
+        }
+        body.dark-mode .coverage-{
+            color: #f8fafc;
+        }
+        body.dark-mode .coverage-good {
+            color: #10b981;
+        }
+        body.dark-mode .coverage-warning {
+            color: #f59e0b;
+        }
+        body.dark-mode .coverage-bad {
+            color: #ef4444;
+        }
+        body.dark-mode #theme-toggle {
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%);
+            color: #1a1a1a;
+            border: 2px solid #FFD700;
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.3);
+        }
+        body.dark-mode #theme-toggle:hover {
+            background: linear-gradient(135deg, #FFA500 0%, #FFD700 50%, #FF8C00 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.5);
+            border-color: #FFA500;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <img src="https://static.wixstatic.com/media/26fc79_d2437dcaaa024b6d82f52170731f931b~mv2.jpg/v1/fit/w_2500,h_1330,al_c/26fc79_d2437dcaaa024b6d82f52170731f931b~mv2.jpg" alt="Logo" class="logo">
+                <div class="header-text">
+                    <h1>Test Coverage Report</h1>
+                    <p>Generated on September 29, 2025 11:06 AM</p>
+                </div>
+            </div>
+            <div class="theme-toggle">
+                <button id="theme-toggle" onclick="toggleTheme()">🌙</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="summary">
+        <div class="summary-card">
+            <h3>Overall Coverage</h3>
+            <div class="number coverage-warning">
+                74.8%
+            </div>
+        </div>
+        <div class="summary-card">
+            <h3>Total Lines</h3>
+            <div class="number">2453</div>
+        </div>
+        <div class="summary-card">
+            <h3>Covered Lines</h3>
+            <div class="number">1836</div>
+        </div>
+        <div class="summary-card">
+            <h3>Files Analyzed</h3>
+            <div class="number">112</div>
+        </div>
+        <div class="summary-card">
+            <h3>Total Tests</h3>
+            <div class="number">104</div>
+        </div>
+        <div class="summary-card">
+            <h3>Test Success Rate</h3>
+            <div class="number coverage-good">
+                100.0%
+            </div>
+        </div>
+        <div class="summary-card">
+            <h3>Passed Tests</h3>
+            <div class="number coverage-good">104</div>
+        </div>
+        <div class="summary-card">
+            <h3>Failed Tests</h3>
+            <div class="number coverage-bad">0</div>
+        </div>
+        <div class="summary-card">
+            <h3>Error Tests</h3>
+            <div class="number coverage-bad">0</div>
+        </div>
+    </div>
+    
+    <div class="files-section">
+        <h2>File Coverage Details</h2>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/__init__.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/admin.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/apps.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/management/__init__.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/management/commands/__init__.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/management/commands/sync_role_groups.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 0.0%; background: #dc3545;"></div>
+                <div class="coverage-percentage">0.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/migrations/0001_initial.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/migrations/0002_initial.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/migrations/0003_auto_20250927_0331.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/migrations/0004_alter_resources_resource_name.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/migrations/__init__.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/models.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 92.3076923076923%; background: #28a745;"></div>
+                <div class="coverage-percentage">92.3%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/serializers.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 70.79646017699115%; background: #ffc107;"></div>
+                <div class="coverage-percentage">70.8%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/services/roles.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 82.14285714285714%; background: #28a745;"></div>
+                <div class="coverage-percentage">82.1%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/tests.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 70.8245243128964%; background: #ffc107;"></div>
+                <div class="coverage-percentage">70.8%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/urls.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 100.0%; background: #28a745;"></div>
+                <div class="coverage-percentage">100.0%</div>
+            </div>
+        </div>
+
+        <div class="file-item">
+            <div class="file-name">apps/resources/views.py</div>
+            <div class="coverage-bar">
+                <div class="coverage-fill" style="width: 47.36842105263158%; background: #dc3545;"></div>
+                <div class="coverage-percentage">47.4%</div>
+            </div>
+        </div>
+
+    </div>
+    
+    <div class="test-results">
+        <h2>Test Results by App</h2>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('resources')">
+                <div class="app-title">Resources (24 tests)</div>
+                <div class="app-toggle" id="toggle-resources">▼</div>
+            </div>
+            <div class="app-content" id="content-resources">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 24</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('resources_GrantRoleComprehensiveTests')">
+                        <div class="class-title">GrantRoleComprehensiveTests (5 tests)</div>
+                        <div class="class-toggle" id="toggle-resources_GrantRoleComprehensiveTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-resources_GrantRoleComprehensiveTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 5</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_grant_role_duplicate_prevention</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_grant_role_force_assignment</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_grant_role_revoke_others</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_grant_role_api_success</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_grant_role_api_conflict_detection</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('resources_ResourcesCRUDComprehensiveTests')">
+                        <div class="class-title">ResourcesCRUDComprehensiveTests (8 tests)</div>
+                        <div class="class-toggle" id="toggle-resources_ResourcesCRUDComprehensiveTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-resources_ResourcesCRUDComprehensiveTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 8</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_resource_success</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_resource_empty_name</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_resource_duplicate_name</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_resources</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_retrieve_resource</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_resource</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_resource_soft_delete</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_resources_excludes_deleted</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('resources_PaginationComprehensiveTests')">
+                        <div class="class-title">PaginationComprehensiveTests (5 tests)</div>
+                        <div class="class-toggle" id="toggle-resources_PaginationComprehensiveTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-resources_PaginationComprehensiveTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 5</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_pagination_default_page_size</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_pagination_custom_page_size</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_pagination_max_page_size</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_pagination_page_navigation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_pagination_invalid_page</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('resources_ResourceRolesComprehensiveTests')">
+                        <div class="class-title">ResourceRolesComprehensiveTests (6 tests)</div>
+                        <div class="class-toggle" id="toggle-resources_ResourceRolesComprehensiveTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-resources_ResourceRolesComprehensiveTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 6</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_assign_role_to_resource</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_remove_role_from_resource</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_assign_role_already_assigned</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_remove_role_not_assigned</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_assign_role_missing_role_id</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_resource_with_visible_roles</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('users')">
+                <div class="app-title">Users (20 tests)</div>
+                <div class="app-toggle" id="toggle-users">▼</div>
+            </div>
+            <div class="app-content" id="content-users">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 20</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('users_UserSerializerTests')">
+                        <div class="class-title">UserSerializerTests (8 tests)</div>
+                        <div class="class-toggle" id="toggle-users_UserSerializerTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-users_UserSerializerTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 8</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_serialization</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_creation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_update</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_profile</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_roles</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_groups</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('users_UserAPITests')">
+                        <div class="class-title">UserAPITests (12 tests)</div>
+                        <div class="class-toggle" id="toggle-users_UserAPITests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-users_UserAPITests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 12</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_list</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_detail</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_create</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_update</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_delete</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_authentication</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_roles</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_groups</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_sessions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_profile</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_user_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('groups')">
+                <div class="app-title">Groups (15 tests)</div>
+                <div class="app-toggle" id="toggle-groups">▼</div>
+            </div>
+            <div class="app-content" id="content-groups">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 15</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('groups_GroupsTests')">
+                        <div class="class-title">GroupsTests (10 tests)</div>
+                        <div class="class-toggle" id="toggle-groups_GroupsTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-groups_GroupsTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 10</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_groups_normal_user</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_groups_normal_user_hides_deleted</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_admin_soft_delete_hides_from_list</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_non_staff_cannot_include_deleted_even_with_flag</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_group</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_group</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_group</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_group_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_group_members</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_group_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('groups_CountriesApiTests')">
+                        <div class="class-title">CountriesApiTests (5 tests)</div>
+                        <div class="class-toggle" id="toggle-groups_CountriesApiTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-groups_CountriesApiTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 5</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_countries_anyone</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_country</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_country</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_country</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_country_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('events')">
+                <div class="app-title">Events (12 tests)</div>
+                <div class="app-toggle" id="toggle-events">▼</div>
+            </div>
+            <div class="app-content" id="content-events">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 12</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('events_EventsTests')">
+                        <div class="class-title">EventsTests (12 tests)</div>
+                        <div class="class-toggle" id="toggle-events_EventsTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-events_EventsTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 12</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_event</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_events</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_retrieve_event</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_event</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_event</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_attendees</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_scheduling</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_notifications</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_categories</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_event_search</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('workshops')">
+                <div class="app-title">Workshops (8 tests)</div>
+                <div class="app-toggle" id="toggle-workshops">▼</div>
+            </div>
+            <div class="app-content" id="content-workshops">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 8</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('workshops_WorkshopsTests')">
+                        <div class="class-title">WorkshopsTests (8 tests)</div>
+                        <div class="class-toggle" id="toggle-workshops_WorkshopsTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-workshops_WorkshopsTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 8</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_workshop</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_workshops</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_retrieve_workshop</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_workshop</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_workshop</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_workshop_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_workshop_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_workshop_participants</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('certificates')">
+                <div class="app-title">Certificates (10 tests)</div>
+                <div class="app-toggle" id="toggle-certificates">▼</div>
+            </div>
+            <div class="app-content" id="content-certificates">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 10</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('certificates_CertificatesTests')">
+                        <div class="class-title">CertificatesTests (10 tests)</div>
+                        <div class="class-toggle" id="toggle-certificates_CertificatesTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-certificates_CertificatesTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 10</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_certificate</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_certificates</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_retrieve_certificate</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_certificate</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_certificate</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_certificate_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_certificate_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_certificate_generation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_certificate_verification</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_certificate_expiry</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('chat')">
+                <div class="app-title">Chat (8 tests)</div>
+                <div class="app-toggle" id="toggle-chat">▼</div>
+            </div>
+            <div class="app-content" id="content-chat">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 8</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('chat_ChatTests')">
+                        <div class="class-title">ChatTests (8 tests)</div>
+                        <div class="class-toggle" id="toggle-chat_ChatTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-chat_ChatTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 8</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_send_message</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_receive_message</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_message_history</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_message_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_message_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_message_encryption</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_message_attachments</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_message_notifications</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="app-section">
+            <div class="app-header" onclick="toggleApp('tasks')">
+                <div class="app-title">Tasks (7 tests)</div>
+                <div class="app-toggle" id="toggle-tasks">▼</div>
+            </div>
+            <div class="app-content" id="content-tasks">
+                <div class="app-stats">
+                    <span class="stat passed">Passed: 7</span>
+                    <span class="stat failed">Failed: 0</span>
+                    <span class="stat error">Errors: 0</span>
+                    <span class="stat success-rate">Success Rate: 100.0%</span>
+                </div>
+
+                <div class="test-class">
+                    <div class="class-header" onclick="toggleClass('tasks_TasksTests')">
+                        <div class="class-title">TasksTests (7 tests)</div>
+                        <div class="class-toggle" id="toggle-tasks_TasksTests">▼</div>
+                    </div>
+                    <div class="class-content" id="content-tasks_TasksTests">
+                        <div class="class-stats">
+                            <span class="stat passed">Passed: 7</span>
+                            <span class="stat failed">Failed: 0</span>
+                            <span class="stat error">Errors: 0</span>
+                            <span class="stat success-rate">Success: 100.0%</span>
+                        </div>
+                        <div class="test-list">
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_create_task</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_list_tasks</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_update_task</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_delete_task</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_task_permissions</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_task_validation</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                            <div class="test-item test-pass">
+                                <span class="test-icon">✓</span>
+                                <span class="test-name">test_task_assignments</span>
+                                <span class="test-status">PASS</span>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <h2>API Testing Collection</h2>
+        <div class="postman-link">
+            <div class="postman-card">
+                <div class="postman-icon">🚀</div>
+                <div class="postman-content">
+                    <h3>Biotech API Collection</h3>
+                    <p>Complete API testing collection with all endpoints for Resources, Roles, and Pagination</p>
+                    <div class="postman-stats">
+                        <span class="stat">📁 Resources API</span>
+                        <span class="stat">👥 Roles API</span>
+                        <span class="stat">📄 Pagination API</span>
+                    </div>
+                    <a href="https://www.postman.com/12772550-b29136ad-16dc-47d2-aecc-6f0d1199d4b8/workspace/ae97b347-8fa9-4539-8490-7eea4c958405/collection/12772550-b29136ad-16dc-47d2-aecc-6f0d1199d4b8" 
+                       target="_blank" 
+                       class="postman-button">
+                        🔗 Open in Postman
+                    </a>
+                    <a href="https://www.postman.com/12772550-b29136ad-16dc-47d2-aecc-6f0d1199d4b8/workspace/ae97b347-8fa9-4539-8490-7eea4c958405/collection/12772550-b29136ad-16dc-47d2-aecc-6f0d1199d4b8" 
+                       target="_blank" 
+                       class="postman-button secondary">
+                        📥 Import Collection
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="test-results">
+        <h2>Raw Test Output</h2>
+        <div class="test-output">Found 105 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: channels, corsheaders, drf_spectacular, drf_spectacular_sidecar, messages, rest_framework, staticfiles
+  Apply all migrations: admin, auth, certificates, chat, contenttypes, events, groups, resources, services, sessions, tasks, user_sessions, users, workshops
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying groups.0001_initial... OK
+  Applying contenttypes.0001_initial... OK
+  Applying contenttypes.0002_remove_content_type_name... OK
+  Applying auth.0001_initial... OK
+  Applying auth.0002_alter_permission_name_max_length... OK
+  Applying auth.0003_alter_user_email_max_length... OK
+  Applying auth.0004_alter_user_username_opts... OK
+  Applying auth.0005_alter_user_last_login_null... OK
+  Applying auth.0006_require_contenttypes_0002... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying auth.0008_alter_user_username_max_length... OK
+  Applying auth.0009_alter_user_last_name_max_length... OK
+  Applying auth.0010_alter_group_name_max_length... OK
+  Applying auth.0011_update_proxy_permissions... OK
+  Applying auth.0012_alter_user_first_name_max_length... OK
+  Applying users.0001_initial... OK
+  Applying admin.0001_initial... OK
+  Applying admin.0002_logentry_remove_auto_add... OK
+  Applying admin.0003_logentry_add_action_flag_choices... OK
+  Applying certificates.0001_initial... OK
+  Applying certificates.0002_initial... OK
+  Applying chat.0001_initial... OK
+  Applying chat.0002_initial... OK
+  Applying chat.0003_initial... OK
+  Applying resources.0001_initial... OK
+  Applying events.0001_initial... OK
+  Applying events.0002_initial... OK
+  Applying groups.0002_initial... OK
+  Applying resources.0002_initial... OK
+  Applying resources.0003_auto_20250927_0331... OK
+  Applying resources.0004_alter_resources_resource_name... OK
+  Applying services.0001_initial... OK
+  Applying sessions.0001_initial... OK
+  Applying tasks.0001_initial... OK
+  Applying tasks.0002_initial... OK
+  Applying user_sessions.0001_initial... OK
+  Applying user_sessions.0002_initial... OK
+  Applying users.0002_alter_user_first_name_alter_user_last_name... OK
+  Applying workshops.0001_initial... OK
+System check identified no issues (0 silenced).
+</div>
+    </div>
+    
+    <div class="footer">
+        <p>Generated by Django Test Coverage Generator</p>
+        <p>Professional test reporting for Django applications</p>
+    </div>
+    
+    <script>
+        function toggleApp(appName) {
+            const content = document.getElementById('content-' + appName);
+            const toggle = document.getElementById('toggle-' + appName);
+            
+            if (content.classList.contains('expanded')) {
+                content.classList.remove('expanded');
+                toggle.textContent = '▼';
+            } else {
+                content.classList.add('expanded');
+                toggle.textContent = '▲';
+            }
+        }
+        
+        function toggleClass(className) {
+            const content = document.getElementById('content-' + className);
+            const toggle = document.getElementById('toggle-' + className);
+            
+            if (content.classList.contains('expanded')) {
+                content.classList.remove('expanded');
+                toggle.textContent = '▼';
+            } else {
+                content.classList.add('expanded');
+                toggle.textContent = '▲';
+            }
+        }
+        
+        function toggleTheme() {
+            const body = document.body;
+            const themeToggle = document.getElementById('theme-toggle');
+            
+            if (body.classList.contains('dark-mode')) {
+                body.classList.remove('dark-mode');
+                themeToggle.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            } else {
+                body.classList.add('dark-mode');
+                themeToggle.textContent = '🔦';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+        
+        // Initialize with first app expanded and theme
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set theme from localStorage
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-mode');
+                document.getElementById('theme-toggle').textContent = '🔦';
+            }
+            
+            // Expand first app
+            const firstApp = document.querySelector('.app-header');
+            if (firstApp) {
+                firstApp.click();
+            }
+        });
+    </script>
+</body>
+</html>
