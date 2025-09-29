@@ -8,8 +8,7 @@ class Groups(models.Model):
     group_number = models.CharField(max_length=50, # to hold something that comes from qualtrics like R_49n3r8XlHkOmYKJ_1
                                            unique=True, 
                                            null=False, 
-                                           blank=False,
-                                           db_index=True
+                                           blank=False
                                            )
     group_name = models.CharField(max_length=255)
     track = models.ForeignKey('Tracks', on_delete=models.PROTECT) # Protect to prevent deletion when referenced track is gone 
@@ -23,9 +22,8 @@ class Groups(models.Model):
     class Meta:
         db_table = 'groups'
         indexes = [
-        models.Index(fields=['track']),
-        models.Index(fields=['deleted_flag']),
         models.Index(fields=['creation_datetime']),
+        models.Index(fields=['track', 'cohort_year'])
         ]
 
         constraints = [
@@ -37,10 +35,12 @@ class Groups(models.Model):
                 ),
                 name='group_deleted_flag_datetime_consistent',
             ),
-            # Ensure group names are unique within the same track
+            # Ensure group names are unique within the same track, cohort and check if deleted (e.g. if active)
+            # means a new group can take the same name as a deleted one
             models.UniqueConstraint(
-                fields=['track', 'group_name'],
-                name='unique_group_name_per_track'
+                fields=['track', 'group_name', 'cohort_year'],
+                condition=Q(deleted_flag=False),
+                name='unique_ACTIVE_group_name_per_track_cohort'
             ),
             # Ensure deleted_datetime is after creation_datetime if set
             models.CheckConstraint(
