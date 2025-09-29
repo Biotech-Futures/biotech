@@ -3,6 +3,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q, F
 from django.utils import timezone
+from django.core.validators import RegexValidator
 
 class Groups(models.Model):
     group_number = models.CharField(max_length=50, # to hold something that comes from qualtrics like R_49n3r8XlHkOmYKJ_1
@@ -10,7 +11,10 @@ class Groups(models.Model):
                                            null=False, 
                                            blank=False
                                            )
-    group_name = models.CharField(max_length=255)
+    group_name = models.CharField(blank=False, null=False, max_length=255, 
+                                  validators=[RegexValidator(r'^[A-Za-z0-9 _-]+$', 'Only letters, numbers, spaces, underscores, and hyphens allowed.')], 
+                                  error_messages={'blank': 'Group name cannot be blank.'},
+                                  help_text="Name of Group (must not be empty)")
     track = models.ForeignKey('Tracks', on_delete=models.PROTECT) # Protect to prevent deletion when referenced track is gone 
     # I thought this might be good just in case tracks are deleted but groups should persist in the instance tracks are moved or removed
     cohort_year = models.IntegerField(blank=False, null=False, default=lambda: timezone.now().year, db_index=True, help_text="Group Cohort Year (e.g. 2025)")
