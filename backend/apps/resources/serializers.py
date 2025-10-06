@@ -205,7 +205,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
-    visible_roles = RoleSerializer(source='resourceroles_set__role', many=True, read_only=True)
+    visible_roles = serializers.SerializerMethodField()
     
     class Meta:
         model = Resources
@@ -217,3 +217,14 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'uploader',
             'visible_roles'
         ]
+    
+    def get_visible_roles(self, obj):
+        """Get the roles that can access this resource"""
+        # Use prefetched data if available
+        if hasattr(obj, '_prefetched_objects_cache') and 'resourceroles' in obj._prefetched_objects_cache:
+            resource_roles = obj.resourceroles.all()
+            return RoleSerializer([rr.role for rr in resource_roles], many=True).data
+        # Otherwise query directly
+        from .models import ResourceRoles
+        resource_roles = ResourceRoles.objects.filter(resource=obj).select_related('role')
+        return RoleSerializer([rr.role for rr in resource_roles], many=True).data

@@ -441,6 +441,9 @@ class GrantRoleComprehensiveTests(TestCase):
         self.teacher_role = Roles.objects.create(
             role_name='Teacher',
         )
+        self.basic_user_role = Roles.objects.create(
+            role_name='basic_user',
+        )
         
         # Authenticate as admin
         self.client.force_authenticate(user=self.admin_user)

@@ -6,7 +6,7 @@ from django.db.models import Q, F
 from django.utils import timezone
 
 class ResourceRoles(models.Model):
-    resource = models.ForeignKey('Resources', on_delete=models.CASCADE) # changed to regular FK, as one to one would force limit a resource to one role only
+    resource = models.ForeignKey('Resources', on_delete=models.CASCADE, related_name='resourceroles') # changed to regular FK, as one to one would force limit a resource to one role only
     role = models.ForeignKey('Roles', on_delete=models.CASCADE)
 
     class Meta:

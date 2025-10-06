@@ -338,14 +338,15 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Base queryset - only non-deleted resources
         queryset = Resources.objects.filter(
             deleted_flag=False
-        ).select_related('uploader_user_id').prefetch_related('resourceroles_set__role') # Resources → ResourceRoles → Roles
+        ).select_related('uploader_user_id').prefetch_related('resourceroles__role') # Resources → ResourceRoles → Roles
         
-        # Filter by user's role access
-        if not user.is_staff:
+        # Only apply role-based filtering for list actions
+        # For retrieve/detail actions, we handle permissions in the retrieve() method
+        if self.action == 'list' and not user.is_staff:
             # Regular users can only see resources they uploaded or resources visible to their roles
             queryset = queryset.filter(
                 Q(uploader_user_id=user) |  # Resources they uploaded
-                Q(resourceroles_set__role__in=user_roles)  # Resources visible to their roles
+                Q(resourceroles__role__in=user_roles)  # Resources visible to their roles
             ).distinct()
         
         # Apply filters
@@ -418,9 +419,13 @@ class ResourcesViewSet(mixins.ListModelMixin,
         instance = self.get_object()
         
         # Check if user has access to this resource
-        if not self._user_can_access_resource(request.user, instance):
+        can_access, reason = self._user_can_access_resource(request.user, instance)
+        if not can_access:
             return Response(
-                {"detail": "You don't have permission to access this resource."},
+                {
+                    "error": "Permission denied",
+                    "detail": reason
+                },
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -428,20 +433,53 @@ class ResourcesViewSet(mixins.ListModelMixin,
         return Response(serializer.data)
 
     def _user_can_access_resource(self, user, resource):
-        """Check if user can access a specific resource"""
+        """
+        Check if user can access a specific resource.
+        Returns (bool, str): (can_access, reason_message)
+        """
         # Admins can access everything
         if user.is_staff:
-            return True
+            return True, "Admin access granted"
         
         # Users can access resources they uploaded
         if resource.uploader_user_id == user:
-            return True
+            return True, "Access granted as uploader"
         
         # Check if user has any of the required roles
         user_roles = self._get_user_roles(user)
-        resource_roles = resource.resource_roles.values_list('role', flat=True)
         
-        return any(role in resource_roles for role in user_roles)
+        # Get resource roles using the correct field name
+        from apps.resources.models import ResourceRoles
+        resource_role_objects = ResourceRoles.objects.filter(resource=resource).select_related('role')
+        resource_roles = [rr.role for rr in resource_role_objects]
+        resource_role_names = [rr.role_name for rr in resource_roles]
+        
+        # Check if user has any matching role
+        user_role_objects = list(user_roles)
+        has_access = any(role in [rr.id for rr in resource_roles] for role in user_role_objects)
+        
+        if has_access:
+            return True, "Access granted based on user role"
+        
+        # No access - provide detailed reason
+        if not resource_role_names:
+            reason = "This resource has no role restrictions, but you are not the uploader."
+        else:
+            # Get user's role names for the error message
+            from apps.resources.models import RoleAssignmentHistory
+            now = timezone.now()
+            user_role_names = list(RoleAssignmentHistory.objects.filter(
+                user=user,
+                valid_from__lte=now,
+                valid_to__isnull=True
+            ).values_list('role__role_name', flat=True))
+            
+            reason = (
+                f"This resource is restricted to users with the following role(s): {', '.join(resource_role_names)}. "
+                f"Your current role(s): {', '.join(user_role_names) if user_role_names else 'None'}."
+            )
+        
+        return False, reason
 
     def destroy(self, request, *args, **kwargs):
         """Soft delete resource"""
