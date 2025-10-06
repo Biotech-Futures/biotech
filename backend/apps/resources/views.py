@@ -30,13 +30,11 @@ from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from datetime import datetime
-# ================================Testing RevokeEndpoint (TO BE DELETED)==============================================
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from .services.roles import revoke_role, grant_role
 from django.contrib.auth import get_user_model
-# ================================Testing RevokeEndpoint (TO BE DELETED)==============================================
 
 class RoleViewSet(mixins.ListModelMixin,
                   mixins.RetrieveModelMixin,
