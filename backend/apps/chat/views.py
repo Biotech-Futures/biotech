@@ -7,12 +7,18 @@ from channels.layers import get_channel_layer
 
 from .models import Messages
 from .serializers import MessageSerializer
-from .permissions import IsGroupMemberOrStaff
+from .permissions import IsGroupMemberOrStaff,  CanModerateMessage
 
 
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrStaff]
+
+    # choose permissions per action
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [CanModerateMessage()]
+        return [IsGroupMemberOrStaff()]
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
@@ -21,6 +27,27 @@ class MessageViewSet(viewsets.ModelViewSet):
             .select_related("sender_user")
             .prefetch_related("resources__resource", "attachments")
         )
+    
+    # --- #106: DELETE /groups/{gid}/messages/{mid} (soft-delete + WS) ---
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()  # permission already checked on object
+        instance.deleted_flag = True
+        instance.save(update_fields=["deleted_flag"])
+
+        # broadcast deletion to group room
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"group_{instance.group_id}",
+            {
+                "type": "chat.message",
+                "payload": {
+                    "event": "message.deleted",
+                    "group_id": instance.group_id,
+                    "message_id": instance.id,
+                },
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # --- #105: GET /groups/{id}/messages?after={cursor}&limit={n} ---
     def list(self, request, *args, **kwargs):

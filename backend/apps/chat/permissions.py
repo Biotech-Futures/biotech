@@ -10,3 +10,22 @@ class IsGroupMemberOrStaff(BasePermission):
             return True
         gid = view.kwargs.get("group_pk")
         return GroupMembers.objects.filter(user=request.user, group_id=gid).exists()
+    
+
+class CanModerateMessage(BasePermission):
+    """
+    Allow delete if:
+    - user is staff, OR
+    - user is a mentor/admin in the message's group
+    """
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_staff:
+            return True
+        return GroupMembers.objects.filter(
+            user=user,
+            group=obj.group,
+            role__in=["mentor", "admin"],
+        ).exists()
