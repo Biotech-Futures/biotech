@@ -30,10 +30,11 @@ from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from datetime import datetime
+from django.core.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
-from .services.roles import revoke_role, grant_role
+from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 
 class RoleViewSet(mixins.ListModelMixin,
@@ -58,6 +59,28 @@ class RoleViewSet(mixins.ListModelMixin,
         if self.request.method in ("POST", "PATCH", "DELETE"):
             return [IsAdminUser()]
         return [IsAuthenticated()]
+
+    def create(self, request, *args, **kwargs):
+        """
+        Create a new role using the service layer.
+        This ensures both the Role and Django Group are created together.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            # Use service layer to create role (handles both Role and Group creation)
+            role = create_role(serializer.validated_data['role_name'])
+
+            # Return serialized response
+            response_serializer = self.get_serializer(role)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+        except ValidationError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                                   viewsets.ReadOnlyModelViewSet):

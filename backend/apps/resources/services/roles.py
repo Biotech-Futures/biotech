@@ -1,7 +1,11 @@
 from django.utils import timezone
 from django.contrib.auth.models import Group
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from apps.resources.models import Roles, RoleAssignmentHistory
+import logging
+
+logger = logging.getLogger(__name__)
 
 def _ensure_group(role_name: str) -> Group:
   """
@@ -12,6 +16,38 @@ def _ensure_group(role_name: str) -> Group:
     Group: The Django Group instance corresponding to the given role name.
   """
   return Group.objects.get_or_create(name=role_name)[0]
+
+@transaction.atomic
+def create_role(role_name: str) -> Roles:
+  """
+  Creates a new role and corresponding Django group.
+
+  Args:
+    role_name (str): Name of the role to create
+
+  Returns:
+    Roles: The created role instance
+
+  Raises:
+    ValidationError: If role already exists or name is invalid
+  """
+  # Validate role name
+  role_name = (role_name or "").strip()
+  if not role_name:
+    raise ValidationError("Role name cannot be empty.")
+
+  # Check if role already exists (case-insensitive)
+  if Roles.objects.filter(role_name__iexact=role_name).exists():
+    raise ValidationError(f"Role '{role_name}' already exists.")
+
+  # Create the role
+  role = Roles.objects.create(role_name=role_name)
+
+  # Create corresponding Django group for permissions
+  _ensure_group(role_name)
+
+  logger.info(f"Created new role: {role_name} (ID: {role.id})")
+  return role
 
 @transaction.atomic
 def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):

@@ -11,12 +11,14 @@ from rest_framework import status
 from django.apps import apps as dj_apps
 
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles
-from .services.roles import grant_role, revoke_role, ensure_user_has_role
+from .services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
+from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 
 # Create your tests here.
 class RolesApiTests(TestCase):
     def setUp(self):
-        self.client = APIClient()  ###ADDED THIS LINE         
+        self.client = APIClient()           
         User = get_user_model()
 
         # Auth user to hit endpoints guarded by IsAuthenticated
@@ -954,3 +956,316 @@ class ResourceRolesComprehensiveTests(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('role_id is required', response.data['error'])
+
+
+# Additional tests from the other branch, merged below
+
+class CreateRoleServiceTests(TestCase):
+    """Test the create_role service function"""
+
+    def test_create_role_success(self):
+        """Test successful role creation"""
+        role_name = "test_mentor"
+        role = create_role(role_name)
+
+        # Verify role was created
+        self.assertEqual(role.role_name, role_name)
+        self.assertTrue(Roles.objects.filter(role_name=role_name).exists())
+
+        # Verify Django group was created
+        self.assertTrue(Group.objects.filter(name=role_name).exists())
+
+    def test_create_role_empty_name_fails(self):
+        """Test that empty role name raises ValidationError"""
+        with self.assertRaises(ValidationError) as cm:
+            create_role("")
+        self.assertIn("Role name cannot be empty", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            create_role("   ")  # whitespace only
+        self.assertIn("Role name cannot be empty", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            create_role(None)
+        self.assertIn("Role name cannot be empty", str(cm.exception))
+
+    def test_create_role_duplicate_fails(self):
+        """Test that duplicate role name raises ValidationError"""
+        role_name = "duplicate_role"
+
+        # Create first role
+        create_role(role_name)
+
+        # Try to create duplicate (should fail)
+        with self.assertRaises(ValidationError) as cm:
+            create_role(role_name)
+        self.assertIn("already exists", str(cm.exception))
+
+    def test_create_role_case_insensitive_duplicate_fails(self):
+        """Test that case-insensitive duplicate role name raises ValidationError"""
+        # Create role with lowercase
+        create_role("mentor")
+
+        # Try to create with different case (should fail)
+        with self.assertRaises(ValidationError) as cm:
+            create_role("MENTOR")
+        self.assertIn("already exists", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            create_role("Mentor")
+        self.assertIn("already exists", str(cm.exception))
+
+    def test_create_role_strips_whitespace(self):
+        """Test that role name whitespace is stripped"""
+        role = create_role("  admin_role  ")
+        self.assertEqual(role.role_name, "admin_role")
+
+    def test_create_role_transaction_rollback_on_error(self):
+        """Test that transaction is rolled back if Django group creation fails"""
+        # This is harder to test directly, but we can verify state after error
+        role_name = "test_transaction"
+
+        # Create role successfully first
+        role = create_role(role_name)
+        initial_role_count = Roles.objects.count()
+        initial_group_count = Group.objects.count()
+
+        # Try to create duplicate (should fail and not increase counts)
+        with self.assertRaises(ValidationError):
+            create_role(role_name)
+
+        self.assertEqual(Roles.objects.count(), initial_role_count)
+        self.assertEqual(Group.objects.count(), initial_group_count)
+
+
+class CreateRoleAPITests(TestCase):
+    """Test the POST /api/v1/roles/ endpoint"""
+
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+
+        # Regular user (not admin)
+        self.user = User.objects.create_user(
+            email="user@test.com",
+            password="testpass123"
+        )
+
+        # Admin user
+        self.admin = User.objects.create_user(
+            email="admin@test.com",
+            password="adminpass123",
+            is_staff=True
+        )
+
+    def test_create_role_unauthenticated_fails(self):
+        """Test that unauthenticated requests are rejected"""
+        url = reverse("v1-roles-list")  # /resources/api/v1/roles/
+        data = {"role_name": "new_role"}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_role_non_admin_fails(self):
+        """Test that non-admin users cannot create roles"""
+        self.client.force_authenticate(user=self.user)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "new_role"}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_role_admin_success(self):
+        """Test successful role creation by admin"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "mentor"}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check response data
+        response_data = response.json()
+        self.assertEqual(response_data["role_name"], "mentor")
+        self.assertIn("id", response_data)
+
+        # Verify role was created in database
+        self.assertTrue(Roles.objects.filter(role_name="mentor").exists())
+
+        # Verify Django group was created
+        self.assertTrue(Group.objects.filter(name="mentor").exists())
+
+    def test_create_role_empty_name_fails(self):
+        """Test that empty role name is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        # Test empty string 
+        response = self.client.post(url, {"role_name": ""}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Serializer validation returns different format
+        response_data = response.json()
+        self.assertTrue("role_name" in response_data or "error" in response_data)
+
+        # Test whitespace only 
+        response = self.client.post(url, {"role_name": "   "}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_role_duplicate_fails(self):
+        """Test that duplicate role name is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "duplicate_test"}
+
+        # Create first role
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create duplicate 
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+
+        has_error = "role_name" in response_data or "error" in response_data
+        self.assertTrue(has_error)
+
+        # Check that the error mentions duplicates/exists
+        error_text = str(response_data).lower()
+        self.assertIn("already exists", error_text)
+
+    def test_create_role_case_insensitive_duplicate_fails(self):
+        """Test that case-insensitive duplicate is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        # Create role with lowercase
+        response = self.client.post(url, {"role_name": "admin"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create with uppercase - this triggers serializer validation
+        response = self.client.post(url, {"role_name": "ADMIN"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        # Could be either serializer format {"role_name": ["error message"]} or service format {"error": "message"}
+        has_error = "role_name" in response_data or "error" in response_data
+        self.assertTrue(has_error)
+
+        # Check that the error mentions duplicates/exists
+        error_text = str(response_data).lower()
+        self.assertIn("already exists", error_text)
+
+    def test_create_role_missing_role_name_fails(self):
+        """Test that missing role_name field is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        response = self.client.post(url, {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_role_whitespace_stripped(self):
+        """Test that role name whitespace is properly stripped"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "  student_mentor  "}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check that whitespace was stripped in response and database
+        self.assertEqual(response.json()["role_name"], "student_mentor")
+        role = Roles.objects.get(id=response.json()["id"])
+        self.assertEqual(role.role_name, "student_mentor")
+
+    def test_create_role_both_endpoints_work(self):
+        """Test that both original and v1 endpoints work"""
+        self.client.force_authenticate(user=self.admin)
+
+        # Test v1 endpoint
+        v1_url = reverse("v1-roles-list")  # /resources/api/v1/roles/
+        response = self.client.post(v1_url, {"role_name": "v1_role"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Test original endpoint
+        original_url = reverse("roles-list")  # /resources/roles/
+        response = self.client.post(original_url, {"role_name": "original_role"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify both roles exist
+        self.assertTrue(Roles.objects.filter(role_name="v1_role").exists())
+        self.assertTrue(Roles.objects.filter(role_name="original_role").exists())
+
+
+class CreateRoleIntegrationTests(TestCase):
+    """Integration tests for role creation with other systems"""
+
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+
+        self.admin = User.objects.create_user(
+            email="admin@test.com",
+            password="adminpass123",
+            is_staff=True
+        )
+
+    def test_created_role_can_be_assigned_to_user(self):
+        """Test that a newly created role can be assigned to users"""
+        # Create FK chain for Users
+        Countries = dj_apps.get_model('groups', 'Countries')
+        CountryStates = dj_apps.get_model('groups', 'CountryStates')
+        Tracks = dj_apps.get_model('groups', 'Tracks')
+        Users = dj_apps.get_model('users', 'User')
+
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="Data Science", state=state)
+
+        user = Users.objects.create(
+            first_name="Test",
+            last_name="User",
+            email="testuser@test.com",
+            track=track,
+            state=state
+        )
+
+        # Create role via API
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        response = self.client.post(url, {"role_name": "integration_mentor"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Get the created role
+        role = Roles.objects.get(role_name="integration_mentor")
+
+        # Assign role to user using service layer
+        grant_role(user, role)
+
+        # Verify user has the role
+        self.assertTrue(
+            RoleAssignmentHistory.objects.filter(
+                user=user,
+                role=role,
+                valid_to__isnull=True
+            ).exists()
+        )
+
+        # Verify user is in corresponding Django group
+        self.assertTrue(user.groups.filter(name="integration_mentor").exists())
+
+    def test_created_role_serializer_validation_still_works(self):
+        """Test that serializer validation still works after service layer integration"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        # Create role
+        response = self.client.post(url, {"role_name": "validation_test"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create role with same name (serializer should catch this)
+        response = self.client.post(url, {"role_name": "validation_test"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Check that error mentions duplicates/exists (format may vary)
+        response_data = response.json()
+        error_text = str(response_data).lower()
+        self.assertIn("already exists", error_text)

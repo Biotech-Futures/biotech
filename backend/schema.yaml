@@ -309,6 +309,147 @@ paths:
               schema:
                 $ref: '#/components/schemas/GroupMember'
           description: ''
+  /groups/groups/:
+    get:
+      operationId: groups_groups_list
+      tags:
+      - groups
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Group'
+          description: ''
+    post:
+      operationId: groups_groups_create
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Group'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Group'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Group'
+        required: true
+      security:
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+  /groups/groups/{id}/:
+    get:
+      operationId: groups_groups_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      tags:
+      - groups
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+    put:
+      operationId: groups_groups_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Group'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Group'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Group'
+        required: true
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+    patch:
+      operationId: groups_groups_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedGroup'
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+    delete:
+      operationId: groups_groups_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      tags:
+      - groups
+      security:
+      - basicAuth: []
+      responses:
+        '204':
+          description: No response body
   /groups/tracks/:
     get:
       operationId: groups_tracks_list
@@ -484,9 +625,146 @@ paths:
               schema:
                 $ref: '#/components/schemas/RoleAssignmentHistory'
           description: ''
+    put:
+      operationId: resources_role_assignments_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Role Assignment History.
+        required: true
+      tags:
+      - resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+        required: true
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAssignmentHistory'
+          description: ''
+    patch:
+      operationId: resources_role_assignments_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Role Assignment History.
+        required: true
+      tags:
+      - resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRoleAssignmentHistory'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRoleAssignmentHistory'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRoleAssignmentHistory'
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAssignmentHistory'
+          description: ''
+  /resources/role-assignments/grant_role/:
+    post:
+      operationId: resources_role_assignments_grant_role_create
+      description: |-
+        Test the grant_role function
+        POST /resources/role-assignments/grant_role/
+        Body: {
+            "user_id": 1,
+            "role_id": 2,
+            "start": "2024-01-01T10:30:00Z"  # optional
+        }
+      tags:
+      - resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+        required: true
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAssignmentHistory'
+          description: ''
+  /resources/role-assignments/revoke_role/:
+    post:
+      operationId: resources_role_assignments_revoke_role_create
+      description: |-
+        Test the revoke_django_role function
+        POST /resources/role-assignments/revoke_role/
+        Body: {
+            "user_id": 1,
+            "role_id": 2,
+            "end": "2024-06-30T10:30:00Z"  # optional
+        }
+      tags:
+      - resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentHistory'
+        required: true
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleAssignmentHistory'
+          description: ''
   /resources/roles/:
     get:
       operationId: resources_roles_list
+      description: |-
+        GET    /.../roles/           (list)
+        GET    /.../roles/{id}/      (retrieve)
+        POST   /.../roles/           (create)
+        PATCH  /.../roles/{id}/      (partial update)
+        DELETE /.../roles/{id}/      (destroy)
       tags:
       - resources
       security:
@@ -500,9 +778,46 @@ paths:
                 items:
                   $ref: '#/components/schemas/Role'
           description: ''
+    post:
+      operationId: resources_roles_create
+      description: |-
+        GET    /.../roles/           (list)
+        GET    /.../roles/{id}/      (retrieve)
+        POST   /.../roles/           (create)
+        PATCH  /.../roles/{id}/      (partial update)
+        DELETE /.../roles/{id}/      (destroy)
+      tags:
+      - resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Role'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Role'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Role'
+        required: true
+      security:
+      - basicAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+          description: ''
   /resources/roles/{id}/:
     get:
       operationId: resources_roles_retrieve
+      description: |-
+        GET    /.../roles/           (list)
+        GET    /.../roles/{id}/      (retrieve)
+        POST   /.../roles/           (create)
+        PATCH  /.../roles/{id}/      (partial update)
+        DELETE /.../roles/{id}/      (destroy)
       parameters:
       - in: path
         name: id
@@ -521,6 +836,86 @@ paths:
               schema:
                 $ref: '#/components/schemas/Role'
           description: ''
+    patch:
+      operationId: resources_roles_partial_update
+      description: |-
+        GET    /.../roles/           (list)
+        GET    /.../roles/{id}/      (retrieve)
+        POST   /.../roles/           (create)
+        PATCH  /.../roles/{id}/      (partial update)
+        DELETE /.../roles/{id}/      (destroy)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Role.
+        required: true
+      tags:
+      - resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedRole'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedRole'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedRole'
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+          description: ''
+    delete:
+      operationId: resources_roles_destroy
+      description: |-
+        GET    /.../roles/           (list)
+        GET    /.../roles/{id}/      (retrieve)
+        POST   /.../roles/           (create)
+        PATCH  /.../roles/{id}/      (partial update)
+        DELETE /.../roles/{id}/      (destroy)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Role.
+        required: true
+      tags:
+      - resources
+      security:
+      - basicAuth: []
+      responses:
+        '204':
+          description: No response body
+  /services/send-login-code/:
+    post:
+      operationId: services_send_login_code_create
+      tags:
+      - services
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /services/verify-login-code/:
+    post:
+      operationId: services_verify_login_code_create
+      tags:
+      - services
+      security:
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
   /users/api/v1/users/:
     get:
       operationId: users_api_v1_users_list
@@ -633,6 +1028,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
           description: ''
+  /users/api/v1/users/me:
+    get:
+      operationId: users_api_v1_users_me_retrieve
+      tags:
+      - users
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: users_api_v1_users_me_partial_update
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - basicAuth: []
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
 components:
   schemas:
     Country:
@@ -647,6 +1080,36 @@ components:
       required:
       - country_name
       - id
+    Group:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        group_name:
+          type: string
+          maxLength: 255
+        track:
+          type: integer
+        creation_datetime:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_flag:
+          type: boolean
+          readOnly: true
+        deleted_datetime:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - creation_datetime
+      - deleted_datetime
+      - deleted_flag
+      - group_name
+      - id
+      - track
     GroupMember:
       type: object
       properties:
@@ -693,6 +1156,29 @@ components:
         country_name:
           type: string
           maxLength: 255
+    PatchedGroup:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        group_name:
+          type: string
+          maxLength: 255
+        track:
+          type: integer
+        creation_datetime:
+          type: string
+          format: date-time
+          readOnly: true
+        deleted_flag:
+          type: boolean
+          readOnly: true
+        deleted_datetime:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
     PatchedGroupMember:
       type: object
       properties:
@@ -703,6 +1189,42 @@ components:
           type: integer
         user:
           type: integer
+    PatchedRole:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        role_name:
+          type: string
+          maxLength: 255
+    PatchedRoleAssignmentHistory:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          allOf:
+          - $ref: '#/components/schemas/User'
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/Role'
+          readOnly: true
+        role_id:
+          type: integer
+          writeOnly: true
+        valid_from:
+          type: string
+          format: date-time
+        valid_to:
+          type: string
+          format: date-time
+          nullable: true
+        is_active:
+          type: string
+          readOnly: true
     PatchedTrack:
       type: object
       properties:
@@ -744,6 +1266,30 @@ components:
         current_role_name:
           type: string
           readOnly: true
+        pg_firstname:
+          type: string
+          readOnly: true
+        pg_lastname:
+          type: string
+          readOnly: true
+        year_lvl:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        join_perm:
+          type: string
+          readOnly: true
+        ment_bg:
+          type: string
+          readOnly: true
+        ment_inst:
+          type: string
+          readOnly: true
+        ment_reason:
+          type: string
+          readOnly: true
     Role:
       type: object
       properties:
@@ -770,6 +1316,9 @@ components:
           allOf:
           - $ref: '#/components/schemas/Role'
           readOnly: true
+        role_id:
+          type: integer
+          writeOnly: true
         valid_from:
           type: string
           format: date-time
