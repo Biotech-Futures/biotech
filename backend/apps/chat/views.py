@@ -1,6 +1,5 @@
-from rest_framework import viewsets, permissions
-from .models import Messages
-from .serializers import MessageSerializer
+from django.db.models import Q
+from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework import status
 from asgiref.sync import async_to_sync
@@ -23,6 +22,37 @@ class MessageViewSet(viewsets.ModelViewSet):
             .prefetch_related("resources__resource", "attachments")
         )
 
+    # --- #105: GET /groups/{id}/messages?after={cursor}&limit={n} ---
+    def list(self, request, *args, **kwargs):
+        gid = self.kwargs.get("group_pk")
+        qs = self.get_queryset().order_by("-sent_datetime", "-id")
+
+        # cursor: items newer than this message id
+        after = request.query_params.get("after")
+        if after:
+            try:
+                pivot = Messages.objects.get(pk=int(after), group_id=gid)
+                qs = qs.filter(
+                    Q(sent_datetime__gt=pivot.sent_datetime) |
+                    Q(sent_datetime=pivot.sent_datetime, id__gt=pivot.id)
+                )
+            except (ValueError, Messages.DoesNotExist):
+                pass  # ignore bad cursor and return latest
+
+        # limit (default 50, max 100, min 1)
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        limit = 100 if limit > 100 else (1 if limit < 1 else limit)
+
+        items = list(qs[:limit])
+        data = self.get_serializer(items, many=True).data
+        next_after = items[0].id if items else None
+
+        return Response({"items": data, "next_after": next_after}, status=status.HTTP_200_OK)
+
+    # --- #104: POST /groups/{id}/messages ---
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
