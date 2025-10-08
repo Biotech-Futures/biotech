@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'emailing',
+    'matching',
     # our apps
     'apps.users',
     'apps.groups',
@@ -48,10 +50,13 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
+    'apps.services', #remove if buggy. 
+    'apps.'
+
     # third-party apps
     'drf_spectacular',
     'rest_framework',
-    'django_filters',
+    # 'django_filters',  # temporarily disabled
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
@@ -77,6 +82,7 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # Add CORS middleware for frontend communication
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -114,7 +120,6 @@ WSGI_APPLICATION = "config.wsgi.application"
 #         "NAME": BASE_DIR / "db.sqlite3",
 #     }
 # }
-
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -127,7 +132,6 @@ DATABASES = {
                     "connect_timeout": 5,
                     },
             "CONN_MAX_AGE": 0
-
     }
 }
 
@@ -161,6 +165,14 @@ USE_I18N = True
 
 USE_TZ = True
 
+# Email configuration for development
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
+EMAIL_PORT = 2525
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
+EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
@@ -171,3 +183,20 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# CORS settings for frontend communication
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Your frontend URL (Vite default)
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",  # Alternative frontend ports
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# Magic link redirect configuration
+MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click
+LOGIN_REDIRECT_URL = "http://localhost:5173/auth/callback"       # Alternative setting name
+
+#OTP things
+MAILTRAP_TOKEN = "94f919803239d1ca9274ca682a670eaa"
