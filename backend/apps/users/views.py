@@ -174,7 +174,7 @@ class UserRegisterView(APIView):
             user=user,
             pg_first_name=databody["GuardianName"],
             pg_last_name=databody["GuardianSurname"],
-            parent_guardian_flag=pgflag,
+            parent_guardian_flag=True,
             supervisor=supprof,
             interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
             school_name=databody["SchoolName"],
@@ -193,4 +193,24 @@ class UserRegisterView(APIView):
             interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
             user=user
         )
+        return Response(data["body"])
+    
+#issue 128
+class ReceiveJoinPermissionView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    @transaction.atomic
+    def post(self, request):
+        data = request.data
+        databody = data["body"]
+
+        #find the correct user
+        user = get_object_or_404(User, email=databody["Email"])
+        
+        sp = get_object_or_404(StudentProfile, user=user)
+
+        sp.has_join_permission = True
+        sp.joinperm_responseID = databody["ResponseID"]
+        sp.save()
+
         return Response(data["body"])
