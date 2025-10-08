@@ -87,8 +87,10 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
     serializer_class = RoleAssignmentHistorySerializer
 
     def get_permissions(self):
-        if self.request.method in ("PATCH",):
+        # Admin-only actions
+        if self.action in ('grant_role', 'revoke_role', 'partial_update'):
             return [permissions.IsAdminUser()]
+        # All other actions require authentication
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):

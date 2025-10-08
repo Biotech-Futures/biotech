@@ -100,7 +100,7 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
     # Revoke ALL other active roles
     other_assignments = current_active_roles.exclude(role=role)
     
-    for assignment in current_active_roles:
+    for assignment in other_assignments:
         result['revoked_roles'].append(assignment.role.role_name)
         # Close the role assignment
         assignment.valid_to = start

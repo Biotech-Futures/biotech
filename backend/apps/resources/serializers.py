@@ -86,16 +86,7 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
         return attrs
 
 class ResourcesSerializer(serializers.ModelSerializer):
-    uploader = UserSerializer(source='uploader_user_id', read_only=True)
-
-    # uploader_id is automatically set to the authenticated user - no need for input field    # Users can only see input: user ID
-    # uploader_id = serializers.PrimaryKeyRelatedField(
-    #     queryset=User.objects.all(),
-    #     source='uploader_user_id',
-    #     write_only=True,
-    #     required=True #Set to Required field
-    # )
-    
+    uploader = UserSerializer(source='uploader_user_id', read_only=True)    
     # Role visibility fields
     visible_roles = serializers.SerializerMethodField()
     role_ids = serializers.ListField(
@@ -157,13 +148,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
         if value is not None and len(value) == 0:
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
-    
-    # uploader_id validation removed - it's automatically set to authenticated user
-        # def validate_uploader_id(self, value):
-        # """Validate that uploader_id is provided and not empty"""
-        # if value is None:
-        #     raise serializers.ValidationError("Uploader ID is required and cannot be empty.")
-        # return value
+
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
         from .models import ResourceRoles
@@ -172,12 +157,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Create resource and specify roles for visibility (ResourceRoles)"""
-        role_ids = validated_data.pop('role_ids', []) 
-        
-        # uploader_user_id is automatically set by perform_create in the viewset        # Set uploader to current user if not specified
-        # if 'uploader_user_id' not in validated_data:
-        #     validated_data['uploader_user_id'] = self.context['request'].user
-        
+        role_ids = validated_data.pop('role_ids', [])         
         resource = super().create(validated_data)
         
         # Assign roles to resource (ResourceRoles)
