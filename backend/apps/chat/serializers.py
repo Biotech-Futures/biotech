@@ -44,7 +44,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "attachments",
             "resources",
         ]
-        read_only_fields = ["id", "sender_user", "sent_datetime"]
+        read_only_fields = ["id", "group", "sender_user", "sent_datetime"]
 
     def create(self, validated_data):
         resources_data = validated_data.pop("resources", [])
@@ -54,3 +54,12 @@ class MessageSerializer(serializers.ModelSerializer):
                 message=message, resource=r["resource"]
             )
         return message
+
+    def validate(self, attrs):
+        msg = attrs.get("message_text", "").strip()
+        resources_data = self.initial_data.get("resources", [])
+        if not msg and not resources_data:
+            raise serializers.ValidationError(
+                "Message must include text or at least one resource."
+            )
+        return attrs

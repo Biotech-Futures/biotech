@@ -171,6 +171,12 @@ EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
 EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
 
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
