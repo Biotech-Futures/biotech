@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'emailing',
+    'matching',
     # our apps
     'apps.users',
     'apps.groups',
@@ -48,7 +50,8 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
-    'apps.services', #remove if buggy. 
+    'apps.services', #remove if buggy.
+
     # third-party apps
     'drf_spectacular',
     'rest_framework',
@@ -119,21 +122,6 @@ WSGI_APPLICATION = "config.wsgi.application"
 #     "default": {
 #         "ENGINE": "django.db.backends.sqlite3",
 #         "NAME": BASE_DIR / "db.sqlite3",
-#     }
-# }
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "NAME": "appdb",
-#         "USER": "kosin",
-#         "PASSWORD": "t3$t1NG_postgresql_DB!",
-#         "HOST": 'azure-postgresql-db-trial.postgres.database.azure.com',
-#         "PORT": "5432",
-#         "OPTIONS": {"sslmode": "require",
-#                     "connect_timeout": 5,
-#                     },
-#             "CONN_MAX_AGE": 0
-
 #     }
 # }
 

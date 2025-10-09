@@ -1,0 +1,152 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block content %}
+  <div id="content-main">
+    <h1>{% trans "Send Email" %}</h1>
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+      <fieldset class="module aligned">
+        <div class="form-row" style="display:flex; gap:24px; align-items:flex-start;">
+          <div style="flex:1; min-width:0;">
+            {{ form.recipients.label_tag }}
+            {{ form.recipients }}
+            {% if form.recipients.help_text %}<p class="help">{{ form.recipients.help_text }}</p>{% endif %}
+            {% for e in form.recipients.errors %}<p class="errornote">{{ e }}</p>{% endfor %}
+          </div>
+          <div style="flex:1; min-width:0;">
+            <h3 style="margin:0 0 8px 0;">{% trans "Filters" %}</h3>
+            <div class="form-row">
+              {{ form.people_type.label_tag }}
+              {{ form.people_type }}
+            </div>
+            <div class="form-row">
+              {{ form.track.label_tag }}
+              <div style="display: flex; align-items: center; gap: 8px;">
+                {{ form.track }}
+                <button type="button" id="select-all-btn" class="button" style="margin-left: 8px;">Select</button>
+              </div>
+            </div>
+            <div class="form-row">
+              {{ form.selected_recipients.label_tag }}
+              <div id="filtered-results" style="max-height:280px; overflow:auto; border:1px solid #ddd; padding:8px;">
+                {{ form.selected_recipients }}
+              </div>
+              {% if form.selected_recipients.help_text %}<p class="help">{{ form.selected_recipients.help_text }}</p>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          {{ form.subject.label_tag }}
+          {{ form.subject }}
+          {% for e in form.subject.errors %}<p class="errornote">{{ e }}</p>{% endfor %}
+        </div>
+
+        <div class="form-row">
+          {{ form.body.label_tag }}
+          {{ form.body }}
+          {% for e in form.body.errors %}<p class="errornote">{{ e }}</p>{% endfor %}
+        </div>
+
+        
+
+        <div class="form-row">
+          <label>{% trans "Attachments" %}:</label>
+          <div id="attachments-controls">
+            <button type="button" class="button" id="add-file-btn">{% trans "Add file" %}</button>
+            <ul id="attachments-list" style="margin-top:8px;"></ul>
+          </div>
+          {% if form.attachments.help_text %}<p class="help">{{ form.attachments.help_text }}</p>{% endif %}
+          {% for e in form.attachments.errors %}<p class="errornote">{{ e }}</p>{% endfor %}
+        </div>
+      </fieldset>
+      <div class="submit-row">
+        <input type="submit" value="{% trans "Send" %}" class="default"/>
+      </div>
+    </form>
+  </div>
+  <!-- TinyMCE CDN integration, enhance Body as rich text editor -->
+  <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.3/tinymce.min.js" referrerpolicy="origin"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const textarea = document.querySelector('textarea[name="body"]');
+      if (textarea) {
+        tinymce.init({
+          target: textarea,
+          menubar: false,
+          height: 420,
+          plugins: 'lists link image table code emoticons',
+          toolbar: 'undo redo | blocks fontfamily fontsize | bold italic underline forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat | code',
+          branding: false,
+          convert_urls: false
+        });
+      }
+      // Multiple file selection: create a hidden file input on each click, add to list and keep the input
+      const addBtn = document.getElementById('add-file-btn');
+      const listEl = document.getElementById('attachments-list');
+      addBtn?.addEventListener('click', function () {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.name = 'attachments';
+        input.style.display = 'none';
+        input.addEventListener('change', function () {
+          if (input.files && input.files.length > 0) {
+            const file = input.files[0];
+            const li = document.createElement('li');
+            li.textContent = file.name;
+            // Add remove button
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '×';
+            removeBtn.style.marginLeft = '8px';
+            removeBtn.addEventListener('click', function () {
+              li.remove();
+              input.remove();
+            });
+            li.appendChild(removeBtn);
+            listEl.appendChild(li);
+            addBtn.closest('form').appendChild(input);
+          }
+        });
+        // Trigger file selection
+        input.click();
+      });
+
+      // Filter linkage: automatically submit and refresh candidates when people_type or track changes
+      const peopleSel = document.querySelector('select[name="people_type"]');
+      const trackSel = document.querySelector('select[name="track"]');
+      function submitToRefresh() {
+        const form = peopleSel.closest('form');
+        if (!form) return;
+        // Create a hidden field to indicate refresh only, not send
+        const refresh = document.createElement('input');
+        refresh.type = 'hidden';
+        refresh.name = '__refresh__';
+        refresh.value = '1';
+        form.appendChild(refresh);
+        form.submit();
+      }
+      peopleSel?.addEventListener('change', submitToRefresh);
+      trackSel?.addEventListener('change', submitToRefresh);
+
+      // Select all/deselect all functionality
+      const selectAllBtn = document.getElementById('select-all-btn');
+      const selectedRecipientsCheckboxes = document.querySelectorAll('input[name="selected_recipients"]');
+      
+      selectAllBtn?.addEventListener('click', function() {
+        const allChecked = Array.from(selectedRecipientsCheckboxes).every(checkbox => checkbox.checked);
+        
+        // If all are selected, deselect all; otherwise select all
+        selectedRecipientsCheckboxes.forEach(checkbox => {
+          checkbox.checked = !allChecked;
+        });
+        
+        // Update button text
+        selectAllBtn.textContent = allChecked ? 'Select' : 'Deselect';
+      });
+    });
+  </script>
+{% endblock %}
+
+
