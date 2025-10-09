@@ -116,6 +116,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 #         "NAME": BASE_DIR / "db.sqlite3",
 #     }
 # }
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -128,7 +129,6 @@ DATABASES = {
                     "connect_timeout": 5,
                     },
             "CONN_MAX_AGE": 0
-
     }
 }
 
