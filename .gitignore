@@ -47,3 +47,4 @@ media/
 staticfiles/
 /static/
 /media/
+test_coverage_report.html
