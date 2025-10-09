@@ -50,7 +50,9 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
-    'apps.services', #remove if buggy.
+    'apps.services', #remove if buggy. 
+    'apps.'
+
 
     # third-party apps
     'drf_spectacular',
