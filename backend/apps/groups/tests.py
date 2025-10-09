@@ -48,6 +48,9 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.normal_user)
         response = self.client.get(url)
         data = response.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
         self.assertIsInstance(data, list)
         self.assertTrue(any(row['id'] == self.group1.id for row in data))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -59,6 +62,9 @@ class GroupsTests(TestCase):
         response = self.client.get(url + "?include_deleted=true")
         data = response.json()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
         self.assertIsInstance(data, list)
         self.assertFalse(any(row['id'] == deleted_group.id for row in data))
         self.assertTrue(any(row['id'] == self.group1.id for row in data))
@@ -164,7 +170,11 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.normal_user)
         list_response = self.client.get(list_url)
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
-        ids = [row['id'] for row in list_response.json()]
+        data = list_response.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        ids = [row['id'] for row in data]
         self.assertNotIn(self.group1.id, ids)
 
         # should not pop up anymore
@@ -177,7 +187,11 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.normal_user)
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        ids = [row['id'] for row in resp.json()]
+        data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        ids = [row['id'] for row in data]
         self.assertNotIn(deleted.id, ids)
     
     def test_readonly_fields_ignored_on_update(self):
@@ -211,8 +225,12 @@ class CountriesApiTests(TestCase):
     def test_list_countries_anyone(self):
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
-        self.assertIn('Australia', [c['country_name'] for c in response.data])
+        data = response.data
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        self.assertEqual(len(data), 2)
+        self.assertIn('Australia', [c['country_name'] for c in data])
 
     def test_retrieve_country_anyone(self):
         url = reverse('countries-detail', args=[self.country1.id])
