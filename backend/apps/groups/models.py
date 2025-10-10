@@ -113,6 +113,7 @@ class Countries(models.Model):
 class CountryStates(models.Model):
     country = models.ForeignKey('Countries', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by country
     state_name = models.CharField(max_length=255)
+    state_name_SHORT_FORM = models.CharField(max_length=3, default="___")
 
     class Meta:
         db_table = 'country_states'

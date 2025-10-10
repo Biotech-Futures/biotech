@@ -11,8 +11,8 @@ class CountryStatesInline(admin.TabularInline):
 
 @admin.register(Countries)
 class CountryAdmin(admin.ModelAdmin):
-	list_display = ("id", "country_name")
-	search_fields = ("country_name",)
+	list_display = ("id", "country_name", "country_name_SHORT_FORM")
+	search_fields = ("country_name", "country_name_SHORT_FORM")
 	inlines = [CountryStatesInline]
 
 
