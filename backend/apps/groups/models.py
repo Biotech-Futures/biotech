@@ -98,11 +98,12 @@ class GroupMembers(models.Model):
 
 class Countries(models.Model):
     country_name = models.CharField(max_length=255)
+    country_name_SHORT_FORM = models.CharField(max_length=3, default="___")
 
     class Meta:
         db_table = 'countries'
         indexes = [
-            models.Index(fields=['country_name']),
+            models.Index(fields=['country_name'])
         ]
 
     def __str__(self):
