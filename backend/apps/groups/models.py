@@ -12,7 +12,8 @@ class Groups(models.Model):
     group_number = models.CharField(max_length=50, # to hold something that comes from qualtrics like R_49n3r8XlHkOmYKJ_1
                                            unique=True, 
                                            null=False, 
-                                           blank=False
+                                           blank=False,
+                                           default="UNSPECIFIED"
                                            )
     group_name = models.CharField(blank=False, null=False, max_length=255, 
                                   validators=[RegexValidator(r'^[A-Za-z0-9 _-]+$', 'Only letters, numbers, spaces, underscores, and hyphens allowed.')], 
