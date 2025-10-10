@@ -18,9 +18,9 @@ class CountryAdmin(admin.ModelAdmin):
 
 @admin.register(CountryStates)
 class CountryStateAdmin(admin.ModelAdmin):
-	list_display = ("id", "state_name", "country")
+	list_display = ("id", "state_name", "state_name_SHORT_FORM", "country")
 	list_filter = ("country__country_name",)
-	search_fields = ("state_name", "country__country_name")
+	search_fields = ("state_name", "country__country_name", "state_name_SHORT_FORM")
 
 
 class TrackAdminForm(forms.ModelForm):
