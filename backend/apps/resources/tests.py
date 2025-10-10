@@ -1,4 +1,6 @@
 from django.test import TestCase
+import logging
+
 
 from datetime import date, datetime
 from django.utils import timezone
@@ -8,14 +10,15 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from django.apps import apps as dj_apps
 
-from .models import Roles, RoleAssignmentHistory
+from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles
+from .services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
+from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 
 # Create your tests here.
-
-
 class RolesApiTests(TestCase):
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient()           
         User = get_user_model()
 
         # Auth user to hit endpoints guarded by IsAuthenticated
@@ -36,6 +39,9 @@ class RolesApiTests(TestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
         self.assertEqual(len(data), 2)
         self.assertEqual([r["role_name"] for r in data], ["admin", "viewer"])
 
@@ -106,12 +112,19 @@ class RoleAssignmentsApiTests(TestCase):
     def test_list_all(self):
         resp = self._get()
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(resp.json()), 3)
+        data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        self.assertEqual(len(data), 3)
 
     def test_filter_by_user(self):
         resp = self._get(user_id=self.u1.id)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
         self.assertEqual(len(data), 2)
         # all items belong to u1
         self.assertTrue(all(item["user"]["id"] == self.u1.id or item["user"] == self.u1.id for item in data))
@@ -120,6 +133,9 @@ class RoleAssignmentsApiTests(TestCase):
         resp = self._get(role_id=self.r_view.id)
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
         self.assertTrue(all(
             (item.get("role", {}).get("id") == self.r_view.id) or (item.get("role") == self.r_view.id)
             for item in data
@@ -129,24 +145,36 @@ class RoleAssignmentsApiTests(TestCase):
         # Window that overlaps a1 (ends 2025-06-30) and a2 (starts 2025-07-01) differently
         resp = self._get(valid_from="2025-06-15", valid_to="2025-07-15")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        ids = {row["id"] for row in resp.json()}
+        data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        ids = {row["id"] for row in data}
         # Overlap logic should include a1 (ends after 06-15) and a2 (starts before 07-15)
         self.assertIn(self.a1.id, ids)
         self.assertIn(self.a2.id, ids)
 
     def test_only_valid_from(self):
-        # “still valid on/after” 2025-07-01 should include a2 (open-ended) and exclude a1 (ended 2025-06-30)
+        # "still valid on/after" 2025-07-01 should include a2 (open-ended) and exclude a1 (ended 2025-06-30)
         resp = self._get(valid_from="2025-07-01")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        ids = {row["id"] for row in resp.json()}
+        data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        ids = {row["id"] for row in data}
         self.assertIn(self.a2.id, ids)
         self.assertNotIn(self.a1.id, ids)
 
     def test_only_valid_to(self):
-        # “started on/before” 2025-03-15 → includes a1 (from Jan) and a3 (from Mar 1), may exclude a2 (starts July)
+        # "started on/before" 2025-03-15 → includes a1 (from Jan) and a3 (from Mar 1), may exclude a2 (starts July)
         resp = self._get(valid_to="2025-03-15")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        ids = {row["id"] for row in resp.json()}
+        data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        ids = {row["id"] for row in data}
         self.assertIn(self.a1.id, ids)
         self.assertIn(self.a3.id, ids)
         self.assertNotIn(self.a2.id, ids)
@@ -155,13 +183,20 @@ class RoleAssignmentsApiTests(TestCase):
         # parse_date(None/invalid) yields None; our view skips date filters in that case
         resp = self._get(valid_from="not-a-date", valid_to="also-bad")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(resp.json()), 3)
+        data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
+        self.assertEqual(len(data), 3)
 
     def test_ordering_is_stable(self):
         # Expect ordering by user_id, role_id, valid_from (see view)
         resp = self._get()
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         data = resp.json()
+        # Handle paginated response
+        if isinstance(data, dict) and 'results' in data:
+            data = data['results']
         # Quick sanity: first element should be the smallest (user_id, role_id, valid_from)
         # Not strict equality check (since PKs depend on DB), but check monotonic non-decreasing triplets
         def key(row):
@@ -270,3 +305,967 @@ class RoleAssignmentPatchApiTests(TestCase):
         bad_dt = timezone.make_aware(datetime(2024, 12, 31))
         resp = self.client.patch(self._url(self.a.id), {"valid_to": bad_dt.isoformat()}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+
+    # ===============================REVOKE ROLES FUNCTIONS===============================
+
+class TestRevokeUserRole(TestCase):
+    def setUp(self):  # Changed from setup_users_and_roles
+        """Set up test data for revoke_user_role tests"""
+        # Create FK chain for Users
+        Countries = dj_apps.get_model('groups', 'Countries')
+        CountryStates = dj_apps.get_model('groups', 'CountryStates')
+        Tracks = dj_apps.get_model('groups', 'Tracks')
+        Users = dj_apps.get_model('users', 'User')
+
+        # Create required FK objects
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="Data Science", state=self.state)
+
+        # Create test user 
+        self.user = Users.objects.create(
+            first_name="John",
+            last_name="Doe",
+            email="user@test.com",
+            track=self.track,
+            state=self.state,
+        )
+
+        # Create test roles
+        self.student = Roles.objects.create(role_name="student")
+        self.mentor = Roles.objects.create(role_name="mentor")
+        self.basic = Roles.objects.create(role_name="basic_user")
+
+    def setup_users_and_roles(self, db):
+        # Users
+        self.user = User.objects.create(email="user@test.com", password="pw12345")
+        # Roles
+        self.student = Roles.objects.create(role_name="student")
+        self.mentor = Roles.objects.create(role_name="mentor")
+        self.basic = Roles.objects.create(role_name="basic_user")
+
+    def test_revoke_closes_history_and_removes_group(self):
+        grant_role(self.user, self.student)
+        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
+        assert self.user.groups.filter(name="student").exists()
+
+        revoke_role(self.user, self.student)
+
+        hist = RoleAssignmentHistory.objects.get(user=self.user, role=self.student)
+        assert hist.valid_to is not None
+        assert not self.user.groups.filter(name="student").exists()
+
+    def test_revoke_assigns_default_if_no_other_roles(self):
+        grant_role(self.user, self.student)
+        revoke_role(self.user, self.student)
+
+        # student role closed
+        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
+        # default role active
+        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
+        assert self.user.groups.filter(name="basic_user").exists()
+
+    def test_revoke_does_not_assign_default_if_other_active_roles(self):
+        grant_role(self.user, self.student)
+        grant_role(self.user, self.mentor)
+
+        revoke_role(self.user, self.student)
+
+        # mentor role still active
+        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.mentor, valid_to__isnull=True).exists()
+        # no basic_user assigned
+        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
+
+    def test_revoke_is_idempotent(self):
+        grant_role(self.user, self.student)
+        revoke_role(self.user, self.student)
+        # second revoke should not break anything
+        revoke_role(self.user, self.student)
+
+        hist = RoleAssignmentHistory.objects.get(user=self.user, role=self.student)
+        assert hist.valid_to is not None
+        assert not self.user.groups.filter(name="student").exists()
+
+    def test_revoke_backdated_end_date(self):
+        start_time = timezone.now()
+        grant_role(self.user, self.student, start=start_time)
+        backdated_end = start_time + timezone.timedelta(days=1)
+
+        revoke_role(self.user, self.student, end=backdated_end)
+
+        hist = RoleAssignmentHistory.objects.get(user=self.user, role=self.student)
+        assert hist.valid_to is not None
+        assert hist.valid_to >= backdated_end
+
+
+# =============================================================================
+# COMPREHENSIVE TEST SUITE FOR RESOURCES APP
+# =============================================================================
+# This section contains comprehensive tests for all major functionality:
+# 1. Grant Role with Duplicate Prevention
+# 2. Resources CRUD Operations
+# 3. Pagination Functionality
+# 4. Resource Roles Management
+# =============================================================================
+
+
+class GrantRoleComprehensiveTests(TestCase):
+    """Comprehensive tests for grant_role functionality with duplicate prevention"""
+    
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+        
+        # Create test users
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email='user@test.com',
+            password='testpass123',
+            first_name='Regular',
+            last_name='User'
+        )
+        
+        # Create test roles
+        self.supervisor_role = Roles.objects.create(
+            role_name='Supervisor',
+        )
+        self.student_role = Roles.objects.create(
+            role_name='Student',
+        )
+        self.teacher_role = Roles.objects.create(
+            role_name='Teacher',
+        )
+        self.basic_user_role = Roles.objects.create(
+            role_name='basic_user',
+        )
+        
+        # Authenticate as admin
+        self.client.force_authenticate(user=self.admin_user)
+    
+    def test_grant_role_duplicate_prevention(self):
+        """Test that duplicate roles are prevented and duration is extended"""
+        # First grant
+        result1 = grant_role(self.regular_user, self.supervisor_role, force=False)
+        self.assertEqual(result1['action_taken'], 'created_new_role')
+        
+        # Second grant of same role - should extend duration
+        result2 = grant_role(self.regular_user, self.supervisor_role, force=False)
+        self.assertEqual(result2['action_taken'], 'updated_existing_role')
+        self.assertTrue(result2['duplicate_role'])
+        self.assertIn('extended duration', result2['message'])
+    
+    def test_grant_role_force_assignment(self):
+        """Test force assignment creates new role even if duplicate"""
+        # First grant
+        grant_role(self.regular_user, self.supervisor_role)
+        
+        # Force grant of same role
+        result = grant_role(self.regular_user, self.supervisor_role, force=True)
+        self.assertEqual(result['action_taken'], 'created_new_role')
+        self.assertTrue(result['duplicate_role'])
+    
+    def test_grant_role_revoke_others(self):
+        """Test that other roles are revoked when revoke_others=True"""
+        # Grant first role
+        grant_role(self.regular_user, self.supervisor_role, revoke_others=False)
+        
+        # Grant second role with revoke_others=True
+        result = grant_role(self.regular_user, self.student_role, revoke_others=True)
+        self.assertEqual(result['action_taken'], 'created_new_role')
+        self.assertIn('Supervisor', result['revoked_roles'])
+        
+        # Verify only student role is active
+        active_roles = RoleAssignmentHistory.objects.filter(
+            user=self.regular_user,
+            valid_to__isnull=True
+        ).values_list('role__role_name', flat=True)
+        self.assertEqual(list(active_roles), ['Student'])
+    
+    def test_grant_role_api_success(self):
+        """Test successful role granting via API"""
+        url = reverse('role-assignments-grant-role')
+        data = {
+            'user_id': self.regular_user.id,
+            'role_id': self.supervisor_role.id,
+            'revoke_others': True
+        }
+        
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('message', response.data)
+        self.assertEqual(response.data['action_taken'], 'created_new_role')
+    
+    def test_grant_role_api_conflict_detection(self):
+        """Test conflict detection via API"""
+        # Grant first role
+        grant_role(self.regular_user, self.supervisor_role, revoke_others=False)
+        
+        # Try to grant different role without revoking others
+        url = reverse('role-assignments-grant-role')
+        data = {
+            'user_id': self.regular_user.id,
+            'role_id': self.student_role.id,
+            'revoke_others': False,
+            'force': False
+        }
+        
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn('existing_roles', response.data)
+
+
+class ResourcesCRUDComprehensiveTests(TestCase):
+    """Comprehensive tests for Resources CRUD operations"""
+    
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+        
+        # Create test users
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email='user@test.com',
+            password='testpass123',
+            first_name='Regular',
+            last_name='User'
+        )
+        
+        # Create test roles
+        self.supervisor_role = Roles.objects.create(
+            role_name='Supervisor',
+        )
+        self.student_role = Roles.objects.create(
+            role_name='Student',
+        )
+        
+        # Authenticate as admin
+        self.client.force_authenticate(user=self.admin_user)
+    
+    def test_create_resource_success(self):
+        """Test successful resource creation"""
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': 'Test Resource',
+            'resource_description': 'A test resource',
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['resource_name'], 'Test Resource')
+        # The uploader should be the authenticated user (admin_user)
+        self.assertEqual(response.data['uploader']['email'], 'admin@test.com')
+        
+        # Verify resource was created in database
+        resource = Resources.objects.get(resource_name='Test Resource')
+        self.assertEqual(resource.uploader_user_id, self.admin_user)
+        self.assertEqual(resource.resource_description, 'A test resource')
+    
+    def test_create_resource_duplicate_name(self):
+        """Test error handling for duplicate resource names"""
+        # Create first resource
+        Resources.objects.create(
+            resource_name='Test Resource',
+            resource_description='First resource',
+            uploader_user_id=self.regular_user
+        )
+        
+        # Try to create second resource with same name
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': 'Test Resource',
+            'resource_description': 'Second resource',
+            'uploader_id': self.regular_user.id
+        }
+        
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('already exists', str(response.data))
+    
+    def test_create_resource_empty_name(self):
+        """Test error handling for empty resource name"""
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': '',
+            'resource_description': 'A test resource',
+            'uploader_id': self.regular_user.id
+        }
+        
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('blank', str(response.data))
+    
+    # test_create_resource_missing_uploader removed - uploader is now automatic
+    
+    def test_list_resources(self):
+        """Test resource listing"""
+        # Create test resources
+        resource1 = Resources.objects.create(
+            resource_name='Resource 1',
+            resource_description='First resource',
+            uploader_user_id=self.regular_user
+        )
+        resource2 = Resources.objects.create(
+            resource_name='Resource 2',
+            resource_description='Second resource',
+            uploader_user_id=self.admin_user
+        )
+        
+        url = reverse('resource-files-list')
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 2)
+        
+        # Check that resources are in response
+        resource_names = [r['resource_name'] for r in response.data['results']]
+        self.assertIn('Resource 1', resource_names)
+        self.assertIn('Resource 2', resource_names)
+    
+    def test_retrieve_resource(self):
+        """Test resource retrieval"""
+        resource = Resources.objects.create(
+            resource_name='Test Resource',
+            resource_description='A test resource',
+            uploader_user_id=self.regular_user
+        )
+        
+        url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['resource_name'], 'Test Resource')
+        self.assertEqual(response.data['uploader']['email'], 'user@test.com')
+    
+    def test_update_resource(self):
+        """Test resource update"""
+        resource = Resources.objects.create(
+            resource_name='Test Resource',
+            resource_description='A test resource',
+            uploader_user_id=self.regular_user
+        )
+        
+        url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        data = {
+            'resource_name': 'Updated Resource',
+            'resource_description': 'Updated description',
+            'uploader_id': self.regular_user.id
+        }
+        
+        response = self.client.patch(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['resource_name'], 'Updated Resource')
+        
+        # Verify update in database
+        resource.refresh_from_db()
+        self.assertEqual(resource.resource_name, 'Updated Resource')
+    
+    def test_delete_resource_soft_delete(self):
+        """Test resource soft delete"""
+        resource = Resources.objects.create(
+            resource_name='Test Resource',
+            resource_description='A test resource',
+            uploader_user_id=self.regular_user
+        )
+        
+        url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        response = self.client.delete(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        
+        # Verify soft delete
+        resource.refresh_from_db()
+        self.assertTrue(resource.deleted_flag)
+        self.assertIsNotNone(resource.deleted_datetime)
+    
+    def test_list_resources_excludes_deleted(self):
+        """Test that deleted resources are excluded from listing"""
+        # Create active resource
+        Resources.objects.create(
+            resource_name='Active Resource',
+            resource_description='Active resource',
+            uploader_user_id=self.regular_user
+        )
+        
+        # Create and delete resource
+        deleted_resource = Resources.objects.create(
+            resource_name='Deleted Resource',
+            resource_description='Deleted resource',
+            uploader_user_id=self.regular_user
+        )
+        deleted_resource.deleted_flag = True
+        deleted_resource.deleted_datetime = timezone.now()
+        deleted_resource.save()
+        
+        url = reverse('resource-files-list')
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        self.assertEqual(response.data['results'][0]['resource_name'], 'Active Resource')
+
+
+class PaginationComprehensiveTests(TestCase):
+    """Comprehensive tests for pagination functionality"""
+    
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+        
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+        
+        # Create multiple resources for pagination testing
+        for i in range(25):
+            Resources.objects.create(
+                resource_name=f'Resource {i+1}',
+                resource_description=f'Description for resource {i+1}',
+                uploader_user_id=self.admin_user
+            )
+        
+        self.client.force_authenticate(user=self.admin_user)
+    
+    def test_pagination_default_page_size(self):
+        """Test default pagination behavior"""
+        url = reverse('resource-files-list')
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('count', response.data)
+        self.assertIn('next', response.data)
+        self.assertIn('previous', response.data)
+        self.assertIn('results', response.data)
+        
+        # Should have 20 items per page by default
+        self.assertEqual(len(response.data['results']), 20)
+        self.assertEqual(response.data['count'], 25)
+        self.assertIsNotNone(response.data['next'])
+        self.assertIsNone(response.data['previous'])
+    
+    def test_pagination_custom_page_size(self):
+        """Test custom page size"""
+        url = reverse('resource-files-list')
+        response = self.client.get(url, {'page_size': 5})
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 5)
+        self.assertEqual(response.data['count'], 25)
+        self.assertIsNotNone(response.data['next'])
+        self.assertIsNone(response.data['previous'])
+    
+    def test_pagination_page_navigation(self):
+        """Test page navigation"""
+        url = reverse('resource-files-list')
+        
+        # First page
+        response = self.client.get(url, {'page_size': 10, 'page': 1})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 10)
+        self.assertIsNotNone(response.data['next'])
+        self.assertIsNone(response.data['previous'])
+        
+        # Second page
+        response = self.client.get(url, {'page_size': 10, 'page': 2})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 10)
+        self.assertIsNotNone(response.data['next'])
+        self.assertIsNotNone(response.data['previous'])
+        
+        # Last page
+        response = self.client.get(url, {'page_size': 10, 'page': 3})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 5)
+        self.assertIsNone(response.data['next'])
+        self.assertIsNotNone(response.data['previous'])
+    
+    def test_pagination_max_page_size(self):
+        """Test max page size limit"""
+        url = reverse('resource-files-list')
+        response = self.client.get(url, {'page_size': 200})  # Exceeds max of 100
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 25)  # All items, but limited by max_page_size
+        self.assertEqual(response.data['count'], 25)
+    
+    def test_pagination_invalid_page(self):
+        """Test invalid page number"""
+        url = reverse('resource-files-list')
+        response = self.client.get(url, {'page': 999})
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ResourceRolesComprehensiveTests(TestCase):
+    """Comprehensive tests for ResourceRoles functionality"""
+    
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+        
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email='user@test.com',
+            password='testpass123',
+            first_name='Regular',
+            last_name='User'
+        )
+        
+        # Create test roles
+        self.supervisor_role = Roles.objects.create(
+            role_name='Supervisor',
+        )
+        self.student_role = Roles.objects.create(
+            role_name='Student',
+        )
+        self.teacher_role = Roles.objects.create(
+            role_name='Teacher',
+        )
+        
+        # Create test resource
+        self.resource = Resources.objects.create(
+            resource_name='Test Resource',
+            resource_description='A test resource',
+            uploader_user_id=self.regular_user
+        )
+        
+        self.client.force_authenticate(user=self.admin_user)
+    
+    def test_assign_role_to_resource(self):
+        """Test assigning a role to a resource"""
+        url = reverse('resource-files-assign-role', kwargs={'pk': self.resource.id})
+        data = {'role_id': self.supervisor_role.id}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('assigned to resource', response.data['message'])
+        
+        # Verify role was assigned
+        self.assertTrue(
+            ResourceRoles.objects.filter(
+                resource=self.resource,
+                role=self.supervisor_role
+            ).exists()
+        )
+    
+    def test_assign_role_already_assigned(self):
+        """Test error when role is already assigned"""
+        # First assignment
+        ResourceRoles.objects.create(resource=self.resource, role=self.supervisor_role)
+        
+        # Try to assign again
+        url = reverse('resource-files-assign-role', kwargs={'pk': self.resource.id})
+        data = {'role_id': self.supervisor_role.id}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('already assigned', response.data['error'])
+    
+    def test_remove_role_from_resource(self):
+        """Test removing a role from a resource"""
+        # First assign role
+        ResourceRoles.objects.create(resource=self.resource, role=self.supervisor_role)
+        
+        # Remove role
+        url = reverse('resource-files-remove-role', kwargs={'pk': self.resource.id})
+        data = {'role_id': self.supervisor_role.id}
+        
+        response = self.client.delete(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('removed from resource', response.data['message'])
+        
+        # Verify role was removed
+        self.assertFalse(
+            ResourceRoles.objects.filter(
+                resource=self.resource,
+                role=self.supervisor_role
+            ).exists()
+        )
+    
+    def test_remove_role_not_assigned(self):
+        """Test error when trying to remove non-assigned role"""
+        url = reverse('resource-files-remove-role', kwargs={'pk': self.resource.id})
+        data = {'role_id': self.supervisor_role.id}
+        
+        response = self.client.delete(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('not assigned', response.data['error'])
+    
+    def test_resource_with_visible_roles(self):
+        """Test that resource shows visible roles in API response"""
+        # Assign roles to resource
+        ResourceRoles.objects.create(resource=self.resource, role=self.supervisor_role)
+        ResourceRoles.objects.create(resource=self.resource, role=self.student_role)
+        
+        url = reverse('resource-files-detail', kwargs={'pk': self.resource.id})
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('visible_roles', response.data)
+        self.assertEqual(len(response.data['visible_roles']), 2)
+        
+        # Check role names
+        role_names = [role['role_name'] for role in response.data['visible_roles']]
+        self.assertIn('Supervisor', role_names)
+        self.assertIn('Student', role_names)
+    
+    def test_assign_role_missing_role_id(self):
+        """Test error handling for missing role_id"""
+        url = reverse('resource-files-assign-role', kwargs={'pk': self.resource.id})
+        data = {}
+        
+        response = self.client.post(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('role_id is required', response.data['error'])
+    
+    def test_remove_role_missing_role_id(self):
+        """Test error handling for missing role_id in remove"""
+        url = reverse('resource-files-remove-role', kwargs={'pk': self.resource.id})
+        data = {}
+        
+        response = self.client.delete(url, data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('role_id is required', response.data['error'])
+
+
+# Additional tests from the other branch, merged below
+
+class CreateRoleServiceTests(TestCase):
+    """Test the create_role service function"""
+
+    def test_create_role_success(self):
+        """Test successful role creation"""
+        role_name = "test_mentor"
+        role = create_role(role_name)
+
+        # Verify role was created
+        self.assertEqual(role.role_name, role_name)
+        self.assertTrue(Roles.objects.filter(role_name=role_name).exists())
+
+        # Verify Django group was created
+        self.assertTrue(Group.objects.filter(name=role_name).exists())
+
+    def test_create_role_empty_name_fails(self):
+        """Test that empty role name raises ValidationError"""
+        with self.assertRaises(ValidationError) as cm:
+            create_role("")
+        self.assertIn("Role name cannot be empty", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            create_role("   ")  # whitespace only
+        self.assertIn("Role name cannot be empty", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            create_role(None)
+        self.assertIn("Role name cannot be empty", str(cm.exception))
+
+    def test_create_role_duplicate_fails(self):
+        """Test that duplicate role name raises ValidationError"""
+        role_name = "duplicate_role"
+
+        # Create first role
+        create_role(role_name)
+
+        # Try to create duplicate (should fail)
+        with self.assertRaises(ValidationError) as cm:
+            create_role(role_name)
+        self.assertIn("already exists", str(cm.exception))
+
+    def test_create_role_case_insensitive_duplicate_fails(self):
+        """Test that case-insensitive duplicate role name raises ValidationError"""
+        # Create role with lowercase
+        create_role("mentor")
+
+        # Try to create with different case (should fail)
+        with self.assertRaises(ValidationError) as cm:
+            create_role("MENTOR")
+        self.assertIn("already exists", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            create_role("Mentor")
+        self.assertIn("already exists", str(cm.exception))
+
+    def test_create_role_strips_whitespace(self):
+        """Test that role name whitespace is stripped"""
+        role = create_role("  admin_role  ")
+        self.assertEqual(role.role_name, "admin_role")
+
+    def test_create_role_transaction_rollback_on_error(self):
+        """Test that transaction is rolled back if Django group creation fails"""
+        # This is harder to test directly, but we can verify state after error
+        role_name = "test_transaction"
+
+        # Create role successfully first
+        role = create_role(role_name)
+        initial_role_count = Roles.objects.count()
+        initial_group_count = Group.objects.count()
+
+        # Try to create duplicate (should fail and not increase counts)
+        with self.assertRaises(ValidationError):
+            create_role(role_name)
+
+        self.assertEqual(Roles.objects.count(), initial_role_count)
+        self.assertEqual(Group.objects.count(), initial_group_count)
+
+
+class CreateRoleAPITests(TestCase):
+    """Test the POST /api/v1/roles/ endpoint"""
+
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+
+        # Regular user (not admin)
+        self.user = User.objects.create_user(
+            email="user@test.com",
+            password="testpass123"
+        )
+
+        # Admin user
+        self.admin = User.objects.create_user(
+            email="admin@test.com",
+            password="adminpass123",
+            is_staff=True
+        )
+
+    def test_create_role_unauthenticated_fails(self):
+        """Test that unauthenticated requests are rejected"""
+        url = reverse("v1-roles-list")  # /resources/api/v1/roles/
+        data = {"role_name": "new_role"}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_role_non_admin_fails(self):
+        """Test that non-admin users cannot create roles"""
+        self.client.force_authenticate(user=self.user)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "new_role"}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_role_admin_success(self):
+        """Test successful role creation by admin"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "mentor"}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check response data
+        response_data = response.json()
+        self.assertEqual(response_data["role_name"], "mentor")
+        self.assertIn("id", response_data)
+
+        # Verify role was created in database
+        self.assertTrue(Roles.objects.filter(role_name="mentor").exists())
+
+        # Verify Django group was created
+        self.assertTrue(Group.objects.filter(name="mentor").exists())
+
+    def test_create_role_empty_name_fails(self):
+        """Test that empty role name is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        # Test empty string 
+        response = self.client.post(url, {"role_name": ""}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Serializer validation returns different format
+        response_data = response.json()
+        self.assertTrue("role_name" in response_data or "error" in response_data)
+
+        # Test whitespace only 
+        response = self.client.post(url, {"role_name": "   "}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_role_duplicate_fails(self):
+        """Test that duplicate role name is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "duplicate_test"}
+
+        # Create first role
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create duplicate 
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+
+        has_error = "role_name" in response_data or "error" in response_data
+        self.assertTrue(has_error)
+
+        # Check that the error mentions duplicates/exists
+        error_text = str(response_data).lower()
+        self.assertIn("already exists", error_text)
+
+    def test_create_role_case_insensitive_duplicate_fails(self):
+        """Test that case-insensitive duplicate is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        # Create role with lowercase
+        response = self.client.post(url, {"role_name": "admin"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create with uppercase - this triggers serializer validation
+        response = self.client.post(url, {"role_name": "ADMIN"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        # Could be either serializer format {"role_name": ["error message"]} or service format {"error": "message"}
+        has_error = "role_name" in response_data or "error" in response_data
+        self.assertTrue(has_error)
+
+        # Check that the error mentions duplicates/exists
+        error_text = str(response_data).lower()
+        self.assertIn("already exists", error_text)
+
+    def test_create_role_missing_role_name_fails(self):
+        """Test that missing role_name field is rejected"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        response = self.client.post(url, {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_role_whitespace_stripped(self):
+        """Test that role name whitespace is properly stripped"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        data = {"role_name": "  student_mentor  "}
+
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Check that whitespace was stripped in response and database
+        self.assertEqual(response.json()["role_name"], "student_mentor")
+        role = Roles.objects.get(id=response.json()["id"])
+        self.assertEqual(role.role_name, "student_mentor")
+
+    def test_create_role_both_endpoints_work(self):
+        """Test that both original and v1 endpoints work"""
+        self.client.force_authenticate(user=self.admin)
+
+        # Test v1 endpoint
+        v1_url = reverse("v1-roles-list")  # /resources/api/v1/roles/
+        response = self.client.post(v1_url, {"role_name": "v1_role"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Test original endpoint
+        original_url = reverse("roles-list")  # /resources/roles/
+        response = self.client.post(original_url, {"role_name": "original_role"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify both roles exist
+        self.assertTrue(Roles.objects.filter(role_name="v1_role").exists())
+        self.assertTrue(Roles.objects.filter(role_name="original_role").exists())
+
+
+class CreateRoleIntegrationTests(TestCase):
+    """Integration tests for role creation with other systems"""
+
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+
+        self.admin = User.objects.create_user(
+            email="admin@test.com",
+            password="adminpass123",
+            is_staff=True
+        )
+
+    def test_created_role_can_be_assigned_to_user(self):
+        """Test that a newly created role can be assigned to users"""
+        # Create FK chain for Users
+        Countries = dj_apps.get_model('groups', 'Countries')
+        CountryStates = dj_apps.get_model('groups', 'CountryStates')
+        Tracks = dj_apps.get_model('groups', 'Tracks')
+        Users = dj_apps.get_model('users', 'User')
+
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="Data Science", state=state)
+
+        user = Users.objects.create(
+            first_name="Test",
+            last_name="User",
+            email="testuser@test.com",
+            track=track,
+            state=state
+        )
+
+        # Create role via API
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+        response = self.client.post(url, {"role_name": "integration_mentor"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Get the created role
+        role = Roles.objects.get(role_name="integration_mentor")
+
+        # Assign role to user using service layer
+        grant_role(user, role)
+
+        # Verify user has the role
+        self.assertTrue(
+            RoleAssignmentHistory.objects.filter(
+                user=user,
+                role=role,
+                valid_to__isnull=True
+            ).exists()
+        )
+
+        # Verify user is in corresponding Django group
+        self.assertTrue(user.groups.filter(name="integration_mentor").exists())
+
+    def test_created_role_serializer_validation_still_works(self):
+        """Test that serializer validation still works after service layer integration"""
+        self.client.force_authenticate(user=self.admin)
+        url = reverse("v1-roles-list")
+
+        # Create role
+        response = self.client.post(url, {"role_name": "validation_test"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create role with same name (serializer should catch this)
+        response = self.client.post(url, {"role_name": "validation_test"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Check that error mentions duplicates/exists (format may vary)
+        response_data = response.json()
+        error_text = str(response_data).lower()
+        self.assertIn("already exists", error_text)

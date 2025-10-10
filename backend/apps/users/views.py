@@ -7,9 +7,12 @@ from rest_framework import serializers, generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User
+from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, RelationshipType, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
+from apps.groups.models import Tracks, Countries, CountryStates
 from .serializers import UserSerializer, UserStatusPatchSerializer
+
+from rest_framework.views import APIView
 
 # Create your views here.
 #Issue 41
@@ -94,12 +97,120 @@ class MeRetrieveView(generics.RetrieveAPIView):
             user.status = data["status"]
             user.save(update_fields=["status"])
 
+        #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
             now = timezone.now()
 
             with transaction.atomic():
                 # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
-                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=104))
+                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+    
+class UserRegisterView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    @transaction.atomic
+    def post(self, request):
+        data = request.data
+        databody = data["body"]
+
+        #users table creation
+        user = User.objects.create_user(email=databody["Title"])
+        user.first_name = databody["FirstName"]
+        user.last_name = databody["Surname"]
+
+        country, created = Countries.objects.get_or_create(country_name=databody["Country"])
+        
+        if databody["Country"] == "Australia":
+            user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Region"])
+            if databody["Region"] == "NSW":
+                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-NSW", state=user_country)
+            elif databody["Region"] == "QLD":
+                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-QLD", state=user_country)
+            elif databody["Region"] == "VIC":
+                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-VIC", state=user_country)
+            elif databody["Region"] == "WA":
+                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-WA", state=user_country)
+        else:
+            user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Country"])
+            if databody["Country"] == "Brazil":
+                user_track, t_created = Tracks.objects.get_or_create(track_name="Brazil", state=user_country)
+            else:
+                user_track, t_created = Tracks.objects.get_or_create(track_name="Global", state=user_country)
+        user.state = user_country
+        user.track = user_track
+    
+
+        user.save()
+
+        #roleassignmenthistory creation
+        now = timezone.now()
+        role = get_object_or_404(Roles, pk=4)
+        rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
+
+        #supervisorprofile check
+        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
+        sup.first_name = databody["SupervisorFirstName"]
+        sup.last_name = databody["SupervisorSurname"]
+        sup.save()
+        sup_role = get_object_or_404(Roles, pk=2)
+        sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
+        
+        #relationshiptype check
+        if databody["SupervisorEmail"] == databody["GuardianEmail"]:
+            rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Guardian")
+            pgflag = True
+        else:
+            rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Supervisor")
+            pgflag = False
+
+        #supervisorprofile creation
+        supprof, supprof_created = SupervisorProfile.objects.get_or_create(user=sup, school_name=databody["SchoolName"])
+
+        #studentprofile creation
+        sp = StudentProfile.objects.create(
+            user=user,
+            pg_first_name=databody["GuardianName"],
+            pg_last_name=databody["GuardianSurname"],
+            parent_guardian_flag=True,
+            supervisor=supprof,
+            interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
+            school_name=databody["SchoolName"],
+            year_lvl=databody["YearLevel"]
+        )
+
+        #studentsupervisor creation
+        ss = StudentSupervisor.objects.create(
+            student_user=sp,
+            supervisor_user=supprof,
+            relationship_type=rel
+        )
+
+        #interest
+        si = StudentInterest.objects.create(
+            interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
+            user=user
+        )
+        return Response(data["body"])
+    
+#issue 128
+class ReceiveJoinPermissionView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    @transaction.atomic
+    def post(self, request):
+        data = request.data
+        databody = data["body"]
+
+        #find the correct user
+        user = get_object_or_404(User, email=databody["Email"])
+        
+        sp = get_object_or_404(StudentProfile, user=user)
+
+        sp.has_join_permission = True
+        sp.joinperm_responseID = databody["ResponseID"]
+        sp.save()
+
+        return Response(data["body"])

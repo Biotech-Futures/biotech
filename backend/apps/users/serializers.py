@@ -34,42 +34,30 @@ class UserSerializer(serializers.ModelSerializer):
             .first()
         )
     
-    # def _profile(self, user):
-    #     rah = self._active_assignment(user)
-    #     if rah.role_id == 4:
-    #         return (
-    #             StudentProfile.objects
-    #             .filter(user=user)
-    #             .first()
-    #         )
-    #     elif rah.role_id == 3:
-    #         return(
-    #             MentorProfile.objects
-    #             .filter(user=user)
-    #             .first()
-    #         )
         
     def _student_profile(self, user):
         rah = self._active_assignment(user)
-        if rah.role_id == 4:
+        if rah and rah.role_id == 4:
             return (
                 StudentProfile.objects
                 .filter(user=user)
                 .first()
             )
-        elif rah.role_id == 3:
+        elif rah and rah.role_id == 3:
             return None
+        return None
         
     def _mentor_profile(self, user):
         rah = self._active_assignment(user)
-        if rah.role_id == 4:
+        if rah and rah.role_id == 4:
             return None
-        elif rah.role_id == 3:
+        elif rah and rah.role_id == 3:
             return(
                 MentorProfile.objects
                 .filter(user=user)
                 .first()
             )
+        return None
 
     def get_current_role_id(self, obj):
         rah = self._active_assignment(obj)
@@ -115,22 +103,3 @@ class UserStatusPatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["status"]
-
-# class RoleSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = Roles
-#         fields = ["role_id", "role_name"]
-
-# class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
-#     user = UserSerializer(read_only=True)
-#     role = RoleSerializer(read_only=True)
-
-#     class Meta:
-#         model = RoleAssignmentHistory
-#         fields = [
-#             'id',
-#             'user',
-#             'role',
-#             'valid_from',
-#             'valid_to'
-#         ]
