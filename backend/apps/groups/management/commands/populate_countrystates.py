@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.core.management import call_command
 from apps.groups.models import Countries, CountryStates
 from apps.groups.management.resources.get_countrystates import statesMap
 from apps.groups.management.commands import populate_countries
@@ -12,7 +13,7 @@ class Command(BaseCommand):
     total_updated = 0
 
     # run populate countries first
-    populate_countries()
+    call_command('populate_countries')
     
     with transaction.atomic():
       for country_name, states in statesMap.items():
