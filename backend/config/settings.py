@@ -138,6 +138,13 @@ DATABASES = {
     }
 }
 
+
+# Try to load local settings (TO BE REMOVED BEFORE PUSHING TO GIT)
+try:
+    from .local_settings import *
+except ImportError:
+    pass
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 

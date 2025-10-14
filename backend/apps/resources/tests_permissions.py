@@ -92,8 +92,8 @@ class PermissionClassesTests(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_resource_access(self):
-        """Regular user can access resource via attached role; others blocked."""
-        url = reverse("resources-detail", args=[self.resource.id])
+        """Test resource access requires authentication."""
+        url = reverse("resource-files-detail", args=[self.resource.id])
 
         # unauthenticated
         resp = self.client.get(url)

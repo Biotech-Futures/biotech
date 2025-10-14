@@ -51,7 +51,9 @@ class EventAPITests(APITestCase):
         """GET /events/v1/ should return only upcoming events"""
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        event_names = [e["event_name"] for e in response.data]
+        # Handle paginated response
+        results = response.data.get("results", response.data) if isinstance(response.data, dict) else response.data
+        event_names = [e["event_name"] for e in results]
         self.assertIn("Future Event", event_names)
         self.assertNotIn("Past Event", event_names)
 
