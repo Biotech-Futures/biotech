@@ -29,4 +29,6 @@ urlpatterns = [
     path("integrations/", include("apps.integrations.urls")),
     path("services/", include("apps.services.urls")), #remove if buggy (Ed)
     path('api-auth/', include('rest_framework.urls')), # for browsable API login
+    path("certificates/", include("apps.certificates.urls")),
+
 ]

@@ -115,14 +115,6 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.sqlite3",
-#         "NAME": BASE_DIR / "db.sqlite3",
-#     }
-# }
-
-
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -137,6 +129,7 @@ DATABASES = {
             "CONN_MAX_AGE": 0
     }
 }
+
 
 
 # Try to load local settings (TO BE REMOVED BEFORE PUSHING TO GIT)
