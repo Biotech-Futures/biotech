@@ -6,7 +6,7 @@ from django.db.models import Q, F
 from django.utils import timezone
 
 class ResourceRoles(models.Model):
-    resource = models.ForeignKey('Resources', on_delete=models.CASCADE) # changed to regular FK, as one to one would force limit a resource to one role only
+    resource = models.ForeignKey('Resources', on_delete=models.CASCADE, related_name='resourceroles') # changed to regular FK, as one to one would force limit a resource to one role only
     role = models.ForeignKey('Roles', on_delete=models.CASCADE)
 
     class Meta:
@@ -24,7 +24,7 @@ class ResourceRoles(models.Model):
         return f"{self.resource} -> {self.role}"
 
 class Resources(models.Model):
-    resource_name = models.CharField(max_length=255, blank=True, null=True)
+    resource_name = models.CharField(max_length=255)
     resource_description = models.CharField(max_length=255)
     upload_datetime = models.DateTimeField(default=timezone.now)
     uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)

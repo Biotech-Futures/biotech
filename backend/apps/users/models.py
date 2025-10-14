@@ -105,6 +105,7 @@ class StudentProfile(models.Model):
     school_name = models.CharField(max_length=255)
     year_lvl = models.CharField(max_length=255)
     has_join_permission = models.BooleanField(default=False)
+    joinperm_responseID = models.CharField(max_length=255, null=True)
 
     class Meta:
         db_table = 'student_profile'
