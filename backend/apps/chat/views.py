@@ -7,7 +7,7 @@ from channels.layers import get_channel_layer
 
 from .models import Messages
 from .serializers import MessageSerializer
-from .permissions import IsGroupMemberOrStaff,  CanModerateMessage
+from .management.permissions import IsGroupMemberOrStaff,  CanModerateMessage
 
 
 class MessageViewSet(viewsets.ModelViewSet):
