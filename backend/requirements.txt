@@ -36,3 +36,6 @@ typing_extensions==4.15.0
 tzdata==2025.2
 uritemplate==4.2.0
 urllib3==2.5.0
+azure-storage-blob==12.19.0
+django-storages[azure]==1.14.2
+python-magic==0.4.27  # for file type validation
