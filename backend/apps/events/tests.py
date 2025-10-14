@@ -21,7 +21,7 @@ class EventAPITests(APITestCase):
 
     def setUp(self):
         # Create regular and admin users
-        self.user = User.objects.create_user(email="user2gmail.com", password="pass123")
+        self.user = User.objects.create_user(email="user2@gmail.com", password="pass123")
         self.admin = User.objects.create_user(
             email="test_admin@gmail.com", password="admin123", is_staff=True
         )

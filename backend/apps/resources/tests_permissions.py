@@ -17,40 +17,46 @@ class PermissionClassesTests(TestCase):
         dj_apps.get_model("users", "User").objects.all().delete()  # clears business users
 
         reg_email = f"test_reg_{uuid.uuid4().hex}@example.com"
-        reg_email_2 = f"test_reg_2_{uuid.uuid4().hex}@example.com"
         admin_email = f"test_admin_{uuid.uuid4().hex}@example.com"
-        admin_email_2 = f"test_admin_2_{uuid.uuid4().hex}@example.com"
 
         self.client = APIClient()
         User = get_user_model()
-
-        # Auth users
-        self.regular = User.objects.create_user(email=reg_email_2, password="pw")
-        self.admin = User.objects.create_user(email=admin_email_2, password="pw")
-
-        # Attach admin to Django group "Admin"
-        admin_group = Group.objects.create(name="Admin")
-        self.admin.groups.add(admin_group)
 
         # Business user mapping chain (FKs required by Users model)
         Countries = dj_apps.get_model("groups", "Countries")
         CountryStates = dj_apps.get_model("groups", "CountryStates")
         Tracks = dj_apps.get_model("groups", "Tracks")
-        Users = dj_apps.get_model("users", "User")
 
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
         track = Tracks.objects.create(track_name="Data", state=state)
 
-        # Business users (linked by email to auth users)
-        self.biz_regular = Users.objects.create(
-            first_name="Reg", last_name="User",
-            email=reg_email, state=state, track=track
+        # Create auth users with business fields (User model is both auth and business user)
+        self.regular = User.objects.create_user(
+            email=reg_email,
+            password="pw",
+            first_name="Reg",
+            last_name="User",
+            state=state,
+            track=track
         )
-        self.biz_admin = Users.objects.create(
-            first_name="Adm", last_name="User",
-            email=admin_email, state=state, track=track
+        self.admin = User.objects.create_user(
+            email=admin_email,
+            password="pw",
+            first_name="Adm",
+            last_name="User",
+            state=state,
+            track=track,
+            is_staff=True  # Make admin a staff user for IsAdminUser permission
         )
+
+        # Attach admin to Django group "Admin"
+        admin_group = Group.objects.create(name="Admin")
+        self.admin.groups.add(admin_group)
+
+        # Keep references for clarity (same as regular/admin now)
+        self.biz_regular = self.regular
+        self.biz_admin = self.admin
 
         # Resource + Roles chain
         Resources = dj_apps.get_model("resources", "Resources")
@@ -76,20 +82,30 @@ class PermissionClassesTests(TestCase):
         )
 
     def test_group_gating(self):
-        """Regular user should fail group-gated endpoint; admin succeeds."""
-        # unauthenticated
+        """Regular user can list roles, but only admin can create/modify."""
+        # unauthenticated - denied
         resp = self.client.get(reverse("roles-list"))
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        # authenticated non-admin (assuming roles-list is group-gated to Admins)
+        # authenticated regular user - can list roles
         self.client.force_authenticate(self.regular)
         resp = self.client.get(reverse("roles-list"))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-        # authenticated admin
+        # authenticated admin - can also list roles
         self.client.force_authenticate(self.admin)
         resp = self.client.get(reverse("roles-list"))
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        # regular user cannot create roles
+        self.client.force_authenticate(self.regular)
+        resp = self.client.post(reverse("roles-list"), {"role_name": "test_role"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # admin can create roles
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse("roles-list"), {"role_name": "test_role2"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
     def test_resource_access(self):
         """Test resource access requires authentication."""
