@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from .models import Events
+from django.utils import timezone
+
 
 class EventSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,3 +39,8 @@ class EventSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_start_datetime(self, value):
+        """Prevent creating events in the past"""
+        if value < timezone.now():
+            raise serializers.ValidationError("Cannot create events in the past.")
+        return value 

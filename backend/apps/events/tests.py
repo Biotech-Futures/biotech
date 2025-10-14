@@ -106,3 +106,20 @@ class EventAPITests(APITestCase):
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("ends_datetime", str(response.data))
+
+    def test_cannot_create_event_in_past(self):
+        """POST with start_datetime in the past should fail"""
+        self.client.force_authenticate(user=self.admin)
+        data = {
+            "event_name": "Past Event",
+            "description": "This event is in the past",
+            "start_datetime": (timezone.now() - timezone.timedelta(days=1)).isoformat(),
+            "ends_datetime": (timezone.now() - timezone.timedelta(hours=22)).isoformat(),
+            "location": "Sydney",
+            "is_virtual": False,
+            "humanitix_link": "https://example.com/event"
+        }
+        response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("start_datetime", str(response.data))
+        self.assertIn("Cannot create events in the past", str(response.data))
