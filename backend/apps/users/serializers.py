@@ -27,7 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def _active_assignment(self, user):
         now = timezone.now()
-        return get_active_assignment
+        return get_active_assignment(user)
     
         
     def _student_profile(self, user):

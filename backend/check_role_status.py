@@ -85,14 +85,35 @@ def check_user_roles(user_id):
         
         # 2. Current Active Roles (from RoleAssignmentHistory)
         print(f"\n2. CURRENT ACTIVE ROLES (Business Logic):")
+        now = timezone.now()
+        # Check for roles that are active now (started and not yet ended, and not deleted)
         active_roles = RoleAssignmentHistory.objects.filter(
             user=user, 
-            valid_from__lte=timezone.now(),  # Role has started
-            valid_to__isnull=True  # Role hasn't ended
+            valid_from__lte=now,  # Role has started
+        ).filter(
+            models.Q(valid_to__gte=now) | models.Q(valid_to__isnull=True)  # Role hasn't ended
+        ).exclude(
+            role__isnull=True  # Exclude deleted roles
         )
         if active_roles:
+            has_valid_roles = False
             for role_hist in active_roles:
-                print(f"   - {role_hist.role.role_name} (since {role_hist.valid_from})")
+                # Skip if role was deleted
+                if not role_hist.role:
+                    continue
+                has_valid_roles = True
+                valid_from_str = role_hist.valid_from.strftime('%Y-%m-%d %H:%M')
+                if role_hist.valid_to:
+                    valid_to_str = role_hist.valid_to.strftime('%Y-%m-%d %H:%M')
+                    print(f"   - {role_hist.role.role_name}")
+                    print(f"     From: {valid_from_str}")
+                    print(f"     To:   {valid_to_str}")
+                else:
+                    print(f"   - {role_hist.role.role_name}")
+                    print(f"     From: {valid_from_str}")
+                    print(f"     To:   INDEFINITE (no end date)")
+            if not has_valid_roles:
+                print("   - No active roles")
         else:
             print("   - No active roles")
         
@@ -101,8 +122,13 @@ def check_user_roles(user_id):
         all_roles = RoleAssignmentHistory.objects.filter(user=user).order_by('-valid_from')
         if all_roles:
             for role_hist in all_roles:
+                # Skip if role was deleted
+                if not role_hist.role:
+                    role_name = "[DELETED ROLE]"
+                else:
+                    role_name = role_hist.role.role_name
                 end_date = role_hist.valid_to.strftime('%Y-%m-%d %H:%M') if role_hist.valid_to else 'ACTIVE'
-                print(f"   - {role_hist.role.role_name}: {role_hist.valid_from.strftime('%Y-%m-%d %H:%M')} → {end_date}")
+                print(f"   - {role_name}: {role_hist.valid_from.strftime('%Y-%m-%d %H:%M')} → {end_date}")
         else:
             print("   - No role history")
             
@@ -140,15 +166,29 @@ def show_all_users_and_roles():
             print(f"   Django Groups: None")
         
         # Current Active Roles
+        now = timezone.now()
         active_roles = RoleAssignmentHistory.objects.filter(
             user=user, 
-            valid_from__lte=timezone.now(),
-            valid_to__isnull=True
+            valid_from__lte=now,
+        ).filter(
+            models.Q(valid_to__gte=now) | models.Q(valid_to__isnull=True)
+        ).exclude(
+            role__isnull=True  # Exclude deleted roles
         )
         
         if active_roles:
-            role_names = [role_hist.role.role_name for role_hist in active_roles]
-            print(f"   Active Roles: {', '.join(role_names)}")
+            role_details = []
+            for role_hist in active_roles:
+                # Skip if role was deleted
+                if not role_hist.role:
+                    continue
+                    
+                if role_hist.valid_to:
+                    days_left = (role_hist.valid_to - now).days
+                    role_details.append(f"{role_hist.role.role_name} (expires in {days_left} days)")
+                else:
+                    role_details.append(f"{role_hist.role.role_name} (indefinite)")
+            print(f"   Active Roles: {', '.join(role_details) if role_details else 'None'}")
         else:
             print(f"   Active Roles: None")
         
@@ -162,9 +202,12 @@ def show_all_users_and_roles():
     print(f"\n📊 SUMMARY STATISTICS:")
     
     # Users with active roles
+    now = timezone.now()
     users_with_roles = User.objects.filter(
-        roleassignmenthistory__valid_from__lte=timezone.now(),
-        roleassignmenthistory__valid_to__isnull=True
+        roleassignmenthistory__valid_from__lte=now,
+    ).filter(
+        models.Q(roleassignmenthistory__valid_to__gte=now) | 
+        models.Q(roleassignmenthistory__valid_to__isnull=True)
     ).distinct().count()
     
     # Users with Django groups
@@ -180,9 +223,13 @@ def show_all_users_and_roles():
     
     # Role distribution
     print(f"\n🎭 ROLE DISTRIBUTION:")
+    now = timezone.now()
     role_stats = RoleAssignmentHistory.objects.filter(
-        valid_from__lte=timezone.now(),
-        valid_to__isnull=True
+        valid_from__lte=now,
+    ).filter(
+        models.Q(valid_to__gte=now) | models.Q(valid_to__isnull=True)
+    ).exclude(
+        role__isnull=True  # Exclude deleted roles
     ).values('role__role_name').annotate(
         count=models.Count('user', distinct=True)
     ).order_by('-count')
@@ -200,14 +247,31 @@ def show_user_credentials():
     
     for user in users:
         # Get user's active roles for context
+        now = timezone.now()
         active_roles = RoleAssignmentHistory.objects.filter(
             user=user, 
-            valid_from__lte=timezone.now(),
-            valid_to__isnull=True
+            valid_from__lte=now,
+        ).filter(
+            models.Q(valid_to__gte=now) | models.Q(valid_to__isnull=True)
+        ).exclude(
+            role__isnull=True  # Exclude deleted roles
         )
         
-        role_names = [role_hist.role.role_name for role_hist in active_roles]
-        roles_str = ', '.join(role_names) if role_names else 'No roles'
+        if active_roles:
+            role_details = []
+            for role_hist in active_roles:
+                # Skip if role was deleted
+                if not role_hist.role:
+                    continue
+                    
+                if role_hist.valid_to:
+                    days_left = (role_hist.valid_to - now).days
+                    role_details.append(f"{role_hist.role.role_name} ({days_left}d left)")
+                else:
+                    role_details.append(f"{role_hist.role.role_name} (∞)")
+            roles_str = ', '.join(role_details) if role_details else 'No roles'
+        else:
+            roles_str = 'No roles'
         
         # Map known test passwords
         test_passwords = {

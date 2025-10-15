@@ -358,13 +358,26 @@ class TestRevokeUserRole(TestCase):
         assert not self.user.groups.filter(name="student").exists()
 
     def test_revoke_assigns_default_if_no_other_roles(self):
+        from django.utils import timezone
+        from django.db.models import Q
+        
         grant_role(self.user, self.student)
         revoke_role(self.user, self.student)
+        
+        # Get current time AFTER the operations
+        now = timezone.now()
 
-        # student role closed
-        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
-        # default role active
-        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
+        # student role closed - check that it's no longer active
+        assert not RoleAssignmentHistory.objects.filter(
+            user=self.user, role=self.student, valid_from__lte=now
+        ).filter(Q(valid_to__isnull=True) | Q(valid_to__gt=now)).exists()
+        
+        # default role active - check for active basic_user role
+        # The role should exist and either be indefinite or have a future end date
+        assert RoleAssignmentHistory.objects.filter(
+            user=self.user, role=self.basic, valid_from__lte=now
+        ).filter(Q(valid_to__isnull=True) | Q(valid_to__gt=now)).exists(), \
+            f"Expected active basic_user role. Roles: {list(RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic).values('valid_from', 'valid_to'))}"
         assert self.user.groups.filter(name="basic_user").exists()
 
     def test_revoke_does_not_assign_default_if_other_active_roles(self):
@@ -456,11 +469,11 @@ class GrantRoleComprehensiveTests(TestCase):
         result1 = grant_role(self.regular_user, self.supervisor_role, force=False)
         self.assertEqual(result1['action_taken'], 'created_new_role')
         
-        # Second grant of same role - should extend duration
+        # Second grant of same role - should replace it
         result2 = grant_role(self.regular_user, self.supervisor_role, force=False)
-        self.assertEqual(result2['action_taken'], 'updated_existing_role')
+        self.assertEqual(result2['action_taken'], 'replaced_existing_role')
         self.assertTrue(result2['duplicate_role'])
-        self.assertIn('extended duration', result2['message'])
+        self.assertTrue(result2['replaced_role'])
     
     def test_grant_role_force_assignment(self):
         """Test force assignment creates new role even if duplicate"""
