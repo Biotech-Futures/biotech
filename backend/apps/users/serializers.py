@@ -27,7 +27,14 @@ class UserSerializer(serializers.ModelSerializer):
 
     def _active_assignment(self, user):
         now = timezone.now()
-        return get_active_assignment
+        return (
+            RoleAssignmentHistory.objects
+            .select_related("role")
+            .filter(user=user, valid_from__lte=now, valid_to__gte=now)
+            .order_by("-valid_from")
+            .first()
+        )
+        # return get_active_assignment
     
         
     def _student_profile(self, user):
