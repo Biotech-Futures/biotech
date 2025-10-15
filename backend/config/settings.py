@@ -209,6 +209,8 @@ SESSION_COOKIE_AGE = 86400  # 1 day in seconds
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' if frontend is different domain (requires Secure=True)
+SESSION_COOKIE_DOMAIN = None  # Use default (current domain)
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
 
 # CSRF settings for cross-origin requests
 CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read this
