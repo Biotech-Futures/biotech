@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'emailing',
+    'matching',
     # our apps
     'apps.users',
     'apps.groups',
@@ -48,7 +50,7 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
-    'apps.services', #remove if buggy. 
+    'apps.services', #remove if buggy.
     # third-party apps
     'drf_spectacular',
     'rest_framework',
@@ -66,7 +68,9 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.BasicAuthentication', ##Temporary For now, allows test cases to work for Authentication returning 403 instead of 401
         'rest_framework.authentication.SessionAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication', ##Temporary For now, allows test cases to work for Authentication returning 403 instead of 401
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -129,15 +133,6 @@ DATABASES = {
             "CONN_MAX_AGE": 0
     }
 }
-
-
-
-# Try to load local settings (TO BE REMOVED BEFORE PUSHING TO GIT)
-try:
-    from .local_settings import *
-except ImportError:
-    pass
-
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
@@ -169,7 +164,8 @@ USE_I18N = True
 USE_TZ = True
 
 # Email configuration for development
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+#EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
 EMAIL_PORT = 2525
 EMAIL_USE_TLS = True

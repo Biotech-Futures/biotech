@@ -3,6 +3,7 @@ attrs==25.3.0
 certifi==2025.8.3
 channels==4.3.1
 charset-normalizer==3.4.3
+daphne==4.1.2
 Django==5.2.5
 django-cors-headers==4.8.0
 django-filter==24.3
@@ -17,10 +18,13 @@ inflection==0.5.1
 jsonschema==4.25.1
 jsonschema-specifications==2025.4.1
 mailtrap==2.1.0
+numpy>=2.2.0
+pandas>=2.2.0
 psycopg==3.2.9
 psycopg-binary==3.2.9
 psycopg2-binary==2.9.10
 PyJWT==2.10.1
+pytest==8.3.4
 PyYAML==6.0.2
 referencing==0.36.2
 requests==2.32.5

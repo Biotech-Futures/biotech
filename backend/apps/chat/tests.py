@@ -1,4 +1,4 @@
-from django.test import TestCase, override_settings
+from django.test import TransactionTestCase, override_settings
 import asyncio
 from datetime import timedelta
 
@@ -25,7 +25,7 @@ CHANNEL_TEST_SETTINGS = {
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-class ChatFeatureTests(TestCase):
+class ChatFeatureTests(TransactionTestCase):
     """
     Integration tests for chat:
       - POST /chat/groups/{id}/messages/
@@ -193,13 +193,17 @@ class ChatFeatureTests(TestCase):
         Helper: create a Django session for 'user' and connect a WebsocketCommunicator
         with the sessionid cookie so AuthMiddlewareStack resolves request.user.
         """
-        # Create session cookie for this user
-        # Using Django client to login and capture session key
+        from channels.db import database_sync_to_async
         from django.test import Client
 
-        c = Client()
-        c.force_login(user)
-        sessionid = c.cookies["sessionid"].value.encode("ascii")
+        # Create session cookie using sync_to_async wrapper
+        @database_sync_to_async
+        def get_session_cookie(user):
+            c = Client()
+            c.force_login(user)
+            return c.cookies["sessionid"].value.encode("ascii")
+        
+        sessionid = await get_session_cookie(user)
 
         # Connect
         communicator = WebsocketCommunicator(
@@ -212,22 +216,28 @@ class ChatFeatureTests(TestCase):
 
     def test_ws_broadcast_on_create(self):
         async def _inner():
+            from channels.db import database_sync_to_async
+            
             # Open WS as student (group member)
             comm = await self._ws_connect_with_session(self.student)
 
-            # Create a message via REST (as student)
-            resp = self.client_student.post(
-                self._list_url(),
-                {"message_text": "ws create", "resources": []},
-                format="json",
-            )
+            # Create a message via REST (as student) - wrap in sync_to_async
+            @database_sync_to_async
+            def create_via_api():
+                return self.client_student.post(
+                    self._list_url(),
+                    {"message_text": "ws create", "resources": []},
+                    format="json",
+                )
+            
+            resp = await create_via_api()
             self.assertEqual(resp.status_code, 201, resp.content)
 
             # Expect a broadcast
             event = await asyncio.wait_for(comm.receive_json_from(), timeout=2)
-            self.assertEqual(event["payload"]["event"], "message.created")
-            self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message"]["text"], "ws create")
+            self.assertEqual(event["event"], "message.created")
+            self.assertEqual(event["group_id"], self.group.id)
+            self.assertEqual(event["message"]["text"], "ws create")
 
             await comm.disconnect()
 
@@ -235,21 +245,31 @@ class ChatFeatureTests(TestCase):
 
     def test_ws_broadcast_on_delete(self):
         async def _inner():
-            # create a message to delete
-            msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
+            from channels.db import database_sync_to_async
+            
+            # create a message to delete (wrap in async)
+            @database_sync_to_async
+            def create_message():
+                return Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
+            
+            msg = await create_message()
 
             # Open WS as mentor (has moderation in this group)
             comm = await self._ws_connect_with_session(self.mentor)
 
-            # Delete via REST (mentor)
-            resp = self.client_mentor.delete(self._detail_url(msg.id))
+            # Delete via REST (mentor) - wrap in sync_to_async
+            @database_sync_to_async
+            def delete_via_api():
+                return self.client_mentor.delete(self._detail_url(msg.id))
+            
+            resp = await delete_via_api()
             self.assertEqual(resp.status_code, 204, resp.content)
 
             # Expect broadcast
             event = await asyncio.wait_for(comm.receive_json_from(), timeout=2)
-            self.assertEqual(event["payload"]["event"], "message.deleted")
-            self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message_id"], msg.id)
+            self.assertEqual(event["event"], "message.deleted")
+            self.assertEqual(event["group_id"], self.group.id)
+            self.assertEqual(event["message_id"], msg.id)
 
             await comm.disconnect()
 

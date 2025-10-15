@@ -148,14 +148,16 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
         Body: {
             "user_id": 1,
             "role_id": 2,
-            "start": "2024-01-01T10:30:00Z",  # optional
-            "revoke_others": true,  # optional, defaults to true
-            "force": false  # optional, if true, bypasses existing role checks
+            "start": "2024-01-01T10:30:00Z",  # optional, defaults to now
+            "end": "2025-01-01T10:30:00Z",    # optional, if omitted role is indefinite
+            "revoke_others": true,             # optional, defaults to true
+            "force": false                     # optional, if true, bypasses existing role checks
         }
         """
         user_id = request.data.get('user_id')
         role_id = request.data.get('role_id')
         start_date = request.data.get('start')
+        end_date = request.data.get('end')
         revoke_others = request.data.get('revoke_others', True)  # Default to True
         force = request.data.get('force', False)  # Default to False
         
@@ -170,20 +172,40 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
             user = User.objects.get(id=user_id)
             role = Roles.objects.get(id=role_id)
             
-            # Parse start date if provided
+            # Parse start and end dates if provided
+            from django.utils.dateparse import parse_datetime
             if start_date:
-                from django.utils.dateparse import parse_datetime
                 start_date = parse_datetime(start_date)
+            if end_date:
+                end_date = parse_datetime(end_date)
+            
+            # Validate end date is after start date
+            actual_start = start_date or timezone.now()
+            if end_date and end_date <= actual_start:
+                return Response(
+                    {
+                        "error": "End date must be after start date",
+                        "start_date": actual_start.isoformat(),
+                        "end_date": end_date.isoformat(),
+                        "suggestion": "Either provide a future end date, or set both start and end dates with end > start"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
             # Check for existing active roles if not forcing
             if not force:
+                from django.db.models import Q
+                actual_start = start_date or timezone.now()
                 active_roles = RoleAssignmentHistory.objects.filter(
                     user=user,
-                    valid_to__isnull=True
+                    valid_from__lte=actual_start
+                ).filter(
+                    Q(valid_to__isnull=True) | Q(valid_to__gt=actual_start)
                 ).exclude(role=role)
                 
                 if active_roles.exists() and not revoke_others:
-                    active_role_names = [ar.role.role_name for ar in active_roles]
+                    # Skip deleted roles (role=None)
+                    active_role_names = [ar.role.role_name for ar in active_roles if ar.role]
                     return Response(
                         {
                             "error": "User already has active roles",
@@ -193,8 +215,15 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                         status=status.HTTP_409_CONFLICT
                     )
             
-            # Call the grant_role function
-            result = grant_role(user, role, start=start_date, revoke_others=revoke_others, force=force)
+            # Call the grant_role function with optional end date
+            result = grant_role(
+                user, 
+                role, 
+                start=start_date, 
+                end=end_date,  # Pass through the end date
+                revoke_others=revoke_others, 
+                force=force
+            )
             
             response_data = {
                 "message": result.get('message', f"Role '{role.role_name}' granted to user '{user.email}'"),
@@ -203,11 +232,13 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                     "user_id": user.id,
                     "role_id": role.id,
                     "start_time": start_date or timezone.now(),
+                    "end_time": end_date,  # Include end date (can be None for indefinite)
                     "user_groups": list(user.groups.values_list('name', flat=True)),
                     "granted_role": result['granted_role'],
                     "revoked_roles": result['revoked_roles'],
                     "had_existing_roles": result['had_existing'],
-                    "duplicate_role": result.get('duplicate_role', False)
+                    "duplicate_role": result.get('duplicate_role', False),
+                    "replaced_role": result.get('replaced_role', False)
                 }
             }
             
@@ -268,7 +299,10 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                 end_date = parse_datetime(end_date)
             
             # Call the revoke_role function
-            revoke_role(user, role, end=end_date)
+            result = revoke_role(user, role, end=end_date)
+            
+            # Refresh user from database to get updated groups
+            user.refresh_from_db()
             
             return Response(
                 {
@@ -276,7 +310,10 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
                     "details": {
                         "user_id": user.id,
                         "role_id": role.id,
-                        "end_time": end_date or timezone.now(),
+                        "end_time": result['end_time'],
+                        "updated_count": result['updated_count'],
+                        "group_removed": result['group_removed'],
+                        "assigned_default_role": result['assigned_default_role'],
                         "user_groups": list(user.groups.values_list('name', flat=True))
                     }
                 },

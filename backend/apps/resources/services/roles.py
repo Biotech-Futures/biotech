@@ -50,7 +50,7 @@ def create_role(role_name: str) -> Roles:
   return role
 
 @transaction.atomic
-def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
+def grant_role(user, role: Roles, start=None, end=None, revoke_others=True, force=False):
   """
   Grants a role to a user, with duplicate role handling and optionally revoking other active roles.
   
@@ -58,6 +58,7 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
     user (User): the user to grant the role
     role (Roles): the role object in our business domain
     start (dateTime): the start of the new role. defaults to Now
+    end (dateTime): the end of the new role. If None, role is indefinite (no expiration)
     revoke_others (bool): if True, revokes all other active roles. if False, allows multiple roles.
     force (bool): if True, bypasses duplicate role checks and forces assignment
   Returns:
@@ -65,11 +66,22 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
   """
   start = start or timezone.now()
   
+  # Validate end date is after start date
+  if end and end <= start:
+    raise ValidationError(
+      f"End date ({end}) must be after start date ({start}). "
+      f"Cannot create a role that has already expired."
+    )
+  
   # Get current active roles before changes
+  # Active = started AND (no end date OR end date in future)
+  from django.db.models import Q
+  now = timezone.now()
   current_active_roles = RoleAssignmentHistory.objects.filter(
-      user=user, 
-      valid_to__isnull=True
-        # ).values_list('role__role_name', flat=True)
+      user=user,
+      valid_from__lte=start  # Use the start parameter, not 'now', to check at grant time
+  ).filter(
+      Q(valid_to__isnull=True) | Q(valid_to__gt=start)  # Either indefinite OR expires after start
   )
   
   # Check if user already has this exact role active
@@ -78,18 +90,18 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
   result = {
       'granted_role': role.role_name,
       'revoked_roles': [],
-      #  'had_existing': len(current_active_roles) > 0
       'had_existing': current_active_roles.exists(),
       'duplicate_role': existing_same_role.exists(),
-      'action_taken': None
+      'action_taken': None,
+      'replaced_role': False
   }
   
+  # If user already has this exact role, close it (will be replaced with new assignment)
   if existing_same_role.exists() and not force:
-    # User already has this role - update the valid_to date instead of creating duplicate
     existing_same_role.update(valid_to=start)
-    result['action_taken'] = 'updated_existing_role'
-    result['message'] = f"Updated existing {role.role_name} role assignment (extended duration)"
-    return result
+    result['replaced_role'] = True
+    result['action_taken'] = 'replaced_existing_role'
+    # Continue to create new role assignment (don't return early!)
   
   if revoke_others:
         # Revoke ALL other active roles (not just the same role)
@@ -101,6 +113,13 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
     other_assignments = current_active_roles.exclude(role=role)
     
     for assignment in other_assignments:
+        # Skip if the role was deleted
+        if not assignment.role:
+            # Still close the assignment
+            assignment.valid_to = start
+            assignment.save()
+            continue
+            
         result['revoked_roles'].append(assignment.role.role_name)
         # Close the role assignment
         assignment.valid_to = start
@@ -113,22 +132,42 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
         except Group.DoesNotExist:
             pass
   else:
-    # Only close the same role if it exists
+    # Only close the same role if it exists and is still active
     RoleAssignmentHistory.objects.filter(
         user=user, 
-        role=role, 
-        valid_to__isnull=True
+        role=role,
+        valid_from__lte=start
+    ).filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gt=start)
     ).update(valid_to=start)
 
-  # Create new role assignment
-  RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=start)
+  # Create new role assignment with optional end date
+  RoleAssignmentHistory.objects.create(
+      user=user, 
+      role=role, 
+      valid_from=start,
+      valid_to=end  # Can be None for indefinite roles
+  )
   
   # Add to Django group
   group = _ensure_group(role.role_name)
   user.groups.add(group)
   
-  result['action_taken'] = 'created_new_role'
-  result['message'] = f"Granted new {role.role_name} role"
+  # Set appropriate action if not already set
+  if not result['action_taken']:
+      result['action_taken'] = 'created_new_role'
+  
+  # Generate message based on what happened
+  if result['replaced_role']:
+      if end:
+          result['message'] = f"Replaced {role.role_name} role - now valid from {start} to {end}"
+      else:
+          result['message'] = f"Replaced {role.role_name} role - now valid from {start} (indefinite)"
+  else:
+      if end:
+          result['message'] = f"Granted {role.role_name} role from {start} to {end}"
+      else:
+          result['message'] = f"Granted {role.role_name} role from {start} (indefinite)"
   
   return result
 
@@ -146,53 +185,85 @@ def revoke_role(user, role: Roles, end=None):
     role (Roles): The role to revoke.
     end (datetime, optional): The end date for the role assignment. Defaults to current time.
 
+  Returns:
+    dict: Information about what was revoked
+
   Raises:
     None. If the group does not exist, the exception is silently ignored.
   """
+  from django.db.models import Q
   end = end or timezone.now()
 
-  # find the record of the role and close it
-  RoleAssignmentHistory.objects.filter(
+  # Find active assignments for this role and close them
+  updated_count = RoleAssignmentHistory.objects.filter(
       user=user, 
       role=role,
-      valid_to__isnull=True
+      valid_from__lte=end
+  ).filter(
+      Q(valid_to__isnull=True) | Q(valid_to__gt=end)
   ).update(valid_to=end)
 
   # remove the group record 
+  group_removed = False
   try: 
     group = Group.objects.get(name=role.role_name)
     user.groups.remove(group)
+    group_removed = True
   except Group.DoesNotExist:
-    pass
+    logger.warning(f"Group '{role.role_name}' not found when revoking role for user {user.id}")
   
   # Check if user has any other active roles
   has_other_roles = RoleAssignmentHistory.objects.filter(
       user=user,
-      valid_from__lte=end,
-      valid_to__isnull=True
+      valid_from__lte=end
+  ).filter(
+      Q(valid_to__isnull=True) | Q(valid_to__gt=end)
   ).exclude(role=role).exists()
   
+  assigned_default = False
   if not has_other_roles:
-      # Assign default role
+      # Assign default role with 1 year duration
       try:
+          from datetime import timedelta
           default_role = Roles.objects.get(role_name='basic_user')
-          grant_role(user, default_role, start=end)
+          grant_role(user, default_role, start=end, end=end + timedelta(days=365))
+          assigned_default = True
       except Roles.DoesNotExist:
           # Log this situation as it indicates a configuration issue
           logger.error(f"Default role 'basic_user' not found when revoking role for user {user.id}")
+  
+  return {
+      'revoked_role': role.role_name,
+      'updated_count': updated_count,
+      'group_removed': group_removed,
+      'assigned_default_role': assigned_default,
+      'end_time': end
+  }
 
-def ensure_user_has_role(user): ##JUST FOR DEFAULT ROLES =====> JUST AN ADDITIONAL FUNCTION 
+def ensure_user_has_role(user, duration_days=365): 
     """
-    Ensures user always has some role assigned
+    Ensures user always has some role assigned.
+    Used for assigning default 'basic_user' role.
+    
+    Args:
+        user (User): The user to check/assign role
+        duration_days (int): How long the default role should last (default 365 days)
     """
+    from django.db.models import Q
+    from datetime import timedelta
     now = timezone.now()
     has_active_role = RoleAssignmentHistory.objects.filter(
         user=user,
-        valid_from__lte=now,
-        valid_to__isnull=True
+        valid_from__lte=now
+    ).filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gt=now)
     ).exists()
     
     if not has_active_role:
-        default_role = Roles.objects.get(role_name='basic_user')  # Setting to default role 
+        try:
+            default_role = Roles.objects.get(role_name='basic_user')
+            grant_role(user, default_role, start=now, end=now + timedelta(days=duration_days))
+        except Roles.DoesNotExist:
+            logger.error(f"Default role 'basic_user' not found for user {user.id}") 
 
 

@@ -2,14 +2,24 @@ from rest_framework.permissions import BasePermission
 from apps.groups.models import GroupMembers
 from apps.users.utils.roles import get_active_assignment
 
-ROLE_ADMIN = "admin"
-ROLE_SUPERVISOR = "supervisor"
-ROLE_MENTOR = "mentor"
+# Role name constants (match actual capitalization in database)
+ROLE_ADMIN = "Admin"
+ROLE_SUPERVISOR = "Supervisor"
+ROLE_MENTOR = "Mentor"
 
 
 def _has_active_role_name(user, allowed_names):
+    """
+    Check if user has an active role matching any of the allowed names.
+    Comparison is case-insensitive to handle database inconsistencies.
+    """
     rah = get_active_assignment(user)
-    return bool(rah and rah.role and rah.role.role_name in allowed_names)
+    if not rah or not rah.role:
+        return False
+    # Case-insensitive comparison
+    user_role_lower = rah.role.role_name.lower()
+    allowed_names_lower = {name.lower() for name in allowed_names}
+    return user_role_lower in allowed_names_lower
 
 
 class IsGroupMemberOrStaff(BasePermission):
@@ -30,16 +40,21 @@ class IsGroupMemberOrStaff(BasePermission):
 class CanModerateMessage(BasePermission):
     """
     For DELETE:
-      - admin: moderate everywhere
-      - supervisor: moderate everywhere
-      - mentor: only in groups they belong to
+      - Platform staff (is_staff): moderate everywhere
+      - admin role: moderate everywhere
+      - supervisor role: moderate everywhere
+      - mentor role: only in groups they belong to
     """
     def has_object_permission(self, request, view, obj):
         u = request.user
         if not u or not u.is_authenticated:
             return False
 
-        # Admin / Supervisor → global access
+        # Platform staff → global access
+        if u.is_staff or u.is_superuser:
+            return True
+
+        # Admin / Supervisor role → global access
         if _has_active_role_name(u, {ROLE_ADMIN, ROLE_SUPERVISOR}):
             return True
 
