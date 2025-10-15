@@ -49,7 +49,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    # --- #105: GET /groups/{id}/messages?after={cursor}&limit={n} ---
+    # --- #105: GET /groups/{id}/messages/?after={cursor}&limit={n} ---
     def list(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
         qs = self.get_queryset().order_by("-sent_datetime", "-id")
