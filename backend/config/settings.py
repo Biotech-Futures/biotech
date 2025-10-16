@@ -58,7 +58,17 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
+    'storages',
 ]
+
+AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
+AZURE_ACCOUNT_KEY = "SLreKCgSbLMq9th/QXYaSfPGwsRo75J/JxV0OFOp9ZkrRcnuTULShfhpID3aLzxYixGlKSzrWkFR+AStamaR4g=="
+AZURE_CONTAINER = "media" # Guys this is currently set to private blobs so SAS urls are needed. We'll develop code for this accordingly
+AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
+DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/" # F formatted in case we decide to switch out containers
+
+
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -112,11 +122,21 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-
+ASGI_APPLICATION = "config.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+
+
+# DATABASES = {
+#      "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
+#      }
+# }
+
+##Main DB Configuration === AZURE POSTGRESQL DB CONFIGURATION ===
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -131,14 +151,6 @@ DATABASES = {
             "CONN_MAX_AGE": 0
     }
 }
-
-
-
-# Try to load local settings (TO BE REMOVED BEFORE PUSHING TO GIT)
-try:
-    from .local_settings import *
-except ImportError:
-    pass
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -180,6 +192,12 @@ EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
 EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
 
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
@@ -206,6 +224,8 @@ SESSION_COOKIE_AGE = 86400  # 1 day in seconds
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' if frontend is different domain (requires Secure=True)
+SESSION_COOKIE_DOMAIN = None  # Use default (current domain)
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
 
 # CSRF settings for cross-origin requests
 CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read this
