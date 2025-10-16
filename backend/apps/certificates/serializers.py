@@ -24,3 +24,21 @@ class MentorCertificateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields  # read-only endpoint
 
+
+class MentorCertificateCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating mentor certificates.
+    Excludes read-only fields like 'id' and 'verified'.
+    """
+    class Meta:
+        model = MentorCertificate
+        fields = [
+            "mentor_profile",
+            "certificate_type",
+            "certificate_number",
+            "issued_by",
+            "issued_at",
+            "expires_at",
+            "file_url",
+        ]
+
