@@ -82,7 +82,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import logo from '@/assets/btf-logo.png'
@@ -131,6 +131,7 @@ const handleLogin = async () => {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         email: email.value,
         redirect_url: `${window.location.origin}/#/auth/callback`
@@ -174,6 +175,7 @@ const verifyOTP = async () => {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         email: email.value,
         code: code
@@ -181,9 +183,19 @@ const verifyOTP = async () => {
     })
 
     if (response.ok) {
-      const data = await response.json()
-      auth.loginWithTokens(data.user, data.access_token, data.refresh_token)
-      router.push('/dashboard')
+      // Fetch full user data including roles from /api/v1/users/me/
+      await auth.fetchUserData()
+
+      // Wait for Vue's reactivity system to update
+      await nextTick()
+
+      // Try router navigation first
+      try {
+        await router.replace('/dashboard')
+      } catch (err) {
+        // Fallback to full page redirect
+        window.location.href = '/#/dashboard'
+      }
     } else {
       const errorData = await response.json()
       error.value = errorData.error || 'Invalid or expired code'
@@ -203,6 +215,7 @@ const resendCode = async () => {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         email: email.value,
         redirect_url: `${window.location.origin}/#/auth/callback`
