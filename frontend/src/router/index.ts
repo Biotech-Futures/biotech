@@ -8,10 +8,17 @@ const router = createRouter({
 
 // Auth guard
 import { useAuthStore } from '../stores/auth'
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const publicPaths = ['/login', '/auth/callback']
   const auth = useAuthStore()
-  if (!auth.user) auth.hydrate()
+
+  // Always try to hydrate from localStorage first
+  auth.hydrate()
+
+  // If user exists but doesn't have role info, fetch it from backend
+  if (auth.user && !auth.user.current_role_name && !publicPaths.includes(to.path)) {
+    await auth.fetchUserData()
+  }
 
   if (!publicPaths.includes(to.path) && !auth.isAuthenticated) {
     next('/login')
