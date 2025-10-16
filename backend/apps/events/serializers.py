@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Events
+from .models import Events, EventInvite
 from django.utils import timezone
 
 
@@ -44,3 +44,38 @@ class EventSerializer(serializers.ModelSerializer):
         if value < timezone.now():
             raise serializers.ValidationError("Cannot create events in the past.")
         return value 
+    
+class EventInviteSerializer(serializers.Serializer):
+    event_id = serializers.PrimaryKeyRelatedField(read_only=True, source="event")
+    user_id = serializers.PrimaryKeyRelatedField(read_only=True, source="user")
+
+    class Meta:
+        model = EventInvite
+        fields = [
+            "id",
+            "event_id",
+            "user_id",
+            "sent_datetime",
+            "rsvp_status",
+            "attendance_status",
+        ]
+        read_only_fields = [
+            "id",
+            "event_id",
+            "user_id",
+            "sent_datetime",
+        ]
+
+    def validate(self, attrs):
+        """
+        ensure attendance can only be True if RSVP is also True
+        """
+        rsvp = attrs.get("rsvp_status", getattr(self.instance, "rsvp_status", False))
+        attendance = attrs.get("attendance_status", getattr(self.instance, "attendance_status", False))
+
+        if attendance and not rsvp:
+            raise serializers.ValidationError(
+                {"attendance_status": "Cannot mark attendance unless RSVP is True."}
+            )
+
+        return attrs
