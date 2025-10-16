@@ -1,4 +1,8 @@
-from django.shortcuts import render
+# views.py
+from rest_framework import mixins, permissions, viewsets
+from .models import MentorCertificate
+from .serializers import MentorCertificateSerializer, MentorCertificateCreateSerializer
+
 
 # Create your views here.
 from rest_framework import mixins, permissions, viewsets

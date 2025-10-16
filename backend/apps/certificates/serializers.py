@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import MentorCertificate
 
+
 class MentorCertificateSerializer(serializers.ModelSerializer):
     # Show the certificate type as a string (e.g., "WWCC") instead of numeric id
     certificate_type = serializers.SlugRelatedField(
@@ -22,3 +23,4 @@ class MentorCertificateSerializer(serializers.ModelSerializer):
             "verified",
         ]
         read_only_fields = fields  # read-only endpoint
+

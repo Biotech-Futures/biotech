@@ -69,3 +69,51 @@ class CertificateDetailTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get("/certificates/v1/999999/")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class CertificateCreateTests(APITestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            email="admin@example.com", password="admin123", is_staff=True
+        )
+
+        bg = Background.objects.create(background_desc_unique_field="Science")
+        mentor_user = User.objects.create_user(
+            email="mentor@example.com", password="m12345"
+        )
+        self.mentor_profile = MentorProfile.objects.create(
+            user=mentor_user, background=bg, institution="Uni", mentor_reason="Teach", max_grp_cnt=3
+        )
+        self.cert_type = CertificateType.objects.create(
+            certificate_type="WWCC", requires_number=True, requires_expiry=True
+        )
+        self.url = "/certificates/v1/"
+
+    def test_admin_can_create_certificate(self):
+        self.client.force_authenticate(user=self.admin)
+        payload = {
+            "mentor_profile": self.mentor_profile.pk,
+            "certificate_type": "WWCC",
+            "certificate_number": "XYZ999",
+            "issued_by": "NSW Gov",
+            "issued_at": "2025-10-01",
+            "expires_at": "2026-10-01",
+            "file_url": "https://example.com/cert.pdf",
+            "verified": False
+        }
+        resp = self.client.post(self.url, payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data["certificate_number"], "XYZ999")
+
+    def test_requires_number_and_expiry_validation(self):
+        self.client.force_authenticate(user=self.admin)
+        payload = {
+            "mentor_profile": self.mentor_profile.pk,
+            "certificate_type": "WWCC",
+            "issued_by": "NSW Gov",
+            "issued_at": "2025-10-01"
+        }
+        resp = self.client.post(self.url, payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("requires a certificate number", str(resp.data))
