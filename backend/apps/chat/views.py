@@ -7,18 +7,18 @@ from channels.layers import get_channel_layer
 
 from .models import Messages
 from .serializers import MessageSerializer
-from .management.permissions import IsGroupMemberOrStaff,  CanModerateMessage
+from .management.permissions import IsGroupMemberOrAdmin,  CanModerateMessage
 
 
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
-    permission_classes = [IsGroupMemberOrStaff]
+    permission_classes = [IsGroupMemberOrAdmin]
 
     # choose permissions per action
     def get_permissions(self):
         if self.action == "destroy":
             return [CanModerateMessage()]
-        return [IsGroupMemberOrStaff()]
+        return [IsGroupMemberOrAdmin()]
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
