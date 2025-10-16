@@ -70,6 +70,7 @@ class CertificateDetailTests(APITestCase):
         resp = self.client.get("/certificates/v1/999999/")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
+
 class CertificateCreateTests(APITestCase):
     def setUp(self):
         self.client = APIClient()

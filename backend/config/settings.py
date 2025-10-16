@@ -68,7 +68,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.BasicAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -112,10 +112,11 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-
+ASGI_APPLICATION = "config.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+
 
 
 DATABASES = {
@@ -138,6 +139,14 @@ DATABASES = {
             "CONN_MAX_AGE": 0
     }
 }'''
+
+
+
+# Try to load local settings (TO BE REMOVED BEFORE PUSHING TO GIT)
+try:
+    from .local_settings import *
+except ImportError:
+    pass
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -179,6 +188,12 @@ EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
 EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
 
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
@@ -198,6 +213,24 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Session cookie settings
+SESSION_COOKIE_NAME = 'sessionid'
+SESSION_COOKIE_AGE = 86400  # 1 day in seconds
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' if frontend is different domain (requires Secure=True)
+SESSION_COOKIE_DOMAIN = None  # Use default (current domain)
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
+
+# CSRF settings for cross-origin requests
+CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read this
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
 
 # Magic link redirect configuration
 MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click
