@@ -23,9 +23,22 @@ class ResourceRoles(models.Model):
     def __str__(self):
         return f"{self.resource} -> {self.role}"
 
+class ResourceType(models.Model):
+    type_name = models.CharField(max_length=50, unique=True)
+    type_description = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        db_table = 'resource_types'
+        verbose_name = "Resource Type"
+        verbose_name_plural = "Resource Types"
+
+    def __str__(self):
+        return self.type_name
+
 class Resources(models.Model):
     resource_name = models.CharField(max_length=255)
     resource_description = models.CharField(max_length=255)
+    resource_type = models.ForeignKey('ResourceType', on_delete=models.PROTECT, related_name='resources', null=True, blank=True)
     upload_datetime = models.DateTimeField(default=timezone.now)
     uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     deleted_flag = models.BooleanField(default=False)
