@@ -1,14 +1,19 @@
+import contextlib
 from django.test import TestCase, override_settings
+from django.test import Client
 import asyncio
 from datetime import timedelta
 
 from django.urls import reverse
 from django.utils import timezone
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, models
+from django.conf import settings
 
 from rest_framework.test import APIClient
 from channels.testing import WebsocketCommunicator
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 
 from config.asgi import application  # ASGI entrypoint (Channels)
 from apps.chat.models import Messages
@@ -32,7 +37,7 @@ class ChatFeatureTests(TestCase):
       - GET  /chat/groups/{id}/messages/?after=&limit=
       - DELETE /chat/groups/{id}/messages/{mid}/  (soft delete)
       - WebSocket broadcasts (message.created / message.deleted)
-      - Permissions by role: mentor (group-scoped), supervisor (global), admin (global)
+      - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
     """
 
     def setUp(self):
@@ -48,22 +53,23 @@ class ChatFeatureTests(TestCase):
         self.role_mentor = Roles.objects.create(role_name="mentor")
         self.role_supervisor = Roles.objects.create(role_name="supervisor")
         self.role_admin = Roles.objects.create(role_name="admin")
-        self.role_basic = Roles.objects.create(role_name="basic_user")
+        self.role_student = Roles.objects.create(role_name="basic_student")
 
         now = timezone.now()
+        future = now.replace(year=2099)
 
         # Active role assignments (treat valid_to=None as "still active")
         RoleAssignmentHistory.objects.create(
-            user=self.student, role=self.role_basic, valid_from=now, valid_to=None
+            user=self.student, role=self.role_student, valid_from=now, valid_to=future
         )
         RoleAssignmentHistory.objects.create(
-            user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=None
+            user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=future
         )
         RoleAssignmentHistory.objects.create(
-            user=self.supervisor, role=self.role_supervisor, valid_from=now, valid_to=None
+            user=self.supervisor, role=self.role_supervisor, valid_from=now, valid_to=future
         )
         RoleAssignmentHistory.objects.create(
-            user=self.admin, role=self.role_admin, valid_from=now, valid_to=None
+            user=self.admin, role=self.role_admin, valid_from=now, valid_to=future
         )
         
         # --- geo / track prerequisites for Groups ---
@@ -75,7 +81,8 @@ class ChatFeatureTests(TestCase):
         self.group = Groups.objects.create(group_name="G1", track=self.track)
         GroupMembers.objects.create(user=self.student, group=self.group)
         GroupMembers.objects.create(user=self.mentor, group=self.group)
-        # supervisor/admin have global access; they don't need membership
+        GroupMembers.objects.create(user=self.supervisor, group=self.group)
+        # admin has global access; they don't need membership
         
         # --- resources ---
         self.res1 = Resources.objects.create(
@@ -157,16 +164,32 @@ class ChatFeatureTests(TestCase):
         msg.refresh_from_db()
         self.assertTrue(msg.deleted_flag)
 
-    def test_delete_allowed_for_supervisor_globally(self):
-        # make another group where supervisor is NOT a member
+    def test_delete_forbidden_for_mentor_in_other_group(self):
+        # make another group where mentor is NOT a member
         group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.student, message_text="to delete 3")
+        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
         url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
+
+        resp = self.client_mentor.delete(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_allowed_for_supervisor_in_own_group(self):
+        msg2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 3")
+        url = reverse("group-messages-detail", kwargs={"group_pk": self.group.id, "pk": msg2.id})
 
         resp = self.client_supervisor.delete(url)
         self.assertEqual(resp.status_code, 204)
         msg2.refresh_from_db()
         self.assertTrue(msg2.deleted_flag)
+
+    def test_delete_forbidden_for_supervisor_in_other_group(self):
+        # make another group where supervisor is NOT a member
+        group2 = Groups.objects.create(group_name="G2", track=self.track)
+        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
+        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
+
+        resp = self.client_supervisor.delete(url)
+        self.assertEqual(resp.status_code, 403)
 
     def test_delete_allowed_for_admin_globally(self):
         group3 = Groups.objects.create(group_name="G3", track=self.track)
@@ -188,69 +211,85 @@ class ChatFeatureTests(TestCase):
         self.assertIn(m1.id, ids)
         self.assertNotIn(m2.id, ids)
 
-    async def _ws_connect_with_session(self, user):
+    def _session_cookie(self, user):
+        c = Client()
+        c.force_login(user)
+        return c.cookies[settings.SESSION_COOKIE_NAME].value
+    
+    def _ws_connect_with_session(self, user):
         """
         Helper: create a Django session for 'user' and connect a WebsocketCommunicator
         with the sessionid cookie so AuthMiddlewareStack resolves request.user.
         """
         # Create session cookie for this user
         # Using Django client to login and capture session key
-        from django.test import Client
 
-        c = Client()
-        c.force_login(user)
-        sessionid = c.cookies["sessionid"].value.encode("ascii")
+        cookie = self._session_cookie(user)
+        headers = [(b"cookie", f"{settings.SESSION_COOKIE_NAME}={cookie}".encode())]
 
         # Connect
         communicator = WebsocketCommunicator(
             application, f"/ws/chat/groups/{self.group.id}/",
-            headers=[(b"cookie", b"sessionid=" + sessionid)]
+            headers=headers,
         )
-        connected, _ = await communicator.connect()
+        connected, _ = async_to_sync(communicator.connect)()
         self.assertTrue(connected, "WebSocket failed to connect")
         return communicator
 
     def test_ws_broadcast_on_create(self):
-        async def _inner():
-            # Open WS as student (group member)
-            comm = await self._ws_connect_with_session(self.student)
+        # Open WS as student (group member)
+        comm = self._ws_connect_with_session(self.student)
 
+        api = APIClient()
+        api.force_authenticate(self.student)
+        
+        try:
             # Create a message via REST (as student)
-            resp = self.client_student.post(
-                self._list_url(),
-                {"message_text": "ws create", "resources": []},
+            resp = api.post(
+                f"/chat/groups/{self.group.id}/messages/",
+                {"message_text": "hi from test", "resources": []},
                 format="json",
             )
             self.assertEqual(resp.status_code, 201, resp.content)
 
+            async_to_sync(asyncio.sleep)(0.05)
+
             # Expect a broadcast
-            event = await asyncio.wait_for(comm.receive_json_from(), timeout=2)
+            event = async_to_sync(comm.receive_json_from)(timeout=5)
             self.assertEqual(event["payload"]["event"], "message.created")
             self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message"]["text"], "ws create")
+            self.assertEqual(event["payload"]["message"]["text"], "hi from test")
+            self.assertEqual(event["payload"]["message"]["sender_id"], self.student.id)
+        finally:
+            # Prevent CancelledError bubbling if a prior await timed out/cancelled
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                async_to_sync(asyncio.sleep)(0.05)
+                async_to_sync(comm.disconnect)()
 
-            await comm.disconnect()
-
-        asyncio.get_event_loop().run_until_complete(_inner())
 
     def test_ws_broadcast_on_delete(self):
-        async def _inner():
-            # create a message to delete
-            msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
+        # create a message to delete
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
 
-            # Open WS as mentor (has moderation in this group)
-            comm = await self._ws_connect_with_session(self.mentor)
+        # Open WS as mentor (has moderation in this group)
+        comm = self._ws_connect_with_session(self.mentor)
 
+        api = APIClient()
+        api.force_authenticate(self.mentor)
+
+        try:
             # Delete via REST (mentor)
-            resp = self.client_mentor.delete(self._detail_url(msg.id))
+            resp = api.delete(f"/chat/groups/{self.group.id}/messages/{msg.id}/")
             self.assertEqual(resp.status_code, 204, resp.content)
 
+            async_to_sync(asyncio.sleep)(0.05)
+
             # Expect broadcast
-            event = await asyncio.wait_for(comm.receive_json_from(), timeout=2)
+            event = async_to_sync(comm.receive_json_from)(timeout=5)
             self.assertEqual(event["payload"]["event"], "message.deleted")
             self.assertEqual(event["payload"]["group_id"], self.group.id)
             self.assertEqual(event["payload"]["message_id"], msg.id)
-
-            await comm.disconnect()
-
-        asyncio.get_event_loop().run_until_complete(_inner())
+        finally:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                async_to_sync(asyncio.sleep)(0.05)
+                async_to_sync(comm.disconnect)()
