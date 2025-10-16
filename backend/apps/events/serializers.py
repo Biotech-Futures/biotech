@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Events
+from .models import Events, EventInvite
 from django.utils import timezone
 
 
@@ -44,3 +44,13 @@ class EventSerializer(serializers.ModelSerializer):
         if value < timezone.now():
             raise serializers.ValidationError("Cannot create events in the past.")
         return value 
+    
+class EventInviteSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = EventInvite
+        fields = ["id", "event", "user", "sent_datetime", "attendance_status", "rsvp_status"]
+
+class EventInviteCreateSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = EventInvite
+        fields = ["event", "user", "sent_datetime"]
