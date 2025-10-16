@@ -37,7 +37,7 @@ class ChatFeatureTests(TestCase):
       - GET  /chat/groups/{id}/messages/?after=&limit=
       - DELETE /chat/groups/{id}/messages/{mid}/  (soft delete)
       - WebSocket broadcasts (message.created / message.deleted)
-      - Permissions by role: mentor (group-scoped), supervisor (global), admin (global)
+      - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
     """
 
     def setUp(self):
@@ -81,7 +81,8 @@ class ChatFeatureTests(TestCase):
         self.group = Groups.objects.create(group_name="G1", track=self.track)
         GroupMembers.objects.create(user=self.student, group=self.group)
         GroupMembers.objects.create(user=self.mentor, group=self.group)
-        # supervisor/admin have global access; they don't need membership
+        GroupMembers.objects.create(user=self.supervisor, group=self.group)
+        # admin has global access; they don't need membership
         
         # --- resources ---
         self.res1 = Resources.objects.create(
@@ -163,16 +164,32 @@ class ChatFeatureTests(TestCase):
         msg.refresh_from_db()
         self.assertTrue(msg.deleted_flag)
 
-    def test_delete_allowed_for_supervisor_globally(self):
-        # make another group where supervisor is NOT a member
+    def test_delete_forbidden_for_mentor_in_other_group(self):
+        # make another group where mentor is NOT a member
         group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.student, message_text="to delete 3")
+        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
         url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
+
+        resp = self.client_mentor.delete(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_allowed_for_supervisor_in_own_group(self):
+        msg2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 3")
+        url = reverse("group-messages-detail", kwargs={"group_pk": self.group.id, "pk": msg2.id})
 
         resp = self.client_supervisor.delete(url)
         self.assertEqual(resp.status_code, 204)
         msg2.refresh_from_db()
         self.assertTrue(msg2.deleted_flag)
+
+    def test_delete_forbidden_for_supervisor_in_other_group(self):
+        # make another group where supervisor is NOT a member
+        group2 = Groups.objects.create(group_name="G2", track=self.track)
+        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
+        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
+
+        resp = self.client_supervisor.delete(url)
+        self.assertEqual(resp.status_code, 403)
 
     def test_delete_allowed_for_admin_globally(self):
         group3 = Groups.objects.create(group_name="G3", track=self.track)

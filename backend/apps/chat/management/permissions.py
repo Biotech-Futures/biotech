@@ -44,7 +44,7 @@ class CanModerateMessage(BasePermission):
             return True
 
         # Mentor / Supervisor → only if member of THIS group
-        if _has_active_role_name(u, {ROLE_MENTOR}, {ROLE_SUPERVISOR}):
+        if _has_active_role_name(u, {ROLE_MENTOR, ROLE_SUPERVISOR}):
             return GroupMembers.objects.filter(user=u, group=obj.group).exists()
 
         return False
