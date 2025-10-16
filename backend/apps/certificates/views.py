@@ -5,8 +5,6 @@ from rest_framework.response import Response
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from django.db.models import Q
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 from .models import MentorCertificate
 from .serializers import (
     MentorCertificateSerializer,
@@ -18,7 +16,6 @@ from .permissions import CertificatePermission
 from apps.resources.models import RoleAssignmentHistory
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class MentorCertificateViewSet(mixins.ListModelMixin,
                                mixins.RetrieveModelMixin,
                                mixins.CreateModelMixin,
