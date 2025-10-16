@@ -5,11 +5,68 @@ info:
   description: API Documentation for the New BIOTech Futures Mentoring Platform
 paths:
   /certificates/v1/:
+    get:
+      operationId: certificates_v1_list
+      description: |-
+        Certificate Management with Role-Based Access Control:
+
+        Mentors:
+            - GET /certificates/v1/ -> list their own certificates
+            - GET /certificates/v1/{id}/ -> retrieve their own certificate
+            - POST /certificates/v1/ -> create their own certificate
+            - PATCH /certificates/v1/{id}/ -> update their own certificate
+
+        Admins:
+            - Full CRUD access to all certificates
+            - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
+            - Can set 'verified' flag
+
+        Supervisors:
+            - GET /certificates/v1/ -> list certificates of mentors they oversee
+            - GET /certificates/v1/{id}/ -> view specific certificates (read-only)
+
+        Students:
+            - No access
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - certificates
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMentorCertificateList'
+          description: ''
     post:
       operationId: certificates_v1_create
       description: |-
-        GET /certificates/v1/{id}/  -> retrieve a single certificate (admin-only)
-        POST /certificates/v1/      -> create a new certificate (admin-only)
+        Certificate Management with Role-Based Access Control:
+
+        Mentors:
+            - GET /certificates/v1/ -> list their own certificates
+            - GET /certificates/v1/{id}/ -> retrieve their own certificate
+            - POST /certificates/v1/ -> create their own certificate
+            - PATCH /certificates/v1/{id}/ -> update their own certificate
+
+        Admins:
+            - Full CRUD access to all certificates
+            - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
+            - Can set 'verified' flag
+
+        Supervisors:
+            - GET /certificates/v1/ -> list certificates of mentors they oversee
+            - GET /certificates/v1/{id}/ -> view specific certificates (read-only)
+
+        Students:
+            - No access
       tags:
       - certificates
       requestBody:
@@ -37,8 +94,25 @@ paths:
     get:
       operationId: certificates_v1_retrieve
       description: |-
-        GET /certificates/v1/{id}/  -> retrieve a single certificate (admin-only)
-        POST /certificates/v1/      -> create a new certificate (admin-only)
+        Certificate Management with Role-Based Access Control:
+
+        Mentors:
+            - GET /certificates/v1/ -> list their own certificates
+            - GET /certificates/v1/{id}/ -> retrieve their own certificate
+            - POST /certificates/v1/ -> create their own certificate
+            - PATCH /certificates/v1/{id}/ -> update their own certificate
+
+        Admins:
+            - Full CRUD access to all certificates
+            - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
+            - Can set 'verified' flag
+
+        Supervisors:
+            - GET /certificates/v1/ -> list certificates of mentors they oversee
+            - GET /certificates/v1/{id}/ -> view specific certificates (read-only)
+
+        Students:
+            - No access
       parameters:
       - in: path
         name: id
@@ -48,6 +122,215 @@ paths:
         required: true
       tags:
       - certificates
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MentorCertificate'
+          description: ''
+    put:
+      operationId: certificates_v1_update
+      description: |-
+        Certificate Management with Role-Based Access Control:
+
+        Mentors:
+            - GET /certificates/v1/ -> list their own certificates
+            - GET /certificates/v1/{id}/ -> retrieve their own certificate
+            - POST /certificates/v1/ -> create their own certificate
+            - PATCH /certificates/v1/{id}/ -> update their own certificate
+
+        Admins:
+            - Full CRUD access to all certificates
+            - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
+            - Can set 'verified' flag
+
+        Supervisors:
+            - GET /certificates/v1/ -> list certificates of mentors they oversee
+            - GET /certificates/v1/{id}/ -> view specific certificates (read-only)
+
+        Students:
+            - No access
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Mentor Certificate.
+        required: true
+      tags:
+      - certificates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorCertificateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MentorCertificateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MentorCertificateUpdate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MentorCertificateUpdate'
+          description: ''
+    patch:
+      operationId: certificates_v1_partial_update
+      description: |-
+        Certificate Management with Role-Based Access Control:
+
+        Mentors:
+            - GET /certificates/v1/ -> list their own certificates
+            - GET /certificates/v1/{id}/ -> retrieve their own certificate
+            - POST /certificates/v1/ -> create their own certificate
+            - PATCH /certificates/v1/{id}/ -> update their own certificate
+
+        Admins:
+            - Full CRUD access to all certificates
+            - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
+            - Can set 'verified' flag
+
+        Supervisors:
+            - GET /certificates/v1/ -> list certificates of mentors they oversee
+            - GET /certificates/v1/{id}/ -> view specific certificates (read-only)
+
+        Students:
+            - No access
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Mentor Certificate.
+        required: true
+      tags:
+      - certificates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMentorCertificateUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMentorCertificateUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMentorCertificateUpdate'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MentorCertificateUpdate'
+          description: ''
+    delete:
+      operationId: certificates_v1_destroy
+      description: |-
+        Certificate Management with Role-Based Access Control:
+
+        Mentors:
+            - GET /certificates/v1/ -> list their own certificates
+            - GET /certificates/v1/{id}/ -> retrieve their own certificate
+            - POST /certificates/v1/ -> create their own certificate
+            - PATCH /certificates/v1/{id}/ -> update their own certificate
+
+        Admins:
+            - Full CRUD access to all certificates
+            - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
+            - Can set 'verified' flag
+
+        Supervisors:
+            - GET /certificates/v1/ -> list certificates of mentors they oversee
+            - GET /certificates/v1/{id}/ -> view specific certificates (read-only)
+
+        Students:
+            - No access
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Mentor Certificate.
+        required: true
+      tags:
+      - certificates
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /certificates/v1/{id}/unverify/:
+    post:
+      operationId: certificates_v1_unverify_create
+      description: |-
+        Admin-only action to unverify a certificate.
+        POST /certificates/v1/{id}/unverify/
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Mentor Certificate.
+        required: true
+      tags:
+      - certificates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorCertificate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MentorCertificate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MentorCertificate'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MentorCertificate'
+          description: ''
+  /certificates/v1/{id}/verify/:
+    post:
+      operationId: certificates_v1_verify_create
+      description: |-
+        Admin-only action to verify a certificate.
+        POST /certificates/v1/{id}/verify/
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Mentor Certificate.
+        required: true
+      tags:
+      - certificates
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorCertificate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MentorCertificate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MentorCertificate'
       security:
       - cookieAuth: []
       responses:
@@ -2079,6 +2362,7 @@ components:
       description: |-
         Serializer for creating mentor certificates.
         Excludes read-only fields like 'id' and 'verified'.
+        Mentors cannot set the 'verified' flag - only admins can.
       properties:
         mentor_profile:
           type: integer
@@ -2108,6 +2392,38 @@ components:
       - issued_at
       - issued_by
       - mentor_profile
+    MentorCertificateUpdate:
+      type: object
+      description: |-
+        Serializer for updating mentor certificates.
+        Mentors can update their certificate details but NOT the 'verified' flag.
+        Admins can update everything including 'verified'.
+      properties:
+        certificate_type:
+          type: integer
+        certificate_number:
+          type: string
+          nullable: true
+          maxLength: 255
+        issued_by:
+          type: string
+          maxLength: 255
+        issued_at:
+          type: string
+          format: date
+        expires_at:
+          type: string
+          format: date
+          nullable: true
+        file_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
+      required:
+      - certificate_type
+      - issued_at
+      - issued_by
     Message:
       type: object
       properties:
@@ -2290,6 +2606,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GroupMember'
+    PaginatedMentorCertificateList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MentorCertificate'
     PaginatedMessageList:
       type: object
       required:
@@ -2516,6 +2855,34 @@ components:
           type: integer
         user:
           type: integer
+    PatchedMentorCertificateUpdate:
+      type: object
+      description: |-
+        Serializer for updating mentor certificates.
+        Mentors can update their certificate details but NOT the 'verified' flag.
+        Admins can update everything including 'verified'.
+      properties:
+        certificate_type:
+          type: integer
+        certificate_number:
+          type: string
+          nullable: true
+          maxLength: 255
+        issued_by:
+          type: string
+          maxLength: 255
+        issued_at:
+          type: string
+          format: date
+        expires_at:
+          type: string
+          format: date
+          nullable: true
+        file_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 500
     PatchedMessage:
       type: object
       properties:
