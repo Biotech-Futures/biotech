@@ -1,5 +1,7 @@
 from apps.groups.models import Tracks, Countries, CountryStates
 from django.db import transaction
+from django.db.models import Q
+from typing import Optional
 
 """
 Currently, the tracks system works based on whatever regions that BIOTech Futures Support.
@@ -12,7 +14,6 @@ It should not create one, as we assume this will be created in another function,
 """
 
 # Exception hierarchy for explicit error signaling to API layer
-
 
 class TrackResolutionError(Exception):
     """Base class for track resolution errors."""
@@ -41,7 +42,7 @@ class TrackNotConfiguredError(TrackResolutionError):
         self.track_name = track_name
 
 
-def get_supported_track(country_name, region_name):
+def get_supported_track(country_name: str, region_name: str) -> Optional[Tracks]:
     '''
     Resolves and returns an existing Track based on BIOTech Futures reach.
     Australia: Track is 'AUS-<STATE_SHORT>'
@@ -85,3 +86,57 @@ def get_supported_track(country_name, region_name):
     if not track:
         raise TrackNotConfiguredError(track_name)
     return track
+
+def get_supported_countryState(country_name: str, region_name: str) -> Optional[CountryStates]:
+    """
+    Resolves and returns an existing CountryState (state) for a given country and region.
+    Args:
+      country_name (str): country name, full or short
+      region_name (str): region name, full state or short form
+    Returns:
+      region (CountryStates): The supported CountryStates objects, or raises error
+    Raises:
+    InvalidInputError | CountryNotFoundError | StateNotFoundError
+    """
+    country = get_supported_country(country_name)
+    region_raw = (region_name or "").strip()
+    if not region_raw:
+        raise InvalidInputError("Region is required")
+    
+    region_official_name = region_raw.lower().title()
+    region_short = region_raw.upper()
+
+    state = CountryStates.objects.filter(country=country).filter(
+        Q(state_name__iexact=region_short) |
+        Q(state_name__iexact=region_official_name) |
+        Q(state_name_SHORT_FORM__iexact=region_short)
+    ).first()
+    if not state:
+        raise StateNotFoundError(country.country_name, region_raw)
+    return state
+
+def get_supported_country(country_name: str) -> Optional[Countries]:
+    """
+    Resolves and returns an existing, supported country, regardless if searched through short or long form
+    Args:
+      country_name (str): country name, full or short e.g. Australia, AUSTRALIA, australia, Aus, aus, AUS,
+    Returns:
+      Country (Countries): The supported Countries object, or raises an error
+    Raises:
+      InvalidInputError | CountryNotFoundError
+    """
+    country_raw = (country_name or "").strip()
+    if not country_raw:
+        raise InvalidInputError("Country is required")
+    country_official_name = country_raw.lower().title()
+    country_short = country_raw.upper()
+    country = Countries.objects.filter(
+        Q(country_name__iexact=country_official_name) |
+        Q(country_name_SHORT_FORM__iexact=country_short)
+    ).first()
+    if not country:
+        raise CountryNotFoundError(country_raw)
+    return country
+
+
+    

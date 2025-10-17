@@ -304,3 +304,4 @@ Error semantics (per group item):
 
 > [!IMPORTANT]
 > Discuss groupingType since a teacher is not making a group, do we make groups based on if the group should allow members to be from different schools?
+

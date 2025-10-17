@@ -116,7 +116,7 @@ class UserRegisterView(APIView):
         data = request.data
         databody = data["body"]
 
-        #users table creation
+        #users table creation   
         user = User.objects.create_user(email=databody["Title"])
         user.first_name = databody["FirstName"]
         user.last_name = databody["Surname"]
