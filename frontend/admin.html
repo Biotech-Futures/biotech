@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Administrator - Replace tutors and bulk reserve</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 24px; }
+    h2 { margin-top: 32px; }
+    .card { border: 1px solid #ddd; padding: 16px; border-radius: 8px; margin: 12px 0; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    label { min-width: 120px; display: inline-block; }
+    input { padding: 6px 8px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    pre { background: #f7f7f7; padding: 12px; border-radius: 6px; overflow: auto; }
+  </style>
+  <script>
+    async function api(path, method = 'GET', body) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(`/api/${path}`, opts);
+      const text = await res.text();
+      try { return { ok: res.ok, data: JSON.parse(text) }; } catch { return { ok: res.ok, data: text }; }
+    }
+
+    async function replaceGroupMentor() {
+      const groupId = document.getElementById('groupId').value.trim();
+      const newMentorId = document.getElementById('newMentorId').value.trim();
+      const out = document.getElementById('out');
+      if (!groupId || !newMentorId) {
+        out.textContent = 'Please fill in group_id and new_mentor_id';
+        return;
+      }
+      const r = await api('replace_group_mentor/', 'POST', { group_id: Number(groupId), new_mentor_id: Number(newMentorId) });
+      out.textContent = JSON.stringify(r.data, null, 2);
+    }
+
+    async function deactivateMentor() {
+      const mentorId = document.getElementById('deactMentorId').value.trim();
+      const out = document.getElementById('out');
+      if (!mentorId) { out.textContent = 'Please fill in mentor_id'; return; }
+      const r = await api('deactivate_mentor/', 'POST', { mentor_id: Number(mentorId) });
+      out.textContent = JSON.stringify(r.data, null, 2);
+    }
+
+    async function previewInactive() {
+      const out = document.getElementById('out');
+      const r = await api('bulk_inactive_mentors_preview/');
+      out.textContent = JSON.stringify(r.data, null, 2);
+    }
+
+    async function bulkReplaceInactive() {
+      const out = document.getElementById('out');
+      const r = await api('bulk_replace_inactive_mentors/', 'POST', { strategy: 'placeholder', mapping: [] });
+      out.textContent = JSON.stringify(r.data, null, 2);
+    }
+  </script>
+  </head>
+<body>
+  <h1>Administrator Console</h1>
+
+  <div class="card">
+    <h2>1. Replace a single group mentors</h2>
+    <div class="row">
+      <label for="groupId">Group ID</label>
+      <input id="groupId" type="number" placeholder="Example 1" />
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <label for="newMentorId">New Mentor ID</label>
+      <input id="newMentorId" type="number" placeholder="Example 2" />
+    </div>
+    <div style="margin-top:12px;">
+      <button onclick="replaceGroupMentor()">Replacement of mentors and notification</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Deactivate mentors account</h2>
+    <div class="row">
+      <label for="deactMentorId">Mentor ID</label>
+      <input id="deactMentorId" type="number" placeholder="Example 2" />
+    </div>
+    <div style="margin-top:12px;">
+      <button onclick="deactivateMentor()">Deactivate the mentorstutor and clear the group</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Batch replacement of inactive mentors (placeholders)</h2>
+    <div class="row">
+      <button onclick="previewInactive()">Detecting inactive tutors (preview)</button>
+      <button onclick="bulkReplaceInactive()">Perform batch replacement (placeholder)</button>
+    </div>
+  </div>
+
+  <h2>Output</h2>
+  <pre id="out">Waiting for action...</pre>
+
+  <p>Tip: Development environment emails are output to the backend console through the Django console backend.</p>
+</body>
+</html>
+
+

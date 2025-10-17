@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block content %}
+  <h1>{{ title }}</h1>
+  <div>
+    <p>Tutor replacements will be made for the following groups:</p>
+    <ul>
+    {% for g in groups %}
+      <li>#{{ g.id }} - {{ g.name }}（Current mentor：{% if g.mentor %}{{ g.mentor.first_name }} {{ g.mentor.last_name }}{% else %}-{% endif %}）</li>
+    {% endfor %}
+    </ul>
+  </div>
+  <form method="post" style="margin-top: 12px;">
+    {% csrf_token %}
+    <label>New MentorID：</label>
+    <input type="number" name="new_mentor_id" required placeholder="Enter Mentor ID" />
+    <button type="submit" class="button">Confirm Replacement</button>
+    <a href=".." class="button">Cancel</a>
+  </form>
+{% endblock %}
+
+

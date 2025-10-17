@@ -1,6 +1,6 @@
 <h1>Users</h1>
 <ul>
 {% for user in results %}
-    <li>{{ user.first_name }}  {{ user.last_name }} | status:{{ user.status }} | email:{{ user.email }} | track:{{ user.track }} | state:{{ user.state }} | role:{{ user.current_role_name }}</li>
+    <li>{{ user.id }} | {{ user.first_name }}  {{ user.last_name }} | status:{{ user.status }} | email:{{ user.email }} | track:{{ user.track }} | state:{{ user.state }} | role:{{ user.current_role_name }}</li>
 {% endfor %}
 </ul>

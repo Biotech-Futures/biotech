@@ -58,7 +58,17 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
+    'storages',
 ]
+
+AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
+AZURE_ACCOUNT_KEY = "SLreKCgSbLMq9th/QXYaSfPGwsRo75J/JxV0OFOp9ZkrRcnuTULShfhpID3aLzxYixGlKSzrWkFR+AStamaR4g=="
+AZURE_CONTAINER = "media" # Guys this is currently set to private blobs so SAS urls are needed. We'll develop code for this accordingly
+AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
+DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/" # F formatted in case we decide to switch out containers
+
+
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -119,6 +129,14 @@ ASGI_APPLICATION = "config.asgi.application"
 
 
 
+# DATABASES = {
+#      "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
+#      }
+# }
+
+##Main DB Configuration === AZURE POSTGRESQL DB CONFIGURATION ===
 DATABASES = {
      "default": {
         "ENGINE": "django.db.backends.sqlite3",
