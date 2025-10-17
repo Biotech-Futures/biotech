@@ -8,7 +8,7 @@ from django.db.models.functions import Now
 class Sessions(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     access_datetime = models.DateTimeField(default=timezone.now)
-    isloggedin = models.BooleanField(db_column='isLoggedin')  # Field name made lowercase.
+    isloggedin = models.BooleanField(db_column='isLoggedin')  
 
     class Meta:
         db_table = 'sessions'

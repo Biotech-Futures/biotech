@@ -16,10 +16,13 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("users/", include("apps.users.urls")),
+    path("events/", include("apps.events.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
@@ -28,4 +31,12 @@ urlpatterns = [
     path("integrations/", include("apps.integrations.urls")),
     path("services/", include("apps.services.urls")), #remove if buggy (Ed)
     path('api-auth/', include('rest_framework.urls')), # for browsable API login
+    path("certificates/", include("apps.certificates.urls")),
+  
+    # Schema and docs
+    path('', RedirectView.as_view(url='/api/docs/', permanent=False)),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
 ]
