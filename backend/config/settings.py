@@ -58,7 +58,7 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
-    # 'storages', # no such module has been pushed
+    'storages',
 ]
 
 AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
