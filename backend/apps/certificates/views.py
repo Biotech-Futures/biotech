@@ -1,7 +1,7 @@
 # views.py
 from rest_framework import mixins, permissions, viewsets
 from .models import MentorCertificate
-from .serializers import MentorCertificateSerializer, MentorCertificateCreateSerializer
+from .serializers import MentorCertificateSerializer
 
 
 # Create your views here.
