@@ -7,7 +7,7 @@ from apps.resources.models import Resources
 class MessageAttachmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageAttachments
-        fields = ["id", "attachment_id", "attachment_filename"]
+        fields = ["id", "attachment_filename", "attachment_url"]
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):

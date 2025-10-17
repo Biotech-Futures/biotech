@@ -58,7 +58,7 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
-    'storages',
+    # 'storages', # no such module has been pushed
 ]
 
 AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
@@ -137,13 +137,14 @@ ASGI_APPLICATION = "config.asgi.application"
 # }
 
 ##Main DB Configuration === AZURE POSTGRESQL DB CONFIGURATION ===
-DATABASES = {
+'''DATABASES = {
      "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
      }
 }
-'''DATABASES = {
+'''
+DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "postgres",
@@ -156,15 +157,8 @@ DATABASES = {
                     },
             "CONN_MAX_AGE": 0
     }
-}'''
+}
 
-
-
-# Try to load local settings (TO BE REMOVED BEFORE PUSHING TO GIT)
-try:
-    from .local_settings import *
-except ImportError:
-    pass
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
