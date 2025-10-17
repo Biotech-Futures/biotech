@@ -4,7 +4,7 @@
     <section class="left-pane">
       <div class="left-inner">
         <div class="brand">
-          <div class="logo-icon">BTF</div>
+          <div class="logo-icon"><img :src="logo" alt="BIOTech Futures" /></div>
           <h1 class="brand-title">BIOTech Futures Hub</h1>
         </div>
 
@@ -29,7 +29,7 @@
     <section class="right-pane">
       <div class="login-card fade-in">
         <div class="login-logo" style="margin-bottom: 1rem;">
-          <div class="login-logo-icon">BTF</div>
+          <div class="login-logo-icon"><img :src="logo" alt="BIOTech Futures" /></div>
           <h2 class="login-title">Sign in</h2>
           <p class="login-subtitle">Welcome! Please sign in to continue.</p>
         </div>
@@ -85,6 +85,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import logo from '@/assets/btf-logo.png'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -180,14 +181,17 @@ const resendCode = () => alert('Code resent to your email!')
 .logo-icon {
   width: 48px;
   height: 48px;
-  background-color: var(--dark-green);
+  background-color: var(--white);
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--white);
-  font-size: 1.1rem;
-  font-weight: bold;
+}
+
+.login-logo-icon img {
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
 }
 
 .custom-content :deep(h2.info-title) {
@@ -232,14 +236,11 @@ const resendCode = () => alert('Code resent to your email!')
 .login-logo-icon {
   width: 72px;
   height: 72px;
-  background-color: var(--dark-green);
+  background-color: var(--white);
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--white);
-  font-size: 1.6rem;
-  font-weight: bold;
   margin-bottom: 0.5rem;
 }
 .login-title {

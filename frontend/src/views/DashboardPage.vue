@@ -105,9 +105,9 @@ const getResourceIcon = (type) => {
             <div class="group-info">
               <div class="group-name">{{ group.name }}</div>
               <!-- 胶囊样式的操作标签；.stop 防止触发整卡跳转 -->
-              <button type="button" class="chip-action" @click.stop>
+              <!-- <button type="button" class="chip-action" @click.stop>
                 {{ group.status }}
-              </button>
+              </button> -->
             </div>
           </div>
         </div>

@@ -8,8 +8,8 @@ export const mockUsers = [
 ];
 
 export const mockGroups = [
-  { id: 'BTF046', name: 'BTF046', members: 4, status: 'Schedule Workshop', mentor: 'Anita Pickard' },
-  { id: 'BTF001', name: 'BTF001', members: 5, status: 'Schedule Workshop', mentor: 'Anita Pickard' }
+  { id: 'BTF046', name: 'BTF046', members: 4, status: 'Schedule Event', mentor: 'Anita Pickard' },
+  { id: 'BTF001', name: 'BTF001', members: 5, status: 'Schedule Event', mentor: 'Anita Pickard' }
 ];
 
 export const mockResources = [
@@ -18,13 +18,15 @@ export const mockResources = [
   { id: 3, title: 'Mentor Handbook', type: 'document', updated: '3 days ago', role: 'mentor' },
   { id: 4, title: 'Conversation Starters', type: 'document', updated: '1 week ago', role: 'all' },
   { id: 5, title: 'Marking rubrics and submission details', type: 'document', updated: '2 weeks ago', role: 'mentor' },
-  { id: 6, title: 'Mentor Info Session Recording and Slides', type: 'video', updated: '1 month ago', role: 'mentor' }
+  { id: 6, title: 'Mentor Info Session Recording and Slides', type: 'video', updated: '1 month ago', role: 'mentor' },
+  { id: 7, title: 'Student Workshop Templates', type: 'template', updated: '3 days ago', role: 'student' },
+  { id: 8, title: 'Supervisor Assessment Guide', type: 'guide', updated: '1 week ago', role: 'supervisor' }
 ];
 
 // ★ 补充这个：
 export const mockEvents = [
   { id: 1, title: 'Program Kickoff',            date: '2025-09-15', time: '10:00 AM', location: 'Sydney University', type: 'in-person' },
-  { id: 2, title: 'Mentor Training Workshop',   date: '2025-09-20', time: '2:00 PM',  location: 'Online',            type: 'virtual'   },
+  { id: 2, title: 'Mentor Training Event',   date: '2025-09-20', time: '2:00 PM',  location: 'Online',            type: 'virtual'   },
   { id: 3, title: 'Student Orientation',        date: '2025-09-22', time: '3:00 PM',  location: 'Online',            type: 'virtual'   },
   { id: 4, title: 'Mid-Program Check-in',       date: '2025-10-15', time: '4:00 PM',  location: 'Online',            type: 'virtual'   },
   { id: 5, title: 'Final Presentations',        date: '2025-11-20', time: '9:00 AM',  location: 'Sydney University', type: 'in-person' }
@@ -37,7 +39,8 @@ export const mockAnnouncements = [
     title: 'Welcome to the 2025 BIOTech Futures Challenge',
     date: '2025-09-01T09:00:00+10:00',
     author: 'Program Team',
-    summary: 'Kickoff details, timelines, and how to get started with your mentor group.'
+    summary: 'Kickoff details, timelines, and how to get started with your mentor group.',
+    audience: 'all'
   },
   {
     id: 102,
@@ -45,15 +48,33 @@ export const mockAnnouncements = [
     date: '2025-09-03T18:00:00+10:00',
     author: 'Mentor Coordination',
     summary: 'Download the slides and recording from our first mentor info session.',
-    link: 'https://example.org/mentor-info-slides' // 外链示例
+    link: 'https://example.org/mentor-info-slides', // 外链示例
+    audience: 'mentor'
   },
   {
     id: 103,
     title: 'Submission Rubrics Updated',
     date: '2025-09-04T10:30:00+10:00',
     author: 'Academic Committee',
-    summary: 'We have refined scoring criteria. Please review before planning your workshops.',
-    route: null // 预留：若将来有内部详情页，可填 '/announcements/103'
+    summary: 'We have refined scoring criteria. Please review before planning your events.',
+    route: null, // 预留：若将来有内部详情页，可填 '/announcements/103'
+    audience: 'mentor'
+  },
+  {
+    id: 104,
+    title: 'Student Orientation Session Reminder',
+    date: '2025-09-05T14:00:00+10:00',
+    author: 'Student Services',
+    summary: 'Don\'t forget to attend the mandatory orientation session scheduled for next week.',
+    audience: 'student'
+  },
+  {
+    id: 105,
+    title: 'Supervisor Guidelines Released',
+    date: '2025-09-06T11:00:00+10:00',
+    author: 'Academic Committee',
+    summary: 'New guidelines for supervisors have been published in the resources section.',
+    audience: 'supervisor'
   }
 ]
  

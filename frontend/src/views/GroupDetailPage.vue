@@ -41,41 +41,42 @@
             <i class="fas fa-plus"></i> Add Milestone
           </button>
         </div>
-
-        <div v-for="m in tasks" :key="m.id" class="milestone">
-          <div class="milestone-header">
-            <div class="milestone-title">
-              <i class="fas fa-flag"></i>
-              {{ m.milestone }}
-            </div>
-            <div class="milestone-status">
-              {{ countCompleted(m) }}/{{ m.tasks.length }} Completed
-            </div>
-          </div>
-
-          <div class="task-list">
-            <div
-              v-for="t in m.tasks"
-              :key="t.id"
-              class="task-item"
-              @click="t.completed = !t.completed"
-            >
-              <div :class="['task-checkbox', { checked: t.completed }]"></div>
-              <div :class="['task-label', { completed: t.completed }]">{{ t.name }}</div>
-              <i class="fas fa-calendar" style="color:#6c757d;"></i>
-              <i class="fas fa-user" style="color:#6c757d;"></i>
+        <div class="card-content plan-content">
+          <div v-for="m in tasks" :key="m.id" class="milestone">
+            <div class="milestone-header">
+              <div class="milestone-title">
+                <i class="fas fa-flag"></i>
+                {{ m.milestone }}
+              </div>
+              <div class="milestone-status">
+                {{ countCompleted(m) }}/{{ m.tasks.length }} Completed
+              </div>
             </div>
 
-            <div class="add-task-row">
-              <button
-                type="button"
-                class="btn btn-outline btn-sm add-task-btn"
-                @click.stop="addTask(m)"
-                title="Add a new task under this milestone"
+            <div class="task-list">
+              <div
+                v-for="t in m.tasks"
+                :key="t.id"
+                class="task-item"
+                @click="t.completed = !t.completed"
               >
-                <i class="fas fa-plus"></i>
-                Add Task
-              </button>
+                <div :class="['task-checkbox', { checked: t.completed }]" />
+                <div :class="['task-label', { completed: t.completed }]">{{ t.name }}</div>
+                <i class="fas fa-calendar" style="color:#6c757d;"></i>
+                <i class="fas fa-user" style="color:#6c757d;"></i>
+              </div>
+
+              <div class="add-task-row">
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm add-task-btn"
+                  @click.stop="addTask(m)"
+                  title="Add a new task under this milestone"
+                >
+                  <i class="fas fa-plus"></i>
+                  Add Task
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -275,6 +276,57 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
   gap: 1.5rem;
+  align-items: stretch;
+  max-height: 70vh;
+  height: 70vh;
+}
+
+/* 左栏：Plan */
+.pane--plan {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 320px;
+}
+
+/* 右栏：Discussion */
+.pane--discussion {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 320px;
+}
+
+/* 卡片样式 */
+.card {
+  height: 100%;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.card-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.plan-content {
+  padding-right: 2px; /* for visible scrollbar */
+}
+
+/* Discussion board: chat-container fills card, chat-messages scrolls */
+.pane--discussion .chat-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.pane--discussion .chat-messages {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Add Task 行的微调，保持与全站按钮风格一致 */
@@ -296,6 +348,22 @@ onMounted(() => {
   border-bottom: 1px solid var(--border-light);
 }
 
+/* 确保 chat-container 填满可用空间 */
+.pane--discussion .chat-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 使 chat-messages 占据可用空间 */
+.chat-messages {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* 在每条消息头部右侧同时显示日期与时间的排版 */
 .message-meta {
   display: flex;
@@ -313,14 +381,24 @@ onMounted(() => {
   opacity: 0.95;
 }
 
+/* Message text color for own messages */
+.pane--discussion .message.own .message-text {
+  color: #fff !important;
+}
+
 /* 移动端：单列 + 由 tabs 控制显示哪一块 */
 @media (max-width: 900px) {
   .split {
     grid-template-columns: 1fr;
+    max-height: 80vh;
+    height: 80vh;
   }
   .mobile-tabs { display: flex; }
   .split .pane { display: none; }
   .split[data-active="plan"] .pane--plan { display: block; }
   .split[data-active="discussion"] .pane--discussion { display: block; }
+  .card {
+    min-height: 220px;
+  }
 }
 </style>

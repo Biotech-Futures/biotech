@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import logo from '@/assets/btf-logo.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,7 +31,7 @@ const go = (path) => {
       <div class="header-content">
         <div class="logo-section">
           <RouterLink to="/dashboard" class="logo">
-            <div class="logo-icon">BTF</div>
+            <div class="logo-icon"><img :src="logo" alt="BIOTech Futures" /></div>
             <span class="logo-text">BIOTech Futures Hub</span>
           </RouterLink>
         </div>
@@ -80,7 +81,7 @@ const go = (path) => {
               class="sidebar-link"
               :class="{ active: route.path === '/events' }"
             >
-              <i class="fas fa-calendar sidebar-icon"></i><span>Workshops</span>
+              <i class="fas fa-calendar sidebar-icon"></i><span>Events</span>
             </RouterLink>
           </li>
 
@@ -104,7 +105,7 @@ const go = (path) => {
             </RouterLink>
           </li>
 
-          <li class="sidebar-item">
+          <li class="sidebar-item" v-if="auth.isAdmin">
             <RouterLink
               to="/admin"
               class="sidebar-link"

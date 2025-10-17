@@ -78,7 +78,7 @@
             <span class="res-type">{{ prettyType(resource.type) }}</span>
           </div>
           <div style="margin-top:0.5rem;">
-            <span class="status-badge status-active">{{ resource.role === 'all' ? 'All Users' : 'Mentor Only' }}</span>
+            <span class="status-badge" :class="getAudienceClass(resource.role)">{{ getAudienceLabel(resource.role) }}</span>
           </div>
         </div>
       </div>
@@ -186,6 +186,28 @@ const bannerStyle = (res) => {
     return `${base} background-image:url('${res.cover}'); background-size:cover; background-position:center;`
   }
   return `${base} background: linear-gradient(135deg, var(--dark-green), var(--eucalypt));`
+}
+
+const getAudienceLabel = (role) => {
+  const labels = {
+    'all': 'All Users',
+    'student': 'Student',
+    'mentor': 'Mentor',
+    'supervisor': 'Supervisor',
+    'admin': 'Admin'
+  }
+  return labels[role] || 'Unknown'
+}
+
+const getAudienceClass = (role) => {
+  const classes = {
+    'all': 'status-active',
+    'student': 'status-info',
+    'mentor': 'status-warning',
+    'supervisor': 'status-pending',
+    'admin': 'status-danger'
+  }
+  return classes[role] || 'status-active'
 }
 </script>
 
