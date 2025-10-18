@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from django.http import JsonResponse, HttpResponse
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import login, logout
@@ -28,7 +30,13 @@ class SendLoginCodeView(APIView):
         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class VerifyLoginCodeView(APIView):
+    """
+    Verify OTP login code and create Django session.
+    This view uses @ensure_csrf_cookie to send the csrftoken cookie
+    along with the sessionid cookie. 
+    """
     permission_classes = [AllowAny]
     authentication_classes = []
 
@@ -42,7 +50,7 @@ class VerifyLoginCodeView(APIView):
         if not valid:
             return Response({"error": "Invalid or expired code"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # At this point user is authenticated → create Django session
+        # user is authenticated → create django session
         user = User.objects.get(email=email)
         login(request, user)  # Creates session cookie
 
@@ -59,8 +67,15 @@ class VerifyLoginCodeView(APIView):
             status=status.HTTP_200_OK,
         )
 
+@ensure_csrf_cookie
 def magic_login(request):
-    """Handle magic link authentication with Django sessions"""
+    """
+    Handle magic link authentication with Django sessions.
+
+    This view uses @ensure_csrf_cookie to send the csrftoken cookie
+    along with the sessionid cookie. This ensures CSRF protection for the
+    authenticated session created via magic link.
+    """
     email = request.GET.get("email")
     code = request.GET.get("code")
 
@@ -76,9 +91,7 @@ def magic_login(request):
 
     # Redirect to frontend - session cookie is automatically set
     from django.conf import settings
-    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/#/auth/callback')
-
-    # No need to pass tokens - session cookie handles authentication
+    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL')
     redirect_url = f"{frontend_callback}?success=true&email={user.email}"
 
     return redirect(redirect_url)
