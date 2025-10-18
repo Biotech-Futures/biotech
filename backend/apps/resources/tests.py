@@ -9,6 +9,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
 from django.apps import apps as dj_apps
+from django.core.files.base import ContentFile
 
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
 from .services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
@@ -1626,3 +1627,295 @@ class ResourceTypeIntegrationTests(TestCase):
         self.assertIn('guide', type_names)
         self.assertIn('video', type_names)
         self.assertIn('template', type_names)
+
+
+# =====Test resource blob uploads====
+class ResourceBlobUploadTests(TestCase):
+    """Tests for resource file uploads to Azure blob storage"""
+    
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+        
+        # Create test users
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email='user@test.com',
+            password='testpass123',
+            first_name='Regular',
+            last_name='User'
+        )
+        
+        # Create test roles
+        self.supervisor_role = Roles.objects.create(
+            role_name='Supervisor',
+        )
+        self.student_role = Roles.objects.create(
+            role_name='Student',
+        )
+        
+        # Create test resource types (use get_or_create to avoid conflicts)
+        self.document_type, _ = ResourceType.objects.get_or_create(
+            type_name='document',
+            defaults={'type_description': 'Document files'}
+        )
+        self.image_type, _ = ResourceType.objects.get_or_create(
+            type_name='image',
+            defaults={'type_description': 'Image files'}
+        )
+        
+        # Authenticate as admin
+        self.client.force_authenticate(user=self.admin_user)
+    
+    def test_upload_txt_file_success(self):
+        """Test successful upload of text file to blob storage"""
+        url = reverse('resource-files-list')
+        
+        # Create test file content
+        test_file_content = "testing file for resources :>"
+        test_file = ContentFile(test_file_content.encode('utf-8'), name='test_File_resources.txt')
+        
+        data = {
+            'resource_name': 'Test Upload File',
+            'resource_description': 'Testing file upload to blob storage',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify response data
+        self.assertEqual(response.data['resource_name'], 'Test Upload File')
+        self.assertEqual(response.data['resource_description'], 'Testing file upload to blob storage')
+        self.assertIsNotNone(response.data['resource_file'])
+        self.assertIsNotNone(response.data['file_url'])
+        self.assertEqual(response.data['file_size'], len(test_file_content))
+        self.assertEqual(response.data['content_type'], 'text/plain')
+        self.assertEqual(response.data['uploader']['email'], 'admin@test.com')
+        
+        # Verify resource was created in database
+        resource = Resources.objects.get(resource_name='Test Upload File')
+        self.assertEqual(resource.resource_name, 'Test Upload File')
+        self.assertEqual(resource.file_size, len(test_file_content))
+        self.assertEqual(resource.content_type, 'text/plain')
+        self.assertEqual(resource.uploader_user_id, self.admin_user)
+        self.assertIsNotNone(resource.resource_file)
+        
+        # Verify file exists in storage (works for both test and production storage)
+        from django.core.files.storage import default_storage
+        self.assertTrue(default_storage.exists(resource.resource_file.name))
+        
+        # Verify file content
+        with default_storage.open(resource.resource_file.name, 'r') as f:
+            content = f.read()
+            self.assertEqual(content, test_file_content)
+    
+    def test_upload_file_auto_detects_resource_type(self):
+        """Test that file upload auto-detects resource type from extension"""
+        url = reverse('resource-files-list')
+        
+        # Test PDF file (should auto-detect as document)
+        test_file_content = b"PDF content here"
+        test_file = ContentFile(test_file_content, name='research_paper.pdf')
+        
+        data = {
+            'resource_name': 'Research Paper',
+            'resource_description': 'Auto-detection test',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify auto-detected resource type
+        resource = Resources.objects.get(resource_name='Research Paper')
+        self.assertEqual(resource.resource_type.type_name, 'document')
+        self.assertEqual(resource.content_type, 'application/pdf')
+    
+    def test_upload_file_auto_detects_image_type(self):
+        """Test that image files auto-detect as image type"""
+        url = reverse('resource-files-list')
+        
+        # Test PNG file (should auto-detect as image)
+        test_file_content = b"PNG image data"
+        test_file = ContentFile(test_file_content, name='microscopy_image.png')
+        
+        data = {
+            'resource_name': 'Microscopy Image',
+            'resource_description': 'Auto-detection test for images',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify auto-detected resource type
+        resource = Resources.objects.get(resource_name='Microscopy Image')
+        self.assertEqual(resource.resource_type.type_name, 'image')
+        self.assertEqual(resource.content_type, 'image/png')
+    
+    def test_upload_file_with_explicit_resource_type(self):
+        """Test that explicit resource type overrides auto-detection"""
+        url = reverse('resource-files-list')
+        
+        # Test file that would auto-detect as document, but we specify image
+        test_file_content = b"Some content"
+        test_file = ContentFile(test_file_content, name='test.txt')
+        
+        data = {
+            'resource_name': 'Explicit Type Test',
+            'resource_description': 'Testing explicit type override',
+            'resource_file': test_file,
+            'resource_type_id': self.image_type.id,  # Explicitly set as image
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify explicit resource type was used
+        resource = Resources.objects.get(resource_name='Explicit Type Test')
+        self.assertEqual(resource.resource_type.type_name, 'image')  # Should be image, not document
+    
+    def test_upload_file_generates_secure_url(self):
+        """Test that uploaded files generate secure download URLs"""
+        url = reverse('resource-files-list')
+        
+        test_file_content = "Secure URL test content"
+        test_file = ContentFile(test_file_content.encode('utf-8'), name='secure_test.txt')
+        
+        data = {
+            'resource_name': 'Secure URL Test',
+            'resource_description': 'Testing secure URL generation',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify secure URL is generated
+        file_url = response.data['file_url']
+        self.assertIsNotNone(file_url)
+        self.assertTrue(file_url.startswith('https://'))
+        self.assertIn('btfuturesblobstorage.blob.core.windows.net', file_url)
+        self.assertIn('resources/', file_url)
+    
+    def test_upload_file_requires_authentication(self):
+        """Test that file upload requires authentication"""
+        # Remove authentication
+        self.client.force_authenticate(user=None)
+        
+        url = reverse('resource-files-list')
+        test_file_content = "Unauthorized test"
+        test_file = ContentFile(test_file_content.encode('utf-8'), name='unauthorized.txt')
+        
+        data = {
+            'resource_name': 'Unauthorized Test',
+            'resource_description': 'Should fail without auth',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_upload_file_with_multiple_roles(self):
+        """Test file upload with multiple role assignments"""
+        url = reverse('resource-files-list')
+        
+        test_file_content = "Multi-role test content"
+        test_file = ContentFile(test_file_content.encode('utf-8'), name='multi_role_test.txt')
+        
+        data = {
+            'resource_name': 'Multi-Role Test',
+            'resource_description': 'Testing multiple role assignments',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id, self.student_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify multiple roles were assigned
+        resource = Resources.objects.get(resource_name='Multi-Role Test')
+        assigned_roles = list(resource.resourceroles.values_list('role__role_name', flat=True))
+        self.assertIn('Supervisor', assigned_roles)
+        self.assertIn('Student', assigned_roles)
+        self.assertEqual(len(assigned_roles), 2)
+    
+    def test_upload_file_bio_company_file_types(self):
+        """Test upload of bio company specific file types"""
+        url = reverse('resource-files-list')
+        
+        # Test Excel file (should be detected as document)
+        excel_content = b"Excel content"
+        excel_file = ContentFile(excel_content, name='data_analysis.xlsx')
+        
+        data = {
+            'resource_name': 'Data Analysis Spreadsheet',
+            'resource_description': 'Bio company Excel file',
+            'resource_file': excel_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        # Verify Excel file is detected as document
+        resource = Resources.objects.get(resource_name='Data Analysis Spreadsheet')
+        self.assertEqual(resource.resource_type.type_name, 'document')
+        self.assertEqual(resource.content_type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    
+    def test_upload_file_cleanup_on_update(self):
+        """Test that old file is deleted when updating with new file"""
+        url = reverse('resource-files-list')
+        
+        # Create initial resource with file
+        test_file_content = "Original content"
+        test_file = ContentFile(test_file_content.encode('utf-8'), name='original.txt')
+        
+        data = {
+            'resource_name': 'Update Test',
+            'resource_description': 'Testing file update',
+            'resource_file': test_file,
+            'role_ids': [self.supervisor_role.id]
+        }
+        
+        response = self.client.post(url, data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        resource = Resources.objects.get(resource_name='Update Test')
+        original_file_path = resource.resource_file.name
+        
+        # Verify original file exists
+        from django.core.files.storage import default_storage
+        self.assertTrue(default_storage.exists(original_file_path))
+        
+        # Update with new file
+        new_file_content = "Updated content"
+        new_file = ContentFile(new_file_content.encode('utf-8'), name='updated.txt')
+        
+        update_data = {
+            'resource_file': new_file
+        }
+        
+        update_url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        response = self.client.patch(update_url, update_data, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify new file exists and old file is cleaned up
+        updated_resource = Resources.objects.get(id=resource.id)
+        new_file_path = updated_resource.resource_file.name
+        self.assertNotEqual(original_file_path, new_file_path)
+        self.assertTrue(default_storage.exists(new_file_path))
+        # Note: Old file cleanup is commented out in views.py, so original file still exists

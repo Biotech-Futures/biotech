@@ -191,6 +191,136 @@ class BlobStorageChecker:
         except Exception as e:
             print(f"✗ Error checking file: {e}")
     
+    def delete_file(self, file_path):
+        """Delete a specific file from blob storage"""
+        print("=== Azure Blob Storage Checker ===")
+        print(f"Deleting file: {file_path}")
+        
+        try:
+            # Check if file exists
+            if not self.storage.exists(file_path):
+                print(f"✗ File does not exist: {file_path}")
+                return False
+            
+            # Delete the file
+            self.storage.delete(file_path)
+            print(f"✓ File deleted successfully: {file_path}")
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error deleting file: {e}")
+            return False
+    
+    def delete_orphaned_files(self):
+        """Delete files that exist in blob storage but not in database"""
+        print("=== Azure Blob Storage Checker ===")
+        print("Finding and deleting orphaned files...")
+        
+        try:
+            # Get all files from Azure storage
+            all_dirs, all_files = self.storage.listdir('')
+            resource_files = [f for f in all_files if f.startswith('resources/')]
+            
+            # Get all resources from database
+            db_resources = set()
+            for resource in Resources.objects.exclude(resource_file=''):
+                if resource.resource_file:
+                    db_resources.add(resource.resource_file.name)
+            
+            orphaned_files = []
+            for file_path in resource_files:
+                if file_path not in db_resources:
+                    orphaned_files.append(file_path)
+            
+            if not orphaned_files:
+                print("✓ No orphaned files found")
+                return
+            
+            print(f"Found {len(orphaned_files)} orphaned file(s):")
+            for file_path in orphaned_files:
+                print(f"  • {file_path}")
+            
+            # Ask for confirmation
+            response = input("\nDo you want to delete these orphaned files? (y/N): ")
+            if response.lower() in ['y', 'yes']:
+                deleted_count = 0
+                for file_path in orphaned_files:
+                    if self.storage.delete(file_path):
+                        print(f"✓ Deleted: {file_path}")
+                        deleted_count += 1
+                    else:
+                        print(f"✗ Failed to delete: {file_path}")
+                
+                print(f"\n✓ Deleted {deleted_count} orphaned file(s)")
+            else:
+                print("Deletion cancelled")
+                
+        except Exception as e:
+            print(f"Error: {e}")
+    
+    def delete_all_files(self):
+        """⚠️ DANGER: Delete ALL files in blob storage (temporary command)"""
+        print("=== ⚠️  DANGER: DELETE ALL FILES ⚠️  ===")
+        print("This will delete ALL files in your Azure blob storage!")
+        print("This action CANNOT be undone!")
+        print()
+        
+        try:
+            # Get all files from Azure storage
+            all_dirs, all_files = self.storage.listdir('')
+            resource_files = [f for f in all_files if f.startswith('resources/')]
+            
+            if not resource_files:
+                print("✓ No files found to delete")
+                return
+            
+            print(f"Found {len(resource_files)} file(s) to delete:")
+            for file_path in resource_files:
+                print(f"  • {file_path}")
+            
+            print()
+            print("⚠️  WARNING: This will delete ALL files in blob storage!")
+            print("⚠️  Make sure you have backups if needed!")
+            print()
+            
+            # Double confirmation
+            response1 = input("Type 'DELETE ALL' to confirm (case sensitive): ")
+            if response1 != 'DELETE ALL':
+                print("Deletion cancelled - confirmation text did not match")
+                return
+            
+            response2 = input("Are you absolutely sure? Type 'YES' to proceed: ")
+            if response2 != 'YES':
+                print("Deletion cancelled - second confirmation failed")
+                return
+            
+            print("\n🗑️  Deleting all files...")
+            deleted_count = 0
+            failed_count = 0
+            
+            for file_path in resource_files:
+                try:
+                    if self.storage.delete(file_path):
+                        print(f"✓ Deleted: {file_path}")
+                        deleted_count += 1
+                    else:
+                        print(f"✗ Failed to delete: {file_path}")
+                        failed_count += 1
+                except Exception as e:
+                    print(f"✗ Error deleting {file_path}: {e}")
+                    failed_count += 1
+            
+            print(f"\n📊 Deletion Summary:")
+            print(f"  ✓ Successfully deleted: {deleted_count} files")
+            print(f"  ✗ Failed to delete: {failed_count} files")
+            print(f"  📁 Total files processed: {len(resource_files)}")
+            
+            if deleted_count > 0:
+                print(f"\n⚠️  {deleted_count} files have been permanently deleted from Azure blob storage!")
+                
+        except Exception as e:
+            print(f"Error: {e}")
+    
     def _format_size(self, size_bytes):
         """Format file size in human readable format"""
         if size_bytes == 0:
@@ -211,10 +341,16 @@ def main():
                        help='List all blobs in container and check against database')
     parser.add_argument('--resource-id', type=int,
                        help='Check a specific resource ID')
+    parser.add_argument('--delete-file', type=str,
+                       help='Delete a specific file by path (e.g., "resources/2025/10/16/file.txt")')
+    parser.add_argument('--delete-orphaned', action='store_true',
+                       help='Delete orphaned files (files in storage but not in database)')
+    parser.add_argument('--delete-all', action='store_true',
+                       help='⚠️ DANGER: Delete ALL files in blob storage (requires double confirmation)')
     
     args = parser.parse_args()
     
-    if not any([args.check_connection, args.list_all, args.resource_id]):
+    if not any([args.check_connection, args.list_all, args.resource_id, args.delete_file, args.delete_orphaned, args.delete_all]):
         parser.print_help()
         return
     
@@ -228,6 +364,15 @@ def main():
     
     if args.resource_id:
         checker.check_resource(args.resource_id)
+    
+    if args.delete_file:
+        checker.delete_file(args.delete_file)
+    
+    if args.delete_orphaned:
+        checker.delete_orphaned_files()
+    
+    if args.delete_all:
+        checker.delete_all_files()
 
 
 if __name__ == '__main__':

@@ -379,6 +379,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
     resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     visible_roles = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Resources
@@ -389,8 +390,35 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'resource_type_detail',
             'upload_datetime',
             'uploader',
-            'visible_roles'
+            'visible_roles',
+            'resource_file',
+            'file_url',
+            'file_size',
+            'content_type'
         ]
+    
+    def get_file_url(self, obj):
+        """Generate secure SAS URL for private blob access"""
+        if not obj.resource_file:
+            return None
+        
+        try:
+            from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+            from datetime import datetime, timedelta
+            
+            sas_token = generate_blob_sas(
+                account_name=settings.AZURE_ACCOUNT_NAME,
+                container_name=settings.AZURE_CONTAINER,
+                blob_name=obj.resource_file.name,
+                account_key=settings.AZURE_ACCOUNT_KEY,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.utcnow() + timedelta(hours=1)
+            )
+            
+            return f"{settings.MEDIA_URL}{obj.resource_file.name}?{sas_token}"
+        except Exception as e:
+            # Fallback to basic URL if SAS generation fails
+            return obj.resource_file.url if obj.resource_file else None
     
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
