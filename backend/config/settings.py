@@ -67,6 +67,8 @@ AZURE_CONTAINER = "media" # Guys this is currently set to private blobs so SAS u
 AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
 MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/" # F formatted in case we decide to switch out containers
+CHAT_MAX_UPLOAD_MB = 25
+CHAT_ALLOWED_MIME = {"image/gif", "image/png", "image/jpeg", "application/pdf", "application/msword", "application/zip"}
 
 
 
@@ -79,6 +81,7 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -137,6 +140,13 @@ ASGI_APPLICATION = "config.asgi.application"
 # }
 
 ##Main DB Configuration === AZURE POSTGRESQL DB CONFIGURATION ===
+'''DATABASES = {
+     "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+     }
+}
+'''
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -151,6 +161,7 @@ DATABASES = {
             "CONN_MAX_AGE": 0
     }
 }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
