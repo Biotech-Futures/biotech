@@ -12,16 +12,16 @@ def _has_active_role_name(user, allowed_names):
     return bool(rah and rah.role and rah.role.role_name in allowed_names)
 
 
-class IsGroupMemberOrStaff(BasePermission):
+class IsGroupMemberOrAdmin(BasePermission):
     """
-    For GET/POST: allow if user is staff, admin, supervisor, or a member of the group.
+    For GET/POST: allow if user is admin, or a member of the group.
     (Mentors are covered by membership since they belong to specific groups.)
     """
     def has_permission(self, request, view):
         u = request.user
         if not u or not u.is_authenticated:
             return False
-        if u.is_staff or _has_active_role_name(u, {ROLE_ADMIN, ROLE_SUPERVISOR}):
+        if u.is_staff or _has_active_role_name(u, {ROLE_ADMIN}):
             return True
         gid = view.kwargs.get("group_pk")
         return GroupMembers.objects.filter(user=u, group_id=gid).exists()
@@ -39,12 +39,12 @@ class CanModerateMessage(BasePermission):
         if not u or not u.is_authenticated:
             return False
 
-        # Admin / Supervisor → global access
-        if _has_active_role_name(u, {ROLE_ADMIN, ROLE_SUPERVISOR}):
+        # Admin → global access
+        if _has_active_role_name(u, {ROLE_ADMIN}):
             return True
 
-        # Mentor → only if member of THIS group
-        if _has_active_role_name(u, {ROLE_MENTOR}):
+        # Mentor / Supervisor → only if member of THIS group
+        if _has_active_role_name(u, {ROLE_MENTOR, ROLE_SUPERVISOR}):
             return GroupMembers.objects.filter(user=u, group=obj.group).exists()
 
         return False

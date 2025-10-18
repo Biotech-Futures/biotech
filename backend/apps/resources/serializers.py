@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import RoleAssignmentHistory, Roles, Resources, ResourceRoles
+from .models import RoleAssignmentHistory, Roles, Resources, ResourceRoles, ResourceType
 from apps.users.models import User
 from datetime import datetime, time, date
 from django.utils import timezone
@@ -10,6 +10,11 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'first_name', 'last_name', 'email']
+
+class ResourceTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ResourceType
+        fields = ['id', 'type_name', 'type_description']
 
 class RoleSerializer(serializers.ModelSerializer):
     class Meta:
@@ -86,12 +91,22 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
         return attrs
 
 class ResourcesSerializer(serializers.ModelSerializer):
-    uploader = UserSerializer(source='uploader_user_id', read_only=True)    
+    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    # Resource type field - read as nested object, write as ID
+    resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
+    resource_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=ResourceType.objects.all(),
+        source='resource_type',
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="ID of the resource type"
+    )
     # Role visibility fields
     visible_roles = serializers.SerializerMethodField()
     role_ids = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Roles.objects.all()),
-        write_only=True, 
+        write_only=True,
         required=False,
         help_text="List of role IDs that can access this resource"
     )
@@ -99,17 +114,19 @@ class ResourcesSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resources
         fields = [
-            'id', 
-            'resource_name', 
-            'resource_description', 
-            'upload_datetime', 
+            'id',
+            'resource_name',
+            'resource_description',
+            'resource_type_detail',
+            'resource_type_id',
+            'upload_datetime',
             # 'uploader',  # read-only field for display
             # 'uploader_id',  # write-only field for input
             'uploader',  # read-only field for display (automatically set)
-            'deleted_flag', 
+            'deleted_flag',
             'deleted_datetime',
-            'visible_roles', ##Custom Field (to be used for appending ResourceRoles data) 
-            'role_ids' ##Custom Field (to be used for appending ResourceRoles data) 
+            'visible_roles', ##Custom Field (to be used for appending ResourceRoles data)
+            'role_ids' ##Custom Field (to be used for appending ResourceRoles data)
         ]
         read_only_fields = ['id', 'upload_datetime', 'deleted_datetime']
 
@@ -185,15 +202,17 @@ class ResourcesSerializer(serializers.ModelSerializer):
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     visible_roles = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = Resources
         fields = [
-            'id', 
-            'resource_name', 
-            'resource_description', 
-            'upload_datetime', 
+            'id',
+            'resource_name',
+            'resource_description',
+            'resource_type_detail',
+            'upload_datetime',
             'uploader',
             'visible_roles'
         ]

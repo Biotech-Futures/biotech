@@ -85,7 +85,7 @@ class PermissionClassesTests(TestCase):
         """Regular user can list roles, but only admin can create/modify."""
         # unauthenticated - denied
         resp = self.client.get(reverse("roles-list"))
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # authenticated regular user - can list roles
         self.client.force_authenticate(self.regular)
@@ -113,7 +113,7 @@ class PermissionClassesTests(TestCase):
 
         # unauthenticated
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # unrelated user (no role assignment)
         stranger = get_user_model().objects.create_user(email="strangigga@example.com", password="pw")
