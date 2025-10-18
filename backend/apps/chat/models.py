@@ -9,8 +9,8 @@ class MessageAttachments(models.Model):
         on_delete=models.CASCADE,
         related_name='attachments'
     )
-    attachment_id = models.CharField(max_length=255, unique=True)
     attachment_filename = models.CharField(max_length=255)
+    attachment_url = models.URLField()
 
     class Meta:
         db_table = 'message_attachments'
@@ -20,6 +20,10 @@ class MessageAttachments(models.Model):
             models.UniqueConstraint(
                 fields=['message', 'attachment_filename'],
                 name='unique_filename_per_message'
+            ),
+            models.UniqueConstraint(
+                fields=['message', 'attachment_url'],
+                name='unique_url_per_message'
             ),
         ]
         indexes = [models.Index(fields=['message'])]
@@ -76,8 +80,8 @@ class MessageResource(models.Model):
 
     class Meta:
         db_table = "message_resources"
-        verbose_name = "Message Resource Link"
-        verbose_name_plural = "Message Resource Links"
+        verbose_name = "Message Resource"
+        verbose_name_plural = "Message Resource"
         unique_together = ("message", "resource")
         indexes = [
             models.Index(fields=["message"]),

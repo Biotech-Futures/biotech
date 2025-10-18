@@ -1,14 +1,18 @@
 from rest_framework import serializers
 from .models import Messages, MessageAttachments, MessageResource
-from apps.resources.serializers import RoleSerializer  # optional reuse
 from apps.resources.models import Resources
-
+from apps.chat.management.azure_storage import generate_sas_url
 
 class MessageAttachmentSerializer(serializers.ModelSerializer):
+    # signed_url is what FE uses to download (expires ~5 min)
+    signed_url = serializers.SerializerMethodField()
+
     class Meta:
         model = MessageAttachments
-        fields = ["id", "attachment_id", "attachment_filename"]
+        fields = ["id", "attachment_filename", "signed_url"]
 
+    def get_signed_url(self, obj):
+        return generate_sas_url(obj.attachment_url)
 
 class MessageResourceSerializer(serializers.ModelSerializer):
     resource_id = serializers.PrimaryKeyRelatedField(
@@ -41,25 +45,25 @@ class MessageSerializer(serializers.ModelSerializer):
             "sender_name",
             "message_text",
             "sent_datetime",
-            "attachments",
             "resources",
+            "attachments",
         ]
         read_only_fields = ["id", "group", "sender_user", "sent_datetime"]
 
     def create(self, validated_data):
         resources_data = validated_data.pop("resources", [])
         message = Messages.objects.create(**validated_data)
-        for r in resources_data:
-            MessageResource.objects.create(
-                message=message, resource=r["resource"]
+        if resources_data:
+            MessageResource.objects.bulk_create(
+                [MessageResource(message=message, resource=r["resource"]) for r in resources_data]
             )
         return message
 
     def validate(self, attrs):
-        msg = attrs.get("message_text", "").strip()
+        message = attrs.get("message_text", "").strip()
         resources_data = self.initial_data.get("resources", [])
-        if not msg and not resources_data:
+        if not message and not resources_data:
             raise serializers.ValidationError(
-                "Message must include text or at least one resource."
+                "Message must include text, a resource, or at least one attachment."
             )
-        return attrs
+    
