@@ -1,9 +1,10 @@
 from rest_framework import serializers
 from .models import RoleAssignmentHistory, Roles, Resources, ResourceRoles, ResourceType
 from apps.users.models import User
-from datetime import datetime, time, date
+from datetime import datetime, time, date, timedelta
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.conf import settings
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -92,15 +93,21 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
 
 class ResourcesSerializer(serializers.ModelSerializer):
     uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    uploader_user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        write_only=True,
+        required=False,
+        help_text="ID of the user who uploaded this resource"
+    )
     # Resource type field - read as nested object, write as ID
     resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     resource_type_id = serializers.PrimaryKeyRelatedField(
         queryset=ResourceType.objects.all(),
         source='resource_type',
         write_only=True,
-        required=False,
+        required=False,  # Will be auto-detected if not provided
         allow_null=True,
-        help_text="ID of the resource type"
+        help_text="ID of the resource type (auto-detected from file if not provided)"
     )
     # Role visibility fields
     visible_roles = serializers.SerializerMethodField()
@@ -111,6 +118,10 @@ class ResourcesSerializer(serializers.ModelSerializer):
         help_text="List of role IDs that can access this resource"
     )
     
+    # File upload fields
+    resource_file = serializers.FileField(required=False, allow_null=True)
+    file_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = Resources
         fields = [
@@ -119,16 +130,19 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'resource_description',
             'resource_type_detail',
             'resource_type_id',
+            'uploader_user_id',  # User who uploaded the resource
+            'resource_file',  # File upload field
+            'file_url',  # Secure download URL
+            'file_size',
+            'content_type',
             'upload_datetime',
-            # 'uploader',  # read-only field for display
-            # 'uploader_id',  # write-only field for input
-            'uploader',  # read-only field for display (automatically set)
+            'uploader',
             'deleted_flag',
             'deleted_datetime',
-            'visible_roles', ##Custom Field (to be used for appending ResourceRoles data)
-            'role_ids' ##Custom Field (to be used for appending ResourceRoles data)
+            'visible_roles',
+            'role_ids'
         ]
-        read_only_fields = ['id', 'upload_datetime', 'deleted_datetime']
+        read_only_fields = ['id', 'upload_datetime', 'deleted_datetime', 'file_size', 'content_type']
 
     def validate_resource_description(self, value):
         """Ensure description is not empty"""
@@ -166,6 +180,29 @@ class ResourcesSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
 
+    def get_file_url(self, obj):
+        """Generate secure SAS URL for private blob access"""
+        if not obj.resource_file:
+            return None
+        
+        try:
+            from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+            
+            # Generate SAS token valid for 1 hour
+            sas_token = generate_blob_sas(
+                account_name=settings.AZURE_ACCOUNT_NAME,
+                container_name=settings.AZURE_CONTAINER,
+                blob_name=obj.resource_file.name,
+                account_key=settings.AZURE_ACCOUNT_KEY,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.utcnow() + timedelta(hours=1)
+            )
+            
+            return f"{settings.MEDIA_URL}{obj.resource_file.name}?{sas_token}"
+        except Exception as e:
+            # Fallback to basic URL if SAS generation fails
+            return obj.resource_file.url if obj.resource_file else None
+    
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
         from .models import ResourceRoles
@@ -174,7 +211,25 @@ class ResourcesSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Create resource and specify roles for visibility (ResourceRoles)"""
-        role_ids = validated_data.pop('role_ids', [])         
+        role_ids = validated_data.pop('role_ids', [])
+        
+        # Handle file metadata and auto-detect resource type
+        resource_file = validated_data.get('resource_file')
+        if resource_file:
+            validated_data['file_size'] = resource_file.size
+            # Handle both uploaded files and ContentFile objects
+            if hasattr(resource_file, 'content_type'):
+                validated_data['content_type'] = resource_file.content_type
+            else:
+                # For ContentFile, try to detect from filename
+                validated_data['content_type'] = self._detect_content_type(resource_file.name)
+            
+            # Auto-detect resource type if not provided
+            if not validated_data.get('resource_type'):
+                resource_type = self._detect_resource_type(resource_file)
+                if resource_type:
+                    validated_data['resource_type'] = resource_type
+        
         resource = super().create(validated_data)
         
         # Assign roles to resource (ResourceRoles)
@@ -182,10 +237,130 @@ class ResourcesSerializer(serializers.ModelSerializer):
             ResourceRoles.objects.create(resource=resource, role=role_id)
         
         return resource
+    
+    def _detect_content_type(self, filename):
+        """Detect content type from filename"""
+        if not filename:
+            return 'application/octet-stream'
+            
+        file_extension = filename.lower().split('.')[-1] if '.' in filename else ''
+        
+        content_type_mapping = {
+            'pdf': 'application/pdf',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'txt': 'text/plain',
+            'rtf': 'application/rtf',
+            'odt': 'application/vnd.oasis.opendocument.text',
+            'xls': 'application/vnd.ms-excel',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'ppt': 'application/vnd.ms-powerpoint',
+            'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'bmp': 'image/bmp',
+            'svg': 'image/svg+xml',
+            'webp': 'image/webp',
+            'tiff': 'image/tiff',
+            'tif': 'image/tiff',
+            'mp4': 'video/mp4',
+            'avi': 'video/x-msvideo',
+            'mov': 'video/quicktime',
+            'wmv': 'video/x-ms-wmv',
+            'flv': 'video/x-flv',
+            'webm': 'video/webm',
+            'mkv': 'video/x-matroska',
+        }
+        
+        return content_type_mapping.get(file_extension, 'application/octet-stream')
+    
+    def _detect_resource_type(self, file):
+        """Auto-detect resource type based on file extension"""
+        if not file or not file.name:
+            return None
+            
+        file_extension = file.name.lower().split('.')[-1] if '.' in file.name else ''
+        content_type = getattr(file, 'content_type', None) or self._detect_content_type(file.name)
+        
+        # Mapping of file extensions and content types to resource types
+        type_mapping = {
+            # Documents/Guides/Templates (all accept the same file types)
+            'pdf': 'document',
+            'doc': 'document', 
+            'docx': 'document',
+            'txt': 'document',
+            'rtf': 'document',
+            'odt': 'document',
+            'xls': 'document',
+            'xlsx': 'document',
+            'ppt': 'document',
+            'pptx': 'document',
+            
+            # Images
+            'jpg': 'image',
+            'jpeg': 'image',
+            'png': 'image',
+            'gif': 'image',
+            'bmp': 'image',
+            'svg': 'image',
+            'webp': 'image',
+            'tiff': 'image',
+            'tif': 'image',
+            
+            # Videos
+            'mp4': 'video',
+            'avi': 'video',
+            'mov': 'video',
+            'wmv': 'video',
+            'flv': 'video',
+            'webm': 'video',
+            'mkv': 'video',
+        }
+        
+        # Check by file extension first
+        if file_extension in type_mapping:
+            type_name = type_mapping[file_extension]
+        # Check by content type
+        elif 'application/pdf' in content_type:
+            type_name = 'document'
+        elif 'application/msword' in content_type or 'application/vnd.openxmlformats-officedocument.wordprocessingml' in content_type:
+            type_name = 'document'
+        elif 'application/vnd.ms-excel' in content_type or 'application/vnd.openxmlformats-officedocument.spreadsheetml' in content_type:
+            type_name = 'document'
+        elif 'application/vnd.ms-powerpoint' in content_type or 'application/vnd.openxmlformats-officedocument.presentationml' in content_type:
+            type_name = 'document'
+        elif 'image/' in content_type:
+            type_name = 'image'
+        elif 'video/' in content_type:
+            type_name = 'video'
+        elif 'text/' in content_type:
+            type_name = 'document'
+        else:
+            # Default to document for unknown types
+            type_name = 'document'
+        
+        # Get or create the resource type
+        try:
+            from .models import ResourceType
+            return ResourceType.objects.get(type_name=type_name)
+        except ResourceType.DoesNotExist:
+            # Create the type if it doesn't exist
+            return ResourceType.objects.create(
+                type_name=type_name,
+                type_description=f'Auto-detected type for {type_name} files'
+            )
 
     def update(self, instance, validated_data):
         """Update resource and roles"""
         role_ids = validated_data.pop('role_ids', None)
+        
+        # Handle file metadata if a new file is uploaded
+        resource_file = validated_data.get('resource_file')
+        if resource_file:
+            validated_data['file_size'] = resource_file.size
+            validated_data['content_type'] = resource_file.content_type
         
         resource = super().update(instance, validated_data)
         

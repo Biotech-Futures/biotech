@@ -435,7 +435,42 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def perform_create(self, serializer):
         """Automatically set uploader to the authenticated user - users can only upload as themselves"""
-        serializer.save(uploader_user_id=self.request.user)
+        # Only set user if not already provided in the data
+        if 'uploader_user_id' not in serializer.validated_data:
+            serializer.save(uploader_user_id=self.request.user)
+        else:
+            serializer.save()
+    
+    def perform_update(self, serializer):
+        """Handle file updates - delete old file if new one is uploaded"""
+        instance = self.get_object()
+        
+        # Check if a new file is being uploaded
+        if 'resource_file' in self.request.FILES:
+            # Delete old file from blob storage if it exists
+            if instance.resource_file:
+                try:
+                    instance.resource_file.delete(save=False)
+                except Exception as e:
+                    # Log error but continue with update
+                    print(f"Error deleting old file: {e}")
+        
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Soft delete and optionally delete file from blob storage"""
+        instance.deleted_flag = True
+        instance.deleted_datetime = timezone.now()
+        
+        # Optionally delete the file from blob storage
+        # Uncomment if you want to delete files when resource is soft-deleted
+        # if instance.resource_file:
+        #     try:
+        #         instance.resource_file.delete(save=False)
+        #     except Exception as e:
+        #         print(f"Error deleting file: {e}")
+        
+        instance.save()
 
     def retrieve(self, request, *args, **kwargs):
         """Get single resource with visibility check"""
