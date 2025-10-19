@@ -173,10 +173,12 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[Student
 
   pg_first_name = (payload.get('pg_first_name') or "").strip()
   pg_last_name = (payload.get('pg_last_name') or "").strip()
+  guardian_email = (payload.get('guardian_email') or "").strip().lower()
   supervisor_email = (payload.get('supervisor_email') or "").strip().lower()
   interest_value = (payload.get('interest') or "").strip()  
   school_name = (payload.get('school_name') or "").strip()
   year_level_value = payload.get('year_level')
+  
   pg_first_name = pg_first_name.lower().title() if pg_first_name else ""
   pg_last_name = pg_last_name.lower().title() if pg_last_name else ""
 
@@ -207,7 +209,7 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[Student
   # get or create supervisor profile
   supervisor_profile = get_supervisor_profile_by_email(supervisor_email)
 
-  guardian_email = (payload.get('guardian_email') or "").strip().lower()
+  
   rel_type = None
   parent_is_guardian = False
   try:
