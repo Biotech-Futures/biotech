@@ -28,29 +28,32 @@ class UserAlreadyExists(UserCreationError):
 
 class NonExistentSupervisorError(UserCreationError):
   def __init__(self, supervisor_email: str):
-    super().__init__(f"Supervisor '{supervisor_email} not found in records, aborting student profile creation.'") # i believe user rows are still created, just not profiles
+    super().__init__(f"Supervisor '{supervisor_email}' not found in records, aborting student profile creation.") # i believe user rows are still created, just not profiles
 
 # put more error classes in here
 
-def get_relationship_type(supervisor_email: str, guardian_email: str) -> RelationshipType:
+
+def get_relationship_type(supervisor_email: str, guardian_email: str) -> Tuple[RelationshipType, bool]:
   """
   Gets the relationship type
-  Args:
+  Args: 
+  Returns:
   """
-  supervisor_email = (supervisor_email or "").strip()
-  guardian_email = (guardian_email or "").strip()
+  #TODO: cbbs writing the docs
+  supervisor_email = (supervisor_email or "").strip().lower()
+  guardian_email = (guardian_email or "").strip().lower()
   if not supervisor_email:
     raise InvalidInputError("Supervisor email must be provided")
   if not guardian_email:
-    return None
-  guardian_email = guardian_email.lower()
-  supervisor_email = supervisor_email.lower()
+    rel, _ = RelationshipType.objects.get_or_create(relationship_type="Supervisor")
+    return rel, False
   if guardian_email == supervisor_email:
     rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Guardian") #maybe this informs the parent_guardian_flag?
+    return rel, True
   else:
     rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Supervisor")
+    return rel, False
 
-  
 
 
 def get_supervisor_profile_by_email(email: str) -> SupervisorProfile:
@@ -94,7 +97,11 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
   if not last_name:
     raise InvalidInputError("Last name is required.")
   country_name = (payload.get('country') or "").strip().lower().title()
+  if not country_name:
+    raise InvalidInputError("Country name is required.")
   region_name = (payload.get('region') or "").strip().lower().title()
+  if not region_name:
+    raise InvalidInputError("Region name is required.")
 
   track = None
   state = None
@@ -111,13 +118,13 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
     # should we require country to be provided
 
   User = get_user_model()
-  track_state_keyword_args = None
-  if track and state:
-    track_state_keyword_args = {
-      "state": state,
-      "track": track
-    }
-
+  track_state_keyword_args: Dict[str, Any] = {}
+  if track:
+    track_state_keyword_args["track"] = track
+  if state:
+    track_state_keyword_args["state"] = state
+  user_obj = None
+  user_profile = None
   try:
     with transaction.atomic():
       new_user = User.objects.create(email=email,
@@ -126,22 +133,23 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
                           **track_state_keyword_args)
       if user_type_raw == "student":
         student_profile, created = create_student_profile(new_user, payload) 
-        # we need to create supervisor and parent first, then student
-        # then need to create studentsupervisor relationship
+        user_profile = student_profile
+
       elif user_type_raw == "supervisor":
         supervisor_profile, created = create_supervisor_profile(new_user, payload)
-        # just make the user object and then make supervisor profile
+        user_profile = supervisor_profile
       elif user_type_raw == "mentor":
         mentor_profile, created = create_mentor_profile(new_user, payload)
+        user_profile = mentor_profile
       else:
         raise InvalidInputError(f"Unsupported user_type: '{user_type_raw}'")
   except IntegrityError:
     raise UserAlreadyExists(f"User with email '{email}' already exists.")
+
+  return user_obj, user_profile
   
   
-  
-  
-def create_student_profile(user: User, payload: Dict[str, Any]) -> Dict[str, Any]:
+def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[StudentProfile, bool]:
   """
   Creates the appropriate student profile for a student user.
 
@@ -152,11 +160,12 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Dict[str, Any
       'supervisor_email': str,
       'interest': str,
       'school_name': str,
-      'year_level': Union[str, int]
+      'year_level': str
     }
 
   Returns:
     studentProfile (StudentProfile): The student profile
+    created (bool): if profile was created
 
   Raises:
     InvalidInputError: If required fields are missing or invalid.
@@ -171,8 +180,8 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Dict[str, Any
   pg_first_name = pg_first_name.lower().title() if pg_first_name else ""
   pg_last_name = pg_last_name.lower().title() if pg_last_name else ""
 
-  if (pg_first_name and not pg_last_name) or (pg_last_name and not pg_first_name):
-    raise InvalidInputError("Both parent/guardian first and last names are required when one is provided.")
+  if not pg_first_name or not pg_last_name:
+    raise InvalidInputError("Parent/guardian details required to create student profile.")
 
   if supervisor_email and '@' not in supervisor_email:
     raise InvalidInputError("Invalid supervisor email.")
@@ -197,15 +206,25 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Dict[str, Any
 
   # get or create supervisor profile
   supervisor_profile = get_supervisor_profile_by_email(supervisor_email)
+
+  guardian_email = (payload.get('guardian_email') or "").strip().lower()
+  rel_type = None
+  parent_is_guardian = False
+  try:
+    rel_type, parent_is_guardian = get_relationship_type(supervisor_email, guardian_email)
+  except Exception as e:
+    raise InvalidInputError(f"Could not resolve studentsupervisor relationship type: {e}")
+    
+  
   
   student_profile_creation_args = {
     "pg_first_name": pg_first_name or None,
     "pg_last_name": pg_last_name or None,
-    "parent_guardian_flag": True, #TODO: This is meant to be a flag indicating if a student's guardian is their parent.
+    "parent_guardian_flag": parent_is_guardian, 
     "supervisor": supervisor_profile,
     "interest": interest,
     "school_name": school_name,
-    "year_level": year_level, 
+    "year_level": year_level_value, #chose to use the string instead of the converted int because the field is a charfield in the model
     #TODO: implement has_join_permission and joinperm_responseID
   }
 
@@ -213,6 +232,11 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Dict[str, Any
   try:
     with transaction.atomic():
       student_profile, created = StudentProfile.objects.get_or_create(user=user, defaults=student_profile_creation_args)
+      ss, ss_created = StudentSupervisor.objects.get_or_create(student_user=student_profile, supervisor_user=supervisor_profile, defaults={"relationship_type": rel_type})
+      # if link exists but the rel type updates...
+      if not ss_created and ss.relationship_type_id != rel_type.pk:
+        ss.relationship_type = rel_type
+        ss.save(update_fields=["relationship_type"])
       return student_profile, created
   except Exception as e:
     raise InvalidInputError(f"Failed to create student profile: {e}")
@@ -235,15 +259,15 @@ def create_supervisor_profile(user: User, payload: Dict[str, Any]) -> Supervisor
   try:
     with transaction.atomic():
       supervisor, created = SupervisorProfile.objects.get_or_create(
-        user=User,
-        school_name=school_name
+        user=user,
+        defaults={"school_name": school_name}
       )
       return supervisor, created
   except Exception as e:
     raise InvalidInputError(f"Failed to create supervisor profile: {e}")
   
 
-def create_mentor_profile(user: User, payload: Dict[str, any]) -> Tuple[MentorProfile, bool]:
+def create_mentor_profile(user: User, payload: Dict[str, Any]) -> Tuple[MentorProfile, bool]:
   """
   Function which creates an associated mentor profile for a user
   Args:
@@ -269,7 +293,7 @@ def create_mentor_profile(user: User, payload: Dict[str, any]) -> Tuple[MentorPr
     raise InvalidInputError("Mentor reason needed for mentor profile")
   mentor_reason = Truncator(mentor_reason_raw).chars(254) # truncates with ... (ellipsis)
 
-  max_group_count = (payload.get(max_group_count) or None)
+  max_group_count = (payload.get("max_group_count") or None)
   if isinstance(max_group_count, str):
     try:
       max_group_count = int(max_group_count.strip())
