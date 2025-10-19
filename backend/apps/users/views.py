@@ -282,5 +282,34 @@ class UnallocatedStudentsListView(generics.ListAPIView):
         )
         return _apply_common_filters(qs, self.request, role="student")
 
+# GET /api/v1/groups/unallocated/mentors/
 
+class UnallocatedMentorsListView(generics.ListAPIView):
+    """
+    Lists Users who have a MentorProfile and are not in any group.
+    """
+    serializer_class = UserSerializer
+    permission_classes = [isAdminOrSupervisor]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = [
+        "first_name",
+        "last_name",
+        "email",
+        "track_name",
+        "institution",
+        "max_grp_cnt",
+    ]
+    ordering = ["last_name", "first_name"]
+
+    def get_queryset(self):
+        gm_exists = GroupMembers.objects.filter(user_id=OuterRef("pk"))
+        qs = (
+            User.objects
+            .filter(mentorprofile__isnull=False, status=True)
+            .annotate(is_member=Exists(gm_exists))
+            .filter(is_member=False)
+            .select_related("track", "state")
+            .select_related("mentorprofile")
+        )
+        return _apply_common_filters(qs, self.request, role="mentor")
 
