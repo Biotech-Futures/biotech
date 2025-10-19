@@ -254,3 +254,37 @@ def _apply_common_filters(qs, request, role: str):
            Q(email__icontains=query)
        )
 
+# GET /api/v1/groups/unallocated/students/
+
+class UnallocatedStudentsListView(generics.ListAPIView):
+   """
+   Lists Users who have a StudentProfile and are not in any group.
+   Supports ordering: ?ordering=last_name,-email,studentprofile__school_name,track__track_name,...
+   """
+
+
+   serializer_class = UserSerializer
+   permission_classes = [IsAdminOrSupervisor]
+   filter_backends = [filters.OrderingFilter]
+   ordering_fields = [
+       "first_name",
+       "last_name",
+       "email",
+       "track_name",
+       "school_name",
+       "year_lvl",
+   ]
+   ordering = ["last_name", "first_name"]
+
+
+   def get_queryset(self):
+       gm_exists = GroupMembers.objects.filter(user_id=OuterRef("pk"))
+       qs = (
+           User.objects
+           .filter(studentprofile__isnull=False, status=True)
+           .annotate(is_member=Exists(gm_exists))
+           .filter(is_member=False)
+           .select_related("track", "state")
+           .select_related("studentprofile")
+       )
+       return _apply_common_filters(qs, self.request, role="student")
