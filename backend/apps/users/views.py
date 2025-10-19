@@ -7,12 +7,13 @@ from rest_framework import serializers, generics, permissions, status, filters
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, RelationshipType, StudentSupervisor, GroupMembers
+from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, RelationshipType, StudentSupervisor
+from apps.groups.models import GroupMembers
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates
 from .serializers import UserSerializer, UserStatusPatchSerializer
 from django.db.models import Exists, OuterRef, Q, Count
-from utils.roles import isAdminOrSupervisor
+from .utils.roles import IsAdminOrSupervisor
 
 
 from rest_framework.views import APIView
@@ -258,7 +259,7 @@ class UnallocatedStudentsListView(generics.ListAPIView):
     """
 
     serializer_class = UserSerializer
-    permission_classes = [isAdminOrSupervisor]
+    permission_classes = [IsAdminOrSupervisor]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = [
         "first_name",
@@ -289,7 +290,7 @@ class UnallocatedMentorsListView(generics.ListAPIView):
     Lists Users who have a MentorProfile and are not in any group.
     """
     serializer_class = UserSerializer
-    permission_classes = [isAdminOrSupervisor]
+    permission_classes = [IsAdminOrSupervisor]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = [
         "first_name",
@@ -320,7 +321,7 @@ class UnallocatedSummaryView(APIView):
     Returns overall and breakdown counts for unallocated students and mentors.
     Applies same filters as the list endpoints.
     """
-    permission_classes = [isAdminOrSupervisor]
+    permission_classes = [IsAdminOrSupervisor]
 
     def get(self, request):
         gm_exists = GroupMembers.objects.filter(user_id=OuterRef("pk"))
