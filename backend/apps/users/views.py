@@ -313,3 +313,68 @@ class UnallocatedMentorsListView(generics.ListAPIView):
         )
         return _apply_common_filters(qs, self.request, role="mentor")
 
+# GET /api/v1/groups/unallocated/summary/
+
+class UnallocatedSummaryView(APIView):
+    """
+    Returns overall and breakdown counts for unallocated students and mentors.
+    Applies same filters as the list endpoints.
+    """
+    permission_classes = [isAdminOrSupervisor]
+
+    def get(self, request):
+        gm_exists = GroupMembers.objects.filter(user_id=OuterRef("pk"))
+
+        students = (
+            User.objects
+            .filter(studentprofile__isnull=False)
+            .annotate(is_member=Exists(gm_exists))
+            .filter(is_member=False)
+        )
+        students = _apply_common_filters(students, request, role="student")
+
+        mentors = (
+            User.objects
+            .filter(mentorprofile__isnull=False)
+            .annotate(is_member=Exists(gm_exists))
+            .filter(is_member=False)
+        )
+        mentors = _apply_common_filters(mentors, request, role="mentor")
+
+        students_total = students.count()
+        mentors_total = mentors.count()
+
+        students_by_school = (
+            students.values("studentprofile__school_name")
+            .annotate(count=Count("id"))
+            .order_by("studentprofile__school_name")
+        )
+        mentors_by_institution = (
+            mentors.values("mentorprofile__institution")
+            .annotate(count=Count("id"))
+            .order_by("mentorprofile__institution")
+        )
+
+        students_by_track = (
+            students.values("track_id", "track__track_name")
+            .annotate(count=Count("id"))
+            .order_by("track__track_name")
+        )
+        mentors_by_track = (
+            mentors.values("track_id", "track__track_name")
+            .annotate(count=Count("id"))
+            .order_by("track__track_name")
+        )
+
+        return Response({
+            "students": {
+                "total": students_total,
+                "by_school": list(students_by_school),
+                "by_track": list(students_by_track),
+            },
+            "mentors": {
+                "total": mentors_total,
+                "by_institution": list(mentors_by_institution),
+                "by_track": list(mentors_by_track),
+            }
+        })
