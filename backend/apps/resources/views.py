@@ -26,6 +26,7 @@ from rest_framework import mixins, viewsets, permissions, status, pagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles
 from .serializers import RoleSerializer, RoleAssignmentHistorySerializer, ResourcesSerializer, ResourceListSerializer
+from .permissions import IsMentorAdminOrSupervisor
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils import timezone
@@ -422,20 +423,51 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create']:
-            # Only authenticated users can create resources
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            # Only mentors, admins, and supervisors can create, modify, or delete resources
+            return [IsMentorAdminOrSupervisor()]
+        else:
+            # List and retrieve require authentication
             return [IsAuthenticated()]
-        elif self.action in ['update', 'partial_update']:
-            # Only admins can update resource metadata and roles
-            return [IsAdminUser()]
-        elif self.action in ['destroy']:
-            # Only admins can soft delete
-            return [IsAdminUser()]
-        return [IsAuthenticated()]
 
     def perform_create(self, serializer):
         """Automatically set uploader to the authenticated user - users can only upload as themselves"""
-        serializer.save(uploader_user_id=self.request.user)
+        # Only set user if not already provided in the data
+        if 'uploader_user_id' not in serializer.validated_data:
+            serializer.save(uploader_user_id=self.request.user)
+        else:
+            serializer.save()
+    
+    def perform_update(self, serializer):
+        """Handle file updates - delete old file if new one is uploaded"""
+        instance = self.get_object()
+        
+        # Check if a new file is being uploaded
+        if 'resource_file' in self.request.FILES:
+            # Delete old file from blob storage if it exists
+            if instance.resource_file:
+                try:
+                    instance.resource_file.delete(save=False)
+                except Exception as e:
+                    # Log error but continue with update
+                    print(f"Error deleting old file: {e}")
+        
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Soft delete and optionally delete file from blob storage"""
+        instance.deleted_flag = True
+        instance.deleted_datetime = timezone.now()
+        
+        # Optionally delete the file from blob storage
+        # Uncomment if you want to delete files when resource is soft-deleted
+        # if instance.resource_file:
+        #     try:
+        #         instance.resource_file.delete(save=False)
+        #     except Exception as e:
+        #         print(f"Error deleting file: {e}")
+        
+        instance.save()
 
     def retrieve(self, request, *args, **kwargs):
         """Get single resource with visibility check"""

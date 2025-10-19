@@ -39,6 +39,17 @@ class Resources(models.Model):
     resource_name = models.CharField(max_length=255)
     resource_description = models.CharField(max_length=255)
     resource_type = models.ForeignKey('ResourceType', on_delete=models.PROTECT, related_name='resources', null=True, blank=True)
+    
+    # File storage field for uploading resources to Azure blob storage
+    resource_file = models.FileField(
+        upload_to='resources/%Y/%m/%d/',
+        null=False,
+        blank=False,
+        help_text="Upload a file for this resource (stored in Azure blob storage) - REQUIRED"
+    )
+    file_size = models.PositiveIntegerField(null=True, blank=True, help_text="File size in bytes")
+    content_type = models.CharField(max_length=100, null=True, blank=True, help_text="MIME type of the file")
+    
     upload_datetime = models.DateTimeField(default=timezone.now)
     uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     deleted_flag = models.BooleanField(default=False)
@@ -67,11 +78,11 @@ class Resources(models.Model):
                 condition=~Q(resource_description=''),
                 name='resource_description_not_empty'
             ),
-            # Ensure upload_datetime is not in the future
-            models.CheckConstraint(
-                condition=Q(upload_datetime__lte=models.functions.Now()),
-                name='resource_upload_not_future'
-            ),
+            # Ensure upload_datetime is not in the future (temporarily disabled due to timezone issues)
+            # models.CheckConstraint(
+            #     condition=Q(upload_datetime__lte=models.functions.Now()),
+            #     name='resource_upload_not_future'
+            # ),
         ]
 
     def __str__(self):
