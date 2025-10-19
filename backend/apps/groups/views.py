@@ -460,20 +460,24 @@ class GroupViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_200_OK)
         
 
-            # "GroupNumber": "R_49n3r8XlHkOmYKJ_1",
-            # "Title": "student.@education.com",
-            # "FirstName": "John",
-            # "Surname": "Doe",
-            # "GuardianName": "Jane",
-            # "GuardianSurname": "Smith",
-            # "GuardianEmail": "jane.smith@outlook.com",
-            # "SchoolName": "University of Sydney",
-            # "YearLevel": "10",
-            # "Areaofinterest": "Space & Astrobiology",
-            # "SupervisorEmail": "super@visor.com",
-            # "Country": "Australia",
-            # "Region": "NSW",
-            # "Created": "2025-09-17T09:05:22Z"
+            # {
+            #   "GroupNumber": "R_49n3r8XlHkOmYKJ_1",
+            #   "Title": "student.@education.com",
+            #   "FirstName": "John",
+            #   "Surname": "Doe",
+            #   "GuardianName": "Jane",
+            #   "GuardianSurname": "Smith",
+            #   "GuardianEmail": "jane.smith@outlook.com",
+            #   "SchoolName": "University of Sydney",
+            #   "YearLevel": "10",
+            #   "Areaofinterest": "Space & Astrobiology",
+            #   "SupervisorEmail": "super@visor.com",
+            #   "SupervisorFirstName": "SupFirstName",
+            #   "SupervisorSurname": "SupSurname",
+            #   "Country": "Australia",
+            #   "Region": "NSW",
+            #   "Created": "2025-09-17T09:05:22Z"
+            # }
 
             # body": {
             #         "@odata.etag": "\"1\"",
