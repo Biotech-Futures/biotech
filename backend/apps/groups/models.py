@@ -4,6 +4,8 @@ from django.db import models
 from django.db.models import Q, F
 from django.utils import timezone
 from django.core.validators import RegexValidator
+from datetime import timedelta
+from django.core.exceptions import ValidationError 
 
 def get_current_year():
     return timezone.now().year
@@ -65,13 +67,20 @@ class Groups(models.Model):
                 check=~Q(group_name__regex=r'^\s*$'),
                 name='group_name_not_empty'
             ),
-            # Ensure creation_datetime is not in the future
-            models.CheckConstraint(
-                condition=Q(creation_datetime__lte=models.functions.Now()),
-                name='group_creation_not_future'
-            ),  
         ]
+
     
+    def save(self, *args, **kwargs):
+        # ensure that creation datetime is set on first save
+        if self.creation_datetime is None:
+            self.creation_datetime = timezone.now()
+        # tiny grace window to avoid clock jitter
+        skew = timedelta(seconds=1)
+        now = timezone.now()
+        if self.creation_datetime > now + skew:
+            raise ValidationError({"creation_datetime": f"cannot be in future - DB: {now}, attempted: {self.creation_datetime}"})
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.group_name
 
