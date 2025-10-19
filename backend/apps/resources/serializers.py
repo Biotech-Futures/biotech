@@ -5,6 +5,127 @@ from datetime import datetime, time, date, timedelta
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.conf import settings
+from django.core.files.base import ContentFile # Added for ContentFile handling
+import mimetypes # Added for more robust content type detection
+
+
+# ===== FILE TYPE VALIDATION SYSTEM =====
+# Define allowed file extensions for each resource type
+ALLOWED_FILE_TYPES = {
+    'document': {
+        'extensions': ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.xls', '.xlsx', '.ppt', '.pptx'],
+        'content_types': [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain',
+            'application/rtf',
+            'application/vnd.oasis.opendocument.text',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        ],
+        'description': 'Documents: PDF, Word, Excel, PowerPoint, Text files'
+    },
+    'guide': {
+        'extensions': ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.xls', '.xlsx', '.ppt', '.pptx'],
+        'content_types': [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain',
+            'application/rtf',
+            'application/vnd.oasis.opendocument.text',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        ],
+        'description': 'Guides: PDF, Word, Excel, PowerPoint, Text files'
+    },
+    'template': {
+        'extensions': ['.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt', '.xls', '.xlsx', '.ppt', '.pptx'],
+        'content_types': [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain',
+            'application/rtf',
+            'application/vnd.oasis.opendocument.text',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        ],
+        'description': 'Templates: PDF, Word, Excel, PowerPoint, Text files'
+    },
+    'image': {
+        'extensions': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.tiff', '.tif'],
+        'content_types': [
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/bmp',
+            'image/svg+xml',
+            'image/webp',
+            'image/tiff'
+        ],
+        'description': 'Images: JPG, PNG, GIF, BMP, SVG, WebP, TIFF'
+    },
+    'video': {
+        'extensions': ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv'],
+        'content_types': [
+            'video/mp4',
+            'video/x-msvideo',
+            'video/quicktime',
+            'video/x-ms-wmv',
+            'video/x-flv',
+            'video/webm',
+            'video/x-matroska'
+        ],
+        'description': 'Videos: MP4, AVI, MOV, WMV, FLV, WebM, MKV'
+    }
+}
+
+
+def validate_file_type_for_resource_type(file, resource_type_name):
+    """
+    Validate that the uploaded file type matches the specified resource type.
+    
+    Args:
+        file: The uploaded file object
+        resource_type_name: The name of the resource type (e.g., 'document', 'image')
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not file or not file.name:
+        return False, "No file provided"
+    
+    if resource_type_name not in ALLOWED_FILE_TYPES:
+        return False, f"Unknown resource type: {resource_type_name}"
+    
+    # Get file extension
+    file_extension = '.' + file.name.lower().split('.')[-1] if '.' in file.name else ''
+    
+    # Get content type
+    content_type = getattr(file, 'content_type', None)
+    if not content_type:
+        # Try to detect from filename
+        content_type, _ = mimetypes.guess_type(file.name)
+    
+    allowed_types = ALLOWED_FILE_TYPES[resource_type_name]
+    
+    # Check if extension is allowed
+    if file_extension not in allowed_types['extensions']:
+        return False, f"File extension '{file_extension}' is not allowed for resource type '{resource_type_name}'. Allowed extensions: {', '.join(allowed_types['extensions'])}"
+    
+    # Check if content type is allowed (if available)
+    if content_type and content_type not in allowed_types['content_types']:
+        return False, f"File content type '{content_type}' is not allowed for resource type '{resource_type_name}'. Allowed content types: {', '.join(allowed_types['content_types'])}"
+    
+    return True, None
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -105,9 +226,9 @@ class ResourcesSerializer(serializers.ModelSerializer):
         queryset=ResourceType.objects.all(),
         source='resource_type',
         write_only=True,
-        required=False,  # Will be auto-detected if not provided
-        allow_null=True,
-        help_text="ID of the resource type (auto-detected from file if not provided)"
+        required=True,  # Must be explicitly specified
+        allow_null=False,
+        help_text="ID of the resource type (REQUIRED - must be explicitly specified)"
     )
     # Role visibility fields
     visible_roles = serializers.SerializerMethodField()
@@ -119,7 +240,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
     )
     
     # File upload fields
-    resource_file = serializers.FileField(required=False, allow_null=True)
+    resource_file = serializers.FileField(required=True, allow_null=False)
     file_url = serializers.SerializerMethodField()
     
     class Meta:
@@ -213,9 +334,23 @@ class ResourcesSerializer(serializers.ModelSerializer):
         """Create resource and specify roles for visibility (ResourceRoles)"""
         role_ids = validated_data.pop('role_ids', [])
         
-        # Handle file metadata and auto-detect resource type
+        # Handle file metadata and validate file type against resource type
         resource_file = validated_data.get('resource_file')
-        if resource_file:
+        resource_type = validated_data.get('resource_type')
+        
+        if resource_file and resource_type:
+            # Validate file type matches resource type
+            is_valid, error_message = validate_file_type_for_resource_type(
+                resource_file, 
+                resource_type.type_name
+            )
+            
+            if not is_valid:
+                raise serializers.ValidationError({
+                    'resource_file': error_message
+                })
+            
+            # Set file metadata
             validated_data['file_size'] = resource_file.size
             # Handle both uploaded files and ContentFile objects
             if hasattr(resource_file, 'content_type'):
@@ -223,12 +358,6 @@ class ResourcesSerializer(serializers.ModelSerializer):
             else:
                 # For ContentFile, try to detect from filename
                 validated_data['content_type'] = self._detect_content_type(resource_file.name)
-            
-            # Auto-detect resource type if not provided
-            if not validated_data.get('resource_type'):
-                resource_type = self._detect_resource_type(resource_file)
-                if resource_type:
-                    validated_data['resource_type'] = resource_type
         
         resource = super().create(validated_data)
         

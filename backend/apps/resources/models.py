@@ -43,9 +43,9 @@ class Resources(models.Model):
     # File storage field for uploading resources to Azure blob storage
     resource_file = models.FileField(
         upload_to='resources/%Y/%m/%d/',
-        null=True,
-        blank=True,
-        help_text="Upload a file for this resource (stored in Azure blob storage)"
+        null=False,
+        blank=False,
+        help_text="Upload a file for this resource (stored in Azure blob storage) - REQUIRED"
     )
     file_size = models.PositiveIntegerField(null=True, blank=True, help_text="File size in bytes")
     content_type = models.CharField(max_length=100, null=True, blank=True, help_text="MIME type of the file")

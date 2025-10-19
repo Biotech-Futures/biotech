@@ -26,6 +26,7 @@ from rest_framework import mixins, viewsets, permissions, status, pagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles
 from .serializers import RoleSerializer, RoleAssignmentHistorySerializer, ResourcesSerializer, ResourceListSerializer
+from .permissions import IsMentorAdminOrSupervisor
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils import timezone
@@ -422,16 +423,12 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create']:
-            # Only authenticated users can create resources
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            # Only mentors, admins, and supervisors can create, modify, or delete resources
+            return [IsMentorAdminOrSupervisor()]
+        else:
+            # List and retrieve require authentication
             return [IsAuthenticated()]
-        elif self.action in ['update', 'partial_update']:
-            # Only admins can update resource metadata and roles
-            return [IsAdminUser()]
-        elif self.action in ['destroy']:
-            # Only admins can soft delete
-            return [IsAdminUser()]
-        return [IsAuthenticated()]
 
     def perform_create(self, serializer):
         """Automatically set uploader to the authenticated user - users can only upload as themselves"""
