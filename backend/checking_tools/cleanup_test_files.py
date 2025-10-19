@@ -40,7 +40,7 @@ def cleanup_test_files():
     for resource in test_resources:
         print(f"   • {resource.resource_name} ({resource.resource_file.name if resource.resource_file else 'No file'})")
     
-    print(f"\n⚠️  WARNING: This will permanently delete {test_resources.count()} test resources and their files from Azure blob storage!")
+    print(f"\n  WARNING: This will permanently delete {test_resources.count()} test resources and their files from Azure blob storage!")
     confirm = input("Type 'yes' to confirm deletion: ").strip().lower()
     
     if confirm != 'yes':
