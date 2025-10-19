@@ -72,11 +72,17 @@ def get_supported_track(country_name: str, region_name: str) -> Optional[Tracks]
         if not region_up:
             raise InvalidInputError(
                 "Region (state short form) is required for Australia.")
-        state_exists = CountryStates.objects.filter(
-            country=country, state_name__iexact=region_up).exists()
-        if not state_exists:
-            raise StateNotFoundError(country_t, region_up)
-        track_name = f"AUS-{region_up}"
+        # Accept either full state name (e.g., "New South Wales") or short form (e.g., "NSW")
+        region_official_name = region_raw.lower().title()
+        state = CountryStates.objects.filter(country=country).filter(
+            Q(state_name__iexact=region_official_name) |
+            Q(state_name__iexact=region_up) |
+            Q(state_name_SHORT_FORM__iexact=region_up)
+        ).first()
+        if not state:
+            raise StateNotFoundError(country_t, region_raw)
+        short = (state.state_name_SHORT_FORM or "").strip().upper() or region_up
+        track_name = f"AUS-{short}"
     elif country_t == "Brazil":
         track_name = "BRA"
     else:

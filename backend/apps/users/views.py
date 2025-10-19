@@ -136,6 +136,7 @@ class UserRegisterView(APIView):
         else:
             user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Country"])
             if databody["Country"] == "Brazil":
+                #TODO: align brazil and global names to tracks
                 user_track, t_created = Tracks.objects.get_or_create(track_name="Brazil", state=user_country)
             else:
                 user_track, t_created = Tracks.objects.get_or_create(track_name="Global", state=user_country)
