@@ -1,0 +1,952 @@
+{
+  "info": {
+    "_postman_id": "resource-permission-tests",
+    "name": "Resource Permission Tests",
+    "description": "Comprehensive tests for role-based permissions on resource operations (CREATE, PATCH, DELETE)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Admin login successful', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    ",
+                  "    // Extract session cookies",
+                  "    const cookies = pm.cookies.all();",
+                  "    pm.test('Session cookies received', function () {",
+                  "        pm.expect(cookies.length).to.be.greaterThan(0);",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Admin login failed', function () {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "admin@biotech.com",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "admin123",
+                  "type": "text"
+                },
+                {
+                  "key": "csrfmiddlewaretoken",
+                  "value": "{{csrf_token}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/login/",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "login", ""]
+            },
+            "description": "Login as admin user to get session cookies"
+          },
+          "response": []
+        },
+        {
+          "name": "Get CSRF Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Extract CSRF token from response",
+                  "const responseText = pm.response.text();",
+                  "const csrfMatch = responseText.match(/name='csrfmiddlewaretoken' value='([^']+)'/);",
+                  "",
+                  "if (csrfMatch) {",
+                  "    pm.environment.set('csrf_token', csrfMatch[1]);",
+                  "    pm.test('CSRF token extracted', function () {",
+                  "        pm.expect(csrfMatch[1]).to.be.a('string');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('CSRF token not found', function () {",
+                  "        pm.expect.fail('CSRF token not found in response');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/admin/login/",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "login", ""]
+            },
+            "description": "Get CSRF token for admin login"
+          },
+          "response": []
+        }
+      ],
+      "description": "Authentication setup for admin user"
+    },
+    {
+      "name": "Student Permission Tests (Should FAIL)",
+      "item": [
+        {
+          "name": "Student - Create Resource (403 Forbidden)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Student cannot create resource', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('Response contains forbidden message', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resource_name",
+                  "value": "Student Test Resource",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_description",
+                  "value": "Testing student create permission",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_file",
+                  "type": "file",
+                  "src": "test_file.txt"
+                },
+                {
+                  "key": "resource_type_id",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "role_ids",
+                  "value": "4",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", ""]
+            },
+            "description": "Test that students cannot create resources - should return 403 Forbidden"
+          },
+          "response": []
+        },
+        {
+          "name": "Student - PATCH Resource (403 Forbidden)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Student cannot modify resource', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('Response contains forbidden message', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"resource_name\": \"Modified by Student\",\n    \"resource_description\": \"This should not be allowed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", "{{resource_id}}", ""]
+            },
+            "description": "Test that students cannot modify resources - should return 403 Forbidden"
+          },
+          "response": []
+        },
+        {
+          "name": "Student - DELETE Resource (403 Forbidden)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Student cannot delete resource', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('Response contains forbidden message', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", "{{resource_id}}", ""]
+            },
+            "description": "Test that students cannot delete resources - should return 403 Forbidden"
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests for student permissions - all should fail with 403 Forbidden"
+    },
+    {
+      "name": "Mentor Permission Tests (Should PASS)",
+      "item": [
+        {
+          "name": "Mentor - Create Resource (201 Created)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Mentor can create resource', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Resource created successfully', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('id');",
+                  "    pm.expect(responseData).to.have.property('resource_name');",
+                  "    pm.expect(responseData.resource_name).to.eql('Mentor Test Resource');",
+                  "    ",
+                  "    // Store resource ID for other tests",
+                  "    pm.environment.set('mentor_resource_id', responseData.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resource_name",
+                  "value": "Mentor Test Resource",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_description",
+                  "value": "Testing mentor create permission",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_file",
+                  "type": "file",
+                  "src": "test_file.txt"
+                },
+                {
+                  "key": "resource_type_id",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "role_ids",
+                  "value": "3",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", ""]
+            },
+            "description": "Test that mentors can create resources - should return 201 Created"
+          },
+          "response": []
+        },
+        {
+          "name": "Mentor - PATCH Resource (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Mentor can modify resource', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Resource modified successfully', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('resource_name');",
+                  "    pm.expect(responseData.resource_name).to.eql('Modified by Mentor');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"resource_name\": \"Modified by Mentor\",\n    \"resource_description\": \"This should be allowed for mentors\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{mentor_resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": [
+                "resources",
+                "resource-files",
+                "{{mentor_resource_id}}",
+                ""
+              ]
+            },
+            "description": "Test that mentors can modify resources - should return 200 OK"
+          },
+          "response": []
+        },
+        {
+          "name": "Mentor - DELETE Resource (204 No Content)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Mentor can delete resource', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test('Resource deleted successfully', function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{mentor_resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": [
+                "resources",
+                "resource-files",
+                "{{mentor_resource_id}}",
+                ""
+              ]
+            },
+            "description": "Test that mentors can delete resources - should return 204 No Content"
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests for mentor permissions - all should pass"
+    },
+    {
+      "name": "Supervisor Permission Tests (Should PASS)",
+      "item": [
+        {
+          "name": "Supervisor - Create Resource (201 Created)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Supervisor can create resource', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Resource created successfully', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('id');",
+                  "    pm.expect(responseData).to.have.property('resource_name');",
+                  "    pm.expect(responseData.resource_name).to.eql('Supervisor Test Resource');",
+                  "    ",
+                  "    // Store resource ID for other tests",
+                  "    pm.environment.set('supervisor_resource_id', responseData.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resource_name",
+                  "value": "Supervisor Test Resource",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_description",
+                  "value": "Testing supervisor create permission",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_file",
+                  "type": "file",
+                  "src": "test_file.txt"
+                },
+                {
+                  "key": "resource_type_id",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "role_ids",
+                  "value": "2",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", ""]
+            },
+            "description": "Test that supervisors can create resources - should return 201 Created"
+          },
+          "response": []
+        },
+        {
+          "name": "Supervisor - PATCH Resource (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Supervisor can modify resource', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Resource modified successfully', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('resource_name');",
+                  "    pm.expect(responseData.resource_name).to.eql('Modified by Supervisor');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"resource_name\": \"Modified by Supervisor\",\n    \"resource_description\": \"This should be allowed for supervisors\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{supervisor_resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": [
+                "resources",
+                "resource-files",
+                "{{supervisor_resource_id}}",
+                ""
+              ]
+            },
+            "description": "Test that supervisors can modify resources - should return 200 OK"
+          },
+          "response": []
+        },
+        {
+          "name": "Supervisor - DELETE Resource (204 No Content)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Supervisor can delete resource', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test('Resource deleted successfully', function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{supervisor_resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": [
+                "resources",
+                "resource-files",
+                "{{supervisor_resource_id}}",
+                ""
+              ]
+            },
+            "description": "Test that supervisors can delete resources - should return 204 No Content"
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests for supervisor permissions - all should pass"
+    },
+    {
+      "name": "Admin Permission Tests (Should PASS)",
+      "item": [
+        {
+          "name": "Admin - Create Resource (201 Created)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Admin can create resource', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Resource created successfully', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('id');",
+                  "    pm.expect(responseData).to.have.property('resource_name');",
+                  "    pm.expect(responseData.resource_name).to.eql('Admin Test Resource');",
+                  "    ",
+                  "    // Store resource ID for other tests",
+                  "    pm.environment.set('admin_resource_id', responseData.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resource_name",
+                  "value": "Admin Test Resource",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_description",
+                  "value": "Testing admin create permission",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_file",
+                  "type": "file",
+                  "src": "test_file.txt"
+                },
+                {
+                  "key": "resource_type_id",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "role_ids",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", ""]
+            },
+            "description": "Test that admins can create resources - should return 201 Created"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - PATCH Resource (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Admin can modify resource', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Resource modified successfully', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('resource_name');",
+                  "    pm.expect(responseData.resource_name).to.eql('Modified by Admin');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"resource_name\": \"Modified by Admin\",\n    \"resource_description\": \"This should be allowed for admins\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{admin_resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": [
+                "resources",
+                "resource-files",
+                "{{admin_resource_id}}",
+                ""
+              ]
+            },
+            "description": "Test that admins can modify resources - should return 200 OK"
+          },
+          "response": []
+        },
+        {
+          "name": "Admin - DELETE Resource (204 No Content)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Admin can delete resource', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test('Resource deleted successfully', function () {",
+                  "    pm.expect(pm.response.text()).to.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{admin_resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": [
+                "resources",
+                "resource-files",
+                "{{admin_resource_id}}",
+                ""
+              ]
+            },
+            "description": "Test that admins can delete resources - should return 204 No Content"
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests for admin permissions - all should pass"
+    },
+    {
+      "name": "Unauthenticated User Tests (Should FAIL)",
+      "item": [
+        {
+          "name": "Unauthenticated - Create Resource (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthenticated user cannot create resource', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Response contains unauthorized message', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "resource_name",
+                  "value": "Unauthenticated Test Resource",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_description",
+                  "value": "Testing unauthenticated create permission",
+                  "type": "text"
+                },
+                {
+                  "key": "resource_file",
+                  "type": "file",
+                  "src": "test_file.txt"
+                },
+                {
+                  "key": "resource_type_id",
+                  "value": "1",
+                  "type": "text"
+                },
+                {
+                  "key": "role_ids",
+                  "value": "4",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", ""]
+            },
+            "description": "Test that unauthenticated users cannot create resources - should return 401 Unauthorized"
+          },
+          "response": []
+        },
+        {
+          "name": "Unauthenticated - PATCH Resource (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthenticated user cannot modify resource', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Response contains unauthorized message', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"resource_name\": \"Modified by Unauthenticated User\",\n    \"resource_description\": \"This should not be allowed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", "{{resource_id}}", ""]
+            },
+            "description": "Test that unauthenticated users cannot modify resources - should return 401 Unauthorized"
+          },
+          "response": []
+        },
+        {
+          "name": "Unauthenticated - DELETE Resource (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Unauthenticated user cannot delete resource', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('Response contains unauthorized message', function () {",
+                  "    const responseData = pm.response.json();",
+                  "    pm.expect(responseData).to.have.property('detail');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/resources/resource-files/{{resource_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["resources", "resource-files", "{{resource_id}}", ""]
+            },
+            "description": "Test that unauthenticated users cannot delete resources - should return 401 Unauthorized"
+          },
+          "response": []
+        }
+      ],
+      "description": "Tests for unauthenticated user permissions - all should fail with 401 Unauthorized"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "resource_id",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}
