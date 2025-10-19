@@ -76,13 +76,13 @@ def get_supervisor_profile_by_email(email: str) -> SupervisorProfile:
         raise InvalidInputError(f"Multiple supervisor profiles found for '{email_norm}'")
 
 
-def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
+def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, Any]:
   """
   Creates or fetches a user based on input payload.
   Required: email
   Optional: first_name, last_name, country, region, supervisor*, guardian*, interests, school_name, year_level
   user_type (str): The type of user being made: can be "student", "mentor", "supervisor"
-  Returns: (user, created)
+  Returns: (user, user_profile) where user_profile is the created/linked profile for the user type.
   """
   user_type_raw = (user_type or "").strip().lower();
   if not user_type_raw:
@@ -96,10 +96,10 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
     raise InvalidInputError("First name is required.")
   if not last_name:
     raise InvalidInputError("Last name is required.")
-  country_name = (payload.get('country') or "").strip().lower().title()
+  country_name = (payload.get('country_name') or "").strip().lower().title()
   if not country_name:
     raise InvalidInputError("Country name is required.")
-  region_name = (payload.get('region') or "").strip().lower().title()
+  region_name = (payload.get('region_name') or "").strip().lower().title()
   if not region_name:
     raise InvalidInputError("Region name is required.")
 
@@ -123,7 +123,6 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
     track_state_keyword_args["track"] = track
   if state:
     track_state_keyword_args["state"] = state
-  user_obj = None
   user_profile = None
   try:
     with transaction.atomic():
@@ -146,7 +145,8 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, bool]:
   except IntegrityError:
     raise UserAlreadyExists(f"User with email '{email}' already exists.")
 
-  return user_obj, user_profile
+  # Return the created user and the associated profile (if any)
+  return new_user, user_profile
   
   
 def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[StudentProfile, bool]:
@@ -178,7 +178,7 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[Student
   interest_value = (payload.get('interest') or "").strip()  
   school_name = (payload.get('school_name') or "").strip()
   year_level_value = payload.get('year_level')
-  
+
   pg_first_name = pg_first_name.lower().title() if pg_first_name else ""
   pg_last_name = pg_last_name.lower().title() if pg_last_name else ""
 
@@ -226,7 +226,7 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[Student
     "supervisor": supervisor_profile,
     "interest": interest,
     "school_name": school_name,
-    "year_level": year_level_value, #chose to use the string instead of the converted int because the field is a charfield in the model
+    "year_lvl": year_level_value, #chose to use the string instead of the converted int because the field is a charfield in the model
     #TODO: implement has_join_permission and joinperm_responseID
   }
 

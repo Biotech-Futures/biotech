@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model
@@ -17,6 +19,9 @@ from .services.get_track import (
 from .serializers import CountrySerializer, GroupMemberSerializer, TrackSerializer, GroupSerializer
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
+from apps.users.services.registration import register_user, UserAlreadyExists
+from apps.groups.services.get_group_name import  generate_group_name
+
 
 # Create your views here.
 
@@ -73,7 +78,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
     pagination_class = GroupPaginator
     lookup_field = "group_number" # we will look up with groups/R_12skjXJde/ instead of groups/12/
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["track"]  # now you can do /groups/?track=3
     ordering_fields = ['group_name', 'creation_datetime']
     search_fields = ['group_name', 'group_number', 'track__track_name']
@@ -146,13 +151,20 @@ class GroupViewSet(viewsets.ModelViewSet):
         ensures the group via group_number exists, if not create
         if the student is already a member, then no error - idempotency
         lenient: it will create what it can and then report any per-step outcomes
-        
         '''
+
         raw = request.data.get('body') or request.data
         group_number = raw.get('GroupNumber')
         student_email = raw.get('Title')
         student_first_name = raw.get('FirstName')
         student_surname = raw.get('Surname')
+        pg_first_name = raw.get('GuardianName')
+        pg_last_name = raw.get('GuardianSurname')
+        guardian_email = raw.get('GuardianEmail')
+        supervisor_email = raw.get('SupervisorEmail')
+        interest = raw.get("Areaofinterest")
+        school_name = raw.get('SchoolName')
+        year_level = raw.get('YearLevel')
         group_name = group_number #TODO: maybe check that there is a group name field, or set it to this by default
         submission_created = raw.get('Created')
         cohort_year = timezone.now().year # default to receive date year
@@ -195,6 +207,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         
         group_created = False
         with transaction.atomic():
+            group_name = generate_group_name(track, cohort_year)
             group, created = Groups.objects.get_or_create(
                 group_number=group_number,
                 defaults={ #specifies values for fields that are only set when a new object is created
@@ -210,7 +223,8 @@ class GroupViewSet(viewsets.ModelViewSet):
                 clash = Groups.objects.filter(
                     track=group.track,
                     cohort_year=group.cohort_year,
-                    group_name=group.group_name
+                    group_name=group.group_name,
+                    deleted_flag=False
                 ).exclude(pk=group.pk).exists()
                 if clash:
                     return Response (
@@ -224,21 +238,32 @@ class GroupViewSet(viewsets.ModelViewSet):
         # resolve/create student user by email
         # first, get the user object by filtering through email, using first()
         #TODO: create a shared service function in Users/services/ to get or create a user?
-        user = User.objects.filter(email=student_email).first()
-        user_created = False
-        if not user:
-            # then we must create one
-            user_creation_fields = {
-                "email": student_email,
-                "first_name": student_first_name,
-                "last_name": student_surname,
-                "track": track,
-            }
-            user = User.objects.create(**user_creation_fields)
+        user = None
+        user_created = None
+        user_creation_kwargs = {
+            "email": student_email,
+            "first_name": student_first_name,
+            "last_name": student_surname,
+            "country_name": country_name,
+            "region_name": region,
+            "pg_first_name": pg_first_name,
+            "pg_last_name": pg_last_name,
+            "supervisor_email": supervisor_email,
+            "interest": interest,
+            "year_level": year_level,
+            "school_name": school_name
+        }
+        try:
+            user, user_profile = register_user(user_creation_kwargs, "student")
             user_created = True
-        # initialise a user_created variable to check if we had to create a user
-        # if we didn't get a user, then create the user and set user_created to true
-
+        except UserAlreadyExists:
+            logger.info("User already exists: %s, continuing", student_email)
+            user = User.objects.filter(email__iexact=student_email).first()
+            user_created = False
+            if not user:
+                return Response({"Student": [f"User '{student_email}' exists but could not be retrieved."]},
+                                status=status.HTTP_400_BAD_REQUEST)
+        
         # then, add membership, initialise variable to track adding
         member_created = False
         try:
@@ -271,6 +296,20 @@ class GroupViewSet(viewsets.ModelViewSet):
         }
         return Response(resp, status=status.HTTP_201_CREATED if group_created else status.HTTP_200_OK)
 
+# "GroupNumber": "R_49n3r8XlHkOmYKJ_1",
+# "Title": "student.@education.com",
+# "FirstName": "John",
+# "Surname": "Doe",
+# "GuardianName": "Jane",
+# "GuardianSurname": "Smith",
+# "GuardianEmail": "jane.smith@outlook.com",
+# "SchoolName": "University of Sydney",
+# "YearLevel": "10",
+# "Areaofinterest": "Space & Astrobiology",
+# "SupervisorEmail": "super@visor.com",
+# "Country": "Australia",
+# "Region": "NSW",
+# "Created": "2025-09-17T09:05:22Z"
         
 
 # body": {
