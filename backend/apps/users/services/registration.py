@@ -15,6 +15,9 @@ from apps.users.serializers import UserSerializer, UserStatusPatchSerializer
 from typing import Dict, Any, Tuple
 from apps.groups.services.get_track import *
 from django.utils.text import Truncator
+import re
+import logging
+logger = logging.getLogger(__name__)
 
 
 class UserCreationError(Exception):
@@ -106,16 +109,13 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, Any]:
   track = None
   state = None
   country = None
-  if country_name:
-    try:
-      country = get_supported_country(country_name)
-      track = get_supported_track(country_name, region_name)
-      state = getattr(track, "state", None) or get_supported_countryState(country_name, region_name)
-    except TrackResolutionError as e:
-      raise InvalidInputError(str(e))
-  else:
-    pass
-    # should we require country to be provided
+  try:
+    country = get_supported_country(country_name)
+    track = get_supported_track(country_name, region_name)
+    state = getattr(track, "state", None) or get_supported_countryState(country_name, region_name)
+  except TrackResolutionError as e:
+    raise InvalidInputError(str(e))
+
 
   User = get_user_model()
   track_state_keyword_args: Dict[str, Any] = {}
@@ -207,8 +207,55 @@ def create_student_profile(user: User, payload: Dict[str, Any]) -> Tuple[Student
     raise InvalidInputError("Year level must be non-negative.")
 
   # get or create supervisor profile
-  supervisor_profile = get_supervisor_profile_by_email(supervisor_email)
+  try:
+    supervisor_profile = get_supervisor_profile_by_email(supervisor_email)
+  except NonExistentSupervisorError:
+    # Automatically create a supervisor user and profile when not present
+    logger.info("Supervisor '%s' not found; creating new supervisor user and profile.", supervisor_email)
+    User = get_user_model()
+    # Derive a reasonable first/last name if not provided in payload
+    sup_first_name = (payload.get('supervisor_first_name') or "").strip()
+    sup_last_name = (payload.get('supervisor_last_name') or "").strip()
+    if not sup_first_name or not sup_last_name:
+      raise InvalidInputError(f"Attempted to create a new supervisor from student registration, however name details were missing - first name: {sup_first_name}, last name: {sup_last_name}")
 
+    country_name = (payload.get('country_name') or "").strip().lower().title()
+    if not country_name:
+      raise InvalidInputError("Country name is required.")
+    region_name = (payload.get('region_name') or "").strip().lower().title()
+    if not region_name:
+      raise InvalidInputError("Region name is required.")
+    track = None
+    state = None
+    try:
+      track = get_supported_track(country_name, region_name)
+      state = getattr(track, "state", None) or get_supported_countryState(country_name, region_name)
+    except TrackResolutionError as e:
+      raise InvalidInputError(str(e))
+    track_state_keyword_args: Dict[str, Any] = {}
+    if track:
+      track_state_keyword_args["track"] = track
+    if state:
+      track_state_keyword_args["state"] = state
+
+    # get or create the sueprvisor
+    try:
+      sup_user, created_user = User.objects.get_or_create(
+        email=supervisor_email,
+        defaults={
+          "first_name": sup_first_name,
+          "last_name": sup_last_name,
+          **track_state_keyword_args,
+        },
+      )
+    except IntegrityError:
+      # edge case if user was created concurrently
+      sup_user = User.objects.filter(email__iexact=supervisor_email).first()
+      if not sup_user:
+        raise InvalidInputError(f"Failed to resolve supervisor user '{supervisor_email}' after concurrency retry.")
+
+    # ensure supervisor exists
+    supervisor_profile, _ = create_supervisor_profile(sup_user, payload)
   
   rel_type = None
   parent_is_guardian = False
