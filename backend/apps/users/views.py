@@ -3,14 +3,17 @@ from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
 from django.http import HttpResponse
 from django.db import transaction
-from rest_framework import serializers, generics, permissions, status
+from rest_framework import serializers, generics, permissions, status, filters
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
 from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, RelationshipType, StudentSupervisor
+from apps.groups.models import GroupMembers
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates
 from .serializers import UserSerializer, UserStatusPatchSerializer
+from django.db.models import Exists, OuterRef, Q, Count
+from .services.permission import IsAdminOrSupervisor
 
 from rest_framework.views import APIView
 
@@ -215,3 +218,39 @@ class ReceiveJoinPermissionView(APIView):
         sp.save()
 
         return Response(data["body"])
+    
+# issue 184
+
+def _apply_common_filters(qs, request, role: str):
+   """
+   Shared filters:
+     - track: accepts ID or exact track_name (case-insensitive)
+     - school: StudentProfile.school_name (students) / MentorProfile.institution (mentors)
+     - q: free-text over first_name, last_name, email
+   """
+   track = request.query_params.get("track")
+   school = request.query_params.get("school")
+   query = request.query_params.get("q")
+
+
+   if track:
+       if track.isdigit():
+           qs = qs.filter(track_id=int(track))
+       else:
+           qs = qs.filter(track__track_name__iexact=track)
+
+
+   if school:
+       if role == "student":
+           qs = qs.filter(studentprofile__school_name__icontains=school)
+       else:
+           qs = qs.filter(mentorprofile__institution__icontains=school)
+
+
+   if query:
+       qs = qs.filter(
+           Q(first_name__icontains=query) |
+           Q(last_name__icontains=query) |
+           Q(email__icontains=query)
+       )
+
