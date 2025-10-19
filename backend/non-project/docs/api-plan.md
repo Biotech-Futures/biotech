@@ -440,8 +440,6 @@ Purpose: Authenticate a user with email + one-time code and issue an access toke
 
 ---
 
-### Chat and Messages
-
 **DELETE** `/groups/{id}`  
 **Purpose:** Delete an existing group (admin only).  
 **Path Parameters:**
@@ -462,33 +460,56 @@ Purpose: Authenticate a user with email + one-time code and issue an access toke
 - `403 Forbidden` — User is not admin
 - `404 Not Found` — Group ID does not exist
 
----
+### Chat and Messages
 
-**GET** `/groups/v1/{id}/messages`
+**GET** `chat/groups/{groupId}/messages/`
 **Purpose:** Retrieve messages from a group using cursor-based pagination.  
 **Path Parameters:**
 
-- `id` (string | uuid) — ID of the group
+- `groupId` (string | uuid) — ID of the group
 
 **Query Parameters:**
 
 - `after` (string | message ID) — Return messages after this cursor
 - `limit` (integer) — Maximum number of messages to return
 
-**Response (200 OK):**
+**Example Response (200 OK):**
 
 ```json
 {
-  "messages": [
+  "items": [
     {
-      "id": "msg1",
-      "content": "Hello world",
-      "file_id": null,
-      "sent_at": "2025-08-21T10:00:00Z",
-      "sender_id": "uuid_user1"
+      "id": 12,
+      "group": 5,
+      "sender_user":11,
+      "sender_name": "Student Test",
+      "message_text": "Hello team - from student",
+      "sent_datetime":"2025-10-16T10:16:28.244435Z",
+      "attachments":[],
+      "resources":[],
+    },
+    {
+      "id": 11,
+      "group": 5,
+      "sender_user":10,
+      "sender_name": "Supervisor Test",
+      "message_text": "Hello team - from supervisor",
+      "sent_datetime":"2025-10-16T10:15:47.963373Z",
+      "attachments":[],
+      "resources":[],
+    },
+    {
+      "id": 10,
+      "group": 5,
+      "sender_user":9,
+      "sender_name": "Mentor Test",
+      "message_text": "Hello team - from mentor",
+      "sent_datetime":"2025-10-15T06:33:20.650929Z",
+      "attachments":[],
+      "resources":[],
     }
   ],
-  "next_cursor": "msg1"
+  "next_after": 12
 }
 ```
 
@@ -500,32 +521,35 @@ Purpose: Authenticate a user with email + one-time code and issue an access toke
 
 ---
 
-**POST** /groups/v1/{id}/messages
+**POST** /chat/groups/{groupId}/messages
 
 **Purpose:** Send a message to a group.
 
 **Path Parameters:**
 
-- `id` (string | uuid) — ID of the group
+- `groupId` (string | uuid) — ID of the group
 
 **Request Body:**
 
 ```json
 {
-  "content": "Optional text message",
-  "file_id": "Optional file reference"
+  "message_text": "Optional text message",
+  "resources": ["File", "References"]
 }
 ```
 
-**Response (201 Created):**
+**Example Response (201 Created):**
 
 ```json
 {
-  "id": "msg123",
-  "content": "Optional text message",
-  "file_id": "file_uuid",
-  "sent_at": "2025-08-21T10:05:00Z",
-  "sender_id": "uuid_user1"
+  "id": 13,
+  "group": 5,
+  "sender_user": 9,
+  "sender_name": "Mentor Test",
+  "message_text": "Optional text message",
+  "sent_datetime": "2025-10-16T11:12:12.238662Z",
+  "attachments": [],
+  "resources": []
 }
 ```
 
@@ -537,12 +561,12 @@ Purpose: Authenticate a user with email + one-time code and issue an access toke
 
 ---
 
-**DELETE** `/groups/v1/{gid}/messages/{mid}`
+**DELETE** `/chat/groups/{groupId}/messages/{mid}/`
 
-**Purpose:** Soft delete a message (mentor/admin only).
+**Purpose:** Soft delete a message (mentor/supervisor/admin only).
 **Path Parameters:**
 
-- `gid` (string | uuid) — Group ID
+- `groupId` (string | uuid) — Group ID
 
 - `mid` (string | uuid) — Message ID
 

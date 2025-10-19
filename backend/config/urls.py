@@ -16,16 +16,33 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+
+    # API v1 endpoints
+    path("api/v1/", include("apps.users.urls")),
+
+    # Legacy URL structure (kept for backwards compatibility)
     path("users/", include("apps.users.urls")),
+    path("events/", include("apps.events.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
-    path("resources/", include("apps.resources.urls")), 
-    # Archie: Hey team, to fit to issue 58's endpoint link requirement, should I change this to path("api/v1/", include("apps.resources.urls")),
+    path("resources/", include("apps.resources.urls")),
     path("integrations/", include("apps.integrations.urls")),
-    path("services/", include("apps.services.urls")), #remove if buggy (Ed)
+    path("certificates/", include("apps.certificates.urls")),
+
+    # Services (auth, email, etc)
+    path("services/", include("apps.services.urls")),
     path('api-auth/', include('rest_framework.urls')), # for browsable API login
+
+    # Schema and docs
+    path('', RedirectView.as_view(url='/api/docs/', permanent=False)),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
 ]

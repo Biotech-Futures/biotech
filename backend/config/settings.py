@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'emailing',
+    'matching',
     # our apps
     'apps.users',
     'apps.groups',
@@ -48,7 +50,7 @@ INSTALLED_APPS = [
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
-    'apps.services', #remove if buggy. 
+    'apps.services', #remove if buggy.
     # third-party apps
     'drf_spectacular',
     'rest_framework',
@@ -56,7 +58,19 @@ INSTALLED_APPS = [
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
+    'storages',
 ]
+
+AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
+AZURE_ACCOUNT_KEY = "SLreKCgSbLMq9th/QXYaSfPGwsRo75J/JxV0OFOp9ZkrRcnuTULShfhpID3aLzxYixGlKSzrWkFR+AStamaR4g=="
+AZURE_CONTAINER = "media" # Guys this is currently set to private blobs so SAS urls are needed. We'll develop code for this accordingly
+AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
+DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/" # F formatted in case we decide to switch out containers
+CHAT_MAX_UPLOAD_MB = 25
+CHAT_ALLOWED_MIME = {"image/gif", "image/png", "image/jpeg", "application/pdf", "application/msword", "application/zip"}
+
+
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -66,6 +80,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -110,33 +125,28 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
-
+ASGI_APPLICATION = "config.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+
+
 # DATABASES = {
-#     "default": {
+#      "default": {
 #         "ENGINE": "django.db.backends.sqlite3",
 #         "NAME": BASE_DIR / "db.sqlite3",
-#     }
-# }
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "NAME": "appdb",
-#         "USER": "kosin",
-#         "PASSWORD": "t3$t1NG_postgresql_DB!",
-#         "HOST": 'azure-postgresql-db-trial.postgres.database.azure.com',
-#         "PORT": "5432",
-#         "OPTIONS": {"sslmode": "require",
-#                     "connect_timeout": 5,
-#                     },
-#             "CONN_MAX_AGE": 0
-
-#     }
+#      }
 # }
 
+##Main DB Configuration === AZURE POSTGRESQL DB CONFIGURATION ===
+'''DATABASES = {
+     "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+     }
+}
+'''
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -151,6 +161,7 @@ DATABASES = {
             "CONN_MAX_AGE": 0
     }
 }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -183,13 +194,20 @@ USE_I18N = True
 USE_TZ = True
 
 # Email configuration for development
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+#EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
 EMAIL_PORT = 2525
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
 EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
 
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
@@ -210,6 +228,24 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Session cookie settings
+SESSION_COOKIE_NAME = 'sessionid'
+SESSION_COOKIE_AGE = 86400  # 1 day in seconds
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' if frontend is different domain (requires Secure=True)
+SESSION_COOKIE_DOMAIN = None  # Use default (current domain)
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
+
+# CSRF settings for cross-origin requests
+CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read this
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
 
 # Magic link redirect configuration
 MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click

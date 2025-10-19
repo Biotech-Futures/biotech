@@ -27,7 +27,29 @@
       </button>
     </div>
 
-    <div class="resource-grid">
+    <div v-if="loading" class="card" style="margin-top:1.5rem;">
+      <p style="text-align:center;color:#6c757d;">Loading resources...</p>
+    </div>
+
+    <div v-else-if="error" class="card" style="margin-top:1.5rem;border-left:4px solid #dc3545;">
+      <h3 style="color:#dc3545;">Error</h3>
+      <p style="color:#6c757d;">{{ error }}</p>
+      <button @click="loadResources" class="btn btn-primary" style="margin-top:1rem;">Retry</button>
+    </div>
+
+    <div v-else-if="filteredResources.length === 0" class="card" style="margin-top:1.5rem;">
+      <h3>No resources found</h3>
+      <p style="color:#6c757d;">
+        <span v-if="searchQuery || activeFilter !== 'All Resources'">
+          Try changing your search keywords or filter.
+        </span>
+        <span v-else>
+          There are no resources available yet. Check back later or contact your administrator.
+        </span>
+      </p>
+    </div>
+
+    <div v-else class="resource-grid">
       <div
         v-for="resource in filteredResources"
         :key="resource.id"
@@ -83,21 +105,40 @@
         </div>
       </div>
     </div>
-
-    <div v-if="filteredResources.length === 0" class="card" style="margin-top:1.5rem;">
-      <h3>No results</h3>
-      <p style="color:#6c757d;">Try changing your search keywords or filter.</p>
-    </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { mockResources } from '../data/mock.js'
-import { useAuthStore } from '../stores/auth' // 如未接入 Pinia，可改回你之前的 isAdmin 逻辑
+import { fetchResources, type Resource } from '../utils/resourcesAPI'
+import { useAuthStore } from '../stores/auth'
 
-// 资源数据（复制一份，避免直接改 mock）
-const resources = ref(mockResources.map(r => ({ ...r })))
+// Transform backend Resource to frontend format
+interface FrontendResource {
+  id: number
+  title: string
+  type: string
+  updated: string
+  role: string
+  cover?: string | null
+}
+
+// 资源数据（从 API 获取）
+const backendResources = ref<Resource[]>([])
+const loading = ref(false)
+const error = ref('')
+
+// Transform backend resources to frontend format
+const resources = computed<FrontendResource[]>(() => {
+  return backendResources.value.map(r => ({
+    id: r.id,
+    title: r.resource_name,
+    type: r.resource_type_detail?.type_name || 'document',
+    updated: new Date(r.upload_datetime).toLocaleString(),
+    role: r.visible_roles?.[0]?.role_name || 'all',
+    cover: null
+  }))
+})
 
 /** Admin 权限（Pinia） */
 const auth = useAuthStore()
@@ -108,7 +149,7 @@ const searchQuery = ref('')
 const filters = ['All Resources', 'Documents', 'Videos', 'Templates', 'Guides']
 const activeFilter = ref('All Resources')
 
-const typeMap = {
+const typeMap: Record<string, string | null> = {
   'All Resources': null,
   Documents: 'document',
   Videos: 'video',
@@ -126,6 +167,27 @@ const filteredResources = computed(() => {
   if (t) list = list.filter(r => r.type === t)
   return list
 })
+
+// Load resources from API
+const loadResources = async () => {
+  // Check if user is authenticated
+  if (!auth.isAuthenticated) {
+    error.value = 'You must be logged in to view resources'
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+  try {
+    const response = await fetchResources()
+    backendResources.value = response.results
+  } catch (err: any) {
+    error.value = err.message || 'Failed to load resources'
+    console.error('Error loading resources:', err)
+  } finally {
+    loading.value = false
+  }
+}
 
 // 图标与类型显示
 const getResourceIcon = (type) => {
@@ -169,8 +231,10 @@ const resetCover = (res) => {
   res.cover = null
 }
 
-// 载入时恢复本地封面持久化
-onMounted(() => {
+// 载入时恢复本地封面持久化并加载资源
+onMounted(async () => {
+  await loadResources()
+
   resources.value.forEach(r => {
     try {
       const saved = localStorage.getItem(`resourceCover:${r.id}`)

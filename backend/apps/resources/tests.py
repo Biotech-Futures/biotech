@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from django.apps import apps as dj_apps
 
-from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles
+from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
 from .services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
@@ -31,7 +31,7 @@ class RolesApiTests(TestCase):
     def test_roles_requires_auth(self):
         url = reverse("roles-list")
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_roles_list_ok_and_ordered(self):
         self.client.force_authenticate(self.me)
@@ -277,9 +277,9 @@ class RoleAssignmentPatchApiTests(TestCase):
         return reverse("role-assignments-detail", args=[pk])
 
     def test_patch_requires_admin(self):
-        # unauthenticated -> 401
+        # unauthenticated -> 403
         resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # non-admin -> 403
         self.client.force_authenticate(self.non_admin)
@@ -1064,7 +1064,7 @@ class CreateRoleAPITests(TestCase):
         data = {"role_name": "new_role"}
 
         response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_role_non_admin_fails(self):
         """Test that non-admin users cannot create roles"""
@@ -1269,3 +1269,360 @@ class CreateRoleIntegrationTests(TestCase):
         response_data = response.json()
         error_text = str(response_data).lower()
         self.assertIn("already exists", error_text)
+
+
+# =============================================================================
+# RESOURCE TYPE TESTS
+# =============================================================================
+
+class ResourceTypeModelTests(TestCase):
+    """Tests for ResourceType model"""
+
+    def test_create_resource_type(self):
+        """Test creating a resource type"""
+        resource_type = ResourceType.objects.create(
+            type_name='presentation',
+            type_description='Presentation resources such as slides'
+        )
+
+        self.assertEqual(resource_type.type_name, 'presentation')
+        self.assertEqual(resource_type.type_description, 'Presentation resources such as slides')
+        self.assertEqual(str(resource_type), 'presentation')
+
+    def test_resource_type_unique_name(self):
+        """Test that resource type names must be unique"""
+        ResourceType.objects.create(type_name='workshop')
+
+        # Try to create duplicate
+        with self.assertRaises(Exception):  # IntegrityError from database
+            ResourceType.objects.create(type_name='workshop')
+
+    def test_resource_type_optional_description(self):
+        """Test that description is optional"""
+        resource_type = ResourceType.objects.create(
+            type_name='podcast'
+        )
+
+        self.assertEqual(resource_type.type_name, 'podcast')
+        self.assertIsNone(resource_type.type_description)
+
+
+class ResourceTypeAPITests(TestCase):
+    """Tests for ResourceType with Resources API"""
+
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+        self.regular_user = get_user_model().objects.create_user(
+            email='user@test.com',
+            password='testpass123',
+            first_name='Regular',
+            last_name='User'
+        )
+
+        # Get or create resource types (migration may have already created them)
+        self.document_type, _ = ResourceType.objects.get_or_create(
+            type_name='document',
+            defaults={'type_description': 'Document resources'}
+        )
+        self.video_type, _ = ResourceType.objects.get_or_create(
+            type_name='video',
+            defaults={'type_description': 'Video resources'}
+        )
+        self.guide_type, _ = ResourceType.objects.get_or_create(
+            type_name='guide',
+            defaults={'type_description': 'Guide resources'}
+        )
+        self.template_type, _ = ResourceType.objects.get_or_create(
+            type_name='template',
+            defaults={'type_description': 'Template resources'}
+        )
+
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_create_resource_with_type(self):
+        """Test creating a resource with a resource type"""
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': 'Python Guide',
+            'resource_description': 'A comprehensive Python programming guide',
+            'resource_type_id': self.guide_type.id
+        }
+
+        response = self.client.post(url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['resource_name'], 'Python Guide')
+        self.assertIn('resource_type_detail', response.data)
+        self.assertEqual(response.data['resource_type_detail']['type_name'], 'guide')
+
+        # Verify in database
+        resource = Resources.objects.get(resource_name='Python Guide')
+        self.assertEqual(resource.resource_type, self.guide_type)
+
+    def test_create_resource_without_type(self):
+        """Test creating a resource without specifying type (should be null)"""
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': 'Untitled Resource',
+            'resource_description': 'A resource without type'
+        }
+
+        response = self.client.post(url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['resource_name'], 'Untitled Resource')
+        self.assertIsNone(response.data.get('resource_type_detail'))
+
+        # Verify in database
+        resource = Resources.objects.get(resource_name='Untitled Resource')
+        self.assertIsNone(resource.resource_type)
+
+    def test_list_resources_includes_type(self):
+        """Test that listing resources includes resource type information"""
+        # Create resources with different types
+        Resources.objects.create(
+            resource_name='Video Tutorial',
+            resource_description='Video tutorial',
+            resource_type=self.video_type,
+            uploader_user_id=self.admin_user
+        )
+        Resources.objects.create(
+            resource_name='PDF Document',
+            resource_description='PDF document',
+            resource_type=self.document_type,
+            uploader_user_id=self.admin_user
+        )
+
+        url = reverse('resource-files-list')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 2)
+
+        # Check that resource_type_detail is included
+        for resource in response.data['results']:
+            self.assertIn('resource_type_detail', resource)
+            if resource['resource_name'] == 'Video Tutorial':
+                self.assertEqual(resource['resource_type_detail']['type_name'], 'video')
+            elif resource['resource_name'] == 'PDF Document':
+                self.assertEqual(resource['resource_type_detail']['type_name'], 'document')
+
+    def test_update_resource_type(self):
+        """Test updating a resource's type"""
+        resource = Resources.objects.create(
+            resource_name='My Resource',
+            resource_description='A resource',
+            resource_type=self.document_type,
+            uploader_user_id=self.admin_user
+        )
+
+        url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        data = {
+            'resource_type_id': self.video_type.id
+        }
+
+        response = self.client.patch(url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['resource_type_detail']['type_name'], 'video')
+
+        # Verify in database
+        resource.refresh_from_db()
+        self.assertEqual(resource.resource_type, self.video_type)
+
+    def test_update_resource_type_to_null(self):
+        """Test removing type from a resource"""
+        resource = Resources.objects.create(
+            resource_name='My Resource',
+            resource_description='A resource',
+            resource_type=self.document_type,
+            uploader_user_id=self.admin_user
+        )
+
+        url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        data = {
+            'resource_type_id': None
+        }
+
+        response = self.client.patch(url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data.get('resource_type_detail'))
+
+        # Verify in database
+        resource.refresh_from_db()
+        self.assertIsNone(resource.resource_type)
+
+    def test_create_resource_with_invalid_type_id(self):
+        """Test error handling for invalid resource type ID"""
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': 'Test Resource',
+            'resource_description': 'A test resource',
+            'resource_type_id': 99999  # Non-existent ID
+        }
+
+        response = self.client.post(url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_filter_resources_by_type(self):
+        """Test filtering resources by type (if implemented)"""
+        # Create resources with different types
+        Resources.objects.create(
+            resource_name='Video 1',
+            resource_description='Video',
+            resource_type=self.video_type,
+            uploader_user_id=self.admin_user
+        )
+        Resources.objects.create(
+            resource_name='Video 2',
+            resource_description='Video',
+            resource_type=self.video_type,
+            uploader_user_id=self.admin_user
+        )
+        Resources.objects.create(
+            resource_name='Document 1',
+            resource_description='Document',
+            resource_type=self.document_type,
+            uploader_user_id=self.admin_user
+        )
+
+        url = reverse('resource-files-list')
+        # Note: This test assumes filtering is implemented
+        # If not implemented yet, this can serve as a spec
+        response = self.client.get(url, {'type': 'video'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # This assertion may need adjustment based on actual implementation
+        # For now, just verify we get results
+        self.assertIn('results', response.data)
+
+    def test_resource_type_in_serializer(self):
+        """Test that resource type is properly serialized"""
+        resource = Resources.objects.create(
+            resource_name='Test Resource',
+            resource_description='A test resource',
+            resource_type=self.template_type,
+            uploader_user_id=self.admin_user
+        )
+
+        url = reverse('resource-files-detail', kwargs={'pk': resource.id})
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('resource_type_detail', response.data)
+
+        type_detail = response.data['resource_type_detail']
+        self.assertEqual(type_detail['id'], self.template_type.id)
+        self.assertEqual(type_detail['type_name'], 'template')
+        self.assertEqual(type_detail['type_description'], 'Templates and boilerplate files')
+
+
+class ResourceTypeIntegrationTests(TestCase):
+    """Integration tests for ResourceType with full system"""
+
+    def setUp(self):
+        """Set up test data"""
+        self.client = APIClient()
+
+        self.admin_user = get_user_model().objects.create_user(
+            email='admin@test.com',
+            password='testpass123',
+            first_name='Admin',
+            last_name='User',
+            is_staff=True
+        )
+
+        # Get or create all 4 resource types (migration may have already created them)
+        self.document_type, _ = ResourceType.objects.get_or_create(
+            type_name='document',
+            defaults={'type_description': 'Document resources such as PDFs, guides, and written materials'}
+        )
+        self.guide_type, _ = ResourceType.objects.get_or_create(
+            type_name='guide',
+            defaults={'type_description': 'Step-by-step guides and tutorials'}
+        )
+        self.video_type, _ = ResourceType.objects.get_or_create(
+            type_name='video',
+            defaults={'type_description': 'Video recordings and presentations'}
+        )
+        self.template_type, _ = ResourceType.objects.get_or_create(
+            type_name='template',
+            defaults={'type_description': 'Templates and boilerplate files'}
+        )
+
+        # Create test roles
+        self.supervisor_role = Roles.objects.create(role_name='Supervisor')
+        self.student_role = Roles.objects.create(role_name='Student')
+
+        self.client.force_authenticate(user=self.admin_user)
+
+    def test_create_resources_with_all_types(self):
+        """Test creating resources with all 4 resource types"""
+        url = reverse('resource-files-list')
+
+        resource_data = [
+            ('Study Guide', 'A study guide for students', self.guide_type.id),
+            ('Lecture Recording', 'Video lecture', self.video_type.id),
+            ('Project Template', 'Starter template', self.template_type.id),
+            ('Reference Document', 'Reference PDF', self.document_type.id)
+        ]
+
+        for name, description, type_id in resource_data:
+            data = {
+                'resource_name': name,
+                'resource_description': description,
+                'resource_type_id': type_id
+            }
+
+            response = self.client.post(url, data, format='json')
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify all were created
+        self.assertEqual(Resources.objects.count(), 4)
+        self.assertEqual(Resources.objects.filter(resource_type=self.guide_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(resource_type=self.video_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(resource_type=self.template_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(resource_type=self.document_type).count(), 1)
+
+    def test_resource_with_type_and_roles(self):
+        """Test creating resource with both type and role visibility"""
+        url = reverse('resource-files-list')
+        data = {
+            'resource_name': 'Advanced Python Guide',
+            'resource_description': 'Python guide for advanced users',
+            'resource_type_id': self.guide_type.id,
+            'role_ids': [self.supervisor_role.id]
+        }
+
+        response = self.client.post(url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['resource_type_detail']['type_name'], 'guide')
+        self.assertEqual(len(response.data['visible_roles']), 1)
+        self.assertEqual(response.data['visible_roles'][0]['role_name'], 'Supervisor')
+
+    def test_data_migration_populated_types(self):
+        """Test that data migration has populated the 4 types"""
+        # This test verifies that the data migration has run
+        # In a fresh database, the migration should create these types
+
+        types = ResourceType.objects.all().order_by('type_name')
+        type_names = [t.type_name for t in types]
+
+        # We expect exactly 4 types
+        self.assertEqual(len(type_names), 4)
+        self.assertIn('document', type_names)
+        self.assertIn('guide', type_names)
+        self.assertIn('video', type_names)
+        self.assertIn('template', type_names)

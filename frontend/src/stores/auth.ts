@@ -7,6 +7,10 @@ interface User {
   first_name: string
   last_name: string
   name: string
+  current_role_id?: number | null
+  current_role_name?: string | null
+  is_staff?: boolean
+  is_superuser?: boolean
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -16,8 +20,14 @@ export const useAuthStore = defineStore('auth', {
     refreshToken: null as string | null
   }),
   getters: {
-    isAuthenticated: (s) => !!s.user && !!s.accessToken,
-    isAdmin: (s) => s.user?.email?.includes('admin') || false, // Simple admin check based on email
+    isAuthenticated: (s) => !!s.user, // Session-based auth - user exists means authenticated
+    isAdmin: (s) => {
+      // Check role name OR Django's is_staff/is_superuser flags
+      return s.user?.current_role_name === 'admin' ||
+             s.user?.is_staff === true ||
+             s.user?.is_superuser === true ||
+             false
+    },
     initials: (s) => {
       if (!s.user) return '—'
       const first = s.user.first_name?.[0] || ''
@@ -26,15 +36,29 @@ export const useAuthStore = defineStore('auth', {
     }
   },
   actions: {
-    // Login with JWT tokens from backend
-    loginWithTokens(userData: User, accessToken: string, refreshToken: string) {
+    // Fetch full user data from backend including roles
+    async fetchUserData() {
+      try {
+        const response = await fetch('http://localhost:8000/api/v1/users/me/', {
+          credentials: 'include', // Include session cookie
+        })
+
+        if (response.ok) {
+          const userData = await response.json()
+          this.user = userData
+          localStorage.setItem('auth.user', JSON.stringify(userData))
+          return userData
+        }
+      } catch (error) {
+        console.error('Failed to fetch user data:', error)
+      }
+      return null
+    },
+    // Login with session-based authentication (Django sessions)
+    loginWithUser(userData: User) {
       this.user = userData
-      this.accessToken = accessToken
-      this.refreshToken = refreshToken
       try {
         localStorage.setItem('auth.user', JSON.stringify(userData))
-        localStorage.setItem('auth.accessToken', accessToken)
-        localStorage.setItem('auth.refreshToken', refreshToken)
       } catch {}
     },
     logout() {
@@ -50,13 +74,16 @@ export const useAuthStore = defineStore('auth', {
     hydrate() {
       try {
         const rawUser = localStorage.getItem('auth.user')
-        const rawAccess = localStorage.getItem('auth.accessToken')
-        const rawRefresh = localStorage.getItem('auth.refreshToken')
 
-        if (rawUser && rawAccess) {
+        if (rawUser) {
           this.user = JSON.parse(rawUser)
-          this.accessToken = rawAccess
-          this.refreshToken = rawRefresh
+          // Also restore tokens if they exist (for backward compatibility)
+          const rawAccess = localStorage.getItem('auth.accessToken')
+          const rawRefresh = localStorage.getItem('auth.refreshToken')
+          if (rawAccess) {
+            this.accessToken = rawAccess
+            this.refreshToken = rawRefresh
+          }
         }
       } catch {}
     }

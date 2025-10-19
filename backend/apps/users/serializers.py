@@ -1,6 +1,7 @@
 from rest_framework import serializers, generics, permissions, status
 from .models import User, StudentProfile, MentorProfile
 from apps.resources.models import Roles, RoleAssignmentHistory
+from apps.users.utils.roles import get_active_assignment
 from django.utils import timezone
 
 class UserSerializer(serializers.ModelSerializer):
@@ -33,6 +34,7 @@ class UserSerializer(serializers.ModelSerializer):
             .order_by("-valid_from")
             .first()
         )
+        # return get_active_assignment
     
         
     def _student_profile(self, user):

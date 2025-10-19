@@ -10,3 +10,8 @@ class MilestoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = Milestone
         fields = ["id", "group", "milestone_name", "completed", "deleted_flag"]
+
+class TaskCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tasks
+        fields = ["task_name", "due_date", "milestone", "task_description"]

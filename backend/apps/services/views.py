@@ -4,11 +4,13 @@ from rest_framework.response import Response
 from django.http import JsonResponse, HttpResponse
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils.decorators import method_decorator
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.contrib.auth import login, logout
 from . import auth_service
 from apps.users.models import User
-from rest_framework_simplejwt.tokens import RefreshToken
 
 
 class SendLoginCodeView(APIView):
@@ -28,7 +30,16 @@ class SendLoginCodeView(APIView):
         return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class VerifyLoginCodeView(APIView):
+    """
+    Verify OTP login code and create Django session.
+    This view uses @ensure_csrf_cookie to send the csrftoken cookie
+    along with the sessionid cookie. 
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
     def post(self, request):
         email = request.data.get("email")
         code = request.data.get("code")
@@ -39,16 +50,13 @@ class VerifyLoginCodeView(APIView):
         if not valid:
             return Response({"error": "Invalid or expired code"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # At this point user is authenticated → issue tokens
-        from apps.users.models import User
+        # user is authenticated → create django session
         user = User.objects.get(email=email)
-
-        refresh = RefreshToken.for_user(user)
+        login(request, user)  # Creates session cookie
 
         return Response(
             {
-                "access_token": str(refresh.access_token),
-                "refresh_token": str(refresh),
+                "success": True,
                 "user": {
                     "id": user.id,
                     "email": user.email,
@@ -59,7 +67,15 @@ class VerifyLoginCodeView(APIView):
             status=status.HTTP_200_OK,
         )
 
+@ensure_csrf_cookie
 def magic_login(request):
+    """
+    Handle magic link authentication with Django sessions.
+
+    This view uses @ensure_csrf_cookie to send the csrftoken cookie
+    along with the sessionid cookie. This ensures CSRF protection for the
+    authenticated session created via magic link.
+    """
     email = request.GET.get("email")
     code = request.GET.get("code")
 
@@ -69,18 +85,28 @@ def magic_login(request):
     if not auth_service.verify_login_code(email, code):
         return JsonResponse({"error": "Invalid or expired code"}, status=400)
 
-    # User is authenticated → issue JWTs
+    # User is authenticated → create Django session
     user = User.objects.get(email=email)
-    refresh = RefreshToken.for_user(user)
+    login(request, user)  # Creates session cookie
 
-    # edbert: Redirect to frontend with tokens as URL parameters instead of returning JSON
+    # Redirect to frontend - session cookie is automatically set
     from django.conf import settings
-    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/#/auth/callback')
-
-    # edbert: Add tokens as query parameters for frontend to capture
-    redirect_url = f"{frontend_callback}?access_token={str(refresh.access_token)}&refresh_token={str(refresh)}&user_id={user.id}&email={user.email}&first_name={user.first_name}&last_name={user.last_name}"
+    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL')
+    redirect_url = f"{frontend_callback}?success=true&email={user.email}"
 
     return redirect(redirect_url)
+
+
+class LogoutView(APIView):
+    """Logout endpoint - destroys Django session"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        logout(request)  # Destroys session
+        return Response(
+            {"message": "Successfully logged out"},
+            status=status.HTTP_200_OK
+        )
 
 
 @require_http_methods(["GET"])

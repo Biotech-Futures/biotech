@@ -86,8 +86,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
     # queryset = User.objects.select_related("track","state")
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
-    renderer_classes = [TemplateHTMLRenderer]
-    template_name = "users/details.html"
+    renderer_classes = [JSONRenderer]
 
     def get_object(self):
         obj = self.request.user
