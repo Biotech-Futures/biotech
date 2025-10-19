@@ -4,7 +4,6 @@ from django.db import transaction
 
 from apps.groups.models import Countries, CountryStates, Tracks
 
-
 class Command(BaseCommand):
     help = "Populate supported Tracks (AUS-<STATE>, BRA, GLO) based on existing Countries and CountryStates."
 

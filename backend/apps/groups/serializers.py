@@ -64,3 +64,26 @@ class GroupSerializer(serializers.ModelSerializer):
 
 # if (while deleted) another active group took the same name in the same track and cohort, then restoring should fail until the name is changed
 # """
+
+
+class AddGroupMembersSerializer(serializers.Serializer):
+  """Input contract for adding members to a group.
+
+  Accepts either user_ids (primary keys) or user_emails (case-insensitive).
+  At least one of the two lists must be present. Empty lists are allowed so long as the other is provided.
+  """
+  user_ids = serializers.ListField(
+    child=serializers.IntegerField(min_value=1), required=False, allow_empty=True
+  )
+  user_emails = serializers.ListField(
+    child=serializers.EmailField(), required=False, allow_empty=True
+  )
+  # Reserved for future behavior tuning (e.g., whether to treat existing links as success/warning)
+  ignore_existing = serializers.BooleanField(required=False, default=True)
+
+  def validate(self, data):
+    ids = data.get('user_ids') or []
+    emails = data.get('user_emails') or []
+    if not ids and not emails:
+      raise serializers.ValidationError("Provide user_ids or user_emails.")
+    return data
