@@ -61,6 +61,17 @@ export const useAuthStore = defineStore('auth', {
         localStorage.setItem('auth.user', JSON.stringify(userData))
       } catch {}
     },
+    // Login using tokens returned from the magic-link callback
+    loginWithTokens(userData: User, accessToken: string, refreshToken: string) {
+      this.user = userData
+      this.accessToken = accessToken
+      this.refreshToken = refreshToken
+      try {
+        localStorage.setItem('auth.user', JSON.stringify(userData))
+        localStorage.setItem('auth.accessToken', accessToken)
+        localStorage.setItem('auth.refreshToken', refreshToken)
+      } catch {}
+    },
     logout() {
       this.user = null
       this.accessToken = null

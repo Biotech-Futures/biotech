@@ -3,6 +3,7 @@ const API_BASE_URL = 'http://localhost:8000'
 
 interface RequestOptions extends RequestInit {
   authenticate?: boolean
+  headers?: HeadersInit
 }
 
 /**
@@ -24,18 +25,18 @@ function getCsrfToken(): string | null {
  * Make an API request with automatic authentication using Django sessions + CSRF
  */
 async function apiRequest(endpoint: string, options: RequestOptions = {}) {
-  const { authenticate = true, ...fetchOptions } = options
+  const { authenticate = true, headers: initHeaders, ...fetchOptions } = options
 
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...fetchOptions.headers,
+  const headers = new Headers(initHeaders as HeadersInit | undefined)
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
   }
 
   // Add CSRF token for non-GET requests
   if (authenticate && fetchOptions.method && fetchOptions.method !== 'GET') {
     const csrfToken = getCsrfToken()
     if (csrfToken) {
-      headers['X-CSRFToken'] = csrfToken
+      headers.set('X-CSRFToken', csrfToken)
     }
   }
 

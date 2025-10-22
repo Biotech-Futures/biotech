@@ -109,17 +109,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, type ComponentPublicInstance } from 'vue'
 import { fetchResources, type Resource } from '../utils/resourcesAPI'
 import { useAuthStore } from '../stores/auth'
+
+type ResourceTypeKey = 'document' | 'video' | 'template' | 'guide' | string
+type Audience = 'all' | 'student' | 'mentor' | 'supervisor' | 'admin' | string
 
 // Transform backend Resource to frontend format
 interface FrontendResource {
   id: number
   title: string
-  type: string
+  type: ResourceTypeKey
   updated: string
-  role: string
+  role: Audience
   cover?: string | null
 }
 
@@ -133,9 +136,9 @@ const resources = computed<FrontendResource[]>(() => {
   return backendResources.value.map(r => ({
     id: r.id,
     title: r.resource_name,
-    type: r.resource_type_detail?.type_name || 'document',
+    type: (r.resource_type_detail?.type_name as ResourceTypeKey) || 'document',
     updated: new Date(r.upload_datetime).toLocaleString(),
-    role: r.visible_roles?.[0]?.role_name || 'all',
+    role: (r.visible_roles?.[0]?.role_name as Audience) || 'all',
     cover: null
   }))
 })
@@ -146,10 +149,11 @@ const isAdmin = computed(() => auth.isAdmin)
 
 // 搜索/筛选
 const searchQuery = ref('')
-const filters = ['All Resources', 'Documents', 'Videos', 'Templates', 'Guides']
-const activeFilter = ref('All Resources')
+const filters = ['All Resources', 'Documents', 'Videos', 'Templates', 'Guides'] as const
+type FilterOption = typeof filters[number]
+const activeFilter = ref<FilterOption>('All Resources')
 
-const typeMap: Record<string, string | null> = {
+const typeMap: Record<FilterOption, ResourceTypeKey | null> = {
   'All Resources': null,
   Documents: 'document',
   Videos: 'video',
@@ -157,7 +161,7 @@ const typeMap: Record<string, string | null> = {
   Guides: 'guide'
 }
 
-const filteredResources = computed(() => {
+const filteredResources = computed<FrontendResource[]>(() => {
   let list = resources.value
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
@@ -169,7 +173,7 @@ const filteredResources = computed(() => {
 })
 
 // Load resources from API
-const loadResources = async () => {
+const loadResources = async (): Promise<void> => {
   // Check if user is authenticated
   if (!auth.isAuthenticated) {
     error.value = 'You must be logged in to view resources'
@@ -190,32 +194,49 @@ const loadResources = async () => {
 }
 
 // 图标与类型显示
-const getResourceIcon = (type) => {
-  const icons = {
+const getResourceIcon = (type: ResourceTypeKey): string => {
+  const iconMap: Record<'document' | 'video' | 'template' | 'guide', string> = {
     document: 'fas fa-file-alt',
     video: 'fas fa-video',
     template: 'fas fa-file-code',
     guide: 'fas fa-book'
   }
-  return icons[type] || 'fas fa-file'
+  if (type in iconMap) {
+    return iconMap[type as keyof typeof iconMap]
+  }
+  return 'fas fa-file'
 }
-const prettyType = (type) => {
-  const map = { document: 'Document', video: 'Video', template: 'Template', guide: 'Guide' }
-  return map[type] || 'Resource'
+const prettyType = (type: ResourceTypeKey): string => {
+  const labelMap: Record<'document' | 'video' | 'template' | 'guide', string> = {
+    document: 'Document',
+    video: 'Video',
+    template: 'Template',
+    guide: 'Guide'
+  }
+  if (type in labelMap) {
+    return labelMap[type as keyof typeof labelMap]
+  }
+  return 'Resource'
 }
 
 // 打开资源（占位逻辑）
-const openResource = (resource) => {
+const openResource = (resource: FrontendResource) => {
   alert(`Opening resource: ${resource.title}`)
 }
 
 // —— 封面图可编辑（仅 admin） —— //
-const coverInputs = new Map()
-const setCoverInputRef = (el, id) => { if (el) coverInputs.set(id, el) }
-const triggerCoverPicker = (id) => { coverInputs.get(id)?.click() }
+const coverInputs = new Map<number, HTMLInputElement>()
+const setCoverInputRef = (el: Element | ComponentPublicInstance | null, id: number) => {
+  if (el instanceof HTMLInputElement) {
+    coverInputs.set(id, el)
+  }
+}
+const triggerCoverPicker = (id: number) => { coverInputs.get(id)?.click() }
 
-const onCoverPicked = (e, res) => {
-  const file = e.target.files && e.target.files[0]
+const onCoverPicked = (event: Event, res: FrontendResource) => {
+  const input = event.target as HTMLInputElement | null
+  if (!input) return
+  const file = input.files && input.files[0]
   if (!file) return
   const reader = new FileReader()
   reader.onload = () => {
@@ -223,12 +244,12 @@ const onCoverPicked = (e, res) => {
     try { localStorage.setItem(`resourceCover:${res.id}`, res.cover) } catch {}
   }
   reader.readAsDataURL(file)
-  e.target.value = '' // 清空，避免同图不触发 change
+  input.value = '' // 清空，避免同图不触发 change
 }
 
-const resetCover = (res) => {
-  try { localStorage.removeItem(`resourceCover:${res.id}`) } catch {}
-  res.cover = null
+const resetCover = (resource: FrontendResource) => {
+  try { localStorage.removeItem(`resourceCover:${resource.id}`) } catch {}
+  resource.cover = null
 }
 
 // 载入时恢复本地封面持久化并加载资源
@@ -244,7 +265,7 @@ onMounted(async () => {
 })
 
 // 横幅样式：有封面则显示图片，否则用品牌渐变
-const bannerStyle = (res) => {
+const bannerStyle = (res: FrontendResource): string => {
   const base = 'height:120px; display:flex; align-items:center; justify-content:center; color:#fff;'
   if (res?.cover) {
     return `${base} background-image:url('${res.cover}'); background-size:cover; background-position:center;`
@@ -252,26 +273,32 @@ const bannerStyle = (res) => {
   return `${base} background: linear-gradient(135deg, var(--dark-green), var(--eucalypt));`
 }
 
-const getAudienceLabel = (role) => {
-  const labels = {
-    'all': 'All Users',
-    'student': 'Student',
-    'mentor': 'Mentor',
-    'supervisor': 'Supervisor',
-    'admin': 'Admin'
+const getAudienceLabel = (role: Audience): string => {
+  const labels: Record<'all' | 'student' | 'mentor' | 'supervisor' | 'admin', string> = {
+    all: 'All Users',
+    student: 'Student',
+    mentor: 'Mentor',
+    supervisor: 'Supervisor',
+    admin: 'Admin'
   }
-  return labels[role] || 'Unknown'
+  if (role in labels) {
+    return labels[role as keyof typeof labels]
+  }
+  return 'Unknown'
 }
 
-const getAudienceClass = (role) => {
-  const classes = {
-    'all': 'status-active',
-    'student': 'status-info',
-    'mentor': 'status-warning',
-    'supervisor': 'status-pending',
-    'admin': 'status-danger'
+const getAudienceClass = (role: Audience): string => {
+  const classes: Record<'all' | 'student' | 'mentor' | 'supervisor' | 'admin', string> = {
+    all: 'status-active',
+    student: 'status-info',
+    mentor: 'status-warning',
+    supervisor: 'status-pending',
+    admin: 'status-danger'
   }
-  return classes[role] || 'status-active'
+  if (role in classes) {
+    return classes[role as keyof typeof classes]
+  }
+  return 'status-active'
 }
 </script>
 
