@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.services', #remove if buggy.
+    'apps.announcements',
     # third-party apps
     'drf_spectacular',
     'rest_framework',

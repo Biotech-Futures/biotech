@@ -34,6 +34,7 @@ urlpatterns = [
     path("resources/", include("apps.resources.urls")),
     path("integrations/", include("apps.integrations.urls")),
     path("certificates/", include("apps.certificates.urls")),
+    path("announcements/", include("apps.announcements.urls")),
 
     # Services (auth, email, etc)
     path("services/", include("apps.services.urls")),
