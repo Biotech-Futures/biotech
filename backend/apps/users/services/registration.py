@@ -87,6 +87,9 @@ def register_user(payload: Dict[str, Any], user_type: str) -> Tuple[User, Any]:
   user_type (str): The type of user being made: can be "student", "mentor", "supervisor"
   Returns: (user, user_profile) where user_profile is the created/linked profile for the user type.
   """
+  {
+    "email"
+  }
   user_type_raw = (user_type or "").strip().lower();
   if not user_type_raw:
     raise InvalidInputError("User type is required.")
