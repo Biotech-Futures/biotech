@@ -1,5 +1,6 @@
 // Pinia auth store with JWT token support
 import { defineStore } from 'pinia'
+import { apiRequest } from '../utils/apiClient'
 
 interface User {
   id: number
@@ -39,16 +40,10 @@ export const useAuthStore = defineStore('auth', {
     // Fetch full user data from backend including roles
     async fetchUserData() {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/users/me/', {
-          credentials: 'include', // Include session cookie
-        })
-
-        if (response.ok) {
-          const userData = await response.json()
-          this.user = userData
-          localStorage.setItem('auth.user', JSON.stringify(userData))
-          return userData
-        }
+        const userData = await apiRequest<User>('/api/v1/users/me/')
+        this.user = userData
+        localStorage.setItem('auth.user', JSON.stringify(userData))
+        return userData
       } catch (error) {
         console.error('Failed to fetch user data:', error)
       }

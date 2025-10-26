@@ -85,6 +85,7 @@
 import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { apiRequest } from '../utils/apiClient'
 import logo from '@/assets/btf-logo.png'
 
 const router = useRouter()
@@ -126,28 +127,21 @@ const handleLogin = async () => {
   loading.value = true
 
   try {
-    const response = await fetch('http://localhost:8000/services/send-login-code/', {
+    await apiRequest('/services/send-login-code/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
       body: JSON.stringify({
         email: email.value,
         redirect_url: `${window.location.origin}/#/auth/callback`
       })
     })
 
-    if (response.ok) {
-      showOTP.value = true
-      error.value = ''
-    } else {
-      const data = await response.json()
-      error.value = data.error || 'Failed to send login link. Please try again.'
-    }
+    showOTP.value = true
+    error.value = ''
   } catch (err) {
     console.error('Login error:', err)
-    error.value = 'Network error. Please check your connection and try again.'
+    error.value = err instanceof Error
+      ? err.message
+      : 'Network error. Please check your connection and try again.'
   } finally {
     loading.value = false
   }
@@ -170,39 +164,30 @@ const verifyOTP = async () => {
   }
 
   try {
-    const response = await fetch('http://localhost:8000/services/verify-login-code/', {
+    await apiRequest('/services/verify-login-code/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
       body: JSON.stringify({
         email: email.value,
         code: code
       })
     })
 
-    if (response.ok) {
-      // Fetch full user data including roles from /api/v1/users/me/
-      await auth.fetchUserData()
+    // Fetch full user data including roles from /api/v1/users/me/
+    await auth.fetchUserData()
 
-      // Wait for Vue's reactivity system to update
-      await nextTick()
+    // Wait for Vue's reactivity system to update
+    await nextTick()
 
-      // Try router navigation first
-      try {
-        await router.replace('/dashboard')
-      } catch (err) {
-        // Fallback to full page redirect
-        window.location.href = '/#/dashboard'
-      }
-    } else {
-      const errorData = await response.json()
-      error.value = errorData.error || 'Invalid or expired code'
+    // Try router navigation first
+    try {
+      await router.replace('/dashboard')
+    } catch (err) {
+      // Fallback to full page redirect
+      window.location.href = '/#/dashboard'
     }
   } catch (err) {
     console.error('OTP verification error:', err)
-    error.value = 'Network error. Please try again.'
+    error.value = err instanceof Error ? err.message : 'Network error. Please try again.'
   }
 }
 
@@ -210,26 +195,18 @@ const resendCode = async () => {
   if (!email.value) return
 
   try {
-    const response = await fetch('http://localhost:8000/services/send-login-code/', {
+    await apiRequest('/services/send-login-code/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
       body: JSON.stringify({
         email: email.value,
         redirect_url: `${window.location.origin}/#/auth/callback`
       })
     })
 
-    if (response.ok) {
-      alert('New code sent to your email!')
-      error.value = ''
-    } else {
-      error.value = 'Failed to resend code. Please try again.'
-    }
+    alert('New code sent to your email!')
+    error.value = ''
   } catch (err) {
-    error.value = 'Network error. Please try again.'
+    error.value = err instanceof Error ? err.message : 'Network error. Please try again.'
   }
 }
 </script>
