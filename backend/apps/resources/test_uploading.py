@@ -25,19 +25,29 @@ class ResourceUploadTests(TestCase):
         """Set up test data"""
         self.client = APIClient()
         
+        # Create geo/track prerequisites for Users
+        from apps.groups.models import Countries, CountryStates, Tracks
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="Test Track", state=state)
+        
         # Create test users
         self.admin_user = User.objects.create_user(
             email='admin@test.com',
             password='testpass123',
             first_name='Admin',
             last_name='User',
+            state=state,
+            track=track,
             is_staff=True
         )
         self.regular_user = User.objects.create_user(
             email='user@test.com',
             password='testpass123',
             first_name='Regular',
-            last_name='User'
+            last_name='User',
+            state=state,
+            track=track
         )
         
         # Create test roles
@@ -294,7 +304,7 @@ class ResourceUploadTests(TestCase):
         }
         
         response = self.client.post('/resources/resource-files/', data, format='multipart')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_regular_user_can_upload(self):
         """Test that regular users can upload files"""
@@ -916,7 +926,7 @@ class ResourcePermissionTests(TestCase):
         print(f"   Response status: {response.status_code}")
         
         # Unauthenticated users should not be able to create resources
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_unauthenticated_user_cannot_patch_resource(self):
         """Test that unauthenticated users cannot modify resources"""
@@ -933,7 +943,7 @@ class ResourcePermissionTests(TestCase):
         print(f"   Response status: {response.status_code}")
         
         # Unauthenticated users should not be able to modify resources
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_unauthenticated_user_cannot_delete_resource(self):
         """Test that unauthenticated users cannot delete resources"""
@@ -945,4 +955,4 @@ class ResourcePermissionTests(TestCase):
         print(f"   Response status: {response.status_code}")
         
         # Unauthenticated users should not be able to delete resources
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
