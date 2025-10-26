@@ -24,8 +24,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -55,8 +55,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -73,8 +73,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           description: No response body
@@ -84,8 +84,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -96,8 +96,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -121,8 +121,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -143,8 +143,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -176,8 +176,8 @@ paths:
               $ref: '#/components/schemas/User'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -208,8 +208,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -224,8 +224,8 @@ paths:
       tags:
       - api
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -249,8 +249,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -291,8 +291,8 @@ paths:
       tags:
       - certificates
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -337,8 +337,8 @@ paths:
               $ref: '#/components/schemas/MentorCertificateCreate'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -379,8 +379,8 @@ paths:
       tags:
       - certificates
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -432,8 +432,8 @@ paths:
               $ref: '#/components/schemas/MentorCertificateUpdate'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -484,8 +484,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedMentorCertificateUpdate'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -525,8 +525,8 @@ paths:
       tags:
       - certificates
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -557,8 +557,8 @@ paths:
             schema:
               $ref: '#/components/schemas/MentorCertificate'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -593,8 +593,8 @@ paths:
             schema:
               $ref: '#/components/schemas/MentorCertificate'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -621,8 +621,8 @@ paths:
       tags:
       - chat
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -654,8 +654,8 @@ paths:
               $ref: '#/components/schemas/Message'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -682,8 +682,8 @@ paths:
       tags:
       - chat
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -721,8 +721,8 @@ paths:
               $ref: '#/components/schemas/Message'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -759,8 +759,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedMessage'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -786,8 +786,8 @@ paths:
       tags:
       - chat
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -808,8 +808,8 @@ paths:
       tags:
       - events
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           description: No response body
@@ -837,8 +837,8 @@ paths:
       tags:
       - events
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -865,8 +865,8 @@ paths:
       tags:
       - events
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -887,8 +887,8 @@ paths:
       tags:
       - events
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -913,8 +913,8 @@ paths:
               $ref: '#/components/schemas/Event'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -935,8 +935,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -962,8 +962,8 @@ paths:
               $ref: '#/components/schemas/Country'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -984,8 +984,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -1018,8 +1018,8 @@ paths:
               $ref: '#/components/schemas/Country'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1050,8 +1050,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedCountry'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1071,8 +1071,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -1089,8 +1089,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1115,8 +1115,8 @@ paths:
               $ref: '#/components/schemas/GroupMember'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -1137,8 +1137,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1170,8 +1170,8 @@ paths:
               $ref: '#/components/schemas/GroupMember'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1202,8 +1202,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedGroupMember'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1223,8 +1223,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -1241,8 +1241,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1285,8 +1285,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1311,8 +1311,8 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -1332,8 +1332,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1364,8 +1364,8 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1395,8 +1395,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedGroup'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1415,8 +1415,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -1478,8 +1478,8 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1511,8 +1511,8 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1543,14 +1543,61 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
+          description: ''
+  /groups/groups/without-mentor/:
+    get:
+      operationId: groups_groups_without_mentor_retrieve
+      description: |-
+        Returns a paginated list of active groups that have no member whose current active role is Mentor.
+
+        Mentor presence is defined via RoleAssignmentHistory: valid_to is null and valid_from <= now for role 'Mentor'.
+        Supports filtering by track (id or name), cohort_year, and region (state name).
+      summary: List groups without an active mentor
+      parameters:
+      - in: query
+        name: cohort_year
+        schema:
+          type: integer
+        description: Cohort year (e.g., 2025)
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number (pagination)
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page (pagination)
+      - in: query
+        name: region
+        schema:
+          type: string
+        description: Region (state name), case-insensitive
+      - in: query
+        name: track
+        schema:
+          type: string
+        description: Track id (numeric) or track name (string)
+      tags:
+      - Groups
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupsWithoutMentorPage'
           description: ''
   /groups/tracks/:
     get:
@@ -1577,8 +1624,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1603,8 +1650,8 @@ paths:
               $ref: '#/components/schemas/Track'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -1625,8 +1672,8 @@ paths:
       tags:
       - groups
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1658,8 +1705,8 @@ paths:
               $ref: '#/components/schemas/Track'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1690,8 +1737,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedTrack'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1718,8 +1765,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1747,8 +1794,8 @@ paths:
               $ref: '#/components/schemas/Role'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -1775,8 +1822,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1813,8 +1860,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedRole'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1840,8 +1887,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -1872,8 +1919,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1906,8 +1953,8 @@ paths:
               $ref: '#/components/schemas/Resources'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -1928,8 +1975,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1967,8 +2014,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedResources'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -1988,8 +2035,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -2018,8 +2065,8 @@ paths:
               $ref: '#/components/schemas/Resources'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2040,8 +2087,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -2058,8 +2105,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2080,8 +2127,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2113,8 +2160,8 @@ paths:
               $ref: '#/components/schemas/RoleAssignmentHistory'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2145,8 +2192,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedRoleAssignmentHistory'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2182,8 +2229,8 @@ paths:
               $ref: '#/components/schemas/RoleAssignmentHistory'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2217,8 +2264,8 @@ paths:
               $ref: '#/components/schemas/RoleAssignmentHistory'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2245,8 +2292,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2274,8 +2321,8 @@ paths:
               $ref: '#/components/schemas/Role'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '201':
           content:
@@ -2302,8 +2349,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2340,8 +2387,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedRole'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2367,8 +2414,8 @@ paths:
       tags:
       - resources
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '204':
           description: No response body
@@ -2379,8 +2426,8 @@ paths:
       tags:
       - services
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           description: No response body
@@ -2426,8 +2473,8 @@ paths:
               $ref: '#/components/schemas/TaskCreate'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '201':
@@ -2455,8 +2502,8 @@ paths:
       tags:
       - tasks
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2484,8 +2531,8 @@ paths:
       tags:
       - tasks
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2506,8 +2553,8 @@ paths:
       tags:
       - tasks
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2539,8 +2586,8 @@ paths:
               $ref: '#/components/schemas/Task'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2571,8 +2618,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedTask'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2593,8 +2640,8 @@ paths:
       tags:
       - tasks
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '204':
@@ -2619,8 +2666,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2650,8 +2697,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2668,8 +2715,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           description: No response body
@@ -2679,8 +2726,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2691,8 +2738,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2716,8 +2763,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2738,8 +2785,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2771,8 +2818,8 @@ paths:
               $ref: '#/components/schemas/User'
         required: true
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2803,8 +2850,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       - {}
       responses:
         '200':
@@ -2819,8 +2866,8 @@ paths:
       tags:
       - users
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2844,8 +2891,8 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
-      - cookieAuth: []
       - basicAuth: []
+      - cookieAuth: []
       responses:
         '200':
           content:
@@ -2960,7 +3007,6 @@ components:
         deleted_flag:
           type: boolean
           readOnly: true
-          default: false
         deleted_datetime:
           type: string
           format: date-time
@@ -2987,6 +3033,53 @@ components:
       - group
       - id
       - user
+    GroupWithoutMentorItem:
+      type: object
+      properties:
+        group_number:
+          type: string
+        group_name:
+          type: string
+        cohort_year:
+          type: integer
+        track:
+          $ref: '#/components/schemas/TrackMini'
+        region:
+          type: string
+          nullable: true
+        member_count:
+          type: integer
+        students:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentMini'
+      required:
+      - cohort_year
+      - group_name
+      - group_number
+      - member_count
+      - students
+      - track
+    GroupsWithoutMentorPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupWithoutMentorItem'
+      required:
+      - count
+      - results
     MentorCertificate:
       type: object
       properties:
@@ -3549,7 +3642,6 @@ components:
         deleted_flag:
           type: boolean
           readOnly: true
-          default: false
         deleted_datetime:
           type: string
           format: date-time
@@ -3643,8 +3735,27 @@ components:
         resource_type_id:
           type: integer
           writeOnly: true
+          description: ID of the resource type (REQUIRED - must be explicitly specified)
+        uploader_user_id:
+          type: integer
+          writeOnly: true
+          description: ID of the user who uploaded this resource
+        resource_file:
+          type: string
+          format: uri
+        file_url:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
           nullable: true
-          description: ID of the resource type
+          description: File size in bytes
+        content_type:
+          type: string
+          readOnly: true
+          nullable: true
+          description: MIME type of the file
         upload_datetime:
           type: string
           format: date-time
@@ -3818,9 +3929,30 @@ components:
         visible_roles:
           type: string
           readOnly: true
+        resource_file:
+          type: string
+          format: uri
+          description: Upload a file for this resource (stored in Azure blob storage)
+            - REQUIRED
+        file_url:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+          description: File size in bytes
+        content_type:
+          type: string
+          nullable: true
+          description: MIME type of the file
+          maxLength: 100
       required:
+      - file_url
       - id
       - resource_description
+      - resource_file
       - resource_name
       - resource_type_detail
       - uploader
@@ -3860,8 +3992,27 @@ components:
         resource_type_id:
           type: integer
           writeOnly: true
+          description: ID of the resource type (REQUIRED - must be explicitly specified)
+        uploader_user_id:
+          type: integer
+          writeOnly: true
+          description: ID of the user who uploaded this resource
+        resource_file:
+          type: string
+          format: uri
+        file_url:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
           nullable: true
-          description: ID of the resource type
+          description: File size in bytes
+        content_type:
+          type: string
+          readOnly: true
+          nullable: true
+          description: MIME type of the file
         upload_datetime:
           type: string
           format: date-time
@@ -3887,11 +4038,16 @@ components:
           writeOnly: true
           description: List of role IDs that can access this resource
       required:
+      - content_type
       - deleted_datetime
+      - file_size
+      - file_url
       - id
       - resource_description
+      - resource_file
       - resource_name
       - resource_type_detail
+      - resource_type_id
       - upload_datetime
       - uploader
       - visible_roles
@@ -3940,6 +4096,16 @@ components:
       - role
       - user
       - valid_from
+    StudentMini:
+      type: object
+      properties:
+        school:
+          type: string
+        interest:
+          type: string
+          nullable: true
+      required:
+      - school
     Task:
       type: object
       properties:
@@ -3999,6 +4165,16 @@ components:
       - id
       - state
       - track_name
+    TrackMini:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+      required:
+      - id
+      - name
     User:
       type: object
       properties:

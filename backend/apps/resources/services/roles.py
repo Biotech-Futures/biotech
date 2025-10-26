@@ -3,6 +3,7 @@ from django.contrib.auth.models import Group
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from apps.resources.models import Roles, RoleAssignmentHistory
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -196,3 +197,25 @@ def ensure_user_has_role(user): ##JUST FOR DEFAULT ROLES =====> JUST AN ADDITION
         default_role = Roles.objects.get(role_name='basic_user')  # Setting to default role 
 
 
+def get_active_role(user) -> Optional[Roles]:
+  """
+  Return the user's current active role, valid_to is null and valid_from is in the past
+
+  If multiple active roles exist the most recently granted one is returned.
+
+  Args:
+    user (User): The given user
+
+  Returns:
+    Roles | None: The active role object, or None if user has no active role.
+  """
+  now = timezone.now()
+  assignment = (
+      RoleAssignmentHistory.objects
+      .select_related("role")
+    .filter(user=user, valid_to__isnull=True, valid_from__lte=now)
+    .exclude(role__isnull=True)
+      .order_by("-valid_from", "-id")
+      .first()
+  )
+  return assignment.role if assignment else None

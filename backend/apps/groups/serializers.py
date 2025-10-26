@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Countries, GroupMembers, Tracks, Groups
+from .models import Countries, GroupMembers, Tracks, Groups, get_current_year
 
 class CountrySerializer(serializers.ModelSerializer):
   class Meta:
@@ -21,23 +21,28 @@ class GroupSerializer(serializers.ModelSerializer):
     model = Groups
     fields = ['id', 'group_number', 'group_name', 'track', 'cohort_year', 'creation_datetime', 'deleted_flag', 'deleted_datetime'] 
     read_only_fields = ['id', 'creation_datetime', 'deleted_flag', 'deleted_datetime']
+    # disable validator for checkconstraint activate group cohort name must be unique
+    # rely on custom validator for this - previously raised an issue where deleted_flag was validated on a patch req but since it is readonly, it was dropped, and hence the validate function never got it
+    validators = []
 
   def validate(self, attrs):
     inst = getattr(self, 'instance', None)
     track = attrs.get('track') or getattr(inst, 'track', None)
     cohort = attrs.get('cohort_year') or getattr(inst, 'cohort_year', None)
+    if cohort is None:
+      cohort = get_current_year()
     name = attrs.get('group_name') or getattr(inst, 'group_name', None)
 
     if track and cohort and name:
       qs = Groups.objects.filter(
-        track=track, group_name=name, cohort_year=cohort, deleted_flag=False #active group
+        track=track, group_name=name, cohort_year=cohort, deleted_flag=False # active group
       )
       if inst:
         qs = qs.exclude(pk=inst.pk)
       if qs.exists():
         # not good. throw error
         raise serializers.ValidationError(
-          {"group_name": f"an active group with this name already exists in {cohort}: {track}."}
+          {"non_field_errors": [f"an active group with this name already exists in {cohort}: {track}."]}
         )
     return attrs
   
