@@ -17,21 +17,34 @@ from apps.users.models import StudentProfile, AreasOfInterest
 class GroupsWithoutMentorApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        # Users
-        User = get_user_model()
-        self.admin_user = User.objects.create_user(
-            email="admin_wo@test.com", password="adminpass", is_staff=True
-        )
-        self.normal_user = User.objects.create_user(
-            email="user_wo@test.com", password="userpass", is_staff=False
-        )
-
+        
         # Geography and track
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(
             country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(
             track_name="Bioinformatics", state=self.state)
+        
+        # Users
+        User = get_user_model()
+        self.admin_user = User.objects.create_user(
+            email="admin_wo@test.com", 
+            password="adminpass",
+            first_name="Admin",
+            last_name="User",
+            state=self.state,
+            track=self.track,
+            is_staff=True
+        )
+        self.normal_user = User.objects.create_user(
+            email="user_wo@test.com", 
+            password="userpass",
+            first_name="Normal",
+            last_name="User",
+            state=self.state,
+            track=self.track,
+            is_staff=False
+        )
 
         # Groups
         self.g1 = Groups.objects.create(group_name="G1", track=self.track)
@@ -40,15 +53,45 @@ class GroupsWithoutMentorApiTests(TestCase):
 
         # Members and roles
         self.student1 = User.objects.create_user(
-            email="s1@test.com", password="x")
+            email="s1@test.com", 
+            password="x",
+            first_name="Student",
+            last_name="One",
+            state=self.state,
+            track=self.track
+        )
         self.student2 = User.objects.create_user(
-            email="s2@test.com", password="x")
+            email="s2@test.com", 
+            password="x",
+            first_name="Student",
+            last_name="Two",
+            state=self.state,
+            track=self.track
+        )
         self.mentor_user = User.objects.create_user(
-            email="m1@test.com", password="x")
+            email="m1@test.com", 
+            password="x",
+            first_name="Mentor",
+            last_name="One",
+            state=self.state,
+            track=self.track
+        )
         self.past_mentor_user = User.objects.create_user(
-            email="m2@test.com", password="x")
+            email="m2@test.com", 
+            password="x",
+            first_name="Past",
+            last_name="Mentor",
+            state=self.state,
+            track=self.track
+        )
         self.future_mentor_user = User.objects.create_user(
-            email="m3@test.com", password="x")
+            email="m3@test.com", 
+            password="x",
+            first_name="Future",
+            last_name="Mentor",
+            state=self.state,
+            track=self.track
+        )
 
         # Add memberships
         GroupMembers.objects.create(user=self.student1, group=self.g1)
@@ -684,17 +727,29 @@ class GroupMemberApiTests(TestCase):
 class TrackApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", password="adminpass", is_staff=True
-        )
-        self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", password="userpass", is_staff=False
-        )
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(
             country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(
             track_name="Track 1", state=self.state)
+        self.admin_user = get_user_model().objects.create_user(
+            email="admin@test.com", 
+            password="adminpass",
+            first_name="Admin",
+            last_name="User",
+            state=self.state,
+            track=self.track,
+            is_staff=True
+        )
+        self.normal_user = get_user_model().objects.create_user(
+            email="user@test.com", 
+            password="userpass",
+            first_name="Normal",
+            last_name="User",
+            state=self.state,
+            track=self.track,
+            is_staff=False
+        )
         self.list_url = reverse("tracks-list")
         self.detail_url = reverse("tracks-detail", args=[self.track.id])
 
@@ -715,14 +770,7 @@ class RegisterStudentApiTests(TestCase):
         self.generate_group_name = generate_group_name
 
         self.client = APIClient()
-        User = get_user_model()
-        self.admin_user = User.objects.create_user(
-            email="admin_reg@test.com", password="adminpass", is_staff=True
-        )
-        self.normal_user = User.objects.create_user(
-            email="user_reg@test.com", password="userpass", is_staff=False
-        )
-
+        
         # Geography and track setup for AU/NSW -> Track 'AUS-NSW'
         self.country = Countries.objects.create(
             country_name="Australia", country_name_SHORT_FORM="AUS")
@@ -730,6 +778,26 @@ class RegisterStudentApiTests(TestCase):
             country=self.country, state_name="NSW", state_name_SHORT_FORM="NSW")
         self.track = Tracks.objects.create(
             track_name="AUS-NSW", state=self.state)
+        
+        User = get_user_model()
+        self.admin_user = User.objects.create_user(
+            email="admin_reg@test.com", 
+            password="adminpass",
+            first_name="Admin",
+            last_name="User",
+            state=self.state,
+            track=self.track,
+            is_staff=True
+        )
+        self.normal_user = User.objects.create_user(
+            email="user_reg@test.com", 
+            password="userpass",
+            first_name="Normal",
+            last_name="User",
+            state=self.state,
+            track=self.track,
+            is_staff=False
+        )
 
         self.url = reverse("groups-register-student")
 
@@ -811,7 +879,13 @@ class RegisterStudentApiTests(TestCase):
         # Pre-create user so register_user goes through UserAlreadyExists branch
         User = get_user_model()
         existing = User.objects.create_user(
-            email="preexist@test.com", password="x")
+            email="preexist@test.com", 
+            password="x",
+            first_name="Existing",
+            last_name="User",
+            state=self.state,
+            track=self.track
+        )
         p = self.payload(group_number="R_EXIST", email=existing.email)
 
         resp = self.client.post(self.url, p, format="json")
