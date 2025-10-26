@@ -17,12 +17,24 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import viewsets, filters, status
+from rest_framework import serializers as drf_serializers
+from django.db.models import Exists, OuterRef
+from django.db.models.functions import Now
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 import logging
 import re
 logger = logging.getLogger(__name__)
+
+# API schema annotations
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiParameter,
+    OpenApiTypes,
+    inline_serializer,
+)
+from apps.resources.models import RoleAssignmentHistory 
 
 
 # Create your views here.
@@ -112,6 +124,8 @@ class GroupViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve']:
             return [IsAuthenticated()]
         return [IsAdminUser()]
+
+    # DRF will use lookup_field (group_number) for retrieve/update/destroy
 
     def destroy(self, request, *args, **kwargs):
         group = self.get_object()
@@ -458,89 +472,184 @@ class GroupViewSet(viewsets.ModelViewSet):
             "results": results,
             "group": GroupSerializer(group).data
         }, status=status.HTTP_200_OK)
+    
+
+    # build an endpoint GET /groups/groups/without-mentor
+    # returns: a paginated list of active groups that have no member whose active role is Mentor
+    # data per group includes
+    #   group_number, group_name, cohort_year
+    #   track_id, track_name, region
+    #   students
+    #     school, area of interest
+    #   member_count    
+
+    @extend_schema(
+        summary="List groups without an active mentor",
+        description=(
+            "Returns a paginated list of active groups that have no member whose current active role is Mentor.\n\n"
+            "Mentor presence is defined via RoleAssignmentHistory: valid_to is null and valid_from <= now for role 'Mentor'.\n"
+            "Supports filtering by track (id or name), cohort_year, and region (state name)."
+        ),
+        parameters=[
+            OpenApiParameter(name="track", type=OpenApiTypes.STR, location=OpenApiParameter.QUERY,
+                             description="Track id (numeric) or track name (string)"),
+            OpenApiParameter(name="cohort_year", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY,
+                             description="Cohort year (e.g., 2025)"),
+            OpenApiParameter(name="region", type=OpenApiTypes.STR, location=OpenApiParameter.QUERY,
+                             description="Region (state name), case-insensitive"),
+            OpenApiParameter(name="page", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY,
+                             description="Page number (pagination)"),
+            OpenApiParameter(name="page_size", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY,
+                             description="Results per page (pagination)"),
+        ],
+        responses=inline_serializer(
+            name="GroupsWithoutMentorPage",
+            fields={
+                "count": drf_serializers.IntegerField(),
+                "next": drf_serializers.URLField(allow_null=True, required=False),
+                "previous": drf_serializers.URLField(allow_null=True, required=False),
+                "results": drf_serializers.ListSerializer(
+                    child=inline_serializer(
+                        name="GroupWithoutMentorItem",
+                        fields={
+                            "group_number": drf_serializers.CharField(),
+                            "group_name": drf_serializers.CharField(),
+                            "cohort_year": drf_serializers.IntegerField(),
+                            "track": inline_serializer(
+                                name="TrackMini",
+                                fields={
+                                    "id": drf_serializers.IntegerField(),
+                                    "name": drf_serializers.CharField(),
+                                }
+                            ),
+                            "region": drf_serializers.CharField(allow_null=True, required=False),
+                            "member_count": drf_serializers.IntegerField(),
+                            "students": drf_serializers.ListSerializer(
+                                child=inline_serializer(
+                                    name="StudentMini",
+                                    fields={
+                                        "school": drf_serializers.CharField(),
+                                        "interest": drf_serializers.CharField(allow_null=True, required=False),
+                                    }
+                                )
+                            ),
+                        }
+                    )
+                ),
+            }
+        ),
+        tags=["Groups"],
+    )
+    @action(detail=False, methods=['get'], url_path='without-mentor', permission_classes=[IsAdminUser])
+    def without_mentor(self, request, *args, **kwargs):
+        """
+    Returns a paginated list of active groups that have no member whose current active role is Mentor.
+
+        Route:
+          GET /groups/groups/without-mentor/
+
+        Response (paginated):
+          {
+            "count": N,
+            "next": url|null,
+            "previous": url|null,
+            "results": [
+              {
+                "group_number": str,
+                "group_name": str,
+                "cohort_year": int,
+                "track": {"id": int, "name": str},
+                "region": str,  # state name from the group's track
+                "member_count": int,
+                "students": [
+                  {"school": str, "interest": str|null},
+                  ...
+                ]
+              },
+              ...
+            ]
+          }
+        """
+
+        # we make our queryset only groups who are active, and we select related information so as to not do extra queries.
+        # we get the track of the group, the state which comes from track, and the country which comes from the state/
+        qs = Groups.objects.filter(deleted_flag=False).select_related(
+            "track", "track__state", "track__state__country"
+        )
+
+        # annotate: whether group has at least one member whose ACTIVE role is Mentor
+
+        active_mentor_exists = RoleAssignmentHistory.objects.filter(
+            user__groupmembers__group=OuterRef("pk"),
+            role__role_name__iexact="mentor",
+            valid_to__isnull=True,
+            valid_from__lte=Now(),
+        )
+        qs = qs.annotate(
+            has_mentor=Exists(active_mentor_exists),
+        ).filter(has_mentor=False)
+
+        # optional filters (track, cohort_year, region)
+        track_param = request.query_params.get("track")
+        if track_param:
+            if str(track_param).isdigit():
+                # try to search for track id first
+                qs = qs.filter(track_id=int(track_param))
+            else:
+                # then try for track name
+                qs = qs.filter(track__track_name__iexact=str(track_param))
+        cohort_param = request.query_params.get("cohort_year")
+        if cohort_param and str(cohort_param).isdigit():
+            qs = qs.filter(cohort_year=int(cohort_param))
+        region_param = request.query_params.get("region")
+        if region_param:
+            qs = qs.filter(track__state__state_name__iexact=str(region_param))
+
+        # paginate
+        page = self.paginate_queryset(qs)
+        if page is None:
+            page_items = list(qs)
+        else:
+            page_items = list(page)
+
+        # prefetch members + related student profile and interest for only the paginated groups
+        group_ids = [g.id for g in page_items]
+        members_qs = (
+            GroupMembers.objects
+            .filter(group_id__in=group_ids)
+            .select_related("user", "user__studentprofile", "user__studentprofile__interest")
+        )
+
+        members_by_group = {}
+        for gm in members_qs:
+            members_by_group.setdefault(gm.group_id, []).append(gm)
+
+        def serialize_group(g: Groups):
+            # students = only those members whose user has a StudentProfile
+            students = []
+            for gm in members_by_group.get(g.id, []) or []:
+                sp = getattr(gm.user, "studentprofile", None)
+                if sp is None:
+                    continue
+                students.append({
+                    "school": sp.school_name,
+                    "interest": (sp.interest.interest_desc if sp.interest else None),
+                })
+
+            return {
+                "group_number": g.group_number,
+                "group_name": g.group_name,
+                "cohort_year": g.cohort_year,
+                "track": {"id": g.track_id, "name": g.track.track_name},
+                "region": g.track.state.state_name if g.track and g.track.state else None,
+                "member_count": len(members_by_group.get(g.id, [])),
+                "students": students,
+            }
+
+        data = [serialize_group(g) for g in page_items]
+
+        if page is None:
+            # not paginated (unlikely because paginator is set), mimic standard DRF response
+            return Response({"count": len(data), "next": None, "previous": None, "results": data}, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data)
         
-
-            # {
-            #   "GroupNumber": "R_49n3r8XlHkOmYKJ_1",
-            #   "Title": "student.@education.com",
-            #   "FirstName": "John",
-            #   "Surname": "Doe",
-            #   "GuardianName": "Jane",
-            #   "GuardianSurname": "Smith",
-            #   "GuardianEmail": "jane.smith@outlook.com",
-            #   "SchoolName": "University of Sydney",
-            #   "YearLevel": "10",
-            #   "Areaofinterest": "Space & Astrobiology",
-            #   "SupervisorEmail": "super@visor.com",
-            #   "SupervisorFirstName": "SupFirstName",
-            #   "SupervisorSurname": "SupSurname",
-            #   "Country": "Australia",
-            #   "Region": "NSW",
-            #   "Created": "2025-09-17T09:05:22Z"
-            # }
-
-            # body": {
-            #         "@odata.etag": "\"1\"",
-            #         "ItemInternalId": "615",
-            #         "ID": 615,
-            #         "Title": "john.smith@education.com",
-            #         "FirstName": "John",
-            #         "Surname": "Smith",
-            #         "GuardianName": "Jane",
-            #         "GuardianSurname": "Smith",
-            #         "GuardianEmail": "jane.smith@outlook.com",
-            #         "SchoolName": "School ABC",
-            #         "YearLevel": "9",
-            #         "Areaofinterest": "Space & Astrobiology",
-            #         "GroupNumber": "R_49n3r8XlHkOmYKJ_1",
-            #         "SupervisorFirstName": "William",
-            #         "SupervisorSurname": "Nixon",
-            #         "SupervisorEmail": "william.nixon@sydney.edu.au",
-            #         "Registeredby": "Supervisor",
-            #         "UniqueID0": "78f4e327-a3fc-4a4c-8608-69ad94ac3291",
-            #         "Country": "Australia",
-            #         "Region": "NSW",
-            #         "GroupingType": "1",
-            #         "Modified": "2025-09-17T09:05:22Z",
-            #         "Created": "2025-09-17T09:05:22Z",
-            #         "Author": {
-            #             "@odata.type": "#Microsoft.Azure.Connectors.SharePoint.SPListExpandedUser",
-            #             "Claims": "i:0#.f|membership|william.nixon@sydney.edu.au",
-            #             "DisplayName": "William Nixon",
-            #             "Email": "william.nixon@sydney.edu.au",
-            #             "Picture": "https://unisyd.sharepoint.com/teams/az-BTFtr-358/_layouts/15/UserPhoto.aspx?Size=L&AccountName=william.nixon@sydney.edu.au",
-            #             "Department": "School of Biomedical Engineering",
-            #             "JobTitle": "Administrative Officer"
-            #         },
-            #         "Author#Claims": "i:0#.f|membership|william.nixon@sydney.edu.au",
-            #         "Editor": {
-            #             "@odata.type": "#Microsoft.Azure.Connectors.SharePoint.SPListExpandedUser",
-            #             "Claims": "i:0#.f|membership|william.nixon@sydney.edu.au",
-            #             "DisplayName": "William Nixon",
-            #             "Email": "william.nixon@sydney.edu.au",
-            #             "Picture": "https://unisyd.sharepoint.com/teams/az-BTFtr-358/_layouts/15/UserPhoto.aspx?Size=L&AccountName=william.nixon@sydney.edu.au",
-            #             "Department": "School of Biomedical Engineering",
-            #             "JobTitle": "Administrative Officer"
-            #         },
-            #         "Editor#Claims": "i:0#.f|membership|william.nixon@sydney.edu.au",
-            #         "{Identifier}": "Lists%252f2025%2bParticipants%252f615_.000",
-            #         "{IsFolder}": false,
-            #         "{Thumbnail}": {
-            #             "Large": null,
-            #             "Medium": null,
-            #             "Small": null
-            #         },
-            #         "{Link}": "https://unisyd.sharepoint.com/teams/az-BTFtr-358/_layouts/15/listform.aspx?PageType=4&ListId=54ede385%2D4c69%2D4ec2%2Da2d3%2D2bf4929d6b16&ID=615&ContentTypeID=0x0100D97499FA4F06944DB3F296DB8C896C550039647431C4705A409B62E2883347CFBE",
-            #         "{Name}": "john.smith@education.com",
-            #         "{FilenameWithExtension}": "john.smith@education.com",
-            #         "{Path}": "Lists/2025 Participants/",
-            #         "{FullPath}": "Lists/2025 Participants/615_.000",
-            #         "{ContentType}": {
-            #             "@odata.type": "#Microsoft.Azure.Connectors.SharePoint.SPListExpandedContentType",
-            #             "Id": "0x0100D97499FA4F06944DB3F296DB8C896C550039647431C4705A409B62E2883347CFBE",
-            #             "Name": "Item"
-            #         },
-            #         "{ContentType}#Id": "0x0100D97499FA4F06944DB3F296DB8C896C550039647431C4705A409B62E2883347CFBE",
-            #         "{HasAttachments}": false,
-            #         "{VersionNumber}": "1.0"
-            #     }
