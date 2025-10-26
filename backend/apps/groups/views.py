@@ -1,3 +1,10 @@
+from apps.resources.models import RoleAssignmentHistory
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiParameter,
+    OpenApiTypes,
+    inline_serializer,
+)
 from typing import List, Tuple
 from apps.groups.services.get_group_name import generate_group_name
 from apps.users.services.registration import register_user, UserAlreadyExists
@@ -28,13 +35,6 @@ import re
 logger = logging.getLogger(__name__)
 
 # API schema annotations
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiParameter,
-    OpenApiTypes,
-    inline_serializer,
-)
-from apps.resources.models import RoleAssignmentHistory 
 
 
 # Create your views here.
@@ -399,11 +399,13 @@ class GroupViewSet(viewsets.ModelViewSet):
         # normalise input, removing duplicate if duplicate are found
         user_ids = [int(x) for x in user_ids] if user_ids else []
         user_ids = list(dict.fromkeys(user_ids))
-        user_emails = [str(x).strip() for x in user_emails] if user_emails else []
+        user_emails = [str(x).strip()
+                       for x in user_emails] if user_emails else []
         user_emails = list(dict.fromkeys(user_emails))
 
         ok_ids, msg_ids = validate_ids(user_ids) if user_ids else (True, "")
-        ok_emails, msg_emails = validate_emails(user_emails) if user_emails else (True, "")
+        ok_emails, msg_emails = validate_emails(
+            user_emails) if user_emails else (True, "")
         if not ok_ids:
             return Response({"Members": [f"Malformed user_ids list: {msg_ids}"]}, status=status.HTTP_400_BAD_REQUEST)
         if not ok_emails:
@@ -417,24 +419,30 @@ class GroupViewSet(viewsets.ModelViewSet):
 
         # resolve id of user
         if user_ids:
-            existing_users_by_id = {u.id: u for u in User.objects.filter(id__in=user_ids)}
+            existing_users_by_id = {
+                u.id: u for u in User.objects.filter(id__in=user_ids)}
             for uid in user_ids:
                 user = existing_users_by_id.get(uid)
                 if not user:
                     not_found += 1
-                    results.append({"identifier": uid, "type": "id", "status": "not_found"})
+                    results.append(
+                        {"identifier": uid, "type": "id", "status": "not_found"})
                     continue
                 try:
-                    _, created = GroupMembers.objects.get_or_create(group=group, user=user)
+                    _, created = GroupMembers.objects.get_or_create(
+                        group=group, user=user)
                     if created:
                         added += 1
-                        results.append({"identifier": uid, "type": "id", "status": "added"})
+                        results.append(
+                            {"identifier": uid, "type": "id", "status": "added"})
                     else:
                         already += 1
-                        results.append({"identifier": uid, "type": "id", "status": "already_member"})
+                        results.append(
+                            {"identifier": uid, "type": "id", "status": "already_member"})
                 except Exception as e:
                     errors += 1
-                    results.append({"identifier": uid, "type": "id", "status": "error", "error": str(e)})
+                    results.append(
+                        {"identifier": uid, "type": "id", "status": "error", "error": str(e)})
 
         # get user thru email
         if user_emails:
@@ -445,19 +453,24 @@ class GroupViewSet(viewsets.ModelViewSet):
                     user = None
                 if not user:
                     not_found += 1
-                    results.append({"identifier": email, "type": "email", "status": "not_found"})
+                    results.append(
+                        {"identifier": email, "type": "email", "status": "not_found"})
                     continue
                 try:
-                    _, created = GroupMembers.objects.get_or_create(group=group, user=user)
+                    _, created = GroupMembers.objects.get_or_create(
+                        group=group, user=user)
                     if created:
                         added += 1
-                        results.append({"identifier": email, "type": "email", "status": "added"})
+                        results.append(
+                            {"identifier": email, "type": "email", "status": "added"})
                     else:
                         already += 1
-                        results.append({"identifier": email, "type": "email", "status": "already_member"})
+                        results.append(
+                            {"identifier": email, "type": "email", "status": "already_member"})
                 except Exception as e:
                     errors += 1
-                    results.append({"identifier": email, "type": "email", "status": "error", "error": str(e)})
+                    results.append(
+                        {"identifier": email, "type": "email", "status": "error", "error": str(e)})
 
         summary = {
             "requested": len(user_ids) + len(user_emails),
@@ -472,7 +485,6 @@ class GroupViewSet(viewsets.ModelViewSet):
             "results": results,
             "group": GroupSerializer(group).data
         }, status=status.HTTP_200_OK)
-    
 
     # build an endpoint GET /groups/groups/without-mentor
     # returns: a paginated list of active groups that have no member whose active role is Mentor
@@ -481,7 +493,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     #   track_id, track_name, region
     #   students
     #     school, area of interest
-    #   member_count    
+    #   member_count
 
     @extend_schema(
         summary="List groups without an active mentor",
@@ -652,4 +664,173 @@ class GroupViewSet(viewsets.ModelViewSet):
             # not paginated (unlikely because paginator is set), mimic standard DRF response
             return Response({"count": len(data), "next": None, "previous": None, "results": data}, status=status.HTTP_200_OK)
         return self.get_paginated_response(data)
-        
+
+    @extend_schema(
+        summary="Get summary counts for groups and students",
+        description=(
+            "Returns summary statistics based on a chosen dimension.\n\n"
+            "Dimensions supported:\n"
+            "- track: counts groups in the track, students in the track, and schools represented in the track\n"
+            "- country: counts groups in the country and students in the country\n"
+            "- school: counts students in the given school\n\n"
+            "Notes:\n"
+            "- 'Students' are users whose active role is Student (RoleAssignmentHistory with valid_to is null and valid_from <= now).\n"
+            "- Counts for students are calculated from users who are members of at least one group in the scope.\n"
+            "- Optional filter 'cohort_year' restricts groups by cohort year when applicable."
+        ),
+        parameters=[
+            OpenApiParameter(name="dimension", type=OpenApiTypes.STR,
+                             required=True, description="One of: track | country | school"),
+            OpenApiParameter(name="identifier", type=OpenApiTypes.STR, required=True,
+                             description="For track/country: id (numeric) or name (case-insensitive). For school: school name (case-insensitive)."),
+            OpenApiParameter(name="cohort_year", type=OpenApiTypes.INT, required=False,
+                             description="Optional cohort year filter applied to group-scoped counts."),
+            OpenApiParameter(name="include_inactive", type=OpenApiTypes.BOOL, required=False,
+                             description="If true, include users whose Student role is not currently active (ignores valid_from/valid_to bounds). Default: false."),
+        ],
+        responses=inline_serializer(
+            name="GroupSummaryCounts",
+            fields={
+                "dimension": drf_serializers.CharField(),
+                "identifier": drf_serializers.CharField(),
+                "filters": inline_serializer(
+                    name="GroupSummaryFilters",
+                    fields={
+                        "cohort_year": drf_serializers.IntegerField(required=False, allow_null=True),
+                    }
+                ),
+                "counts": inline_serializer(
+                    name="GroupSummaryCountsBody",
+                    fields={
+                        # Track dimension
+                        "groups_in_track": drf_serializers.IntegerField(required=False),
+                        "students_in_track": drf_serializers.IntegerField(required=False),
+                        "schools_in_track": drf_serializers.IntegerField(required=False),
+                        # Country dimension
+                        "groups_in_country": drf_serializers.IntegerField(required=False),
+                        "students_in_country": drf_serializers.IntegerField(required=False),
+                        # School dimension
+                        "students_in_school": drf_serializers.IntegerField(required=False),
+                    }
+                ),
+            }
+        ),
+        tags=["Groups"],
+    )
+    @action(detail=False, methods=["get"], url_path="summary", permission_classes=[IsAdminUser])
+    def summary(self, request, *args, **kwargs):
+        """
+        GET /groups/groups/summary/?dimension=track&identifier=5
+        GET /groups/groups/summary/?dimension=track&identifier=Biotech%20Track
+        GET /groups/groups/summary/?dimension=country&identifier=Australia
+        GET /groups/groups/summary/?dimension=school&identifier=Example%20High%20School
+        Optional: &cohort_year=2025
+        """
+
+        dimension = (request.query_params.get(
+            "dimension") or "").strip().lower()
+        identifier = (request.query_params.get("identifier") or "").strip()
+        cohort_year_raw = request.query_params.get("cohort_year")
+        cohort_year = int(cohort_year_raw) if cohort_year_raw and str(
+            cohort_year_raw).isdigit() else None
+        include_inactive = (request.query_params.get(
+            "include_inactive") or "").strip().lower() == "true"
+
+        if not dimension or not identifier:
+            return Response({
+                "detail": "Missing required parameters: dimension and identifier."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+
+        def groups_base_qs():
+            qs = Groups.objects.filter(deleted_flag=False)
+            if cohort_year is not None:
+                qs = qs.filter(cohort_year=cohort_year)
+            return qs
+
+        def active_student_assignments(include_inactive: bool = False):
+            # Active student role
+            if include_inactive:
+                return RoleAssignmentHistory.objects.filter(
+                    role__role_name__iexact="student"
+                )
+            return RoleAssignmentHistory.objects.filter(
+                role__role_name__iexact="student",
+                valid_from__lte=Now(),
+                valid_to__isnull=True,
+            )
+
+        counts = {}
+
+        if dimension == "track":
+            # Resolve track by id or name
+            track = None
+            if identifier.isdigit():
+                track = Tracks.objects.filter(pk=int(identifier)).first()
+            else:
+                track = Tracks.objects.filter(
+                    track_name__iexact=identifier).first()
+            if not track:
+                return Response({"detail": "Track not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            g_qs = groups_base_qs().filter(track=track)
+            counts["groups_in_track"] = g_qs.count()
+
+            student_assign = active_student_assignments(include_inactive).filter(
+                user__groupmembers__group__in=g_qs
+            ).values("user_id").distinct()
+
+            counts["students_in_track"] = student_assign.count()
+
+            # Distinct non-null school names among active students in scope
+            schools_qs = active_student_assignments(include_inactive).filter(
+                user__groupmembers__group__in=g_qs,
+                user__studentprofile__school_name__isnull=False,
+            ).values("user__studentprofile__school_name").distinct()
+            counts["schools_in_track"] = schools_qs.count()
+
+        elif dimension == "country":
+            # Resolve country by id or name
+            country = None
+            if identifier.isdigit():
+                country = Countries.objects.filter(pk=int(identifier)).first()
+            else:
+                # Assume Countries has country_name
+                country = Countries.objects.filter(
+                    country_name__iexact=identifier).first()
+            if not country:
+                return Response({"detail": "Country not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            g_qs = groups_base_qs().filter(track__state__country=country)
+            counts["groups_in_country"] = g_qs.count()
+
+            student_assign = active_student_assignments(include_inactive).filter(
+                user__groupmembers__group__in=g_qs
+            ).values("user_id").distinct()
+            counts["students_in_country"] = student_assign.count()
+
+        elif dimension == "school":
+            school_name = identifier
+            # Active students with this school name and at least one group membership (optionally constrained by cohort year)
+            gm_filter = {"user__groupmembers__group__deleted_flag": False}
+            if cohort_year is not None:
+                gm_filter["user__groupmembers__group__cohort_year"] = cohort_year
+
+            students_qs = active_student_assignments(include_inactive).filter(
+                user__studentprofile__school_name__iexact=school_name,
+                **gm_filter
+            ).values("user_id").distinct()
+
+            counts["students_in_school"] = students_qs.count()
+
+        else:
+            return Response({"detail": "Invalid dimension. Accepts ['track', 'country', 'school']"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "include_inactive": include_inactive,
+            "dimension": dimension,
+            "identifier": identifier,
+            "filters": {"cohort_year": cohort_year},
+            "counts": counts,
+        }, status=status.HTTP_200_OK)

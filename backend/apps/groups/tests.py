@@ -17,34 +17,21 @@ from apps.users.models import StudentProfile, AreasOfInterest
 class GroupsWithoutMentorApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        
+        # Users
+        User = get_user_model()
+        self.admin_user = User.objects.create_user(
+            email="admin_wo@test.com", password="adminpass", is_staff=True
+        )
+        self.normal_user = User.objects.create_user(
+            email="user_wo@test.com", password="userpass", is_staff=False
+        )
+
         # Geography and track
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(
             country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(
             track_name="Bioinformatics", state=self.state)
-        
-        # Users
-        User = get_user_model()
-        self.admin_user = User.objects.create_user(
-            email="admin_wo@test.com", 
-            password="adminpass",
-            first_name="Admin",
-            last_name="User",
-            state=self.state,
-            track=self.track,
-            is_staff=True
-        )
-        self.normal_user = User.objects.create_user(
-            email="user_wo@test.com", 
-            password="userpass",
-            first_name="Normal",
-            last_name="User",
-            state=self.state,
-            track=self.track,
-            is_staff=False
-        )
 
         # Groups
         self.g1 = Groups.objects.create(group_name="G1", track=self.track)
@@ -53,45 +40,15 @@ class GroupsWithoutMentorApiTests(TestCase):
 
         # Members and roles
         self.student1 = User.objects.create_user(
-            email="s1@test.com", 
-            password="x",
-            first_name="Student",
-            last_name="One",
-            state=self.state,
-            track=self.track
-        )
+            email="s1@test.com", password="x")
         self.student2 = User.objects.create_user(
-            email="s2@test.com", 
-            password="x",
-            first_name="Student",
-            last_name="Two",
-            state=self.state,
-            track=self.track
-        )
+            email="s2@test.com", password="x")
         self.mentor_user = User.objects.create_user(
-            email="m1@test.com", 
-            password="x",
-            first_name="Mentor",
-            last_name="One",
-            state=self.state,
-            track=self.track
-        )
+            email="m1@test.com", password="x")
         self.past_mentor_user = User.objects.create_user(
-            email="m2@test.com", 
-            password="x",
-            first_name="Past",
-            last_name="Mentor",
-            state=self.state,
-            track=self.track
-        )
+            email="m2@test.com", password="x")
         self.future_mentor_user = User.objects.create_user(
-            email="m3@test.com", 
-            password="x",
-            first_name="Future",
-            last_name="Mentor",
-            state=self.state,
-            track=self.track
-        )
+            email="m3@test.com", password="x")
 
         # Add memberships
         GroupMembers.objects.create(user=self.student1, group=self.g1)
@@ -727,29 +684,17 @@ class GroupMemberApiTests(TestCase):
 class TrackApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.admin_user = get_user_model().objects.create_user(
+            email="admin@test.com", password="adminpass", is_staff=True
+        )
+        self.normal_user = get_user_model().objects.create_user(
+            email="user@test.com", password="userpass", is_staff=False
+        )
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(
             country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(
             track_name="Track 1", state=self.state)
-        self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", 
-            password="adminpass",
-            first_name="Admin",
-            last_name="User",
-            state=self.state,
-            track=self.track,
-            is_staff=True
-        )
-        self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", 
-            password="userpass",
-            first_name="Normal",
-            last_name="User",
-            state=self.state,
-            track=self.track,
-            is_staff=False
-        )
         self.list_url = reverse("tracks-list")
         self.detail_url = reverse("tracks-detail", args=[self.track.id])
 
@@ -770,7 +715,14 @@ class RegisterStudentApiTests(TestCase):
         self.generate_group_name = generate_group_name
 
         self.client = APIClient()
-        
+        User = get_user_model()
+        self.admin_user = User.objects.create_user(
+            email="admin_reg@test.com", password="adminpass", is_staff=True
+        )
+        self.normal_user = User.objects.create_user(
+            email="user_reg@test.com", password="userpass", is_staff=False
+        )
+
         # Geography and track setup for AU/NSW -> Track 'AUS-NSW'
         self.country = Countries.objects.create(
             country_name="Australia", country_name_SHORT_FORM="AUS")
@@ -778,26 +730,6 @@ class RegisterStudentApiTests(TestCase):
             country=self.country, state_name="NSW", state_name_SHORT_FORM="NSW")
         self.track = Tracks.objects.create(
             track_name="AUS-NSW", state=self.state)
-        
-        User = get_user_model()
-        self.admin_user = User.objects.create_user(
-            email="admin_reg@test.com", 
-            password="adminpass",
-            first_name="Admin",
-            last_name="User",
-            state=self.state,
-            track=self.track,
-            is_staff=True
-        )
-        self.normal_user = User.objects.create_user(
-            email="user_reg@test.com", 
-            password="userpass",
-            first_name="Normal",
-            last_name="User",
-            state=self.state,
-            track=self.track,
-            is_staff=False
-        )
 
         self.url = reverse("groups-register-student")
 
@@ -879,13 +811,7 @@ class RegisterStudentApiTests(TestCase):
         # Pre-create user so register_user goes through UserAlreadyExists branch
         User = get_user_model()
         existing = User.objects.create_user(
-            email="preexist@test.com", 
-            password="x",
-            first_name="Existing",
-            last_name="User",
-            state=self.state,
-            track=self.track
-        )
+            email="preexist@test.com", password="x")
         p = self.payload(group_number="R_EXIST", email=existing.email)
 
         resp = self.client.post(self.url, p, format="json")
@@ -981,3 +907,284 @@ class RegisterStudentApiTests(TestCase):
         self.assertFalse(data.get("group_created"))
         self.assertTrue(data.get("user_created"))
         self.assertTrue(data.get("member_added"))
+
+
+class GroupSummaryApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+        self.admin = User.objects.create_user(
+            email="admin_summary@test.com", password="x", is_staff=True
+        )
+        self.user = User.objects.create_user(
+            email="user_summary@test.com", password="x", is_staff=False
+        )
+
+        # Geography
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state_nsw = CountryStates.objects.create(
+            country=self.country, state_name="NSW")
+        self.state_vic = CountryStates.objects.create(
+            country=self.country, state_name="VIC")
+        self.track_bio = Tracks.objects.create(
+            track_name="Bioinformatics", state=self.state_nsw)
+        self.track_chem = Tracks.objects.create(
+            track_name="Chemistry", state=self.state_vic)
+
+        # Roles
+        self.student_role, _ = Roles.objects.get_or_create(role_name="Student")
+
+        # Years
+        self.year_now = timezone.now().year
+        self.year_prev = self.year_now - 1
+
+        # Groups in tracks (with explicit cohort_years)
+        self.g_bio_now = Groups.objects.create(
+            group_name="G_BIO_NOW", track=self.track_bio, cohort_year=self.year_now)
+        self.g_bio_prev = Groups.objects.create(
+            group_name="G_BIO_PREV", track=self.track_bio, cohort_year=self.year_prev)
+        self.g_bio_deleted = Groups.objects.create(
+            group_name="G_BIO_DEL", track=self.track_bio, cohort_year=self.year_now)
+        self.g_bio_deleted.deleted_flag = True
+        self.g_bio_deleted.deleted_datetime = timezone.now()
+        self.g_bio_deleted.save(
+            update_fields=["deleted_flag", "deleted_datetime"])
+
+        self.g_chem_now = Groups.objects.create(
+            group_name="G_CHEM_NOW", track=self.track_chem, cohort_year=self.year_now)
+
+        # Students and memberships
+        self.s_active = User.objects.create_user(
+            email="s_active@test.com", password="x")
+        self.s_past = User.objects.create_user(
+            email="s_past@test.com", password="x")
+        self.s_future = User.objects.create_user(
+            email="s_future@test.com", password="x")
+        self.s_other_track = User.objects.create_user(
+            email="s_other@test.com", password="x")
+        self.s_no_membership = User.objects.create_user(
+            email="s_nomem@test.com", password="x")
+
+        # Student profiles (schools)
+        # NOTE: StudentProfile requires pg_first_name, pg_last_name, school_name (non-empty),
+        # and year_lvl in {"9","10","11","12"}. Set parent_guardian_flag=True to satisfy
+        # permission-related constraints regardless of has_join_permission default.
+        StudentProfile.objects.create(
+            user=self.s_active,
+            pg_first_name="PG",
+            pg_last_name="Active",
+            parent_guardian_flag=True,
+            school_name="School A",
+            year_lvl="10",
+        )
+        StudentProfile.objects.create(
+            user=self.s_past,
+            pg_first_name="PG",
+            pg_last_name="Past",
+            parent_guardian_flag=True,
+            school_name="School B",
+            year_lvl="11",
+        )
+        StudentProfile.objects.create(
+            user=self.s_future,
+            pg_first_name="PG",
+            pg_last_name="Future",
+            parent_guardian_flag=True,
+            school_name="School A",
+            year_lvl="9",
+        )
+        StudentProfile.objects.create(
+            user=self.s_other_track,
+            pg_first_name="PG",
+            pg_last_name="Other",
+            parent_guardian_flag=True,
+            school_name="School C",
+            year_lvl="12",
+        )
+        StudentProfile.objects.create(
+            user=self.s_no_membership,
+            pg_first_name="PG",
+            pg_last_name="NoMem",
+            parent_guardian_flag=True,
+            school_name="School A",
+            year_lvl="10",
+        )
+
+        # Memberships
+        GroupMembers.objects.create(group=self.g_bio_now, user=self.s_active)
+        GroupMembers.objects.create(group=self.g_bio_prev, user=self.s_past)
+        GroupMembers.objects.create(group=self.g_bio_now, user=self.s_future)
+        GroupMembers.objects.create(
+            group=self.g_chem_now, user=self.s_other_track)
+        # Note: s_no_membership intentionally not in any group
+
+        # Role assignments
+        now = timezone.now()
+        RoleAssignmentHistory.objects.create(
+            user=self.s_active,
+            role=self.student_role,
+            valid_from=now - timezone.timedelta(days=10),
+            valid_to=None,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.s_past,
+            role=self.student_role,
+            valid_from=now - timezone.timedelta(days=20),
+            valid_to=now - timezone.timedelta(days=1),
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.s_future,
+            role=self.student_role,
+            valid_from=now + timezone.timedelta(days=5),
+            valid_to=None,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.s_other_track,
+            role=self.student_role,
+            valid_from=now - timezone.timedelta(days=10),
+            valid_to=None,
+        )
+
+        self.url = reverse("groups-summary")
+
+    def test_requires_auth_and_admin(self):
+        # Unauth -> 401
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        # Auth non-admin -> 403
+        self.client.force_authenticate(user=self.user)
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_missing_params_and_invalid_dimension(self):
+        self.client.force_authenticate(user=self.admin)
+        # Missing dimension
+        resp = self.client.get(self.url + "?identifier=1")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # Missing identifier
+        resp = self.client.get(self.url + "?dimension=track")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # Invalid dimension
+        resp = self.client.get(self.url + "?dimension=dept&identifier=1")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_track_counts_by_id_active_default(self):
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(self.url, {
+            "dimension": "track",
+            "identifier": str(self.track_bio.id),
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertFalse(body.get("include_inactive"))
+        counts = body.get("counts") or {}
+        # groups_in_track excludes deleted -> g_bio_now + g_bio_prev = 2
+        self.assertEqual(counts.get("groups_in_track"), 2)
+        # students_in_track (active default): s_active only (s_future not active yet, s_past ended; s_other in other track)
+        self.assertEqual(counts.get("students_in_track"), 1)
+        # schools_in_track: School A only for active students in scope
+        self.assertEqual(counts.get("schools_in_track"), 1)
+
+    def test_track_counts_by_name_case_insensitive(self):
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(self.url, {
+            "dimension": "track",
+            "identifier": self.track_bio.track_name.lower(),
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["counts"]["groups_in_track"], 2)
+
+    def test_track_counts_respect_cohort_year(self):
+        self.client.force_authenticate(user=self.admin)
+        # Limit to current year -> only g_bio_now
+        resp = self.client.get(self.url, {
+            "dimension": "track",
+            "identifier": str(self.track_bio.id),
+            "cohort_year": str(self.year_now),
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        counts = resp.json()["counts"]
+        self.assertEqual(counts.get("groups_in_track"), 1)
+        # Only s_active is in g_bio_now and active
+        self.assertEqual(counts.get("students_in_track"), 1)
+        self.assertEqual(counts.get("schools_in_track"), 1)
+
+    def test_country_counts_active_default(self):
+        self.client.force_authenticate(user=self.admin)
+        # Country by id
+        resp = self.client.get(self.url, {
+            "dimension": "country",
+            "identifier": str(self.country.id),
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        counts = resp.json()["counts"]
+        # All non-deleted groups in the country: g_bio_now, g_bio_prev, g_chem_now = 3
+        self.assertEqual(counts.get("groups_in_country"), 3)
+        # Active students with membership in any of those groups: s_active + s_other_track = 2
+        self.assertEqual(counts.get("students_in_country"), 2)
+
+    def test_country_counts_by_name_case_insensitive(self):
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(self.url, {
+            "dimension": "country",
+            "identifier": self.country.country_name.lower(),
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["counts"]["groups_in_country"], 3)
+
+    def test_school_counts_default_active_and_with_cohort_filter(self):
+        self.client.force_authenticate(user=self.admin)
+        # School A: s_active (active, in g_bio_now), s_future (future role), s_no_membership (ignored)
+        resp = self.client.get(self.url, {
+            "dimension": "school",
+            "identifier": "School A",
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        counts = resp.json()["counts"]
+        self.assertEqual(counts.get("students_in_school"),
+                         1)  # only s_active active now
+
+        # With cohort filter to previous year -> only s_past (but on School B), so School A -> 0
+        resp_prev = self.client.get(self.url, {
+            "dimension": "school",
+            "identifier": "School A",
+            "cohort_year": str(self.year_prev),
+        })
+        self.assertEqual(resp_prev.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp_prev.json()["counts"]["students_in_school"], 0)
+
+    def test_include_inactive_toggles_counts(self):
+        self.client.force_authenticate(user=self.admin)
+        # Track scope baseline (active only)
+        base = self.client.get(self.url, {
+            "dimension": "track",
+            "identifier": str(self.track_bio.id),
+        }).json()["counts"]
+        # Include inactive student roles -> adds s_past and s_future if they belong to track bio
+        inc = self.client.get(self.url, {
+            "dimension": "track",
+            "identifier": str(self.track_bio.id),
+            "include_inactive": "true",
+        }).json()
+        counts_inc = inc["counts"]
+        self.assertTrue(inc.get("include_inactive"))
+        # Active baseline was 1; with inactive should be 3 (s_active, s_past, s_future)
+        self.assertEqual(base.get("students_in_track"), 1)
+        self.assertEqual(counts_inc.get("students_in_track"), 3)
+
+    def test_not_found_track_and_country(self):
+        self.client.force_authenticate(user=self.admin)
+        resp = self.client.get(
+            self.url, {"dimension": "track", "identifier": "999999"})
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        resp = self.client.get(
+            self.url, {"dimension": "country", "identifier": "Nowhere"})
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_deleted_groups_do_not_count(self):
+        self.client.force_authenticate(user=self.admin)
+        # For track bio, we earlier had 2 groups (now+prev), plus one deleted (excluded)
+        resp = self.client.get(
+            self.url, {"dimension": "track", "identifier": str(self.track_bio.id)})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["counts"]["groups_in_track"], 2)
