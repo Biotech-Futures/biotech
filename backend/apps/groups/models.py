@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.core.validators import RegexValidator
 from datetime import timedelta
 from django.core.exceptions import ValidationError 
+import uuid
 
 def get_current_year():
     return timezone.now().year
@@ -79,6 +80,17 @@ class Groups(models.Model):
         now = timezone.now()
         if self.creation_datetime > now + skew:
             raise ValidationError({"creation_datetime": f"cannot be in future - DB: {now}, attempted: {self.creation_datetime}"})
+        # ensure a unique group_number is assigned if unspecified
+        if not self.group_number or str(self.group_number).strip() == "" or self.group_number == "UNSPECIFIED":
+            # generate a stable unique token
+            # keep it short but unique enough for our scale
+            for _ in range(5):
+                candidate = f"AUTO-{uuid.uuid4().hex[:12]}"
+                if not Groups.objects.filter(group_number=candidate).exists():
+                    self.group_number = candidate
+                    break
+            else:
+                raise ValidationError({"group_number": "Could not generate a unique group_number. Please retry."})
         return super().save(*args, **kwargs)
 
     def __str__(self):
