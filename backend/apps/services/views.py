@@ -89,10 +89,11 @@ def magic_login(request):
     user = User.objects.get(email=email)
     login(request, user)  # Creates session cookie
 
-    # Redirect to frontend - session cookie is automatically set
+    # Redirect to frontend dashboard - session cookie is automatically set
+    # No need for callback page since we're using Django sessions, not JWT tokens
     from django.conf import settings
-    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL')
-    redirect_url = f"{frontend_callback}?success=true&email={user.email}"
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+    redirect_url = f"{frontend_url}/#/dashboard"
 
     return redirect(redirect_url)
 

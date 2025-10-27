@@ -249,7 +249,8 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # Magic link redirect configuration
-MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click
+FRONTEND_URL = "http://localhost:5173"  # Base frontend URL
+MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click (legacy)
 LOGIN_REDIRECT_URL = "http://localhost:5173/auth/callback"       # Alternative setting name
 
 #OTP things

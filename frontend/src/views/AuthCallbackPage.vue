@@ -31,31 +31,15 @@ const error = ref('')
 
 onMounted(async () => {
   try {
-    // Extract JWT tokens and user data from URL query parameters (sent by Django after magic link click)
-    const accessToken = route.query.access_token
-    const refreshToken = route.query.refresh_token
-    const userId = route.query.user_id
-    const email = route.query.email
-    const firstName = route.query.first_name
-    const lastName = route.query.last_name
+    // Check if we have a session cookie (Django session-based auth)
+    // Try to fetch user data - if successful, we're authenticated
+    const userData = await auth.fetchUserData()
 
-    if (accessToken && refreshToken && userId) {
-      // Create user object from URL parameters
-      const userData = {
-        id: parseInt(userId),
-        email: email,
-        first_name: firstName,
-        last_name: lastName,
-        name: `${firstName || ''} ${lastName || ''}`.trim() || email
-      }
-
-      // Use auth store to login with JWT tokens
-      auth.loginWithTokens(userData, accessToken, refreshToken)
-
-      // Redirect to dashboard on successful authentication
+    if (userData) {
+      // Session authentication successful, redirect to dashboard
       await router.push('/dashboard')
     } else {
-      // No valid tokens found in URL, redirect to login
+      // No valid session found, redirect to login
       error.value = 'Invalid authentication link. Please try logging in again.'
       setTimeout(redirectToLogin, 3000)
     }
