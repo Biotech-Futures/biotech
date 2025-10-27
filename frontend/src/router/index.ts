@@ -15,9 +15,16 @@ router.beforeEach(async (to, from, next) => {
   // Always try to hydrate from localStorage first
   auth.hydrate()
 
-  // If user exists but doesn't have role info, fetch it from backend
-  if (auth.user && !auth.user.current_role_name && !publicPaths.includes(to.path)) {
-    await auth.fetchUserData()
+  // For protected routes, check if we have a session by fetching user data
+  if (!publicPaths.includes(to.path)) {
+    // If no user in store, try to fetch from backend session
+    if (!auth.user) {
+      await auth.fetchUserData()
+    }
+    // If user exists but doesn't have role info, refresh it
+    else if (!auth.user.current_role_name) {
+      await auth.fetchUserData()
+    }
   }
 
   if (!publicPaths.includes(to.path) && !auth.isAuthenticated) {
