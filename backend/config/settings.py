@@ -25,7 +25,9 @@ SECRET_KEY = "django-insecure-f+qzkit-li1$e5$%^ce56qv@_oyq#m2k(g)f0$%ef32q%)z@5l
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+  "biotechfuturesappservice-hgdtg2bdh2bbbdck.australiasoutheast-01.azurewebsites.net"
+]
 
 
 # Application definition
@@ -52,6 +54,7 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.services', #remove if buggy.
     'apps.announcements',
+    'apps.newsletter',
     # third-party apps
     'drf_spectacular',
     'rest_framework',
@@ -148,18 +151,31 @@ ASGI_APPLICATION = "config.asgi.application"
      }
 }
 '''
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": "postgres",
+#         "USER": "biotech_admin",
+#         "PASSWORD": "fu7UR3$!",
+#         "HOST": 'btfpostgresdb.postgres.database.azure.com',
+#         "PORT": "5432",
+#         "OPTIONS": {"sslmode": "require",
+#                     "connect_timeout": 5,
+#                     },
+#             "CONN_MAX_AGE": 0
+#     }
+# }
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "postgres",
-        "USER": "biotech_admin",
-        "PASSWORD": "fu7UR3$!",
-        "HOST": 'btfpostgresdb.postgres.database.azure.com',
-        "PORT": "5432",
-        "OPTIONS": {"sslmode": "require",
-                    "connect_timeout": 5,
-                    },
-            "CONN_MAX_AGE": 0
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'devdb',
+        'USER': 'devuser',
+        'PASSWORD': 'devpass',
+        'HOST': 'localhost',   # you're running Django on the host
+        'PORT': '5433',        # because of "5433:5432"
+        'OPTIONS': {
+            'connect_timeout': 5,   # prevents infinite hang on bad config
+        },
     }
 }
 
