@@ -1,10 +1,14 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import *
+from django.urls import path
+from .views import (
+	SubscribeView,
+	UnsubscribeView,
+	ResubscribeView,
+	SubscribersListView,
+)
 
-router = DefaultRouter()
-# router.register(r'countries', CountryViewSet, basename="countries")
-# router.register(r'group-members', GroupMemberViewSet, basename='group-members')
-# router.register(r'tracks', TrackViewSet, basename='tracks')
-# router.register(r'groups', GroupViewSet, basename="groups")
-urlpatterns = router.urls
+urlpatterns = [
+	path("subscribe", SubscribeView.as_view(), name="newsletter-subscribe"),
+	path("unsubscribe", UnsubscribeView.as_view(), name="newsletter-unsubscribe"),
+	path("resubscribe", ResubscribeView.as_view(), name="newsletter-resubscribe"),
+	path("subscribers", SubscribersListView.as_view(), name="newsletter-subscribers"),
+]
