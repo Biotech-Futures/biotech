@@ -79,6 +79,19 @@ def magic_login(request):
     email = request.GET.get("email")
     code = request.GET.get("code")
 
+    # Handle HTML-encoded URLs (e.g., &amp; instead of &)
+    if not email or not code:
+        import html
+        from urllib.parse import parse_qs
+        # Try to decode HTML entities in the query string
+        query_string = request.META.get('QUERY_STRING', '')
+        if '&amp;' in query_string:
+            # Decode HTML entities and re-parse
+            decoded_query = html.unescape(query_string)
+            params = parse_qs(decoded_query)
+            email = params.get('email', [None])[0] if params.get('email') else None
+            code = params.get('code', [None])[0] if params.get('code') else None
+
     if not email or not code:
         return JsonResponse({"error": "Missing email or code"}, status=400)
 
