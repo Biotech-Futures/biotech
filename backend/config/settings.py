@@ -11,21 +11,24 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_URL = "static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-f+qzkit-li1$e5$%^ce56qv@_oyq#m2k(g)f0$%ef32q%)z@5l"
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-f+qzkit-li1$e5$%^ce56qv@_oyq#m2k(g)f0$%ef32q%)z@5l")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 
 # Application definition
@@ -51,6 +54,8 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.services', #remove if buggy.
+    'apps.announcements',
+    'apps.newsletter',
     # third-party apps
     'drf_spectacular',
     'rest_framework',
@@ -61,12 +66,17 @@ INSTALLED_APPS = [
     'storages',
 ]
 
-AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
-AZURE_ACCOUNT_KEY = "SLreKCgSbLMq9th/QXYaSfPGwsRo75J/JxV0OFOp9ZkrRcnuTULShfhpID3aLzxYixGlKSzrWkFR+AStamaR4g=="
-AZURE_CONTAINER = "media" # Guys this is currently set to private blobs so SAS urls are needed. We'll develop code for this accordingly
-AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
+# Azure Blob Storage Configuration
+AZURE_ACCOUNT_NAME = os.getenv("AZURE_ACCOUNT_NAME", "btfuturesblobstorage")
+AZURE_ACCOUNT_KEY = os.getenv("AZURE_ACCOUNT_KEY", "")
+AZURE_CONTAINER = os.getenv("AZURE_CONTAINER", "media")
+AZURE_CUSTOM_DOMAIN = f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net"
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
-MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/" # F formatted in case we decide to switch out containers
+MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
+
+# Chat upload settings
+CHAT_MAX_UPLOAD_MB = int(os.getenv("CHAT_MAX_UPLOAD_MB", "25"))
+CHAT_ALLOWED_MIME = {"image/gif", "image/png", "image/jpeg", "application/pdf", "application/msword", "application/zip"}
 
 
 
@@ -78,6 +88,7 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.BasicAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -124,33 +135,27 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database
+# Database Configuration - Azure PostgreSQL
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
-
-
-# DATABASES = {
-#      "default": {
-#         "ENGINE": "django.db.backends.sqlite3",
-#         "NAME": BASE_DIR / "db.sqlite3",
-#      }
-# }
-
-##Main DB Configuration === AZURE POSTGRESQL DB CONFIGURATION ===
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "postgres",
-        "USER": "biotech_admin",
-        "PASSWORD": "fu7UR3$!",
-        "HOST": 'btfpostgresdb.postgres.database.azure.com',
-        "PORT": "5432",
-        "OPTIONS": {"sslmode": "require",
-                    "connect_timeout": 5,
-                    },
-            "CONN_MAX_AGE": 0
+    'default': {
+        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
+        'NAME': os.getenv('DB_NAME', 'postgres'),
+        'USER': os.getenv('DB_USER', 'biotech_admin'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'fu7UR3$!'),
+        'HOST': os.getenv('DB_HOST', 'btfpostgresdb.postgres.database.azure.com'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+        'OPTIONS': {
+            'sslmode': os.getenv('DB_SSL_MODE', 'require'),
+            'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '5')),
+        },
     }
 }
+
+# Optional: Connection pooling for production
+if os.getenv('DB_CONN_MAX_AGE'):
+    DATABASES['default']['CONN_MAX_AGE'] = int(os.getenv('DB_CONN_MAX_AGE', '0'))
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -182,14 +187,17 @@ USE_I18N = True
 
 USE_TZ = True
 
-# Email configuration for development
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-#EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
-EMAIL_PORT = 2525
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
-EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
+# Email configuration for SendGrid (with console backup)
+# Using custom dual backend to send to both console and SendGrid
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "emailing.backends.DualEmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.sendgrid.net")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in ("true", "1", "yes")
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False").lower() in ("true", "1", "yes")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "apikey")  # SendGrid requires the literal string 'apikey'
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@biotechfutures.org")
+SERVER_EMAIL = os.getenv("SERVER_EMAIL", DEFAULT_FROM_EMAIL)
 
 
 CHANNEL_LAYERS = {
@@ -210,35 +218,33 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # CORS settings for frontend communication
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Your frontend URL (Vite default)
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",  # Alternative frontend ports
-]
+CORS_ALLOWED_ORIGINS = os.getenv(
+    "CORS_ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+).split(",")
 
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "True").lower() in ("true", "1", "yes")
 
 # Session cookie settings
-SESSION_COOKIE_NAME = 'sessionid'
-SESSION_COOKIE_AGE = 86400  # 1 day in seconds
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
-SESSION_COOKIE_SAMESITE = 'Lax'  # or 'None' if frontend is different domain (requires Secure=True)
-SESSION_COOKIE_DOMAIN = None  # Use default (current domain)
-SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "sessionid")
+SESSION_COOKIE_AGE = int(os.getenv("SESSION_COOKIE_AGE", "86400"))  # 1 day in seconds
+SESSION_COOKIE_HTTPONLY = os.getenv("SESSION_COOKIE_HTTPONLY", "True").lower() in ("true", "1", "yes")
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "False").lower() in ("true", "1", "yes")
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN", None)
+SESSION_SAVE_EVERY_REQUEST = os.getenv("SESSION_SAVE_EVERY_REQUEST", "False").lower() in ("true", "1", "yes")
 
 # CSRF settings for cross-origin requests
-CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read this
-CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
+CSRF_COOKIE_HTTPONLY = os.getenv("CSRF_COOKIE_HTTPONLY", "False").lower() in ("true", "1", "yes")
+CSRF_COOKIE_SAMESITE = os.getenv("CSRF_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SECURE = os.getenv("CSRF_COOKIE_SECURE", "False").lower() in ("true", "1", "yes")
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
 
 # Magic link redirect configuration
-MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click
-LOGIN_REDIRECT_URL = "http://localhost:5173/auth/callback"       # Alternative setting name
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+MAGIC_LINK_REDIRECT_URL = os.getenv("MAGIC_LINK_REDIRECT_URL", f"{FRONTEND_URL}/#/auth/callback")
+LOGIN_REDIRECT_URL = os.getenv("LOGIN_REDIRECT_URL", f"{FRONTEND_URL}/auth/callback")
 
-#OTP things
-MAILTRAP_TOKEN = "94f919803239d1ca9274ca682a670eaa"

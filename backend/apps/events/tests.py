@@ -20,10 +20,29 @@ class EventAPITests(APITestCase):
     """
 
     def setUp(self):
+        # Create geo/track prerequisites for Users
+        from apps.groups.models import Countries, CountryStates, Tracks
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="Test Track", state=state)
+        
         # Create regular and admin users
-        self.user = User.objects.create_user(email="user2@gmail.com", password="pass123")
+        self.user = User.objects.create_user(
+            email="user2@gmail.com", 
+            password="pass123",
+            first_name="Regular",
+            last_name="User",
+            state=state,
+            track=track
+        )
         self.admin = User.objects.create_user(
-            email="test_admin@gmail.com", password="admin123", is_staff=True
+            email="test_admin@gmail.com", 
+            password="admin123",
+            first_name="Admin",
+            last_name="User",
+            state=state,
+            track=track,
+            is_staff=True
         )
 
         # Base URL (adjust if prefix changed)

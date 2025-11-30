@@ -3,11 +3,29 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q, F
 from django.utils import timezone
+from django.core.validators import RegexValidator
+from datetime import timedelta
+from django.core.exceptions import ValidationError 
+import uuid
+
+def get_current_year():
+    return timezone.now().year
 
 class Groups(models.Model):
-    group_name = models.CharField(max_length=255)
+    group_number = models.CharField(max_length=50, # to hold something that comes from qualtrics like R_49n3r8XlHkOmYKJ_1
+                                           unique=True, 
+                                           null=False, 
+                                           blank=False,
+                                           default="UNSPECIFIED"
+                                           )
+    group_name = models.CharField(blank=False, null=False, max_length=255, 
+                                  validators=[RegexValidator(r'^[A-Za-z0-9 _-]+$', 'Only letters, numbers, spaces, underscores, and hyphens allowed.')], 
+                                  error_messages={'blank': 'Group name cannot be blank.'},
+                                  help_text="Name of Group (must not be empty)")
     track = models.ForeignKey('Tracks', on_delete=models.PROTECT) # Protect to prevent deletion when referenced track is gone 
     # I thought this might be good just in case tracks are deleted but groups should persist in the instance tracks are moved or removed
+    cohort_year = models.IntegerField(blank=False, null=False, default=get_current_year, db_index=True, help_text="Group Cohort Year (e.g. 2025)")
+    # cohort field created for yearly group cycles
     creation_datetime = models.DateTimeField(default=timezone.now) # Default to current time on creation
     deleted_flag = models.BooleanField(default=False) # Default to False for better data integrity
     deleted_datetime = models.DateTimeField(null=True, blank=True) # Allow null/blank for groups that aren't deleted
@@ -15,9 +33,8 @@ class Groups(models.Model):
     class Meta:
         db_table = 'groups'
         indexes = [
-        models.Index(fields=['track']),
-        models.Index(fields=['deleted_flag']),
         models.Index(fields=['creation_datetime']),
+        models.Index(fields=['track', 'cohort_year'])
         ]
 
         constraints = [
@@ -29,10 +46,12 @@ class Groups(models.Model):
                 ),
                 name='group_deleted_flag_datetime_consistent',
             ),
-            # Ensure group names are unique within the same track
+            # Ensure group names are unique within the same track, cohort and check if deleted (e.g. if active)
+            # means a new group can take the same name as a deleted one
             models.UniqueConstraint(
-                fields=['track', 'group_name'],
-                name='unique_group_name_per_track'
+                fields=['track', 'group_name', 'cohort_year'],
+                condition=Q(deleted_flag=False),
+                name='unique_ACTIVE_group_name_per_track_cohort'
             ),
             # Ensure deleted_datetime is after creation_datetime if set
             models.CheckConstraint(
@@ -49,13 +68,31 @@ class Groups(models.Model):
                 check=~Q(group_name__regex=r'^\s*$'),
                 name='group_name_not_empty'
             ),
-            # Ensure creation_datetime is not in the future
-            models.CheckConstraint(
-                condition=Q(creation_datetime__lte=models.functions.Now()),
-                name='group_creation_not_future'
-            ),  
         ]
+
     
+    def save(self, *args, **kwargs):
+        # ensure that creation datetime is set on first save
+        if self.creation_datetime is None:
+            self.creation_datetime = timezone.now()
+        # tiny grace window to avoid clock jitter
+        skew = timedelta(seconds=1)
+        now = timezone.now()
+        if self.creation_datetime > now + skew:
+            raise ValidationError({"creation_datetime": f"cannot be in future - DB: {now}, attempted: {self.creation_datetime}"})
+        # ensure a unique group_number is assigned if unspecified
+        if not self.group_number or str(self.group_number).strip() == "" or self.group_number == "UNSPECIFIED":
+            # generate a stable unique token
+            # keep it short but unique enough for our scale
+            for _ in range(5):
+                candidate = f"AUTO-{uuid.uuid4().hex[:12]}"
+                if not Groups.objects.filter(group_number=candidate).exists():
+                    self.group_number = candidate
+                    break
+            else:
+                raise ValidationError({"group_number": "Could not generate a unique group_number. Please retry."})
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.group_name
 
@@ -82,11 +119,12 @@ class GroupMembers(models.Model):
 
 class Countries(models.Model):
     country_name = models.CharField(max_length=255)
+    country_name_SHORT_FORM = models.CharField(max_length=3, default="___")
 
     class Meta:
         db_table = 'countries'
         indexes = [
-            models.Index(fields=['country_name']),
+            models.Index(fields=['country_name'])
         ]
 
     def __str__(self):
@@ -96,6 +134,7 @@ class Countries(models.Model):
 class CountryStates(models.Model):
     country = models.ForeignKey('Countries', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by country
     state_name = models.CharField(max_length=255)
+    state_name_SHORT_FORM = models.CharField(max_length=3, default="___")
 
     class Meta:
         db_table = 'country_states'

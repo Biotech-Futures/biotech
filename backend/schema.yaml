@@ -4,6 +4,260 @@ info:
   version: 1.0.0
   description: API Documentation for the New BIOTech Futures Mentoring Platform
 paths:
+  /api/v1/groups/unallocated/mentors/:
+    get:
+      operationId: api_v1_groups_unallocated_mentors_list
+      description: Lists Users who have a MentorProfile and are not in any group.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /api/v1/groups/unallocated/students/:
+    get:
+      operationId: api_v1_groups_unallocated_students_list
+      description: |-
+        Lists Users who have a StudentProfile and are not in any group.
+        Supports ordering: ?ordering=last_name,-email,studentprofile__school_name,track__track_name,...
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /api/v1/groups/unallocated/summary/:
+    get:
+      operationId: api_v1_groups_unallocated_summary_retrieve
+      description: |-
+        Returns overall and breakdown counts for unallocated students and mentors.
+        Applies same filters as the list endpoints.
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/registration:
+    post:
+      operationId: api_v1_registration_create
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/updjoinperms:
+    post:
+      operationId: api_v1_updjoinperms_create
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/:
+    get:
+      operationId: api_v1_users_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /api/v1/users/{id}/:
+    get:
+      operationId: api_v1_users_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: api_v1_users_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/User'
+        required: true
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: api_v1_users_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/users/me:
+    get:
+      operationId: api_v1_users_me_retrieve
+      tags:
+      - api
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: api_v1_users_me_partial_update
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
   /certificates/v1/:
     get:
       operationId: certificates_v1_list
@@ -37,6 +291,7 @@ paths:
       tags:
       - certificates
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -82,6 +337,7 @@ paths:
               $ref: '#/components/schemas/MentorCertificateCreate'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -123,6 +379,7 @@ paths:
       tags:
       - certificates
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -175,6 +432,7 @@ paths:
               $ref: '#/components/schemas/MentorCertificateUpdate'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -226,6 +484,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedMentorCertificateUpdate'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -266,6 +525,7 @@ paths:
       tags:
       - certificates
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -297,6 +557,7 @@ paths:
             schema:
               $ref: '#/components/schemas/MentorCertificate'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -332,6 +593,7 @@ paths:
             schema:
               $ref: '#/components/schemas/MentorCertificate'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -359,6 +621,7 @@ paths:
       tags:
       - chat
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -380,17 +643,18 @@ paths:
       - chat
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/Message'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/Message'
-          multipart/form-data:
+          application/json:
             schema:
               $ref: '#/components/schemas/Message'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -418,6 +682,7 @@ paths:
       tags:
       - chat
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -445,17 +710,18 @@ paths:
       - chat
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/Message'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/Message'
-          multipart/form-data:
+          application/json:
             schema:
               $ref: '#/components/schemas/Message'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -483,16 +749,17 @@ paths:
       - chat
       requestBody:
         content:
-          application/json:
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/PatchedMessage'
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/PatchedMessage'
-          multipart/form-data:
+          application/json:
             schema:
               $ref: '#/components/schemas/PatchedMessage'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -519,10 +786,94 @@ paths:
       tags:
       - chat
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
           description: No response body
+  /events/api/v1/events/{id}/invite/{uid}:
+    post:
+      operationId: events_api_v1_events_invite_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: uid
+        schema:
+          type: integer
+        required: true
+      tags:
+      - events
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /events/api/v1/events/{id}/invites:
+    get:
+      operationId: events_api_v1_events_invites_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventInviteSerializersList'
+          description: ''
+  /events/api/v1/events/invites/me:
+    get:
+      operationId: events_api_v1_events_invites_me_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventInviteSerializersList'
+          description: ''
   /events/v1/:
     get:
       operationId: events_v1_list
@@ -536,6 +887,7 @@ paths:
       tags:
       - events
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -561,6 +913,7 @@ paths:
               $ref: '#/components/schemas/Event'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -582,6 +935,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -608,6 +962,7 @@ paths:
               $ref: '#/components/schemas/Country'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -629,6 +984,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -662,6 +1018,7 @@ paths:
               $ref: '#/components/schemas/Country'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -693,6 +1050,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedCountry'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -713,6 +1071,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -730,6 +1089,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -755,6 +1115,7 @@ paths:
               $ref: '#/components/schemas/GroupMember'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -776,6 +1137,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -808,6 +1170,7 @@ paths:
               $ref: '#/components/schemas/GroupMember'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -839,6 +1202,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedGroupMember'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -859,6 +1223,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -876,6 +1241,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -888,15 +1254,38 @@ paths:
     get:
       operationId: groups_groups_list
       parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
       - name: page
         required: false
         in: query
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: track
+        schema:
+          type: integer
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -922,6 +1311,7 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -930,19 +1320,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Group'
           description: ''
-  /groups/groups/{id}/:
+  /groups/groups/{group_number}/:
     get:
       operationId: groups_groups_retrieve
       parameters:
       - in: path
-        name: id
+        name: group_number
         schema:
-          type: integer
-        description: A unique integer value identifying this groups.
+          type: string
         required: true
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -955,10 +1345,9 @@ paths:
       operationId: groups_groups_update
       parameters:
       - in: path
-        name: id
+        name: group_number
         schema:
-          type: integer
-        description: A unique integer value identifying this groups.
+          type: string
         required: true
       tags:
       - groups
@@ -975,6 +1364,7 @@ paths:
               $ref: '#/components/schemas/Group'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -987,10 +1377,9 @@ paths:
       operationId: groups_groups_partial_update
       parameters:
       - in: path
-        name: id
+        name: group_number
         schema:
-          type: integer
-        description: A unique integer value identifying this groups.
+          type: string
         required: true
       tags:
       - groups
@@ -1006,6 +1395,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedGroup'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1018,18 +1408,197 @@ paths:
       operationId: groups_groups_destroy
       parameters:
       - in: path
-        name: id
+        name: group_number
         schema:
-          type: integer
-        description: A unique integer value identifying this groups.
+          type: string
         required: true
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
           description: No response body
+  /groups/groups/{group_number}/members/:
+    post:
+      operationId: groups_groups_members_create
+      description: |-
+        Add users as members to the specified group (by group_number).
+
+        Request route:
+          POST /groups/groups/{group_number}/members/
+
+        Input (JSON):
+          - user_ids: [int, ...]            optional, list of user primary keys
+          - user_emails: [str, ...]         optional, list of user emails (case-insensitive)
+          - ignore_existing: bool           optional, currently unused (reserved), defaults to true
+
+        Constraints:
+          - At least one of user_ids or user_emails must be provided.
+          - The target group must be active (not deleted).
+
+        Response (200 OK):
+          {
+            "summary": {
+              "requested": N,
+              "added": X,
+              "already_member": Y,
+              "not_found": Z,
+              "errors": E
+            },
+            "results": [
+              {"identifier": 12, "type": "id", "status": "added" | "already_member" | "not_found" | "error", "error": "..."?},
+              {"identifier": "user@example.com", "type": "email", "status": "..."}
+            ],
+            "group": { ...GroupSerializer payload... }
+          }
+
+        Notes:
+          - Operation is idempotent due to the unique(group, user) constraint.
+          - This endpoint does not create users from emails; unknown identifiers are reported as not_found.
+      parameters:
+      - in: path
+        name: group_number
+        schema:
+          type: string
+        required: true
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Group'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Group'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Group'
+        required: true
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+  /groups/groups/{group_number}/restore/:
+    post:
+      operationId: groups_groups_restore_create
+      parameters:
+      - in: path
+        name: group_number
+        schema:
+          type: string
+        required: true
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Group'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Group'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Group'
+        required: true
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+  /groups/groups/register_student/:
+    post:
+      operationId: groups_groups_register_student_create
+      description: |-
+        custom endpoint to handle multiple single group member additions
+        ensures the group via group_number exists, if not create
+        if the student is already a member, then no error - idempotency
+        lenient: it will create what it can and then report any per-step outcomes
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Group'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Group'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Group'
+        required: true
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+          description: ''
+  /groups/groups/without-mentor/:
+    get:
+      operationId: groups_groups_without_mentor_retrieve
+      description: |-
+        Returns a paginated list of active groups that have no member whose current active role is Mentor.
+
+        Mentor presence is defined via RoleAssignmentHistory: valid_to is null and valid_from <= now for role 'Mentor'.
+        Supports filtering by track (id or name), cohort_year, and region (state name).
+      summary: List groups without an active mentor
+      parameters:
+      - in: query
+        name: cohort_year
+        schema:
+          type: integer
+        description: Cohort year (e.g., 2025)
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number (pagination)
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page (pagination)
+      - in: query
+        name: region
+        schema:
+          type: string
+        description: Region (state name), case-insensitive
+      - in: query
+        name: track
+        schema:
+          type: string
+        description: Track id (numeric) or track name (string)
+      tags:
+      - Groups
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupsWithoutMentorPage'
+          description: ''
   /groups/tracks/:
     get:
       operationId: groups_tracks_list
@@ -1055,6 +1624,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1080,6 +1650,7 @@ paths:
               $ref: '#/components/schemas/Track'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -1101,6 +1672,7 @@ paths:
       tags:
       - groups
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1133,6 +1705,7 @@ paths:
               $ref: '#/components/schemas/Track'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1164,6 +1737,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedTrack'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1191,6 +1765,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1219,6 +1794,7 @@ paths:
               $ref: '#/components/schemas/Role'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -1246,6 +1822,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1283,6 +1860,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedRole'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1309,6 +1887,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -1340,6 +1919,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1373,6 +1953,7 @@ paths:
               $ref: '#/components/schemas/Resources'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -1394,6 +1975,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1432,6 +2014,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedResources'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1452,6 +2035,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -1481,6 +2065,7 @@ paths:
               $ref: '#/components/schemas/Resources'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1502,6 +2087,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -1519,6 +2105,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1540,6 +2127,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1572,6 +2160,7 @@ paths:
               $ref: '#/components/schemas/RoleAssignmentHistory'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1603,6 +2192,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedRoleAssignmentHistory'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1639,6 +2229,7 @@ paths:
               $ref: '#/components/schemas/RoleAssignmentHistory'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1673,6 +2264,7 @@ paths:
               $ref: '#/components/schemas/RoleAssignmentHistory'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1700,6 +2292,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1728,6 +2321,7 @@ paths:
               $ref: '#/components/schemas/Role'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '201':
@@ -1755,6 +2349,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1792,6 +2387,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedRole'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1818,6 +2414,7 @@ paths:
       tags:
       - resources
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '204':
@@ -1829,6 +2426,7 @@ paths:
       tags:
       - services
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -1846,6 +2444,10 @@ paths:
   /services/verify-login-code/:
     post:
       operationId: services_verify_login_code_create
+      description: |-
+        Verify OTP login code and create Django session.
+        This view uses @ensure_csrf_cookie to send the csrftoken cookie
+        along with the sessionid cookie.
       tags:
       - services
       security:
@@ -1871,6 +2473,7 @@ paths:
               $ref: '#/components/schemas/TaskCreate'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -1899,6 +2502,7 @@ paths:
       tags:
       - tasks
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -1927,6 +2531,7 @@ paths:
       tags:
       - tasks
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -1948,6 +2553,7 @@ paths:
       tags:
       - tasks
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -1980,6 +2586,7 @@ paths:
               $ref: '#/components/schemas/Task'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -2011,6 +2618,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedTask'
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -2032,36 +2640,113 @@ paths:
       tags:
       - tasks
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
         '204':
           description: No response body
-  /users/api/v1/registration:
-    post:
-      operationId: users_api_v1_registration_create
-      tags:
-      - users
-      security:
-      - cookieAuth: []
-      - {}
-      responses:
-        '200':
-          description: No response body
-  /users/api/v1/updjoinperms:
-    post:
-      operationId: users_api_v1_updjoinperms_create
-      tags:
-      - users
-      security:
-      - cookieAuth: []
-      - {}
-      responses:
-        '200':
-          description: No response body
-  /users/api/v1/users/:
+  /users/groups/unallocated/mentors/:
     get:
-      operationId: users_api_v1_users_list
+      operationId: users_groups_unallocated_mentors_list
+      description: Lists Users who have a MentorProfile and are not in any group.
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - users
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /users/groups/unallocated/students/:
+    get:
+      operationId: users_groups_unallocated_students_list
+      description: |-
+        Lists Users who have a StudentProfile and are not in any group.
+        Supports ordering: ?ordering=last_name,-email,studentprofile__school_name,track__track_name,...
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - users
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /users/groups/unallocated/summary/:
+    get:
+      operationId: users_groups_unallocated_summary_retrieve
+      description: |-
+        Returns overall and breakdown counts for unallocated students and mentors.
+        Applies same filters as the list endpoints.
+      tags:
+      - users
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /users/registration:
+    post:
+      operationId: users_registration_create
+      tags:
+      - users
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /users/updjoinperms:
+    post:
+      operationId: users_updjoinperms_create
+      tags:
+      - users
+      security:
+      - basicAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /users/users/:
+    get:
+      operationId: users_users_list
       parameters:
       - name: page
         required: false
@@ -2078,6 +2763,7 @@ paths:
       tags:
       - users
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -2087,9 +2773,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedUserList'
           description: ''
-  /users/api/v1/users/{id}/:
+  /users/users/{id}/:
     get:
-      operationId: users_api_v1_users_retrieve
+      operationId: users_users_retrieve
       parameters:
       - in: path
         name: id
@@ -2099,6 +2785,7 @@ paths:
       tags:
       - users
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -2109,7 +2796,7 @@ paths:
                 $ref: '#/components/schemas/User'
           description: ''
     put:
-      operationId: users_api_v1_users_update
+      operationId: users_users_update
       parameters:
       - in: path
         name: id
@@ -2131,6 +2818,7 @@ paths:
               $ref: '#/components/schemas/User'
         required: true
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -2141,7 +2829,7 @@ paths:
                 $ref: '#/components/schemas/User'
           description: ''
     patch:
-      operationId: users_api_v1_users_partial_update
+      operationId: users_users_partial_update
       parameters:
       - in: path
         name: id
@@ -2162,6 +2850,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
+      - basicAuth: []
       - cookieAuth: []
       - {}
       responses:
@@ -2171,12 +2860,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
           description: ''
-  /users/api/v1/users/me/:
+  /users/users/me:
     get:
-      operationId: users_api_v1_users_me_retrieve
+      operationId: users_users_me_retrieve
       tags:
       - users
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -2186,7 +2876,7 @@ paths:
                 $ref: '#/components/schemas/User'
           description: ''
     patch:
-      operationId: users_api_v1_users_me_partial_update
+      operationId: users_users_me_partial_update
       tags:
       - users
       requestBody:
@@ -2201,6 +2891,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
+      - basicAuth: []
       - cookieAuth: []
       responses:
         '200':
@@ -2267,17 +2958,48 @@ components:
       - humanitix_link
       - id
       - start_datetime
+    EventInviteSerializers:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        event:
+          type: integer
+        user:
+          type: integer
+        sent_datetime:
+          type: string
+          format: date-time
+        attendance_status:
+          type: boolean
+        rsvp_status:
+          type: boolean
+      required:
+      - event
+      - id
+      - user
     Group:
       type: object
       properties:
         id:
           type: integer
           readOnly: true
+        group_number:
+          type: string
+          maxLength: 50
         group_name:
           type: string
+          description: Name of Group (must not be empty)
+          pattern: ^[A-Za-z0-9 _-]+$
           maxLength: 255
         track:
           type: integer
+        cohort_year:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Group Cohort Year (e.g. 2025)
         creation_datetime:
           type: string
           format: date-time
@@ -2311,6 +3033,53 @@ components:
       - group
       - id
       - user
+    GroupWithoutMentorItem:
+      type: object
+      properties:
+        group_number:
+          type: string
+        group_name:
+          type: string
+        cohort_year:
+          type: integer
+        track:
+          $ref: '#/components/schemas/TrackMini'
+        region:
+          type: string
+          nullable: true
+        member_count:
+          type: integer
+        students:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentMini'
+      required:
+      - cohort_year
+      - group_name
+      - group_number
+      - member_count
+      - students
+      - track
+    GroupsWithoutMentorPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupWithoutMentorItem'
+      required:
+      - count
+      - results
     MentorCertificate:
       type: object
       properties:
@@ -2446,15 +3215,15 @@ components:
           type: string
           format: date-time
           readOnly: true
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResource'
         attachments:
           type: array
           items:
             $ref: '#/components/schemas/MessageAttachment'
           readOnly: true
-        resources:
-          type: array
-          items:
-            $ref: '#/components/schemas/MessageResource'
       required:
       - attachments
       - group
@@ -2469,16 +3238,16 @@ components:
         id:
           type: integer
           readOnly: true
-        attachment_id:
-          type: string
-          maxLength: 255
         attachment_filename:
           type: string
           maxLength: 255
+        signed_url:
+          type: string
+          readOnly: true
       required:
       - attachment_filename
-      - attachment_id
       - id
+      - signed_url
     MessageResource:
       type: object
       properties:
@@ -2537,6 +3306,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Country'
+    PaginatedEventInviteSerializersList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventInviteSerializers'
     PaginatedEventList:
       type: object
       required:
@@ -2828,11 +3620,21 @@ components:
         id:
           type: integer
           readOnly: true
+        group_number:
+          type: string
+          maxLength: 50
         group_name:
           type: string
+          description: Name of Group (must not be empty)
+          pattern: ^[A-Za-z0-9 _-]+$
           maxLength: 255
         track:
           type: integer
+        cohort_year:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Group Cohort Year (e.g. 2025)
         creation_datetime:
           type: string
           format: date-time
@@ -2905,15 +3707,15 @@ components:
           type: string
           format: date-time
           readOnly: true
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResource'
         attachments:
           type: array
           items:
             $ref: '#/components/schemas/MessageAttachment'
           readOnly: true
-        resources:
-          type: array
-          items:
-            $ref: '#/components/schemas/MessageResource'
     PatchedResources:
       type: object
       properties:
@@ -2926,6 +3728,34 @@ components:
         resource_description:
           type: string
           maxLength: 255
+        resource_type_detail:
+          allOf:
+          - $ref: '#/components/schemas/ResourceType'
+          readOnly: true
+        resource_type_id:
+          type: integer
+          writeOnly: true
+          description: ID of the resource type (REQUIRED - must be explicitly specified)
+        uploader_user_id:
+          type: integer
+          writeOnly: true
+          description: ID of the user who uploaded this resource
+        resource_file:
+          type: string
+          format: uri
+        file_url:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: File size in bytes
+        content_type:
+          type: string
+          readOnly: true
+          nullable: true
+          description: MIME type of the file
         upload_datetime:
           type: string
           format: date-time
@@ -3085,6 +3915,10 @@ components:
         resource_description:
           type: string
           maxLength: 255
+        resource_type_detail:
+          allOf:
+          - $ref: '#/components/schemas/ResourceType'
+          readOnly: true
         upload_datetime:
           type: string
           format: date-time
@@ -3095,12 +3929,50 @@ components:
         visible_roles:
           type: string
           readOnly: true
+        resource_file:
+          type: string
+          format: uri
+          description: Upload a file for this resource (stored in Azure blob storage)
+            - REQUIRED
+        file_url:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+          description: File size in bytes
+        content_type:
+          type: string
+          nullable: true
+          description: MIME type of the file
+          maxLength: 100
       required:
+      - file_url
       - id
       - resource_description
+      - resource_file
       - resource_name
+      - resource_type_detail
       - uploader
       - visible_roles
+    ResourceType:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type_name:
+          type: string
+          maxLength: 50
+        type_description:
+          type: string
+          nullable: true
+          maxLength: 255
+      required:
+      - id
+      - type_name
     Resources:
       type: object
       properties:
@@ -3113,6 +3985,34 @@ components:
         resource_description:
           type: string
           maxLength: 255
+        resource_type_detail:
+          allOf:
+          - $ref: '#/components/schemas/ResourceType'
+          readOnly: true
+        resource_type_id:
+          type: integer
+          writeOnly: true
+          description: ID of the resource type (REQUIRED - must be explicitly specified)
+        uploader_user_id:
+          type: integer
+          writeOnly: true
+          description: ID of the user who uploaded this resource
+        resource_file:
+          type: string
+          format: uri
+        file_url:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: File size in bytes
+        content_type:
+          type: string
+          readOnly: true
+          nullable: true
+          description: MIME type of the file
         upload_datetime:
           type: string
           format: date-time
@@ -3138,10 +4038,16 @@ components:
           writeOnly: true
           description: List of role IDs that can access this resource
       required:
+      - content_type
       - deleted_datetime
+      - file_size
+      - file_url
       - id
       - resource_description
+      - resource_file
       - resource_name
+      - resource_type_detail
+      - resource_type_id
       - upload_datetime
       - uploader
       - visible_roles
@@ -3190,6 +4096,16 @@ components:
       - role
       - user
       - valid_from
+    StudentMini:
+      type: object
+      properties:
+        school:
+          type: string
+        interest:
+          type: string
+          nullable: true
+      required:
+      - school
     Task:
       type: object
       properties:
@@ -3249,6 +4165,16 @@ components:
       - id
       - state
       - track_name
+    TrackMini:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+      required:
+      - id
+      - name
     User:
       type: object
       properties:
@@ -3265,12 +4191,63 @@ components:
           type: string
           format: email
           maxLength: 254
+        status:
+          type: boolean
+        track:
+          type: integer
+          nullable: true
+        state:
+          type: integer
+          nullable: true
+        current_role_id:
+          type: string
+          readOnly: true
+        current_role_name:
+          type: string
+          readOnly: true
+        pg_firstname:
+          type: string
+          readOnly: true
+        pg_lastname:
+          type: string
+          readOnly: true
+        year_lvl:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        join_perm:
+          type: string
+          readOnly: true
+        ment_bg:
+          type: string
+          readOnly: true
+        ment_inst:
+          type: string
+          readOnly: true
+        ment_reason:
+          type: string
+          readOnly: true
       required:
+      - current_role_id
+      - current_role_name
       - email
       - first_name
       - id
+      - join_perm
       - last_name
+      - ment_bg
+      - ment_inst
+      - ment_reason
+      - pg_firstname
+      - pg_lastname
+      - school_name
+      - year_lvl
   securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
     cookieAuth:
       type: apiKey
       in: cookie

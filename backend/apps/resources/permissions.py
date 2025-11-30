@@ -174,3 +174,62 @@ class CanAccessResource(BasePermission):
         ).filter(
             Q(valid_to__isnull=True) | Q(valid_to__gte=now)
         ).exists()
+
+
+class IsMentorAdminOrSupervisor(BasePermission):
+    """
+    Allow access only to users with mentor, admin, or supervisor roles.
+    This permission is used for resource creation, modification, and deletion.
+    """
+    message = "Only mentors, admins, and supervisors can perform this action."
+
+    def has_permission(self, request, view) -> bool:
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated):
+            return False
+
+        # Resolve business user ID
+        business_user_id = self._resolve_business_user_id(request, view, user)
+        if not business_user_id:
+            return False
+
+        # Check if user has mentor, admin, or supervisor role
+        return self._user_has_required_role(business_user_id)
+
+    def _resolve_business_user_id(self, request, view, auth_user) -> Optional[int]:
+        """Map the authenticated user to the business Users row."""
+        if hasattr(view, "get_business_user_id"):
+            try:
+                return int(view.get_business_user_id(request))
+            except Exception:
+                return None
+
+        # For this permission, we'll use the Django User model directly
+        # since the test users are created with Django's User model
+        try:
+            return int(auth_user.pk)
+        except Exception:
+            return None
+
+    def _user_has_required_role(self, business_user_id) -> bool:
+        """Check if user has mentor, admin, or supervisor role."""
+        Roles = apps.get_model("resources", "Roles")
+        RoleAssignmentHistory = apps.get_model("resources", "RoleAssignmentHistory")
+
+        # Get role IDs for mentor, admin, and supervisor
+        allowed_roles = Roles.objects.filter(
+            role_name__in=['mentor', 'admin', 'supervisor']
+        ).values_list('id', flat=True)
+
+        if not allowed_roles:
+            return False
+
+        now = timezone.now()
+        # Check for active role assignments
+        return RoleAssignmentHistory.objects.filter(
+            user=business_user_id,
+            role__in=allowed_roles,
+            valid_from__lte=now,
+        ).filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        ).exists()
