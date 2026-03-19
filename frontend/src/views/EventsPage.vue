@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-area">
     <div class="page-head">
       <h1>Events & Workshops</h1>
@@ -12,14 +12,14 @@
       </div>
     </div>
 
-    <!-- 两列网格 -->
+    <!-- Two-column grid -->
     <div class="events-grid" v-if="events.length">
       <div v-for="ev in events" :key="ev.id" class="event-card">
-        <!-- 封面：支持自定义图片/占位背景 -->
+        <!-- Cover: supports custom image or placeholder background -->
         <div class="event-banner" :style="bannerStyle(ev)">
           <i v-if="!ev.cover" class="fas fa-calendar-alt"></i>
 
-          <!-- 管理员可编辑封面 -->
+          <!-- Admins can edit the cover -->
           <button
             v-if="isAdmin"
             type="button"
@@ -29,7 +29,7 @@
           >
             <i class="fas fa-image"></i>
           </button>
-          <!-- （可选）重置封面 -->
+          <!-- Optional: reset cover -->
           <button
             v-if="isAdmin && ev.cover"
             type="button"
@@ -40,7 +40,7 @@
           >
             <i class="fas fa-trash"></i>
           </button>
-          <!-- 隐藏文件选择器 -->
+          <!-- Hidden file input -->
           <input
             type="file"
             accept="image/*"
@@ -69,7 +69,7 @@
             </div>
           </div>
 
-          <!-- CTA 区：View Details + Register Now -->
+          <!-- CTA area: View Details + Register Now -->
           <div class="cta-row">
             <button class="btn btn-outline" @click="openDetails(ev)">View Details</button>
 
@@ -92,7 +92,7 @@
       <h3>No upcoming events</h3>
     </div>
 
-    <!-- 详情弹窗 -->
+    <!-- Details modal -->
     <div class="modal" :class="{ show: showModal }" @click.self="closeDetails">
       <div class="modal-content">
         <div class="modal-header">
@@ -137,7 +137,7 @@ const events = ref(mockEvents.map(e => ({ ...e })))
 const defaultLong =
   'This session is part of the BIOTech Futures program. Learn, collaborate, and build your project with mentors and peers.'
 
-// --- 显示与格式化 ---
+// --- Display and formatting ---
 const formatDate = (dateStr) => {
   const date = new Date(dateStr)
   return date.toLocaleDateString('en-AU', {
@@ -154,11 +154,11 @@ const bannerStyle = (ev) => {
   if (ev.cover) {
     return `${base} background-image: url('${ev.cover}'); background-size: cover; background-position: center;`
   }
-  // 无封面则用品牌渐变/纯色占位
+  // If no cover, use a brand gradient or solid placeholder
   return `${base} background: linear-gradient(135deg, var(--dark-green), var(--mint-green));`
 }
 
-// --- 详情弹窗 ---
+// --- Details modal ---
 const showModal = ref(false)
 const selected = ref(null)
 const openDetails = (ev) => {
@@ -170,12 +170,12 @@ const closeDetails = () => {
   selected.value = null
 }
 
-// --- 注册（占位逻辑，可换成你的实际流程） ---
+// --- Registration (placeholder logic; replace with your real flow) ---
 const register = (ev) => {
   alert(`Registering for: ${ev?.title || 'Event'}`)
 }
 
-// --- 封面可编辑（管理员）：文件选择 & 本地预览 & localStorage 持久化 ---
+// --- Editable cover (admin): file picker, local preview, localStorage persistence ---
 const coverInputs = new Map()
 const setCoverInputRef = (el, id) => {
   if (el) coverInputs.set(id, el)
@@ -189,13 +189,12 @@ const onCoverPicked = (e, ev) => {
   if (!file) return
   const reader = new FileReader()
   reader.onload = () => {
-    ev.cover = String(reader.result) // data URL，本地预览
-    try {
+    ev.cover = String(reader.result) // data URL, local preview
       localStorage.setItem(`eventCover:${ev.id}`, ev.cover)
     } catch {}
   }
   reader.readAsDataURL(file)
-  // 清空 input 值，防止同图不触发 change
+  // Clear the input so selecting the same file still triggers change
   e.target.value = ''
 }
 const resetCover = (ev) => {
@@ -203,7 +202,7 @@ const resetCover = (ev) => {
   ev.cover = null
 }
 
-// 初始载入：还原持久化封面
+// Initial load: restore persisted covers
 onMounted(() => {
   events.value.forEach(ev => {
     try {
@@ -213,7 +212,7 @@ onMounted(() => {
   })
 })
 
-// 可扩展：创建活动（仅管理员）
+// Extensible: create event (admin only)
 const createEvent = () => {
   alert('Create Event (demo)')
 }
@@ -231,7 +230,7 @@ const createEvent = () => {
   gap: 1rem;
 }
 
-/* 两列布局（小屏 1 列） */
+/* Two-column layout (single column on small screens) */
 .events-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -243,7 +242,7 @@ const createEvent = () => {
   }
 }
 
-/* 复用现有卡片样式，细节增强 */
+/* Reuse existing card styles with refinements */
 .event-card {
   background-color: var(--white);
   border-radius: 8px;
@@ -263,7 +262,7 @@ const createEvent = () => {
   opacity: 0.9;
 }
 
-/* 编辑封面按钮（仅管理员可见） */
+/* Edit cover button (admins only) */
 .edit-cover-btn {
   position: absolute;
   right: 10px;
@@ -320,14 +319,14 @@ const createEvent = () => {
   gap: 0.35rem;
 }
 
-/* CTA 行 */
+/* CTA row */
 .cta-row {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
 }
 
-/* 详情弹窗里的横幅（沿用卡片风格） */
+/* Modal banner (matches card style) */
 .detail-banner {
   height: 180px;
   display: flex;

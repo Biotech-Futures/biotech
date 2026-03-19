@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -6,11 +6,11 @@ import { useAuthStore } from '@/stores/auth' // Pinia Auth
 import { mockGroups, mockResources, mockAnnouncements } from '../data/mock.js'
 
 const router = useRouter()
-
-// 从 Pinia 取当前登录用户与是否管理员
 const auth = useAuthStore()
+
+// Get the current user and admin status from Pinia
 const { user, isAdmin } = storeToRefs(auth)
-// 若 store 没有 isAdmin getter，则兜底判断 role
+// Fallback to role check if isAdmin getter is missing
 const effectiveIsAdmin = computed(() => (isAdmin?.value ?? (user.value?.role === 'admin')))
 
 const groups = ref(mockGroups)
@@ -42,7 +42,7 @@ const getResourceIcon = (type) => {
     </div>
 
     <div class="grid grid-3" style="margin-bottom: 2rem;">
-      <!-- Active Groups：仅管理员可见 -->
+      <!-- Active Groups: admins only -->
       <div class="widget" v-if="effectiveIsAdmin">
         <div class="widget-header">
           <span class="widget-title">Active Groups</span>
@@ -74,13 +74,12 @@ const getResourceIcon = (type) => {
         <div class="widget-value">{{ announcementsCount }}</div>
         <div class="widget-footer">
           <RouterLink to="/announcements" style="color: var(--dark-green);">
-            View announcements →
-          </RouterLink>
+            View announcements 鈫?          </RouterLink>
         </div>
       </div>
     </div>
 
-    <!-- My Active Groups：所有用户可见 -->
+    <!-- My Active Groups: visible to all users -->
     <div class="card" v-if="groups.length">
       <div class="card-header">
         <h3 class="card-title">My Active Groups ({{ groups.length }})</h3>
@@ -104,7 +103,7 @@ const getResourceIcon = (type) => {
             </div>
             <div class="group-info">
               <div class="group-name">{{ group.name }}</div>
-              <!-- 胶囊样式的操作标签；.stop 防止触发整卡跳转 -->
+              <!-- Capsule-style action tag; .stop prevents card navigation -->
               <!-- <button type="button" class="chip-action" @click.stop>
                 {{ group.status }}
               </button> -->
@@ -114,7 +113,7 @@ const getResourceIcon = (type) => {
       </div>
     </div>
 
-    <!-- 资源区（所有用户可见） -->
+    <!-- Resources section (visible to all users) -->
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Learn more with resources</h3>
@@ -142,7 +141,7 @@ const getResourceIcon = (type) => {
 </template>
 
 <style scoped>
-/* 更精致的“Schedule Workshop”胶囊按钮 */
+/* Refined "Schedule Workshop" pill button */
 .chip-action {
   display: inline-flex;
   align-items: center;

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-area">
     <div class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
@@ -105,7 +105,7 @@ const reset = () => {
 }
 
 const save = () => {
-  // 这里作为演示，只弹框；后续可替换为 API 调用
+  // Demo only: show an alert; replace with API call later
   alert('Profile saved (demo).')
 }
 </script>

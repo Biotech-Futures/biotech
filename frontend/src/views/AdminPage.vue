@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-area">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;">
       <h1>Admin Dashboard</h1>
@@ -113,15 +113,15 @@ import { mockUsers, mockGroups } from '../data/mock.js'
 const users = ref(mockUsers)
 const activeTrack = ref('AUS-NSW')
 
-// Widgets（简单 demo 统计）
+// Widgets (simple demo stats)
 const groupsCount = computed(() => mockGroups.length)
-const pendingMatches = 8 // demo 占位
+const pendingMatches = 8 // demo placeholder
 const mentorCount = computed(() => users.value.filter(u => u.role === 'mentor').length)
 const mentorActive = computed(() => users.value.filter(u => u.role === 'mentor' && u.status === 'active').length)
 const mentorPending = computed(() => users.value.filter(u => u.role === 'mentor' && u.status === 'pending').length)
 const studentCount = computed(() => users.value.filter(u => u.role === 'student').length)
 
-// Users 过滤与选择
+// User filtering and selection
 const userSearch = ref('')
 const selected = ref([])
 
