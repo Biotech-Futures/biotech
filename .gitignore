@@ -47,3 +47,6 @@ staticfiles/
 /static/
 /media/
 test_coverage_report.html
+backend/config/settings_local.py
+backend/.venv/
+backend/media/
