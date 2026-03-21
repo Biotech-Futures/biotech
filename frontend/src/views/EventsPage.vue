@@ -189,7 +189,8 @@ const onCoverPicked = (e, ev) => {
   if (!file) return
   const reader = new FileReader()
   reader.onload = () => {
-    ev.cover = String(reader.result) // data URL, local preview
+    ev.cover = String(reader.result)
+    try {// data URL, local preview
       localStorage.setItem(`eventCover:${ev.id}`, ev.cover)
     } catch {}
   }

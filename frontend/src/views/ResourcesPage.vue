@@ -148,6 +148,7 @@ const auth = useAuthStore()
 const isAdmin = computed(() => auth.isAdmin)
 
 // Search/filter
+const searchQuery = ref('')
 const filters = ['All Resources', 'Documents', 'Videos', 'Templates', 'Guides'] as const
 type FilterOption = typeof filters[number]
 const activeFilter = ref<FilterOption>('All Resources')
@@ -193,6 +194,7 @@ const loadResources = async (): Promise<void> => {
 }
 
 // Icons and type labels
+const getResourceIcon = (type: ResourceTypeKey): string => {
   const iconMap: Record<'document' | 'video' | 'template' | 'guide', string> = {
     document: 'fas fa-file-alt',
     video: 'fas fa-video',
@@ -218,6 +220,7 @@ const prettyType = (type: ResourceTypeKey): string => {
 }
 
 // Open resource (placeholder logic)
+const openResource = (resource: FrontendResource) => {
   alert(`Opening resource: ${resource.title}`)
 }
 
@@ -250,6 +253,7 @@ const resetCover = (resource: FrontendResource) => {
 }
 
 // On load: restore persisted covers and fetch resources
+onMounted(async () => {
   await loadResources()
 
   resources.value.forEach(r => {
@@ -261,6 +265,7 @@ const resetCover = (resource: FrontendResource) => {
 })
 
 // Banner style: show cover image or brand gradient
+const bannerStyle = (res: FrontendResource): string => {
   const base = 'height:120px; display:flex; align-items:center; justify-content:center; color:#fff;'
   if (res?.cover) {
     return `${base} background-image:url('${res.cover}'); background-size:cover; background-position:center;`
