@@ -22,7 +22,7 @@ Important caveats:
 
 - the main backend runtime uses `backend/config/settings.py`
 - that settings file hardcodes Azure PostgreSQL and Azure Blob configuration
-- the repo does not include a dedicated local settings module
+- the repo now has a local Postgres-oriented settings override at `backend/config/settings_local.py`
 - the frontend expects the backend at `http://localhost:8000`
 - the frontend login page works best with OTP entry, not the current magic-link callback
 - websocket chat depends on Channels, but `daphne` is not listed in `backend/requirements.txt`
@@ -30,7 +30,7 @@ Important caveats:
 Because of that, the easiest way to get the project running locally is:
 
 1. use Python 3.10
-2. create a local backend settings override
+2. start local Postgres with Docker Compose
 3. run Django on `localhost:8000`
 4. run Vite on `localhost:5173`
 
@@ -40,7 +40,7 @@ Because of that, the easiest way to get the project running locally is:
 |---|---|---|
 | Python | 3.10 | The pinned backend dependencies install cleanly there; Python 3.13 caused install issues |
 | Node.js | 20+ or 22+ | Matches the frontend engine declaration |
-| Backend DB | local SQLite or local Postgres | Avoids relying on the hardcoded Azure DB |
+| Backend DB | local Postgres via Docker Compose | Matches migration behavior better and avoids SQLite-specific schema drift |
 | File storage | local filesystem | Avoids Azure Blob during dev |
 | Email | console backend | OTP codes are visible directly in backend logs |
 | Backend server | `runserver` for basic API work | Fastest dev loop |
@@ -67,10 +67,10 @@ Install the following on your machine:
 - Python 3.10
 - Node.js 20+ or 22+
 - npm
+- Docker Desktop or another working Docker engine
 
 Optional but useful:
 
-- PostgreSQL if you want a local DB that better matches production
 - `daphne` for websocket-first testing
 - `pytest` if you want to run the legacy matching tests
 
@@ -104,17 +104,19 @@ Notes:
 - `pytest` is needed because part of the repo uses pytest-style tests
 - Python 3.13 is not recommended for this repo as-is
 
-## Backend: Create a Local Settings Override
+## Backend: Local Settings Override
 
-The main settings file points to Azure resources. For local development, create an untracked local settings file.
+The main settings file points to Azure resources. For local development, this repo uses an untracked local settings file that points to local Postgres.
 
-Suggested file:
+Current file:
 
 `backend/config/settings_local.py`
 
-Suggested contents:
+Current contents:
 
 ```python
+import os
+
 from .settings import *
 
 # Dev-only secret
@@ -123,11 +125,16 @@ SECRET_KEY = "dev-only-not-for-production"
 DEBUG = True
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
-# Use local SQLite for dev
+# Use local Postgres for dev so schema behavior matches production/migrations.
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.local.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "biotech_dev"),
+        "USER": os.environ.get("POSTGRES_USER", "biotech"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "biotech"),
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 0,
     }
 }
 
@@ -174,11 +181,35 @@ backend/media/
 
 ## Backend: Database Setup
 
+Start the local Postgres container from the repo root:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d postgres
+```
+
+Check that it is healthy:
+
+```bash
+docker compose -f docker-compose.dev.yml ps
+```
+
+The defaults used by `settings_local.py` match the compose file:
+
+- `POSTGRES_DB=biotech_dev`
+- `POSTGRES_USER=biotech`
+- `POSTGRES_PASSWORD=biotech`
+- `POSTGRES_HOST=127.0.0.1`
+- `POSTGRES_PORT=5432`
+
+If you need to override those, export them before running Django.
+
 Run migrations using the local settings module:
 
 ```bash
 python manage.py migrate --settings=config.settings_local
 ```
+
+This Postgres-backed local setup matters for the current schema because the `certificates` app includes a DB constraint that is present in migrations and should stay present in development. Under SQLite, Django warns that the model and migration state differ. Under local Postgres, that warning path goes away.
 
 Create an admin user:
 
@@ -191,6 +222,8 @@ Optional system check:
 ```bash
 python manage.py check --settings=config.settings_local
 ```
+
+If you previously used SQLite locally, any old `db.local.sqlite3` file is no longer part of the supported dev path.
 
 ## Backend: Run the Development Server
 
@@ -250,6 +283,7 @@ Use two terminals.
 ### Terminal 1: backend
 
 ```bash
+docker compose -f docker-compose.dev.yml up -d postgres
 cd backend
 source .venv/bin/activate
 python manage.py runserver 8000 --settings=config.settings_local
@@ -356,7 +390,7 @@ python manage.py test apps.chat.tests --settings=config.settings_local
 ### Current caveats
 
 - some tests were originally written assuming the Azure/Postgres setup
-- some tests fail under local SQLite because of `Now()`-based model check constraints
+- local Postgres is now the recommended path because some schema behavior differs under SQLite
 - user endpoint tests currently expect stale URLs and may fail with 404s
 - chat tests rely on constraints and test infra that are not yet cleanly portable
 
