@@ -1,3 +1,5 @@
+import os
+
 from .settings import *
 
 # Dev-only secret
@@ -6,11 +8,16 @@ SECRET_KEY = "dev-only-not-for-production"
 DEBUG = True
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 
-# Use local SQLite for dev
+# Use local Postgres for dev so schema behavior matches production/migrations.
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.local.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "biotech_dev"),
+        "USER": os.environ.get("POSTGRES_USER", "biotech"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "biotech"),
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 0,
     }
 }
 
