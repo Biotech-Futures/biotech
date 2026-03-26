@@ -139,10 +139,14 @@ def auto_group(_request):
             for chunk in _chunk(members, 5):
                 idx += 1
                 name = gnum if idx == 1 else f"{gnum}-{idx}"
+                
+                # !!! the members ???
                 if StudentGroup.objects.filter(name=name).exists():
                     continue
                 grp = StudentGroup.objects.create(
                     name=name,
+                    
+                    # !!! why take the track of the first member ? what if they are different ? policy needed
                     track=chunk[0].track,  # take the first member's track
                     year_min=min(m.year_level for m in chunk),
                     year_max=max(m.year_level for m in chunk),
@@ -173,6 +177,7 @@ def auto_group(_request):
         next_index = StudentGroup.objects.count() + 1
 
         for track, students in track_map.items():
+            # for the student in the same track.
             used = set()
             for s in students:
                 if s.id in used:
@@ -189,6 +194,7 @@ def auto_group(_request):
                     if o.id == s.id or o.id in used:
                         continue
                     other = set(i.id for i in o.interests.all())
+                    # ?
                     if base & other:
                         grp.append(o)
 

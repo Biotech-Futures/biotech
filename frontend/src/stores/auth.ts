@@ -17,23 +17,25 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as User | null,
     accessToken: null as string | null,
-    refreshToken: null as string | null
+    refreshToken: null as string | null,
   }),
   getters: {
-    isAuthenticated: (s) => !!s.user, // Session-based auth - user exists means authenticated
+    isAuthenticated: (s) => !s.user, // Session-based auth - user exists means authenticated
     isAdmin: (s) => {
       // Check role name OR Django's is_staff/is_superuser flags
-      return s.user?.current_role_name === 'admin' ||
-             s.user?.is_staff === true ||
-             s.user?.is_superuser === true ||
-             false
+      return (
+        s.user?.current_role_name === 'admin' ||
+        s.user?.is_staff === true ||
+        s.user?.is_superuser === true ||
+        false
+      )
     },
     initials: (s) => {
       if (!s.user) return '—'
       const first = s.user.first_name?.[0] || ''
       const last = s.user.last_name?.[0] || ''
       return (first + last).toUpperCase() || s.user.email[0].toUpperCase()
-    }
+    },
   },
   actions: {
     // Fetch full user data from backend including roles
@@ -97,6 +99,6 @@ export const useAuthStore = defineStore('auth', {
           }
         }
       } catch {}
-    }
-  }
+    },
+  },
 })
