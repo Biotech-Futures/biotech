@@ -1,14 +1,65 @@
 <template>
+  <!--将整个页面分为左右两个页面的大容器-->
   <div class="split-login">
-    <section ref="leftPaneRef" class="left-pane">
-      <div ref="biotechSceneRef" class="biotech-scene"></div>
-      <div class="bg-overlay"></div>
+    <!--左侧动画介绍台，包裹左边的最底层容器-->
+    <!--1.section表明是独立功能区，该DOM节点名字为‘leftPaneRef’，类class决定属性，比如长和宽以及位置大小等-->
+    <!--2.:class=‘’表明是动态class，会随着背景值的不同而切换布局，用于切换背景，比如：activeLeftBackground = 'original'，class="left-pane bg-mode-original"-->
+    <section ref="leftPaneRef" class="left-pane" :class="`bg-mode-${activeLeftBackground}`">
+      <!--左侧中层容器，背景舞台层，单独一层是因为要作为最底层的背景，上面还要有文字生成，stack表明是堆叠-->
+      <div class="left-bg-stack">
+        <!--第一种模式的背景，即默认状态下的背景，aria那里表明是只是装饰-->
+        <div
+          class="bg-slideshow"
+          :class="{ active: activeLeftBackground === 'original' }"
+          aria-hidden="true"
+          >
+          <!--这里是三张图片循环播放作为第一种模式的背景，key是每个循环唯一标识，也就是index，class表明每个背景都是一张图层的样式-->
+          <div
+            v-for="(image, index) in backgroundImages"
+            :key="index"
+            class="bg-slide"
+            :style="{
+              backgroundImage: `url(${image})`,
+              animationDelay: `${index * slideDuration}s`
+            }"
+          ></div>
+          <!--加一层滤镜，让背景更加柔和，不然上面的文字很难看清-->
+          <div class="bg-overlay bg-overlay-original"></div>
+        </div>
+        <!--第二种模式的背景，three.js生成的模型背景-->
+        <div
+          class="biotech-bg"
+          :class="{ active: activeLeftBackground === 'biotech' }"
+          aria-hidden="true"
+        >
+          <!--但不是简单的静态北京，而是js动态渲染特效的载点，在页面加载后把特效渲染进这个DOM里-->
+          <!--class是为了方便css统一外观，ref这里是方便js直接定位，没有ref只是说明这个元素不需要js直接对DOM节点做操作，这里需要往这个节点直接填入里自动化-->
+          <!--比如这里的biotechSceneRef的值为True，那后续可能根据这个值进行一些函数操作-->
+          <div ref="biotechSceneRef" class="biotech-scene"></div>
+          <!--加一层滤镜，让背景更加柔和，不然上面的文字很难看清-->
+          <div class="bg-overlay bg-overlay-biotech"></div>
+        </div>
+      </div>
 
-      <div
-        class="left-inner"
-        :dir="currentDir"
-        :class="{ rtl: currentDir === 'rtl' }"
+      <!--除了上述两种背景模式，还需要一个按钮来切换背景-->
+      <!--@click表示是Vue的事件绑定，意思是点击这个按钮的时候，会去调用函数，调整activeLeftBackground这个变量的值，从而决定是哪一个背景-->
+      <!--title=这个变量决定了鼠标悬停时候显示的文字，{{ 按钮上显示的文字 }}-->
+      <button
+        type="button"
+        class="left-bg-toggle"
+        @click="toggleLeftBackground"
+        :aria-label="backgroundToggleLabel"
+        :title="backgroundToggleLabel"
       >
+        {{ backgroundToggleText }}
+      </button>
+
+      <!--左侧最上层，文字容器-->
+      <!--:dir="currentDir"考虑国际化阿拉伯语言，动态设置文本方向-->
+      <!--:class="{ rtl: currentDir === 'rtl' }"如果当前方向是rtl，就额外加上rtl样式-->
+      <div class="left-inner" :dir="currentDir" :class="{ rtl: currentDir === 'rtl' }">
+        <!--文字第一行标题和品牌区域-->
+        <!--alt是文字替换图片，如果如片加载失败就展示文字-->
         <div class="brand">
           <div class="logo-icon">
             <img :src="logo" alt="BIOTech Futures" />
@@ -16,6 +67,7 @@
           <h1 class="brand-title">{{ t('brandTitle') }}</h1>
         </div>
 
+        <!--角色标签容器，一共四个小板块，快速定位用户身份-->
         <div class="role-tags" aria-label="Portal roles">
           <span class="role-tag">{{ t('roleStudent') }}</span>
           <span class="role-tag">{{ t('roleMentor') }}</span>
@@ -23,8 +75,11 @@
           <span class="role-tag">{{ t('roleAdmin') }}</span>
         </div>
 
+        <!--自定义文本内容容器，通过变量注入，方便更改-->
         <div class="custom-content" v-html="leftHtml"></div>
 
+        <!--跳官网按钮-->
+        <!--target="_blank"，意思是新标签页打开，用户不会离开当前系统界面。-->
         <div class="links">
           <a
             class="btn btn-secondary"
@@ -38,12 +93,11 @@
       </div>
     </section>
 
+    <!--右侧登录控制台，包裹右侧的最底层容器-->
     <section class="right-pane">
-      <div
-        class="login-card fade-in"
-        :dir="currentDir"
-        :class="{ rtl: currentDir === 'rtl' }"
-      >
+      <div class="login-card fade-in" :dir="currentDir" :class="{ rtl: currentDir === 'rtl' }">
+        
+        <!--邮箱入口，只有currentStep这个变量是email时，这里才显示，不然显示的就是验证码-->
         <div v-if="currentStep === 'email'" class="step-email">
           <div class="login-logo">
             <div class="login-logo-icon">
@@ -53,12 +107,21 @@
             <p class="login-subtitle">{{ t('welcomeSubtitle') }}</p>
           </div>
 
+          <!--form提交表单，填写邮箱后通过接口传输给后端进行下一步处理-->
+          <!--submit.prevent阻止浏览器默认提交刷新页面，novalidate不依赖原生弹窗-->
           <form @submit.prevent="handleLogin" novalidate>
             <div class="form-group">
+
+              <!--输入框上方的小标签，表明需要输入的内容是什么，屏幕阅读器也会读出这个内容-->
               <label class="form-label" for="login-email">
                 {{ t('emailLabel') }}
               </label>
 
+              <!--邮箱输入框-->
+              <!--ref="emailInputRef"以后可以通过该变量直接访问这个DOM元素，比如页面加载好自动聚焦到这里-->
+              <!--:placeholder="t('emailPlaceholder')"占位符-->
+              <!--autocomplete="email"允许浏览器自动填充邮箱-->
+              <!--@input="handleEmailInput"每次输入都触发函数用于检验格式-->
               <input
                 id="login-email"
                 ref="emailInputRef"
@@ -71,81 +134,72 @@
                 required
                 @input="handleEmailInput"
               />
-
               <small class="form-text">
                 {{ t('emailHelper') }}
               </small>
             </div>
 
+            <!--发送验证码按钮-->
+            <!--type=submit说明按钮会触发表单form提交-->
+            <!--:disabled说明邮箱在两种情况下是禁用的，一个取决于sandingcode的值，如果在发送验证码就是禁用，第二个取决于发送后倒计时是否归零，不然就只能等-->
             <button
               type="submit"
               class="btn btn-primary btn-lg full-width"
               :disabled="sendingCode || resendCountdown > 0"
             >
+              <!--如果满足条件，显示的就是该文字，即正常状态下的发送验证码-->
               <span v-if="!sendingCode && resendCountdown === 0">
                 {{ t('sendVerificationCode') }}
               </span>
+              <!--如果满足正在发送，那么就是显示laoding动画-->
               <span v-else-if="sendingCode" class="loading"></span>
+              <!--如果都不是，那就说明正在倒计时，显示倒计时resend in xxs动画-->
               <span v-else>
                 {{ t('resendIn') }} {{ resendCountdown }}s
               </span>
             </button>
           </form>
 
-          <p
-            v-if="statusMessage"
-            class="status-message"
-            aria-live="polite"
-          >
+          <!--输入框下方的提示，如果成功发送，就会提示已经发送验证码，如果邮箱格式错误，就会提示错误-->
+          <p v-if="statusMessage" class="status-message" aria-live="polite">
             {{ statusMessage }}
           </p>
-
-          <p
-            v-if="error"
-            class="error-message"
-            role="alert"
-            aria-live="assertive"
-          >
+          <p v-if="error" class="error-message" role="alert" aria-live="assertive">
             {{ error }}
           </p>
         </div>
 
+        <!--和之前的div if对应，如果此时的步骤不是email，说明就是到了OTP验证区，显示的是输入验证码-->
         <div v-else class="step-otp">
-          <div class="otp-topbar">
-            <button
-              type="button"
-              class="back-button"
-              @click="goBackToEmailStep"
-            >
-              ← {{ t('back') }}
-            </button>
-          </div>
 
+          <!--验证码容器第一层，网页标签图片-->
           <div class="login-logo otp-logo-compact">
             <div class="login-logo-icon">
               <img :src="logo" alt="BIOTech Futures" />
             </div>
           </div>
 
+          <!--第二层，文字，显示已发送验证码至邮箱-->
           <div class="otp-screen-content">
-            <p class="otp-main-title">
-              {{ t('otpMessage') }}
-            </p>
-
             <p class="otp-email">
               {{ t('codeSentTo') }} <strong>{{ maskedEmail }}</strong>
             </p>
 
+            <!--第三层，提供返回上一层修改邮箱的按钮-->
             <div class="otp-actions-top">
-              <button
-                type="button"
-                class="linklike"
-                @click="goBackToEmailStep"
-              >
+              <button type="button" class="linklike" @click="goBackToEmailStep">
                 {{ t('changeEmail') }}
               </button>
             </div>
 
+            <!--第四层，验证码输入框-->
+            <!--v-for为了方便一次性生成六个input小格子，根据otpDigits的长度和里面的值决定，digit是当前值，index是当前下标，v-model捆绑在对应名字的数组里-->
+            <!--:ref="(el) => setOtpRef(el, index)"：每一格输入框都被命名为响应变量，方便后续函数操作，焦点切换-->
+            <!--type=‘text’表明输入的是文本数字-->
+            <!--maxlength=“1”每格长度是1-->
+            <!--事件对象$event，发生了什么事件就是什么事件对象，传递给相应的函数，比如@input就是键盘输入这个事件，绑定的函数可能是自动跳到下一格-->
+            <!--@keydown键盘控制，比如左右移动光标切换焦点-->
+            <!--@keydown.enter按回车尝试验证-->
             <div class="otp-container">
               <input
                 v-for="(digit, index) in otpDigits"
@@ -166,6 +220,7 @@
               />
             </div>
 
+            <!--验证按钮-->
             <button
               type="button"
               class="btn btn-primary full-width mt-1"
@@ -176,6 +231,7 @@
               <span v-else class="loading"></span>
             </button>
 
+            <!--重新发送验证码按钮-->
             <div class="text-center mt-small">
               <button
                 type="button"
@@ -196,33 +252,33 @@
               {{ t('codeExpiryHint') }}
             </p>
 
+            <!--求助链接-->
             <div class="help-links otp-help-links">
+              <!--前半句提示词，没有交互，只是显示文字-->
               <span>{{ t('needHelp') }}</span>
+              <!--点击后，尝试调用手机或电脑端的邮件客户端并发邮件-->
               <a href="mailto:support@biotechfutures.org">{{ t('contactSupport') }}</a>
             </div>
           </div>
 
-          <p
-            v-if="statusMessage"
-            class="status-message"
-            aria-live="polite"
-          >
+          <p v-if="statusMessage" class="status-message" aria-live="polite">
             {{ statusMessage }}
           </p>
-
-          <p
-            v-if="error"
-            class="error-message"
-            role="alert"
-            aria-live="assertive"
-          >
+          <p v-if="error" class="error-message" role="alert" aria-live="assertive">
             {{ error }}
           </p>
         </div>
 
+        <!--横线-->
         <div class="card-spacer"></div>
 
+        <!--语言开关容器-->
         <div class="language-switcher" role="tablist" aria-label="Language switcher">
+
+          <!--批量制造按钮，通过for循环，将languageOptions里的变量都拿出来生成按钮-->
+          <!--比如：item = { value: 'en', label: 'English' }-->
+          <!--:class="{ active: locale === item.value }"高亮开关-->
+          <!--@click通过点击事件来切换语言-->
           <button
             v-for="item in languageOptions"
             :key="item.value"
@@ -240,43 +296,67 @@
 </template>
 
 <script setup>
-import { ref, nextTick, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import * as THREE from 'three'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+
 import logo from '@/assets/btf-logo.png'
+import bg1 from '@/assets/login/login-bg-1.jpg'
+import bg2 from '@/assets/login/login-bg-2.jpg'
+import bg3 from '@/assets/login/login-bg-3.jpg'
 
 const router = useRouter()
 const auth = useAuthStore()
 
+const backgroundImages = [bg1, bg2, bg3]
+const slideDuration = 6
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 const email = ref('')
-const lastVerifiedEmailSnapshot = ref('')
-const currentStep = ref('email')
 
+//默认状态就是输入email状态
+const currentStep = ref('email')
 const error = ref('')
 const statusMessage = ref('')
-
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
 const resendingCode = ref(false)
-
 const otpDigits = ref(['', '', '', '', '', ''])
 const otpRefs = ref([])
 const emailInputRef = ref(null)
-
 const resendCountdown = ref(0)
+
 let resendTimer = null
 
-const hasEmailBeenModifiedAfterBack = ref(false)
-const hasResentAfterBack = ref(false)
-
 const locale = ref('en')
-
 const leftPaneRef = ref(null)
 const biotechSceneRef = ref(null)
+const activeLeftBackground = ref('original')
 
+// 切换背景使用，如果是模式一就切换到模式二，
+// 这是一个箭头函数arrow function，被赋值给常量，本质上是函数：function toggleLeftBackground() {......}
+//用于点击事件绑定的动作（函数），目的是更改
+const toggleLeftBackground = () => {
+  activeLeftBackground.value = activeLeftBackground.value === 'original' ? 'biotech' : 'original'
+}
+
+// 虽然也是箭头函数，但跟上一个不一样，这个并不是直接把函数赋值，而是把computed返回结果赋值给常量
+// 这是一个计算值computed，根据当前状态显示，调用的话需要使用 backgroundToggleText.value
+//用于给按钮显示文字，目的是算出一个值
+const backgroundToggleText = computed(() => {
+  return activeLeftBackground.value === 'original' ? 'DNA' : 'IMG'
+})
+
+//用于悬停背景切换按钮显示文字，和上面同理
+const backgroundToggleLabel = computed(() => {
+  return activeLeftBackground.value === 'original'
+    ? 'Switch to biotech 3D background'
+    : 'Switch to image slideshow background'
+})
+
+//value用来告诉v-for建造几个button，label则是button的名字，{{item.label}}
 const languageOptions = [
   { value: 'en', label: 'English' },
   { value: 'zh-CN', label: '简体中文' },
@@ -507,14 +587,20 @@ const messages = {
   }
 }
 
+// t('signIn')：调用函数 t，并把 'signIn' 这个字符串传进去。也就是这里的（key）是形参
+// 如果messages[locale.value]存在，就取key，否则就退回英文
+// ?.语法是一个判断optional chaining，如果?前的结果存在，那么取.后的值，不存在返回undifined
 const t = (key) => {
-  return messages[locale.value]?.[key] || messages.en[key] || key
+  return messages[locale.value]?.[key] || messages.en[key]
 }
 
+// 这个是调整文字方向的
 const currentDir = computed(() => {
   return locale.value === 'ar' ? 'rtl' : 'ltr'
 })
 
+// leftHtml是一个计算属性
+// ``这是反引号，用来定义模板字符串，里面还可以用${}来引用变量
 const leftHtml = computed(() => `
   <h2 class="info-title">${t('aboutTitle')}</h2>
   <p>${t('aboutP1')}</p>
@@ -530,6 +616,9 @@ const isOtpComplete = computed(() => {
   return otpDigits.value.join('').length === 6
 })
 
+// 计算属性，根据email的值计算
+// 如果email值存在?.trim()就删去前后空格
+// 邮箱按照@分前后两部分，比如fsq136656和gmail.com
 const maskedEmail = computed(() => {
   const value = email.value?.trim() || ''
   const parts = value.split('@')
@@ -538,7 +627,9 @@ const maskedEmail = computed(() => {
     return value
   }
 
+  // fsq136656和gmail.com
   const [name, domain] = parts
+
   if (name.length <= 2) {
     return `${name[0] || '*'}***@${domain}`
   }
@@ -546,6 +637,9 @@ const maskedEmail = computed(() => {
   return `${name.slice(0, 2)}***@${domain}`
 })
 
+// 切换语言的函数，（lang）形参，在切换语言区域，点击对应的按钮，就会调用此函数切换语言，语言是由locale的值决定
+// 最后一句，用户点击后，语言会被保存到本地浏览器里。
+// 页面下次打开时，默认点亮的就不是写死的初始值，而是上次用户选过的语言。
 const switchLanguage = (lang) => {
   locale.value = lang
   error.value = ''
@@ -553,25 +647,27 @@ const switchLanguage = (lang) => {
   localStorage.setItem('login-language', lang)
 }
 
+// 从本地浏览器数据中读出‘login-language’，看上次使用的是什么语言加载
+// languageOptions是那五种语言，检查数组里至少有一个满足条件
 const savedLanguage = localStorage.getItem('login-language')
 if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
   locale.value = savedLanguage
 }
 
-watch(
-  locale,
-  (newLocale) => {
-    document.documentElement.lang = newLocale
-  },
-  { immediate: true }
-)
-
+// 保存验证码每一位值
 const setOtpRef = (el, index) => {
   if (el) {
     otpRefs.value[index] = el
   }
 }
 
+// async异步函数，可在函数内部使用await
+// 异步函数是不需要立刻出结果的动作，不能像普通代码一样立刻跑完，因为操作时间长，比如请求后端，读取文件，查询数据库
+// 同步函数比如普通的a+b函数，立刻就能得到结果。
+// 异步函数需要async()声明，而且返回的是一个promise，也就是未来会拿到的一个状态
+// 先调用接口并使用await等待完成比如：const response = await fetch('/api/user')
+// 然后等接口返回后再执行下面代码，把响应转化为JSON：const data = await response.json()
+// 用户触发输入验证码完成后，检查验证码是否完整并是否正在验证，如果允许就进入验证环节
 const handleOTPEnter = async () => {
   if (!isOtpComplete.value || verifyingCode.value) {
     return
@@ -579,18 +675,28 @@ const handleOTPEnter = async () => {
   await verifyOTP()
 }
 
+// 处理 OTP 输入框输入事件的函数，$event是看当前的事件是什么，对事件进行处理
+// event.target表示触发这次事件的元素，比如要是在第三个OTP输入框输入内容，那么它就表示这个框的DOM元素
+// event.target.value就表示这个输入框的元素
+// .replace清洗字符串，把所有不是数字的字符全部换成空字符
 const handleOTPInput = (event, index) => {
   const value = event.target.value.replace(/[^0-9]/g, '')
   otpDigits.value[index] = value
 
+  // 有内容且不是最后一个输入框，就自动跳转到下一格输入框
   if (value && index < otpDigits.value.length - 1) {
     otpRefs.value[index + 1]?.focus()
   }
 }
 
+// OTP 输入框的键盘按键控制函数
+// event来说，如果按1，event就是“1”这个按钮，如果回车就是回车，如果backspace就是删除等
 const handleOTPKeydown = (event, index) => {
+
+  // event.key保存的是对应键值的字符串名称
   const key = event.key
 
+  //不依赖默认的删除行为，自定义
   if (key === 'Backspace') {
     event.preventDefault()
 
@@ -618,28 +724,39 @@ const handleOTPKeydown = (event, index) => {
     return
   }
 
+  //如果是空格就阻止输入
   if (key === ' ' || key === 'Spacebar') {
     event.preventDefault()
     return
   }
 
+  //允许这类功能键通过，即什么都不做
   const allowedKeys = ['Tab', 'Shift', 'Control', 'Meta', 'Alt', 'Enter']
   if (allowedKeys.includes(key)) {
     return
   }
 
+  // 正则表达式：^表示字符串开头，[0-9]表示一个数字字符，$字符串结尾
+  //.test()正则方法，检验key是否匹配
   if (!/^[0-9]$/.test(key)) {
     event.preventDefault()
   }
 }
 
+//输入框只要被点击，被tab，被程序focus()到的时候，函数就会执行
+// .select()代表选中文本内容
 const handleOTPFocus = (event) => {
   event.target.select()
 }
 
+// 一次性粘贴验证码时，拦截默认粘贴行为，将内容清洗为纯数字，并填充进6个OTP输入框中
+// 为什么拦截？因为可能会导致第一个框直接把所有验证码都接受了，然后被截断
 const handleOTPPaste = (event) => {
   event.preventDefault()
 
+  // event.clipboardData是粘贴事件里的剪贴板数据对象
+  // .getData('text')获取纯文本内容
+  // .slice(0,6)只保留第0-5为数字，一共六位
   const pastedText = event.clipboardData
     .getData('text')
     .replace(/[^0-9]/g, '')
@@ -656,20 +773,21 @@ const handleOTPPaste = (event) => {
     otpDigits.value[index] = char
   })
 
+  // 如果只输入了3位那么焦点就会摆在最近一位空着的地方，也就是length = 4，第4位
+  // 如果输入满了，length = 6,那么最后还是会在最后一位第五位那里
   const nextIndex = Math.min(chars.length, 5)
   otpRefs.value[nextIndex]?.focus()
 }
 
-const handleEmailInput = () => {
-  if (currentStep.value === 'email' && email.value !== lastVerifiedEmailSnapshot.value) {
-    hasEmailBeenModifiedAfterBack.value = true
-  }
-}
-
+// 判断是否是合法邮箱格式
+// ^字符串开头，[]字符集合，[^]^表示取反，\s表示空白字符比如空格换行之类的，[^\s@]表示不是空白字符也不是@的任意一个字符
+// +表示至少一个
+// $表示字符串结尾
 const isValidEmail = (value) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+//尝试把相应回复解析成JSON格式的数据
 const parseErrorMessage = async (response, fallbackText) => {
   try {
     const data = await response.json()
@@ -679,17 +797,32 @@ const parseErrorMessage = async (response, fallbackText) => {
   }
 }
 
+// 会拼出这样一个字符串https://your-site.com/#/auth/callback
+// window.location.origin表示当前网页的源地址，比如：http://localhost:5173/#/login会变成http://localhost:5173
+// 使用#是因为前端用的是Hash history，网页地址会变成：http://localhost:5173/#/login这种模式
+// # 前面：浏览器真实访问的页面；后面：Vue 前端自己解析的路由路径
+// /#/login是前端的路由地址，作用是让Vue在浏览器知道现在需要渲染哪个页面组件
+// 项目本身是，前端负责路由页面，后端负责接口，认证，数据，两边给通过HTTP来请求通信
+// Vue项目中，浏览器真正加载的只有一个入口，之后的页面跳转要Vue自己切换组件，比如从登陆界面到dashboard界面
+// 这个是为了让后端处理完数据跳转到这个网页去
 const buildCallbackUrl = () => {
   return `${window.location.origin}/#/auth/callback`
 }
 
+// 重发验证码倒计时
 const startResendCountdown = () => {
+  // 验证码有效时限30s
   resendCountdown.value = 30
 
+  // 如果之前有定时器了就清除掉
   if (resendTimer) {
     clearInterval(resendTimer)
   }
 
+  //创建一个每秒执行一次的定时器，并把它保存在resendTimer里，直到减到零位置
+  // 1000ms就是一秒
+  // 之哟啊调用一次，就是跑一轮30s的，而不是一秒一秒的调用，一次跑满
+  // Vue会每次自动刷新渲染
   resendTimer = setInterval(() => {
     if (resendCountdown.value > 0) {
       resendCountdown.value -= 1
@@ -700,39 +833,42 @@ const startResendCountdown = () => {
   }, 1000)
 }
 
+// 重置OTP状态
+// await nextTick()，等待 Vue 先把刚刚的数据变化更新到 DOM 上。
+// 之后等待光标自动回到第一个格子里
+// 修改响应式数据不代表DOM会在这一行代码执行完的瞬间立刻更新好。
+// Vue 为了性能，通常会把这些更新先收集起来，然后在“下一轮 DOM 更新”里一起渲染。
+// 所以如果紧接着立刻去操作页面元素，比如：focus()；读取某个 input；获取某个元素是否已经出现，这时候可能页面还没更新完。
 const resetOtpState = async () => {
   otpDigits.value = ['', '', '', '', '', '']
   await nextTick()
   otpRefs.value[0]?.focus()
 }
 
-const canReturnToOtpStep = () => {
-  return (
-    lastVerifiedEmailSnapshot.value &&
-    email.value === lastVerifiedEmailSnapshot.value &&
-    !hasEmailBeenModifiedAfterBack.value &&
-    !hasResentAfterBack.value
-  )
-}
-
+// 从change email那里返回输入邮箱的界面
 const goBackToEmailStep = async () => {
   currentStep.value = 'email'
   error.value = ''
   statusMessage.value = ''
-
   await nextTick()
   emailInputRef.value?.focus()
 }
 
+// 邮件提交发送验证码主函数
 const handleLogin = async () => {
+
+  // 处理邮件，去除空格，小写
   const normalizedEmail = email.value.trim().toLowerCase()
 
+  // 函数三大判断自检是否中断
+  // 判断是否有邮件
   if (!normalizedEmail) {
     error.value = t('errorEnterEmail')
     statusMessage.value = ''
     return
   }
 
+  // 邮件格式不合法
   if (!isValidEmail(normalizedEmail)) {
     error.value = t('errorInvalidEmail')
     statusMessage.value = ''
@@ -743,21 +879,18 @@ const handleLogin = async () => {
   error.value = ''
   statusMessage.value = ''
 
-  if (canReturnToOtpStep()) {
-    currentStep.value = 'otp'
-    await nextTick()
-    otpRefs.value[0]?.focus()
-    return
-  }
-
   if (resendCountdown.value > 0) {
     statusMessage.value = `${t('resendIn')} ${resendCountdown.value}s`
     return
   }
 
+  // 表示正在发送验证码
   sendingCode.value = true
 
+  // 函数主体
   try {
+
+    // 请求函数接口
     const response = await fetch(`${API_BASE_URL}/services/send-login-code/`, {
       method: 'POST',
       headers: {
@@ -766,15 +899,17 @@ const handleLogin = async () => {
       credentials: 'include',
       body: JSON.stringify({
         email: email.value,
+
+        // 表明后端处理完后的重定向链接地址
         redirect_url: buildCallbackUrl(),
       }),
     })
 
+    // 如果接收成功并返回信息
     if (response.ok) {
-      lastVerifiedEmailSnapshot.value = email.value
-      hasEmailBeenModifiedAfterBack.value = false
-      hasResentAfterBack.value = false
       currentStep.value = 'otp'
+
+      // 表明发送成功
       statusMessage.value = t('sendingSuccess')
       await resetOtpState()
       startResendCountdown()
@@ -808,9 +943,12 @@ const resolvePostLoginRoute = (user) => {
   }
 }
 
+// 检验验证码
 const verifyOTP = async () => {
+  // 验证码拼接
   const code = otpDigits.value.join('')
 
+  // 如果输入的位数不够就点击验证，报错
   if (code.length !== 6) {
     error.value = t('errorCompleteCode')
     statusMessage.value = ''
@@ -822,8 +960,10 @@ const verifyOTP = async () => {
   verifyingCode.value = true
 
   try {
+    // 发送请求
     const response = await fetch(`${API_BASE_URL}/services/verify-login-code/`, {
       method: 'POST',
+      // 说明请求体是 JSON 格式，后端要按 JSON 解析。
       headers: {
         'Content-Type': 'application/json',
       },
@@ -834,8 +974,12 @@ const verifyOTP = async () => {
       }),
     })
 
+    // 一般ok表示200/204后端返回，进入if判断逻辑，如果错误就会返回400/401/403进入else
     if (response.ok) {
       await auth.fetchUserData()
+
+      // nextTick() 是 Vue 里的一个工具，等 Vue 把刚刚更新的数据和页面状态处理完，再继续往下执行。
+      // 有的时候需要，是因为要让Vue刷新更改页面，但有的时候只需要使用更新后的数据，那就不需要这个来刷新了
       await nextTick()
 
       const targetRoute = resolvePostLoginRoute(auth.user || auth.currentUser || null)
@@ -858,6 +1002,7 @@ const verifyOTP = async () => {
   }
 }
 
+// 重发验证码，一样的逻辑，也是请求接口
 const resendCode = async () => {
   if (!email.value) {
     error.value = t('errorEnterEmailFirst')
@@ -887,7 +1032,6 @@ const resendCode = async () => {
     })
 
     if (response.ok) {
-      hasResentAfterBack.value = true
       statusMessage.value = t('resendSuccess')
       await resetOtpState()
       startResendCountdown()
@@ -913,22 +1057,30 @@ let animationId = 0
 let sceneClock = null
 let resizeObserver = null
 
+let particleSystem = null
+let particleMaterial = null
+let particleGeometry = null
+
 const floatingItems = []
 const mouseNdc = new THREE.Vector2(10, 10)
 const mouseWorld = new THREE.Vector3(999, 999, 0)
 const raycaster = new THREE.Raycaster()
 const interactionPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
 
-const createSoftMaterial = (color, opacity = 1) => {
+const createSoftMaterial = (color, opacity = 1, emissive = '#000000') => {
   return new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.2,
-    metalness: 0.05,
-    transmission: opacity < 1 ? 0.45 : 0,
+    emissive,
+    emissiveIntensity: 0.08,
+    roughness: 0.18,
+    metalness: 0.06,
+    transmission: opacity < 1 ? 0.38 : 0,
     transparent: opacity < 1,
     opacity,
-    clearcoat: 0.7,
-    clearcoatRoughness: 0.2
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.16,
+    reflectivity: 0.5,
+    ior: 1.28
   })
 }
 
@@ -945,48 +1097,113 @@ const addFloatingItem = (mesh, x, y, z, force = 1) => {
   })
 }
 
-const createMoleculeCluster = (x, y, scale = 1) => {
+const createBacteriaModel = (x, y, scale = 1) => {
   const group = new THREE.Group()
 
-  const atomMaterial = createSoftMaterial('#eefdf5', 0.96)
-  const atomAccentMaterial = createSoftMaterial('#9fe8bf', 0.96)
-  const bondMaterial = new THREE.MeshStandardMaterial({
-    color: '#c9e7d5',
-    roughness: 0.5,
-    metalness: 0.08
+  const bodyMaterial = createSoftMaterial('#7adf9d', 0.94, '#1b5e37')
+  const stripeMaterial = createSoftMaterial('#bdf6cf', 0.88, '#215c3a')
+  const flagellaMaterial = new THREE.MeshStandardMaterial({
+    color: '#d7ffe4',
+    roughness: 0.52,
+    metalness: 0.04
   })
 
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.42, 1.45, 14, 28),
+    bodyMaterial
+  )
+  body.rotation.z = Math.PI / 2
+  group.add(body)
+
+  for (let i = -2; i <= 2; i++) {
+    const stripe = new THREE.Mesh(
+      new THREE.TorusGeometry(0.24, 0.024, 12, 40),
+      stripeMaterial
+    )
+    stripe.rotation.y = Math.PI / 2
+    stripe.position.x = i * 0.24
+    stripe.scale.set(1, 1.55, 1)
+    group.add(stripe)
+  }
+
+  const nucleusDots = [
+    [-0.24, 0.06, 0.1],
+    [0.02, -0.1, -0.08],
+    [0.3, 0.12, 0.06],
+    [0.12, 0.18, -0.12]
+  ]
+
+  nucleusDots.forEach(([px, py, pz], index) => {
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(index % 2 === 0 ? 0.065 : 0.05, 18, 18),
+      createSoftMaterial(index % 2 === 0 ? '#e7fff0' : '#9cf4bb', 0.95, '#275f41')
+    )
+    dot.position.set(px, py, pz)
+    group.add(dot)
+  })
+
+  for (let i = 0; i < 6; i++) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.68, 0, 0),
+      new THREE.Vector3(0.98 + i * 0.05, (i - 2.5) * 0.08, 0.08 * Math.sin(i)),
+      new THREE.Vector3(1.28 + i * 0.08, (i - 2.5) * 0.16, 0.2 * Math.cos(i)),
+      new THREE.Vector3(1.72 + i * 0.1, (i - 2.5) * 0.24, 0.26 * Math.sin(i * 1.3))
+    ])
+
+    const tail = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, 48, 0.014, 8, false),
+      flagellaMaterial
+    )
+    group.add(tail)
+  }
+
+  group.scale.setScalar(scale)
+  group.rotation.z = -0.28
+  group.position.set(x, y, 0)
+  return group
+}
+
+const createProteinComplex = (x, y, scale = 1) => {
+  const group = new THREE.Group()
+
+  const colors = ['#7fd0ff', '#b9e8ff', '#5db1ff', '#d9f6ff', '#86c7ff']
   const positions = [
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0.95, 0.5, 0.15),
-    new THREE.Vector3(-0.8, 0.6, -0.1),
-    new THREE.Vector3(0.45, -0.9, 0.2),
-    new THREE.Vector3(-0.9, -0.55, -0.15)
+    [0, 0, 0],
+    [0.48, 0.18, 0.12],
+    [-0.42, 0.26, -0.08],
+    [0.16, -0.42, 0.1],
+    [-0.26, -0.34, -0.12],
+    [0.02, 0.52, -0.06]
   ]
 
   positions.forEach((pos, index) => {
-    const radius = index === 0 ? 0.34 : 0.24
-    const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 32, 32),
-      index % 2 === 0 ? atomMaterial : atomAccentMaterial
+    const blob = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(index === 0 ? 0.34 : 0.22, 2),
+      createSoftMaterial(colors[index % colors.length], 0.96, '#0d3f67')
     )
-    sphere.position.copy(pos)
-    group.add(sphere)
+    blob.position.set(pos[0], pos[1], pos[2])
+    blob.rotation.set(Math.random(), Math.random(), Math.random())
+    group.add(blob)
+  })
+
+  const linkMaterial = new THREE.MeshStandardMaterial({
+    color: '#d8f4ff',
+    roughness: 0.42,
+    metalness: 0.06
   })
 
   for (let i = 1; i < positions.length; i++) {
-    const start = positions[0]
-    const end = positions[i]
+    const start = new THREE.Vector3(...positions[0])
+    const end = new THREE.Vector3(...positions[i])
     const direction = new THREE.Vector3().subVectors(end, start)
     const length = direction.length()
 
     const bond = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.055, Math.max(0.1, length - 0.11), 6, 12),
-      bondMaterial
+      new THREE.CapsuleGeometry(0.038, Math.max(0.08, length - 0.06), 6, 12),
+      linkMaterial
     )
 
-    const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5)
-    bond.position.copy(midpoint)
+    bond.position.copy(start.clone().add(end).multiplyScalar(0.5))
     bond.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       direction.clone().normalize()
@@ -1005,21 +1222,21 @@ const createCapsule = (x, y, scale = 1) => {
 
   const left = new THREE.Mesh(
     new THREE.SphereGeometry(0.42, 32, 32),
-    createSoftMaterial('#f8fffb', 0.94)
+    createSoftMaterial('#fff2db', 0.95, '#7a4f12')
   )
   left.scale.x = 0.9
   left.position.x = -0.34
 
   const right = new THREE.Mesh(
     new THREE.SphereGeometry(0.42, 32, 32),
-    createSoftMaterial('#b8f1ce', 0.95)
+    createSoftMaterial('#ffb36b', 0.95, '#7a3d08')
   )
   right.scale.x = 0.9
   right.position.x = 0.34
 
   const body = new THREE.Mesh(
     new THREE.CylinderGeometry(0.36, 0.36, 0.78, 32),
-    createSoftMaterial('#edfdf4', 0.92)
+    createSoftMaterial('#ffe2bf', 0.92, '#7c4b14')
   )
   body.rotation.z = Math.PI / 2
 
@@ -1035,20 +1252,37 @@ const createPetriDish = (x, y, scale = 1) => {
 
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.72, 0.08, 20, 100),
-    createSoftMaterial('#f4fff9', 0.6)
+    createSoftMaterial('#d8f6ff', 0.62, '#14485b')
   )
 
   const core = new THREE.Mesh(
     new THREE.CircleGeometry(0.62, 48),
     new THREE.MeshPhysicalMaterial({
-      color: '#dcf7e9',
+      color: '#72baff',
       transparent: true,
-      opacity: 0.38,
-      roughness: 0.18,
+      opacity: 0.26,
+      roughness: 0.12,
       metalness: 0.04,
-      transmission: 0.5
+      transmission: 0.66,
+      clearcoat: 0.8
     })
   )
+
+  const colonyPositions = [
+    [-0.18, 0.14, 0.02],
+    [0.12, 0.2, 0.02],
+    [0.22, -0.08, 0.02],
+    [-0.1, -0.2, 0.02]
+  ]
+
+  colonyPositions.forEach(([px, py, pz], index) => {
+    const colony = new THREE.Mesh(
+      new THREE.SphereGeometry(index % 2 === 0 ? 0.06 : 0.045, 16, 16),
+      createSoftMaterial(index % 2 === 0 ? '#dbf5ff' : '#9fd8ff', 0.9, '#154662')
+    )
+    colony.position.set(px, py, pz)
+    group.add(colony)
+  })
 
   group.add(ring, core)
   group.scale.setScalar(scale)
@@ -1060,112 +1294,207 @@ const createCell = (x, y, scale = 1) => {
   const group = new THREE.Group()
 
   const shell = new THREE.Mesh(
-    new THREE.SphereGeometry(0.62, 40, 40),
+    new THREE.SphereGeometry(0.66, 40, 40),
     new THREE.MeshPhysicalMaterial({
-      color: '#fbfffd',
+      color: '#ffd5f2',
       transparent: true,
-      opacity: 0.42,
-      roughness: 0.12,
-      metalness: 0.04,
-      transmission: 0.72,
-      clearcoat: 0.8
+      opacity: 0.32,
+      roughness: 0.1,
+      metalness: 0.03,
+      transmission: 0.8,
+      clearcoat: 0.95
     })
   )
 
   const nucleus = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 24, 24),
-    createSoftMaterial('#8fe4b3', 0.92)
+    new THREE.SphereGeometry(0.22, 24, 24),
+    createSoftMaterial('#ff78cf', 0.94, '#7a1b5a')
   )
   nucleus.position.set(0.12, -0.08, 0.14)
 
   const organelle1 = new THREE.Mesh(
-    new THREE.SphereGeometry(0.08, 16, 16),
-    createSoftMaterial('#d6f8e5', 0.88)
+    new THREE.SphereGeometry(0.09, 16, 16),
+    createSoftMaterial('#ffd8ef', 0.92, '#772050')
   )
-  organelle1.position.set(-0.16, 0.1, 0.08)
+  organelle1.position.set(-0.16, 0.12, 0.08)
 
   const organelle2 = new THREE.Mesh(
-    new THREE.SphereGeometry(0.06, 16, 16),
-    createSoftMaterial('#c0f1d5', 0.88)
+    new THREE.SphereGeometry(0.07, 16, 16),
+    createSoftMaterial('#ffb2e1', 0.92, '#7c2454')
   )
   organelle2.position.set(0.18, 0.16, -0.04)
 
-  group.add(shell, nucleus, organelle1, organelle2)
+  const organelle3 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.05, 16, 16),
+    createSoftMaterial('#ffeaf8', 0.92, '#6d284f')
+  )
+  organelle3.position.set(-0.08, -0.16, 0.02)
+
+  group.add(shell, nucleus, organelle1, organelle2, organelle3)
   group.scale.setScalar(scale)
   group.position.set(x, y, 0)
   return group
 }
 
+const createBreathingParticles = () => {
+  const count = 260
+  const positions = new Float32Array(count * 3)
+  const sizes = new Float32Array(count)
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3
+    positions[i3] = (Math.random() - 0.5) * 11
+    positions[i3 + 1] = (Math.random() - 0.5) * 8
+    positions[i3 + 2] = (Math.random() - 0.5) * 4 - 1.5
+    sizes[i] = 0.8 + Math.random() * 1.8
+  }
+
+  particleGeometry = new THREE.BufferGeometry()
+  particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  particleGeometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
+
+  particleMaterial = new THREE.PointsMaterial({
+    color: '#b7fff0',
+    size: 0.045,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+
+  particleSystem = new THREE.Points(particleGeometry, particleMaterial)
+  particleSystem.position.z = -1.8
+  scene.add(particleSystem)
+}
+
+const animateBreathingParticles = (elapsed) => {
+  if (!particleSystem || !particleGeometry) return
+
+  const positions = particleGeometry.attributes.position.array
+
+  for (let i = 0; i < positions.length; i += 3) {
+    const baseX = positions[i]
+    const baseY = positions[i + 1]
+
+    positions[i + 2] += Math.sin(elapsed * 0.35 + baseX * 0.8 + baseY * 0.6) * 0.0009
+    positions[i + 1] += Math.cos(elapsed * 0.28 + baseX * 0.5) * 0.0007
+  }
+
+  particleGeometry.attributes.position.needsUpdate = true
+  particleMaterial.opacity = 0.25 + Math.sin(elapsed * 0.9) * 0.06
+  particleSystem.rotation.z = elapsed * 0.012
+}
+
 const createDnaHelix = (x, y, scale = 1) => {
   const group = new THREE.Group()
 
-  const leftMaterial = new THREE.MeshStandardMaterial({
-    color: '#0f7b56',
-    roughness: 0.34,
-    metalness: 0.08
-  })
-  const rightMaterial = new THREE.MeshStandardMaterial({
-    color: '#b6f1cb',
-    roughness: 0.28,
-    metalness: 0.06
-  })
-  const rungMaterial = new THREE.MeshStandardMaterial({
-    color: '#e8fbf1',
-    roughness: 0.45,
-    metalness: 0.04
+  const leftMaterial = createSoftMaterial('#15c97d', 0.98, '#0b5d3b')
+  const rightMaterial = createSoftMaterial('#9ef7d1', 0.98, '#16593f')
+  const rungMaterial = new THREE.MeshPhysicalMaterial({
+    color: '#eafff4',
+    roughness: 0.26,
+    metalness: 0.08,
+    clearcoat: 0.95,
+    clearcoatRoughness: 0.12,
+    transmission: 0.12
   })
 
-  const turns = 18
-  const helixHeight = 3.8
-  const radius = 0.42
+  const spineMaterial = new THREE.MeshStandardMaterial({
+    color: '#d8fff0',
+    roughness: 0.34,
+    metalness: 0.05
+  })
+
+  const turns = 28
+  const helixHeight = 5.2
+  const radius = 0.54
+
+  let previousLeft = null
+  let previousRight = null
 
   for (let i = 0; i < turns; i++) {
     const tValue = i / (turns - 1)
-    const angle = tValue * Math.PI * 4.8
+    const angle = tValue * Math.PI * 6.2
     const yPos = (tValue - 0.5) * helixHeight
 
     const leftPos = new THREE.Vector3(
       Math.cos(angle) * radius,
       yPos,
-      Math.sin(angle) * radius * 0.55
+      Math.sin(angle) * radius * 0.65
     )
+
     const rightPos = new THREE.Vector3(
       Math.cos(angle + Math.PI) * radius,
       yPos,
-      Math.sin(angle + Math.PI) * radius * 0.55
+      Math.sin(angle + Math.PI) * radius * 0.65
     )
 
     const leftNode = new THREE.Mesh(
-      new THREE.SphereGeometry(0.085, 18, 18),
+      new THREE.SphereGeometry(0.09, 22, 22),
       leftMaterial
     )
     leftNode.position.copy(leftPos)
 
     const rightNode = new THREE.Mesh(
-      new THREE.SphereGeometry(0.085, 18, 18),
+      new THREE.SphereGeometry(0.09, 22, 22),
       rightMaterial
     )
     rightNode.position.copy(rightPos)
 
-    const linkDirection = new THREE.Vector3().subVectors(rightPos, leftPos)
-    const linkLength = linkDirection.length()
+    group.add(leftNode, rightNode)
+
+    const rungDirection = new THREE.Vector3().subVectors(rightPos, leftPos)
+    const rungLength = rungDirection.length()
 
     const rung = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.02, Math.max(0.05, linkLength - 0.04), 4, 8),
+      new THREE.CapsuleGeometry(0.022, Math.max(0.05, rungLength - 0.05), 5, 10),
       rungMaterial
     )
     rung.position.copy(leftPos.clone().add(rightPos).multiplyScalar(0.5))
     rung.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
-      linkDirection.clone().normalize()
+      rungDirection.clone().normalize()
     )
+    group.add(rung)
 
-    group.add(leftNode, rightNode, rung)
+    if (previousLeft) {
+      const leftDir = new THREE.Vector3().subVectors(leftPos, previousLeft)
+      const leftLen = leftDir.length()
+      const leftTube = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.028, Math.max(0.05, leftLen - 0.05), 5, 10),
+        spineMaterial
+      )
+      leftTube.position.copy(previousLeft.clone().add(leftPos).multiplyScalar(0.5))
+      leftTube.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        leftDir.clone().normalize()
+      )
+      group.add(leftTube)
+    }
+
+    if (previousRight) {
+      const rightDir = new THREE.Vector3().subVectors(rightPos, previousRight)
+      const rightLen = rightDir.length()
+      const rightTube = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.028, Math.max(0.05, rightLen - 0.05), 5, 10),
+        spineMaterial
+      )
+      rightTube.position.copy(previousRight.clone().add(rightPos).multiplyScalar(0.5))
+      rightTube.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        rightDir.clone().normalize()
+      )
+      group.add(rightTube)
+    }
+
+    previousLeft = leftPos.clone()
+    previousRight = rightPos.clone()
   }
 
   group.scale.setScalar(scale)
-  group.rotation.z = 0.22
-  group.position.set(x, y, -0.4)
+  group.rotation.z = 0.18
+  group.rotation.x = -0.14
+  group.position.set(x, y, -0.55)
   return group
 }
 
@@ -1173,7 +1502,7 @@ const setupBiotechScene = () => {
   if (!biotechSceneRef.value) return
 
   scene = new THREE.Scene()
-  scene.fog = new THREE.Fog('#eef8f2', 8, 18)
+  scene.fog = new THREE.Fog('#061816', 7.5, 18)
 
   const width = biotechSceneRef.value.clientWidth
   const height = biotechSceneRef.value.clientHeight
@@ -1193,27 +1522,33 @@ const setupBiotechScene = () => {
 
   biotechSceneRef.value.appendChild(renderer.domElement)
 
-  const ambient = new THREE.AmbientLight('#ffffff', 1.8)
+  const ambient = new THREE.AmbientLight('#d7fff4', 1.15)
   scene.add(ambient)
 
-  const keyLight = new THREE.DirectionalLight('#ffffff', 1.8)
-  keyLight.position.set(4, 5, 6)
+  const keyLight = new THREE.DirectionalLight('#aaffea', 1.45)
+  keyLight.position.set(4.5, 5.5, 6.5)
   scene.add(keyLight)
 
-  const fillLight = new THREE.DirectionalLight('#c9ffd8', 0.9)
-  fillLight.position.set(-5, 2, 4)
+  const fillLight = new THREE.DirectionalLight('#75bfff', 0.72)
+  fillLight.position.set(-5, 1.5, 4)
   scene.add(fillLight)
 
-  const rimLight = new THREE.PointLight('#b7f3cf', 1.4, 20)
-  rimLight.position.set(0, -2, 4)
+  const rimLight = new THREE.PointLight('#4ff0c5', 1.55, 22)
+  rimLight.position.set(-1.2, -1.5, 4)
   scene.add(rimLight)
 
-  addFloatingItem(createDnaHelix(-1.8, 0.45, 1.12), -1.8, 0.45, -0.4, 1.15)
-  addFloatingItem(createMoleculeCluster(1.85, 1.2, 0.95), 1.85, 1.2, 0, 1)
-  addFloatingItem(createCapsule(2.25, -1.45, 0.9), 2.25, -1.45, 0, 0.92)
-  addFloatingItem(createPetriDish(-2.2, -1.55, 0.95), -2.2, -1.55, -0.2, 0.88)
-  addFloatingItem(createCell(0.65, -0.85, 1.08), 0.65, -0.85, 0, 1.05)
-  addFloatingItem(createMoleculeCluster(-0.2, 1.8, 0.62), -0.2, 1.8, 0, 0.65)
+  const topGlow = new THREE.PointLight('#96e9ff', 0.95, 18)
+  topGlow.position.set(1.8, 2.4, 3.2)
+  scene.add(topGlow)
+
+  addFloatingItem(createDnaHelix(-1.95, 0.5, 1.18), -1.95, 0.5, -0.45, 1.18)
+  addFloatingItem(createBacteriaModel(1.95, 1.08, 0.94), 1.95, 1.08, 0, 1.02)
+  addFloatingItem(createCapsule(2.28, -1.46, 0.92), 2.28, -1.46, 0, 0.88)
+
+  addFloatingItem(createCell(0.75, -0.84, 1.06), 0.75, -0.84, 0, 1.02)
+  addFloatingItem(createProteinComplex(-0.1, 1.82, 0.68), -0.1, 1.82, 0, 0.66)
+
+  createBreathingParticles()
 
   sceneClock = new THREE.Clock()
 }
@@ -1237,7 +1572,7 @@ const animateBiotechScene = () => {
     const toMouse = new THREE.Vector3().subVectors(current, mouseWorld)
     const distance = Math.max(0.0001, toMouse.length())
 
-    const influenceRadius = 2.3
+    const influenceRadius = 2.35
     let repelStrength = 0
 
     if (distance < influenceRadius) {
@@ -1248,27 +1583,35 @@ const animateBiotechScene = () => {
 
     const returnForce = new THREE.Vector3()
       .subVectors(base, current)
-      .multiplyScalar(0.032)
+      .multiplyScalar(0.03)
 
     item.velocity.add(returnForce)
     item.velocity.multiplyScalar(0.9)
 
     current.add(item.velocity)
 
-    const floatY = Math.sin(elapsed * 0.9 + item.noiseOffset) * 0.06
-    const floatX = Math.cos(elapsed * 0.6 + item.noiseOffset * 0.7) * 0.03
+    const floatY = Math.sin(elapsed * 0.85 + item.noiseOffset) * 0.075
+    const floatX = Math.cos(elapsed * 0.52 + item.noiseOffset * 0.7) * 0.04
 
-    item.mesh.position.x += floatX * 0.06
-    item.mesh.position.y += floatY * 0.06
+    item.mesh.position.x += floatX * 0.07
+    item.mesh.position.y += floatY * 0.07
 
-    item.mesh.rotation.y += 0.0025 * item.force
-    item.mesh.rotation.x = Math.sin(elapsed * 0.7 + item.noiseOffset) * 0.04
+    item.mesh.rotation.y += 0.0026 * item.force
+    item.mesh.rotation.x = Math.sin(elapsed * 0.55 + item.noiseOffset) * 0.05
 
     if (repelStrength > 0.01) {
-      item.mesh.rotation.z += 0.006 * item.force
+      item.mesh.rotation.z += 0.0058 * item.force
     } else {
-      item.mesh.rotation.z *= 0.96
+      item.mesh.rotation.z *= 0.965
     }
+  }
+
+  animateBreathingParticles(elapsed)
+
+  if (camera) {
+    camera.position.x = Math.sin(elapsed * 0.12) * 0.08
+    camera.position.y = Math.cos(elapsed * 0.15) * 0.06
+    camera.lookAt(0, 0, 0)
   }
 
   renderer.render(scene, camera)
@@ -1366,9 +1709,43 @@ onBeforeUnmount(() => {
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   min-height: 100vh;
   background:
-    radial-gradient(circle at 20% 20%, rgba(212, 248, 226, 0.9), transparent 28%),
-    radial-gradient(circle at 82% 18%, rgba(190, 241, 212, 0.72), transparent 30%),
-    linear-gradient(180deg, #f9fcfa 0%, #eef8f2 48%, #e7f3eb 100%);
+    radial-gradient(circle at 18% 16%, rgba(53, 255, 196, 0.14), transparent 20%),
+    radial-gradient(circle at 82% 20%, rgba(96, 154, 255, 0.16), transparent 24%),
+    radial-gradient(circle at 50% 78%, rgba(39, 255, 207, 0.08), transparent 30%),
+    linear-gradient(135deg, #031110 0%, #071a18 22%, #092321 46%, #061513 72%, #030c0c 100%);
+}
+
+.left-bg-stack {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.bg-slideshow,
+.biotech-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.bg-slideshow.active,
+.biotech-bg.active {
+  opacity: 1;
+}
+
+.bg-slide {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transform: scale(1.06);
+  animation: heroSlideshow 18s infinite;
+  filter: saturate(1.04) contrast(1.03);
 }
 
 .biotech-scene {
@@ -1381,16 +1758,66 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   z-index: 0;
+  pointer-events: none;
+}
+
+.bg-overlay-original {
   background:
-    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.26), transparent 28%),
-    radial-gradient(circle at 82% 78%, rgba(170, 237, 198, 0.16), transparent 26%),
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 30%),
     linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.22) 0%,
-      rgba(255, 255, 255, 0.08) 45%,
-      rgba(11, 69, 51, 0.12) 100%
+      rgba(8, 31, 28, 0.76) 0%,
+      rgba(8, 31, 28, 0.50) 45%,
+      rgba(8, 31, 28, 0.66) 100%
     );
-  pointer-events: none;
+}
+
+.bg-overlay-biotech {
+  background:
+    radial-gradient(circle at 18% 20%, rgba(171, 255, 228, 0.12), transparent 24%),
+    radial-gradient(circle at 84% 72%, rgba(112, 178, 255, 0.1), transparent 24%),
+    radial-gradient(circle at 48% 48%, rgba(255, 255, 255, 0.04), transparent 38%),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.05) 0%,
+      rgba(255, 255, 255, 0.015) 36%,
+      rgba(10, 58, 49, 0.16) 100%
+    );
+  mix-blend-mode: screen;
+  animation: breatheOverlay 6s ease-in-out infinite;
+}
+
+.left-bg-toggle {
+  position: absolute;
+  top: 1.1rem;
+  left: 1.1rem;
+  z-index: 2;
+  min-width: 52px;
+  height: 36px;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #effff8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.left-bg-toggle:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+}
+
+.left-pane[dir="rtl"] .left-bg-toggle {
+  left: auto;
+  right: 1.1rem;
 }
 
 .left-inner {
@@ -1398,12 +1825,13 @@ onBeforeUnmount(() => {
   z-index: 1;
   width: 100%;
   max-width: 560px;
-  color: #173329;
+  color: #ffffff;
 }
 
 .left-inner.rtl {
   text-align: right;
 }
+
 
 .brand {
   display: flex;
@@ -1416,29 +1844,27 @@ onBeforeUnmount(() => {
 .brand-title {
   font-size: clamp(1.65rem, 2vw, 1.95rem);
   font-weight: 750;
-  color: #103126;
+  color: #ffffff;
   letter-spacing: -0.02em;
   line-height: 1.15;
   margin: 0;
   overflow-wrap: anywhere;
-  text-shadow: 0 2px 16px rgba(255, 255, 255, 0.24);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
 }
 
 .logo-icon {
   width: 52px;
   height: 52px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.52));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.1));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 52px;
-  box-shadow:
-    0 12px 30px rgba(16, 49, 38, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
 }
 
 .logo-icon img {
@@ -1455,15 +1881,15 @@ onBeforeUnmount(() => {
   font-size: clamp(2rem, 2.8vw, 2.45rem);
   font-weight: 760;
   margin: 0 0 0.9rem;
-  color: #103126;
+  color: #ffffff;
   line-height: 1.12;
   letter-spacing: -0.03em;
   overflow-wrap: anywhere;
-  text-shadow: 0 2px 20px rgba(255, 255, 255, 0.22);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.2);
 }
 
 .custom-content :deep(p) {
-  color: rgba(16, 49, 38, 0.84);
+  color: rgba(255, 255, 255, 0.92);
   margin: 0 0 0.9rem;
   line-height: 1.72;
   font-size: 1.03rem;
@@ -1473,7 +1899,7 @@ onBeforeUnmount(() => {
 
 .custom-content :deep(ul.info-list) {
   margin: 0.9rem 0 1.2rem 1.2rem;
-  color: rgba(16, 49, 38, 0.92);
+  color: rgba(255, 255, 255, 0.98);
   line-height: 1.7;
   padding-inline-start: 0.9rem;
 }
@@ -1515,8 +1941,7 @@ onBeforeUnmount(() => {
 .login-card {
   position: relative;
   z-index: 1;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95));
   border-radius: 28px;
   box-shadow:
     0 30px 60px rgba(0, 0, 0, 0.18),
@@ -1555,16 +1980,13 @@ onBeforeUnmount(() => {
 .login-logo-icon {
   width: 74px;
   height: 74px;
-  background:
-    linear-gradient(180deg, #ffffff, #f5f7f8);
+  background: linear-gradient(180deg, #ffffff, #f5f7f8);
   border-radius: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 0.55rem;
-  box-shadow:
-    0 14px 28px rgba(10, 79, 65, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 28px rgba(10, 79, 65, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(14, 32, 28, 0.06);
 }
 
@@ -1636,9 +2058,7 @@ onBeforeUnmount(() => {
 .form-control:focus {
   outline: none;
   border-color: rgba(10, 79, 65, 0.45);
-  box-shadow:
-    0 0 0 4px rgba(10, 79, 65, 0.12),
-    0 10px 24px rgba(10, 79, 65, 0.08);
+  box-shadow: 0 0 0 4px rgba(10, 79, 65, 0.12), 0 10px 24px rgba(10, 79, 65, 0.08);
   background: #ffffff;
 }
 
@@ -1676,19 +2096,14 @@ onBeforeUnmount(() => {
 }
 
 .btn-primary {
-  background:
-    linear-gradient(180deg, rgba(7, 128, 91, 1) 0%, rgba(7, 117, 84, 1) 100%);
+  background: linear-gradient(180deg, rgba(7, 128, 91, 1) 0%, rgba(7, 117, 84, 1) 100%);
   color: #ffffff;
   border: 1px solid rgba(7, 92, 67, 0.72);
-  box-shadow:
-    0 16px 28px rgba(7, 116, 84, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 28px rgba(7, 116, 84, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .btn-primary:hover:not(:disabled) {
-  box-shadow:
-    0 18px 32px rgba(7, 116, 84, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 32px rgba(7, 116, 84, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .btn-primary:disabled {
@@ -1698,17 +2113,17 @@ onBeforeUnmount(() => {
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.18);
-  color: #103126;
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 10px 22px rgba(16, 49, 38, 0.08);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.28);
-  box-shadow: 0 14px 28px rgba(16, 49, 38, 0.12);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.14);
 }
 
 .otp-container {
@@ -1745,9 +2160,7 @@ onBeforeUnmount(() => {
 
 .otp-input:focus {
   border-color: rgba(10, 79, 65, 0.5);
-  box-shadow:
-    0 0 0 4px rgba(10, 79, 65, 0.12),
-    0 10px 22px rgba(10, 79, 65, 0.08);
+  box-shadow: 0 0 0 4px rgba(10, 79, 65, 0.12), 0 10px 22px rgba(10, 79, 65, 0.08);
   background: #ffffff;
   transform: translateY(-1px);
 }
@@ -1872,12 +2285,12 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   font-size: 0.88rem;
   font-weight: 560;
-  background: rgba(255, 255, 255, 0.34);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  color: #103126;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 8px 22px rgba(16, 49, 38, 0.08);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
 }
 
 .otp-email {
@@ -2028,11 +2441,52 @@ onBeforeUnmount(() => {
   vertical-align: middle;
 }
 
+@keyframes breatheOverlay {
+  0%,
+  100% {
+    opacity: 0.92;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes heroSlideshow {
+  0% {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+
+  8% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+
+  28% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  36% {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
 @keyframes fadeSlideIn {
   from {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2067,10 +2521,6 @@ onBeforeUnmount(() => {
   .left-pane,
   .right-pane {
     padding: 1.5rem 1.25rem;
-  }
-
-  .left-pane {
-    min-height: 58vh;
   }
 
   .login-card {
