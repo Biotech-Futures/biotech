@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+cd admin/apps/web && pnpm exec tsc --noEmit

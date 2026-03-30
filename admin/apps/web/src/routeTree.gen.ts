@@ -9,68 +9,173 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AboutRouteImport } from './routes/about'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthRouteRouteImport } from './routes/_auth/route'
+import { Route as AuthIndexRouteImport } from './routes/_auth/index'
+import { Route as AuthUserRouteImport } from './routes/_auth/user'
+import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
+import { Route as AuthGroupRouteImport } from './routes/_auth/group'
+import { Route as AuthEventRouteImport } from './routes/_auth/event'
+import { Route as AuthEmailRouteImport } from './routes/_auth/email'
 
-const AboutRoute = AboutRouteImport.update({
-  id: '/about',
-  path: '/about',
+const AuthRouteRoute = AuthRouteRouteImport.update({
+  id: '/_auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
+const AuthIndexRoute = AuthIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthUserRoute = AuthUserRouteImport.update({
+  id: '/user',
+  path: '/user',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthMatchingRoute = AuthMatchingRouteImport.update({
+  id: '/matching',
+  path: '/matching',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthGroupRoute = AuthGroupRouteImport.update({
+  id: '/group',
+  path: '/group',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthEventRoute = AuthEventRouteImport.update({
+  id: '/event',
+  path: '/event',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthEmailRoute = AuthEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
+  getParentRoute: () => AuthRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/about': typeof AboutRoute
+  '/': typeof AuthIndexRoute
+  '/email': typeof AuthEmailRoute
+  '/event': typeof AuthEventRoute
+  '/group': typeof AuthGroupRoute
+  '/matching': typeof AuthMatchingRoute
+  '/user': typeof AuthUserRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/about': typeof AboutRoute
+  '/email': typeof AuthEmailRoute
+  '/event': typeof AuthEventRoute
+  '/group': typeof AuthGroupRoute
+  '/matching': typeof AuthMatchingRoute
+  '/user': typeof AuthUserRoute
+  '/': typeof AuthIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/about': typeof AboutRoute
+  '/_auth': typeof AuthRouteRouteWithChildren
+  '/_auth/email': typeof AuthEmailRoute
+  '/_auth/event': typeof AuthEventRoute
+  '/_auth/group': typeof AuthGroupRoute
+  '/_auth/matching': typeof AuthMatchingRoute
+  '/_auth/user': typeof AuthUserRoute
+  '/_auth/': typeof AuthIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about'
+  fullPaths: '/' | '/email' | '/event' | '/group' | '/matching' | '/user'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about'
-  id: '__root__' | '/' | '/about'
+  to: '/email' | '/event' | '/group' | '/matching' | '/user' | '/'
+  id:
+    | '__root__'
+    | '/_auth'
+    | '/_auth/email'
+    | '/_auth/event'
+    | '/_auth/group'
+    | '/_auth/matching'
+    | '/_auth/user'
+    | '/_auth/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AboutRoute: typeof AboutRoute
+  AuthRouteRoute: typeof AuthRouteRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/about': {
-      id: '/about'
-      path: '/about'
-      fullPath: '/about'
-      preLoaderRoute: typeof AboutRouteImport
+    '/_auth': {
+      id: '/_auth'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
+    '/_auth/': {
+      id: '/_auth/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AuthIndexRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/user': {
+      id: '/_auth/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof AuthUserRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/matching': {
+      id: '/_auth/matching'
+      path: '/matching'
+      fullPath: '/matching'
+      preLoaderRoute: typeof AuthMatchingRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/group': {
+      id: '/_auth/group'
+      path: '/group'
+      fullPath: '/group'
+      preLoaderRoute: typeof AuthGroupRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/event': {
+      id: '/_auth/event'
+      path: '/event'
+      fullPath: '/event'
+      preLoaderRoute: typeof AuthEventRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/email': {
+      id: '/_auth/email'
+      path: '/email'
+      fullPath: '/email'
+      preLoaderRoute: typeof AuthEmailRouteImport
+      parentRoute: typeof AuthRouteRoute
     }
   }
 }
 
+interface AuthRouteRouteChildren {
+  AuthEmailRoute: typeof AuthEmailRoute
+  AuthEventRoute: typeof AuthEventRoute
+  AuthGroupRoute: typeof AuthGroupRoute
+  AuthMatchingRoute: typeof AuthMatchingRoute
+  AuthUserRoute: typeof AuthUserRoute
+  AuthIndexRoute: typeof AuthIndexRoute
+}
+
+const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthEmailRoute: AuthEmailRoute,
+  AuthEventRoute: AuthEventRoute,
+  AuthGroupRoute: AuthGroupRoute,
+  AuthMatchingRoute: AuthMatchingRoute,
+  AuthUserRoute: AuthUserRoute,
+  AuthIndexRoute: AuthIndexRoute,
+}
+
+const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
+  AuthRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AboutRoute: AboutRoute,
+  AuthRouteRoute: AuthRouteRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
