@@ -1,0 +1,33 @@
+// Group type definitions
+
+export type Track = "frontend" | "backend" | "fullstack" | "data";
+
+export type GroupMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: "student" | "mentor";
+};
+
+export type Group = {
+  id: string;
+  name: string;
+  track: Track;
+  members: GroupMember[];
+  mentor: GroupMember | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaginatedResponse<T> = {
+  msg: string;
+  data: {
+    items: T[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  };
+};
+
+export const TRACKS: Track[] = ["frontend", "backend", "fullstack", "data"];

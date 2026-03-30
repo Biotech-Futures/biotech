@@ -9,6 +9,7 @@ A React frontend application using TanStack Router for routing, TanStack Query f
 - **Framework**: React 19 with TypeScript
 - **Routing**: TanStack Router (file-based routing)
 - **Data Fetching**: Axios + TanStack Query
+- **Tables**: TanStack Table + shadcn/ui table
 - **UI Components**: shadcn/ui (Radix-based)
 - **Styling**: Tailwind CSS v4
 - **Icons**: Lucide React
@@ -33,11 +34,16 @@ src/
 │   │   ├── button.tsx
 │   │   ├── input.tsx
 │   │   ├── sidebar.tsx
+│   │   ├── table.tsx        # shadcn table components
 │   │   └── ...
-│   └── layout/              # Layout components
-│       ├── app-sidebar.tsx
-│       ├── Nav.tsx
-│       └── NavUser.tsx
+│   ├── layout/              # Layout components
+│   │   ├── app-sidebar.tsx
+│   │   ├── Nav.tsx
+│   │   └── NavUser.tsx
+│   └── <feature>/           # Feature-specific components
+│       ├── columns.tsx      # Table column definitions
+│       ├── <Feature>Table.tsx  # Table with pagination
+│       └── <Feature>Filters.tsx # Filter components
 ├── lib/
 │   ├── utils.ts             # Utility functions (cn, etc.)
 │   └── myFetch.ts           # Axios instance configuration
@@ -84,6 +90,416 @@ import { UsersIcon, MailIcon, CalendarIcon, SettingsIcon } from "lucide-react";
 <UsersIcon className="size-4" />
 <Button><SettingsIcon /> Settings</Button>
 ```
+
+## Table Pattern (TanStack Table + shadcn/ui + Pagination)
+
+For data tables, combine **@tanstack/react-table** with shadcn's table components and **TanStack Query pagination** for server-side search and pagination.
+
+### Setup
+
+```bash
+# Add shadcn table component
+pnpm dlx shadcn@latest add table
+```
+
+### Backend: Paginated API Endpoint
+
+The backend must support pagination and search parameters:
+
+```typescript
+// apps/server/src/module/user/service.ts
+export function queryUser(params: { page?: number; limit?: number; search?: string }) {
+  const page = params.page ?? 1;
+  const limit = params.limit ?? 10;
+  const offset = (page - 1) * limit;
+
+  // Query database with search and pagination
+  const users = await db
+    .select()
+    .from(userTable)
+    .where(params.search ? ilike(userTable.name, `%${params.search}%`) : undefined)
+    .limit(limit)
+    .offset(offset);
+
+  const total = await db
+    .select({ count: sql`count(*)` })
+    .from(userTable)
+    .where(params.search ? ilike(userTable.name, `%${params.search}%`) : undefined);
+
+  return {
+    msg: "Users retrieved successfully",
+    data: {
+      items: users,
+      total: total[0].count,
+      page,
+      limit,
+      hasMore: offset + users.length < total[0].count,
+    },
+  };
+}
+
+// apps/server/src/module/user/route.ts
+userRoute.get("/", (c) => {
+  const page = c.req.query("page") ?? "1";
+  const limit = c.req.query("limit") ?? "10";
+  const search = c.req.query("search") ?? "";
+  const res = queryUser({ page: parseInt(page), limit: parseInt(limit), search });
+  return c.json(res);
+});
+```
+
+### Frontend: Paginated Query Hook
+
+```typescript
+// src/query/user.ts
+import { myFetch } from "@/lib/myFetch";
+import { useQuery } from "@tanstack/react-query";
+import type { User, PaginatedResponse } from "@/type/user";
+
+export function useQueryUsers(page: number = 1, search: string = "") {
+  return useQuery({
+    queryKey: ["users", page, search],
+    queryFn: async (): Promise<PaginatedResponse<User>> => {
+      const res = await myFetch.get<PaginatedResponse<User>>(
+        `/user?page=${page}&limit=10&search=${encodeURIComponent(search)}`
+      );
+      return res.data;
+    },
+  });
+}
+```
+
+### Frontend: Types
+
+```typescript
+// src/type/user.ts
+export type User = {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+};
+
+export type PaginatedResponse<T> = {
+  msg: string;
+  data: {
+    items: T[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  };
+};
+```
+
+### Define Columns
+
+```typescript
+// src/components/user/columns.tsx
+import type { ColumnDef } from "@tanstack/react-table";
+import type { User } from "@/type/user";
+import { ArrowUpDown, MoreHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+export const columns: ColumnDef<User>[] = [
+  {
+    accessorKey: "name",
+    header: ({ column }) => {
+      return (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Name
+          <ArrowUpDown className="ml-2 size-4" />
+        </Button>
+      );
+    },
+  },
+  {
+    accessorKey: "email",
+    header: "Email",
+  },
+  {
+    accessorKey: "createdAt",
+    header: "Created At",
+    cell: ({ row }) => {
+      return new Date(row.getValue("createdAt")).toLocaleDateString();
+    },
+  },
+  {
+    id: "actions",
+    cell: ({ row }) => {
+      const user = row.original;
+
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => console.log("Edit", user.id)}>
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => console.log("Delete", user.id)}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    },
+  },
+];
+```
+
+### Create Table with Pagination
+
+```typescript
+// src/components/user/UserTable.tsx
+import type { ColumnDef } from "@tanstack/react-table";
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  getSortedRowModel,
+} from "@tanstack/react-table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import type { User } from "@/type/user";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+
+interface UserTableProps {
+  columns: ColumnDef<User>[];
+  data: User[];
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  isPending?: boolean;
+}
+
+export function UserTable({
+  columns,
+  data,
+  page,
+  totalPages,
+  onPageChange,
+  isPending,
+}: UserTableProps) {
+  const table = useReactTable({
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isPending ? (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  Loading...
+                </TableCell>
+              </TableRow>
+            ) : table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="h-24 text-center">
+                  No results.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Page {page} of {totalPages}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(page - 1)}
+            disabled={page <= 1 || isPending}
+          >
+            <ChevronLeftIcon className="size-4" />
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onPageChange(page + 1)}
+            disabled={page >= totalPages || isPending}
+          >
+            Next
+            <ChevronRightIcon className="size-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### Search Input with Debounce
+
+```typescript
+// src/components/ui/search-input.tsx
+import { Input } from "@/components/ui/input";
+import { useState, useEffect, useRef, useCallback } from "react";
+
+interface SearchInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  debounceMs?: number;
+}
+
+export function SearchInput({
+  value,
+  onChange,
+  placeholder = "Search...",
+  debounceMs = 300,
+}: SearchInputProps) {
+  const [localValue, setLocalValue] = useState(value);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedOnChange = useCallback((newValue: string) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      onChange(newValue);
+    }, debounceMs);
+  }, [onChange, debounceMs]);
+
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <Input
+      placeholder={placeholder}
+      value={localValue}
+      onChange={(e) => {
+        setLocalValue(e.target.value);
+        debouncedOnChange(e.target.value);
+      }}
+      className="max-w-sm"
+    />
+  );
+}
+```
+
+### Use in Page Component
+
+```typescript
+// src/routes/_auth/user.tsx
+import { createFileRoute } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
+import { UserTable } from "@/components/user/UserTable";
+import { columns } from "@/components/user/columns";
+import { SearchInput } from "@/components/ui/search-input";
+import { useQueryUsers } from "@/query/user";
+
+export const Route = createFileRoute("/_auth/user")({
+  component: UserPage,
+});
+
+function UserPage() {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  const { data, isPending } = useQueryUsers(page, search);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const users = data?.data.items ?? [];
+  const totalPages = Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10));
+
+  return (
+    <div className="p-4 space-y-4">
+      <h1 className="text-2xl font-bold">Users</h1>
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search users..."
+      />
+      <UserTable
+        columns={columns}
+        data={users}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        isPending={isPending}
+      />
+    </div>
+  );
+}
+```
+
+### Table Features
+
+- **Pagination**: Previous/Next buttons with page display
+- **Server-side Search**: Debounced search triggers API call
+- **Sorting**: Click column headers to sort (client-side for loaded data)
+- **Actions**: Dropdown menu for row actions
 
 ## Data Fetching Pattern
 
@@ -278,6 +694,8 @@ pnpm test      # Run tests
 pnpm dlx shadcn@latest add dialog
 pnpm dlx shadcn@latest add select
 pnpm dlx shadcn@latest add form
+pnpm dlx shadcn@latest add table   # For data tables
+pnpm dlx shadcn@latest add dropdown-menu  # For table row actions
 ```
 
 ## Best Practices
@@ -285,6 +703,7 @@ pnpm dlx shadcn@latest add form
 1. **UI Components**: Always check `src/components/ui/` first - use existing shadcn components
 2. **Icons**: Import from `lucide-react` only - no custom SVG icons
 3. **Forms**: Use `react-hook-form` + `zodResolver` + Zod schema
-4. **API Types**: Define schema first, infer types with `z.infer`, separate response types in `src/type/`
-5. **Query Hooks**: Wrap all API calls in TanStack Query hooks in `src/query/`
-6. **Styling**: Use Tailwind classes directly, or use `cn()` utility for conditional classes
+4. **Tables**: Use `@tanstack/react-table` + `useQuery` with pagination + shadcn table + debounced search
+5. **API Types**: Define schema first, infer types with `z.infer`, separate response types in `src/type/`
+6. **Query Hooks**: Wrap all API calls in TanStack Query hooks in `src/query/`
+7. **Styling**: Use Tailwind classes directly, or use `cn()` utility for conditional classes
