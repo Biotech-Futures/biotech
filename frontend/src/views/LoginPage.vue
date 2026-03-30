@@ -121,7 +121,6 @@
               <!--ref="emailInputRef"以后可以通过该变量直接访问这个DOM元素，比如页面加载好自动聚焦到这里-->
               <!--:placeholder="t('emailPlaceholder')"占位符-->
               <!--autocomplete="email"允许浏览器自动填充邮箱-->
-              <!--@input="handleEmailInput"每次输入都触发函数用于检验格式-->
               <input
                 id="login-email"
                 ref="emailInputRef"
@@ -132,7 +131,7 @@
                 :aria-invalid="Boolean(error)"
                 autocomplete="email"
                 required
-                @input="handleEmailInput"
+                "
               />
               <small class="form-text">
                 {{ t('emailHelper') }}
@@ -1826,6 +1825,36 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 560px;
   color: #ffffff;
+  padding: clamp(1.35rem, 2.6vw, 2rem);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(7, 28, 24, 0.34), rgba(7, 28, 24, 0.18));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.left-inner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.16), transparent 34%),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0.03) 42%,
+      rgba(255, 255, 255, 0.01) 100%
+    );
+  pointer-events: none;
+}
+
+.left-inner > * {
+  position: relative;
+  z-index: 1;
 }
 
 .left-inner.rtl {
@@ -2528,6 +2557,13 @@ onBeforeUnmount(() => {
     overflow-y: visible;
     max-width: 460px;
     width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .left-inner {
+    padding: 1.1rem 1rem;
+    border-radius: 22px;
   }
 }
 
