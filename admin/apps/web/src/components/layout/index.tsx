@@ -12,9 +12,31 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { AppSidebar } from "./app-sidebar";
 
+function formatCrumbLabel(segment: string) {
+  return decodeURIComponent(segment)
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+
+  const segments = pathname.split("/").filter(Boolean);
+  const crumbs = segments.map((segment, index) => {
+    const href = `/${segments.slice(0, index + 1).join("/")}`;
+    const isLast = index === segments.length - 1;
+    return {
+      href,
+      label: formatCrumbLabel(segment),
+      isLast,
+    };
+  });
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -28,15 +50,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             />
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="#">
-                    Build Your Application
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Data Fetching</BreadcrumbPage>
+                  {crumbs.length === 0 ? (
+                    <BreadcrumbPage>Home</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink asChild>
+                      <Link to="/">Home</Link>
+                    </BreadcrumbLink>
+                  )}
                 </BreadcrumbItem>
+                {crumbs.flatMap((crumb) => [
+                  <BreadcrumbSeparator key={`${crumb.href}-separator`} />,
+                  <BreadcrumbItem key={crumb.href}>
+                    {crumb.isLast ? (
+                      <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                    ) : (
+                      <BreadcrumbLink asChild>
+                        <Link to={crumb.href}>{crumb.label}</Link>
+                      </BreadcrumbLink>
+                    )}
+                  </BreadcrumbItem>,
+                ])}
               </BreadcrumbList>
             </Breadcrumb>
           </div>

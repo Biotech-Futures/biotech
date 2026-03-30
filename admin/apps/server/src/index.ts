@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import myCors from "./middleware/myCors.js";
 import { logger } from "hono/logger";
 import { matchRoute } from "./module/match/route.js";
+import { groupRoute } from "./module/group/route.js";
+import { demoRoute } from "./module/demo/route.js";
 
 const app = new Hono();
 
@@ -12,7 +14,11 @@ app.get("/", (c) => {
 app.use(logger());
 app.use("*", myCors);
 
-app.basePath("/api/v1").route("match", matchRoute);
+app
+  .basePath("/api/v1")
+  .route("match", matchRoute)
+  .route("group", groupRoute)
+  .route("demo", demoRoute);
 
 serve(
   {

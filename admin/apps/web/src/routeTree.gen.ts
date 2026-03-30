@@ -16,6 +16,7 @@ import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthEmailRouteImport } from './routes/_auth/email'
+import { Route as AuthDemoRouteImport } from './routes/_auth/demo'
 
 const AuthRouteRoute = AuthRouteRouteImport.update({
   id: '/_auth',
@@ -51,9 +52,15 @@ const AuthEmailRoute = AuthEmailRouteImport.update({
   path: '/email',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthDemoRoute = AuthDemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
+  '/demo': typeof AuthDemoRoute
   '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
@@ -61,6 +68,7 @@ export interface FileRoutesByFullPath {
   '/user': typeof AuthUserRoute
 }
 export interface FileRoutesByTo {
+  '/demo': typeof AuthDemoRoute
   '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
@@ -71,6 +79,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_auth': typeof AuthRouteRouteWithChildren
+  '/_auth/demo': typeof AuthDemoRoute
   '/_auth/email': typeof AuthEmailRoute
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
@@ -80,12 +89,20 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/email' | '/event' | '/group' | '/matching' | '/user'
+  fullPaths:
+    | '/'
+    | '/demo'
+    | '/email'
+    | '/event'
+    | '/group'
+    | '/matching'
+    | '/user'
   fileRoutesByTo: FileRoutesByTo
-  to: '/email' | '/event' | '/group' | '/matching' | '/user' | '/'
+  to: '/demo' | '/email' | '/event' | '/group' | '/matching' | '/user' | '/'
   id:
     | '__root__'
     | '/_auth'
+    | '/_auth/demo'
     | '/_auth/email'
     | '/_auth/event'
     | '/_auth/group'
@@ -149,10 +166,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthEmailRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/demo': {
+      id: '/_auth/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof AuthDemoRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
   }
 }
 
 interface AuthRouteRouteChildren {
+  AuthDemoRoute: typeof AuthDemoRoute
   AuthEmailRoute: typeof AuthEmailRoute
   AuthEventRoute: typeof AuthEventRoute
   AuthGroupRoute: typeof AuthGroupRoute
@@ -162,6 +187,7 @@ interface AuthRouteRouteChildren {
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthDemoRoute: AuthDemoRoute,
   AuthEmailRoute: AuthEmailRoute,
   AuthEventRoute: AuthEventRoute,
   AuthGroupRoute: AuthGroupRoute,

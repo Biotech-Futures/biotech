@@ -1,6 +1,4 @@
-import * as React from "react";
-import { NavMain } from "./nav-main";
-import { NavUser } from "./nav-user";
+import { NavUser } from "./NavUser";
 import { Logo } from "./logo";
 import {
   Sidebar,
@@ -9,16 +7,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
-
-// This is sample data.
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-  teams: [],
-};
+import { NavMain } from "./Nav";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
@@ -30,7 +19,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

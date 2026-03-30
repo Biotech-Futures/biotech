@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 const NAV_ITEMS = [
+  { title: "demo", url: "/demo", icon: <UsersIcon /> },
   {
     title: "Group",
     url: "/group",

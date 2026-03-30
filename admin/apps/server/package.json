@@ -11,11 +11,13 @@
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.5.5",
     "@hono/node-server": "^1.19.11",
+    "@hono/standard-validator": "^0.2.2",
     "better-auth": "^1.5.5",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.12.8",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
