@@ -72,7 +72,7 @@ Install the following on your machine:
 Optional but useful:
 
 - `daphne` for websocket-first testing
-- `pytest` if you want to run the legacy matching tests
+- `pytest` and `pytest-django` if you want a pytest-based test workflow
 
 ## Backend: Local Setup
 
@@ -394,22 +394,6 @@ python manage.py test apps.chat.tests --settings=config.settings_local
 - user endpoint tests currently expect stale URLs and may fail with 404s
 - chat tests rely on constraints and test infra that are not yet cleanly portable
 
-## Legacy matching tests
-
-The `matching` app behaves more like a parallel/legacy project and uses pytest-style tests.
-
-Run:
-
-```bash
-pytest backend/matching/tests -q
-```
-
-Current caveats:
-
-- install `pytest` first
-- install `pytest-django` if you want proper pytest Django integration
-- some matching tests currently fail because model and import logic have drifted
-
 ## Frontend Testing
 
 ## Build
@@ -452,7 +436,7 @@ Current caveats:
    - roles/RBAC
    - resources
    - chat
-   - matching
+   - groups/events/admin workflows
 
 ## Recommended First Improvements
 
