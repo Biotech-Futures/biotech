@@ -96,8 +96,8 @@ DATABASES = {
         "NAME": os.environ.get("POSTGRES_DB"),
         "USER": os.environ.get("POSTGRES_USER"),
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD"),
-        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "HOST": os.environ.get("POSTGRES_HOST"),
+        "PORT": os.environ.get("POSTGRES_PORT"),
         "CONN_MAX_AGE": 0,
     }
 }
@@ -200,6 +200,14 @@ The frontend currently assumes:
 ### Terminal 1: backend
 
 ```bash
+export POSTGRES_DB=<DB_Name>
+export POSTGRES_USER=<UserName>
+export POSTGRES_PASSWORD=<Password>
+#Optional:
+export POSTGRES_HOST=127.0.0.1
+export POSTGRES_PORT=5432
+# If you want to the environment variables to persist in new terminal:
+# source ~/.zshrc
 docker compose -f docker-compose.dev.yml up -d postgres
 cd backend
 source .venv/bin/activate
@@ -227,7 +235,7 @@ from apps.resources.models import Roles, RoleAssignmentHistory
 from django.utils import timezone
 
 u = User.objects.create_user(
-    email="student@example.com",
+    email="student@usyd.edu.au",
     first_name="Dev",
     last_name="Student",
 )
@@ -240,4 +248,4 @@ RoleAssignmentHistory.objects.create(
 )
 ```
 
-After that, log in from the frontend using `student@example.com`.
+After that, log in from the frontend using `student@usyd.edu.au`.
