@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a Hono-based backend API server using Node.js with TypeScript. The server runs on port 3001 and provides RESTful API endpoints.
+This is a Hono-based backend API server using Node.js with TypeScript. The server runs on port 3003 and provides RESTful API endpoints.
 
 ## Tech Stack
 

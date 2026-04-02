@@ -514,7 +514,7 @@ import { buildUrl } from "@/util/url";
 
 export const myFetch = axios.create({
   baseURL: buildUrl(
-    import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:3001",
+    import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:3003",
     "api",
     "v1",
   ),

@@ -53,7 +53,7 @@ admin/
 
 ```bash
 # Run both servers (from root)
-pnpm dev:server    # Start backend on port 3001
+pnpm dev:server    # Start backend on port 3003
 pnpm dev:web       # Start frontend on port 3000
 
 # Or run from respective directories

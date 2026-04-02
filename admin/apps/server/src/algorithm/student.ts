@@ -78,6 +78,10 @@ export type ExistingGroupInput = {
   groupName: string;
   trackId: Track | string | number;
   groupStudent: ExistingGroupMemberInput[];
+  tutor?: {
+    id: string | number;
+    name: string;
+  } | null;
   maxSize?: number;
 };
 
@@ -137,6 +141,8 @@ export type GroupStudentSource = IndividualStudentSource & {
   groupName?: string | null;
   groupTrackId?: string | number | null;
   groupTrackCode?: string | null;
+  groupTutorId?: string | number | null;
+  groupTutorName?: string | null;
 };
 
 export type GroupScoreResult = {
@@ -805,8 +811,26 @@ export function formatRecommendationInput(
         groupName: row.groupName ?? groupIdKey,
         trackId: row.groupTrackCode ?? row.groupTrackId ?? groupTrack,
         groupStudent: [],
+        tutor:
+          row.groupTutorId !== undefined && row.groupTutorId !== null
+            ? {
+                id: row.groupTutorId,
+                name: row.groupTutorName ?? "",
+              }
+            : null,
       };
       groupsById.set(groupIdKey, group);
+    }
+
+    if (
+      !group.tutor &&
+      row.groupTutorId !== undefined &&
+      row.groupTutorId !== null
+    ) {
+      group.tutor = {
+        id: row.groupTutorId,
+        name: row.groupTutorName ?? "",
+      };
     }
 
     group.groupStudent.push(mapSourceStudent(row));

@@ -5,18 +5,25 @@ import {
   type IndividualStudentSource,
 } from "@/algorithm/student.js";
 import db from "@/lib/db.js";
-import { and, eq, inArray, isNull, notExists } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notExists } from "drizzle-orm";
 import {
   areasOfInterest,
   countries,
   countryStates,
   groupMembership,
   groups,
+  mentorProfile,
   studentInterest,
   studentProfile,
   tracks,
   users,
 } from "drizzle/schema.js";
+import {
+  demoIndividualStudents,
+  demoMatchRecommendations,
+  useMatchDemoData,
+} from "./demo.js";
+import type { ConfirmMatchAssignmentInput } from "./schema.js";
 
 type InterestRow = {
   userId: number;
@@ -39,6 +46,10 @@ function mapInterestsByUserId(rows: InterestRow[]): Map<number, string[]> {
 }
 
 export async function matchStudent() {
+  if (useMatchDemoData()) {
+    return demoMatchRecommendations;
+  }
+
   const activeMembershipSubquery = db
     .select({ userId: groupMembership.userId })
     .from(groupMembership)
@@ -121,10 +132,55 @@ export async function matchStudent() {
     ];
   });
 
+  const groupMentorRows =
+    groupIds.length === 0
+      ? []
+      : await db
+          .select({
+            groupId: groups.id,
+            tutorUserId: users.id,
+            tutorFirstName: users.firstName,
+            tutorLastName: users.lastName,
+          })
+          .from(groupMembership)
+          .innerJoin(groups, eq(groups.id, groupMembership.groupId))
+          .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
+          .innerJoin(users, eq(users.id, mentorProfile.userId))
+          .where(
+            and(
+              inArray(groups.id, groupIds),
+              isNull(groupMembership.leftAt),
+            ),
+          );
+
+  const tutorByGroupId = new Map<
+    number,
+    { tutorUserId: number; tutorName: string }
+  >();
+  for (const row of groupMentorRows) {
+    if (tutorByGroupId.has(row.groupId)) {
+      continue;
+    }
+
+    tutorByGroupId.set(row.groupId, {
+      tutorUserId: row.tutorUserId,
+      tutorName: `${row.tutorFirstName} ${row.tutorLastName}`.trim(),
+    });
+  }
+
+  const groupStudentsWithTutors = groupStudents.map((student) => {
+    const tutor = tutorByGroupId.get(student.groupId);
+    return {
+      ...student,
+      groupTutorId: tutor?.tutorUserId,
+      groupTutorName: tutor?.tutorName,
+    };
+  });
+
   const userIds = [
     ...new Set([
       ...individualStudents.map((student) => student.userId),
-      ...groupStudents.map((student) => student.userId),
+      ...groupStudentsWithTutors.map((student) => student.userId),
     ]),
   ];
 
@@ -151,7 +207,7 @@ export async function matchStudent() {
       interests: interestsByUserId.get(student.userId) ?? [],
     }));
 
-  const formattedGroupStudents: GroupStudentSource[] = groupStudents.map(
+  const formattedGroupStudents: GroupStudentSource[] = groupStudentsWithTutors.map(
     (student) => ({
       ...student,
       interests: interestsByUserId.get(student.userId) ?? [],
@@ -167,6 +223,10 @@ export async function matchStudent() {
 }
 
 export async function getIndividualStudents() {
+  if (useMatchDemoData()) {
+    return demoIndividualStudents;
+  }
+
   const activeMembershipSubquery = db
     .select({ userId: groupMembership.userId })
     .from(groupMembership)
@@ -192,4 +252,67 @@ export async function getIndividualStudents() {
     .where(notExists(activeMembershipSubquery));
 
   return individualStudents;
+}
+
+export async function confirmStudentAssignments(
+  input: ConfirmMatchAssignmentInput,
+) {
+  if (useMatchDemoData()) {
+    return {
+      assignedCount: input.assignments.length,
+    };
+  }
+
+  const uniqueByStudent = new Map<number, number>();
+  for (const item of input.assignments) {
+    uniqueByStudent.set(item.studentId, item.groupId);
+  }
+
+  const assignments = Array.from(uniqueByStudent.entries()).map(
+    ([studentId, groupId]) => ({
+      studentId,
+      groupId,
+    }),
+  );
+
+  if (assignments.length === 0) {
+    return { assignedCount: 0 };
+  }
+
+  const studentIds = assignments.map((item) => item.studentId);
+  const now = new Date().toISOString();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(groupMembership)
+      .set({ leftAt: now })
+      .where(
+        and(
+          inArray(groupMembership.userId, studentIds),
+          isNull(groupMembership.leftAt),
+        ),
+      );
+
+    const latestMembership = await tx
+      .select({ id: groupMembership.id })
+      .from(groupMembership)
+      .orderBy(desc(groupMembership.id))
+      .limit(1);
+
+    let nextId = (latestMembership[0]?.id ?? 0) + 1;
+    const rows = assignments.map((item) => ({
+      id: nextId++,
+      groupId: item.groupId,
+      userId: item.studentId,
+      membershipRole: "student",
+      joinedAt: now,
+      leftAt: null as string | null,
+    }));
+
+    await tx.insert(groupMembership).values(rows);
+  });
+
+  return {
+    assignedCount: assignments.length,
+  };
 }

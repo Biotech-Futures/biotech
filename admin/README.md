@@ -13,7 +13,7 @@ pnpm install
 DATABASE_URL=postgresql://user:password@host:port/database
 
 # Frontend: apps/web/.env
-VITE_PUBLIC_API_URL=http://localhost:3001
+VITE_PUBLIC_API_URL=http://localhost:3003
 
 # 3. Set up database (if needed)
 cd apps/server
@@ -22,13 +22,13 @@ pnpm drizzle-kit migrate
 
 # 4. Start the application
 # From root directory:
-pnpm dev:server   # Backend on port 3001
+pnpm dev:server   # Backend on port 3003
 pnpm dev:web      # Frontend on port 3000
 ```
 
 **Access:**
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:3001/api/v1
+- Backend API: http://localhost:3003/api/v1
 
 ---
 
@@ -56,7 +56,7 @@ pnpm dev:web      # Frontend on port 3000
 ```
 admin/
 ├── apps/
-│   ├── server/          # Backend API (port 3001)
+│   ├── server/          # Backend API (port 3003)
 │   │   ├── src/
 │   │   │   ├── index.ts         # Server entry point
 │   │   │   ├── db/schema/       # Database schemas
@@ -108,7 +108,7 @@ DATABASE_URL=postgresql://user:password@host:port/database
 
 **Frontend (`apps/web/.env`):**
 ```env
-VITE_PUBLIC_API_URL=http://localhost:3001
+VITE_PUBLIC_API_URL=http://localhost:3003
 ```
 
 ### Database Setup
@@ -123,7 +123,7 @@ pnpm drizzle-kit migrate
 
 ```bash
 # From root
-pnpm dev:server   # Backend (port 3001)
+pnpm dev:server   # Backend (port 3003)
 pnpm dev:web      # Frontend (port 3000)
 
 # Or from app directories
