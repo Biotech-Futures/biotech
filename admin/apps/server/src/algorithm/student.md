@@ -1,15 +1,25 @@
-# Student Auto-Grouping Algorithm
+# Student Grouping And Recommendation Algorithm
 
 This document explains the logic implemented in `student.ts`.
 
-## Goal
+## Supported Flows
 
-Automatically group students into groups of **2 to 5** members with:
+The module now supports two related flows:
+
+1. `buildGroups(students)` for batch creation of new groups from a flat student list
+2. `recommendGroupsByTrack(input)` for recommending an existing non-full group to each individually registered student
+
+Both flows use the same track rules and the same scoring model.
+
+## Shared Goal
+
+Organize students within the correct track using:
 
 1. Strict **track isolation**
 2. Mandatory **shared interests**
-3. Quality-first scoring
-4. Preference for larger groups only when quality remains high
+3. Quality-first scoring with year-level penalties
+4. Global-track preference for same country, then closer timezone
+5. Preference for larger groups only when quality remains high
 
 ## High-Level Flow (Mermaid)
 
@@ -40,6 +50,14 @@ Each student requires:
 - `timezoneOffsetHours: number`
 - `yearLevel: number`
 - `interests: string[]`
+
+For recommendation mode, each existing group requires:
+
+- `id: string | number`
+- `groupName: string`
+- `trackId: Track | string | number`
+- `groupStudent: ExistingGroupMemberInput[]`
+- `maxSize?: number` (defaults to `5`)
 
 ## Step 1: Track Assignment
 
@@ -119,6 +137,8 @@ flowchart TD
 
 ## Step 4: Group Formation Strategy
 
+### Batch Grouping
+
 For each track independently:
 
 1. Generate all valid candidate groups of size `2..5`
@@ -130,6 +150,39 @@ For each track independently:
 If no valid candidate remains for a track, all remaining students in that track are returned as unmatched.
 
 For each unmatched student, the algorithm now also returns a reason object with score explanation.
+
+### Existing Group Recommendation
+
+`recommendGroupsByTrack(input)` expects input keyed by track, for example:
+
+```ts
+{
+  "AUS-NSW": {
+    students: [...],
+    groups: [...],
+  },
+  GLOBAL: {
+    students: [...],
+    groups: [...],
+  },
+}
+```
+
+For each incoming student in a track bucket:
+
+1. Ignore groups that are in the wrong track
+2. Ignore groups that are already full
+3. Keep only groups where the student shares at least one interest with at least one existing member
+4. Score the student against the group's current members
+5. Rank candidate groups by:
+   - higher `objectiveScore`
+   - higher `score`
+   - smaller average year gap
+   - smaller average timezone gap for `GLOBAL`
+   - lexicographic `group.id`
+6. Return the best recommendation, or `null` with a reason when no valid group exists
+
+The recommendation flow is read-only. It does not mutate the selected group.
 
 ## Deterministic Tie-Breakers
 
@@ -164,6 +217,8 @@ Student score:
 
 - `score = clamp(100 - studentPenalties, 0, 100)`
 
+For recommendation mode, the same scoring is applied between the incoming student and each current member of a candidate group. The final result also includes `sizeBonus` and `objectiveScore` so larger non-full groups can be preferred when quality is otherwise similar.
+
 ## Output Shape
 
 `buildGroups(students)` returns:
@@ -192,6 +247,21 @@ Reason codes:
 
 - `NO_SHARED_INTEREST_IN_TRACK`: student has no shared-interest peer in their track.
 - `LEFTOVER_AFTER_GROUP_SELECTION`: student had shared-interest peers, but no valid 2-5 grouping remained after higher-score selections.
+
+`recommendGroupsByTrack(input)` returns one item per input student:
+
+- `student`
+- `recommendGroup` (`ExistingGroupInput | null`)
+- `reason`
+- `score`
+- `scoreBreakdown`
+  - `baseScore`
+  - `yearPenalty`
+  - `countryPenalty`
+  - `timezonePenalty`
+  - `sizeBonus`
+  - `totalPenalty`
+  - `objectiveScore`
 
 ```mermaid
 classDiagram
@@ -226,3 +296,4 @@ classDiagram
 - Candidate generation is combinational (`nC2 + nC3 + nC4 + nC5` per track).
 - This is acceptable for moderate track sizes and provides high-quality grouping.
 - For very large cohorts, a heuristic/beam-search variant can be introduced later.
+- Recommendation mode is linear in `students x groups x members`, which is suitable for per-registration placement.
