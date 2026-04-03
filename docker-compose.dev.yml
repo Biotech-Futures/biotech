@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: biotech-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: biotech_dev
+      POSTGRES_USER: biotech
+      POSTGRES_PASSWORD: biotech
+    ports:
+      - "5432:5432"
+    volumes:
+      - biotech-postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biotech -d biotech_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  biotech-postgres-dev-data:

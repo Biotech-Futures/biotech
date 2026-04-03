@@ -6,12 +6,12 @@
 # class Migration(migrations.Migration):
 
 #     dependencies = [
-#         ('matching', '0005_mentor_is_active_student_supervisor_email'),
+#         ('emailing', '0001_initial'),
 #     ]
 
 #     operations = [
-#         migrations.RemoveField(
-#             model_name='mentor',
-#             name='experience',
+#         migrations.AlterModelOptions(
+#             name='sendemail',
+#             options={'verbose_name': 'Send Email', 'verbose_name_plural': 'Send Emails'},
 #         ),
 #     ]

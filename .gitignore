@@ -19,7 +19,6 @@ __pycache__/
 htmlcov/
 *.migrations/
 local_settings.py
-settings_local.py
 .DS_Store
 node_modules/
 *.sass-cache
@@ -48,3 +47,6 @@ staticfiles/
 /static/
 /media/
 test_coverage_report.html
+backend/config/settings_local.py
+backend/.venv/
+backend/media/
