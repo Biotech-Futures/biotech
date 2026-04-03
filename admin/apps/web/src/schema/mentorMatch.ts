@@ -60,13 +60,3 @@ export const confirmMentorAssignmentsResponseSchema = z.object({
   }),
 });
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type UnmatchedGroup = z.infer<typeof unmatchedGroupSchema>;
-export type RecommendedMentor = z.infer<typeof recommendedMentorSchema>;
-export type MentorGroupRecommendation = z.infer<
-  typeof mentorGroupRecommendationSchema
->;
-export type ConfirmMentorAssignmentsResponse = z.infer<
-  typeof confirmMentorAssignmentsResponseSchema
->;

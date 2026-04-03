@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { MentorGroupRecommendation } from "@/schema/mentorMatch";
+import type { MentorGroupRecommendation } from "@/type/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

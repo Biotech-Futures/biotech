@@ -2,7 +2,7 @@ import {
   matchMentors,
   type GroupSource,
   type MentorSource,
-} from "@/algorithm/tutor.js";
+} from "@/algorithm/mentor.js";
 import db from "@/lib/db.js";
 import { and, eq, inArray, isNull, notExists } from "drizzle-orm";
 import {
