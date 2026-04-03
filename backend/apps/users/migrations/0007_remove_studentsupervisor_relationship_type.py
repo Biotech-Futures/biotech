@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("users", "0006_alter_mentorprofile_max_group_count_and_more"),
+        ("users", "0006_alter_mentorprofile_max_group_count"),
     ]
 
     operations = [

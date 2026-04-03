@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("users", "0004_adminscope_mentoravailability_mentorinterest_and_more"),
+        ("users", "0004_adminscope_mentoravailability_mentorinterest"),
     ]
 
     operations = [

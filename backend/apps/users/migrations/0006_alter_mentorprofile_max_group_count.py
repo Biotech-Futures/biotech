@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0005_remove_mentorprofile_background_and_more'),
+        ('users', '0005_remove_mentorprofile_background'),
     ]
 
     operations = [
