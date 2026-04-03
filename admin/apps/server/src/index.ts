@@ -5,6 +5,7 @@ import { logger } from "hono/logger";
 import { matchRoute } from "./module/match/route.js";
 import { groupRoute } from "./module/group/route.js";
 import { demoRoute } from "./module/demo/route.js";
+import { mentorMatchRoute } from "./module/mentor-match/route.js";
 
 const app = new Hono();
 
@@ -18,7 +19,8 @@ app
   .basePath("/api/v1")
   .route("match", matchRoute)
   .route("group", groupRoute)
-  .route("demo", demoRoute);
+  .route("demo", demoRoute)
+  .route("mentor-match", mentorMatchRoute);
 
 serve(
   {

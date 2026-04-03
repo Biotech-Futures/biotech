@@ -41,6 +41,11 @@ const NAV_ITEMS = [
     url: "/matching",
     icon: <Link2Icon />,
   },
+  {
+    title: "Mentor Matching",
+    url: "/mentor-matching",
+    icon: <Link2Icon />,
+  },
 ];
 
 export function NavMain() {
