@@ -440,3 +440,45 @@ All backend endpoints MUST return:
   data: any,      // Response data (object, array, or null)
 }
 ```
+
+---
+
+<!--
+## Architecture Discussion (Pending Team Agreement)
+> 以下内容待小组会议讨论确认后解除注释
+
+### 当前架构问题
+
+目前 admin 项目存在以下问题，需要和其他组对齐：
+
+1. **双后端问题**
+   - 主项目有 Django 后端（`/backend`）
+   - 我们有 Hono 后端（`admin/apps/server`）
+   - 两个后端并存，长期维护成本高
+
+2. **数据不通**
+   - Django 有自己的 user 数据
+   - 我们的 service.ts 目前用 mock 数据
+   - 同一批用户（学生/导师）存在两套数据，会不一致
+
+3. **认证不统一**
+   - 用户需要登录两次（主系统一次，admin 一次）
+   - 体验差，不适合真实交付
+
+### 建议方案（不改架构，只做两件事）
+
+**Step 1：统一数据库**
+- 修改 `apps/server/src/lib/db.ts`，连接 Django 使用的同一个 PostgreSQL
+- 把各模块 `service.ts` 里的 mock 数据改为真实 Drizzle 查询
+- 需要和其他组确认 PostgreSQL 连接字符串和表结构
+
+**Step 2：统一认证**
+- 新增 `apps/server/src/middleware/auth.ts`
+- 验证请求头里 Django 颁发的 JWT Token
+- 需要和其他组确认 JWT secret 和签发方式
+
+### 现阶段开发原则
+- 继续沿用 CLAUDE.md 现有规范和文件结构
+- service.ts 先用 mock 数据开发和演示
+- 等数据库和认证对齐后，再替换为真实查询
+-->

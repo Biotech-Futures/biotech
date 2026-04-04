@@ -7,6 +7,9 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  role: text("role").notNull().default("student"), // "student" | "mentor" | "admin"
+  track: text("track"), // "frontend" | "backend" | "fullstack" | "data" | null
+  groupId: text("group_id"), // optional group assignment
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
