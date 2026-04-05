@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
 import { Route as AuthUserRouteImport } from './routes/_auth/user'
+import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
 import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentor-matching'
 import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
@@ -31,6 +32,11 @@ const AuthIndexRoute = AuthIndexRouteImport.update({
 const AuthUserRoute = AuthUserRouteImport.update({
   id: '/user',
   path: '/user',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthResourceRoute = AuthResourceRouteImport.update({
+  id: '/resource',
+  path: '/resource',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthMentorMatchingRoute = AuthMentorMatchingRouteImport.update({
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
   '/mentor-matching': typeof AuthMentorMatchingRoute
+  '/resource': typeof AuthResourceRoute
   '/user': typeof AuthUserRoute
 }
 export interface FileRoutesByTo {
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
   '/mentor-matching': typeof AuthMentorMatchingRoute
+  '/resource': typeof AuthResourceRoute
   '/user': typeof AuthUserRoute
   '/': typeof AuthIndexRoute
 }
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/_auth/group': typeof AuthGroupRoute
   '/_auth/matching': typeof AuthMatchingRoute
   '/_auth/mentor-matching': typeof AuthMentorMatchingRoute
+  '/_auth/resource': typeof AuthResourceRoute
   '/_auth/user': typeof AuthUserRoute
   '/_auth/': typeof AuthIndexRoute
 }
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/group'
     | '/matching'
     | '/mentor-matching'
+    | '/resource'
     | '/user'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
     | '/group'
     | '/matching'
     | '/mentor-matching'
+    | '/resource'
     | '/user'
     | '/'
   id:
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '/_auth/group'
     | '/_auth/matching'
     | '/_auth/mentor-matching'
+    | '/_auth/resource'
     | '/_auth/user'
     | '/_auth/'
   fileRoutesById: FileRoutesById
@@ -155,6 +167,13 @@ declare module '@tanstack/react-router' {
       path: '/user'
       fullPath: '/user'
       preLoaderRoute: typeof AuthUserRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/resource': {
+      id: '/_auth/resource'
+      path: '/resource'
+      fullPath: '/resource'
+      preLoaderRoute: typeof AuthResourceRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/mentor-matching': {
@@ -209,6 +228,7 @@ interface AuthRouteRouteChildren {
   AuthGroupRoute: typeof AuthGroupRoute
   AuthMatchingRoute: typeof AuthMatchingRoute
   AuthMentorMatchingRoute: typeof AuthMentorMatchingRoute
+  AuthResourceRoute: typeof AuthResourceRoute
   AuthUserRoute: typeof AuthUserRoute
   AuthIndexRoute: typeof AuthIndexRoute
 }
@@ -220,6 +240,7 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthGroupRoute: AuthGroupRoute,
   AuthMatchingRoute: AuthMatchingRoute,
   AuthMentorMatchingRoute: AuthMentorMatchingRoute,
+  AuthResourceRoute: AuthResourceRoute,
   AuthUserRoute: AuthUserRoute,
   AuthIndexRoute: AuthIndexRoute,
 }
