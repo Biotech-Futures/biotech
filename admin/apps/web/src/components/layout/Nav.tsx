@@ -12,6 +12,7 @@ import {
   CalendarIcon,
   UserIcon,
   Link2Icon,
+  FileTextIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -35,6 +36,11 @@ const NAV_ITEMS = [
     title: "User",
     url: "/user",
     icon: <UserIcon />,
+  },
+  {
+    title: "Resource",
+    url: "/resource",
+    icon: <FileTextIcon />,
   },
   {
     title: "Matching",
