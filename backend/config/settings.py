@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config, Csv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,12 +21,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-f+qzkit-li1$e5$%^ce56qv@_oyq#m2k(g)f0$%ef32q%)z@5l"
-
+SECRET_KEY = config("DJANGO_SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config("DEBUG", default=True, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
 
 # Application definition
@@ -59,9 +59,9 @@ INSTALLED_APPS = [
     'storages',
 ]
 
-AZURE_ACCOUNT_NAME = "btfuturesblobstorage"
-AZURE_ACCOUNT_KEY = "SLreKCgSbLMq9th/QXYaSfPGwsRo75J/JxV0OFOp9ZkrRcnuTULShfhpID3aLzxYixGlKSzrWkFR+AStamaR4g=="
-AZURE_CONTAINER = "media" # Guys this is currently set to private blobs so SAS urls are needed. We'll develop code for this accordingly
+AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME")
+AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY")
+AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
 AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
 MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/" # F formatted in case we decide to switch out containers
@@ -129,11 +129,11 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "postgres",
-        "USER": "biotech_admin",
-        "PASSWORD": "fu7UR3$!",
-        "HOST": 'btfpostgresdb.postgres.database.azure.com',
-        "PORT": "5432",
+        "NAME":  config("DB_NAME", default="postgres"),
+        "USER": config("DB_USER", default="biotech_admin"),
+        "PASSWORD": config("DB_PASSWORD"),
+        "HOST": config("DB_HOST", default="btfpostgresdb.postgres.database.azure.com"),
+        "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {"sslmode": "require",
                     "connect_timeout": 5,
                     },
@@ -174,11 +174,11 @@ USE_TZ = True
 # Email configuration for development
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 #EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
-EMAIL_PORT = 2525
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = '9baff39824b0a1'  # Get from Mailtrap inbox settings
-EMAIL_HOST_PASSWORD = 'c985334e5ba463'  # Get from Mailtrap inbox settings
+EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
+EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="") # Get from Mailtrap inbox settings
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")  # Get from Mailtrap inbox settings
 
 
 CHANNEL_LAYERS = {
@@ -199,11 +199,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # CORS settings for frontend communication
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Your frontend URL (Vite default)
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",  # Alternative frontend ports
-]
+CORS_ALLOWED_ORIGINS = config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
+    cast=Csv()
+)
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -220,14 +220,16 @@ SESSION_SAVE_EVERY_REQUEST = False  # Only save when modified
 CSRF_COOKIE_HTTPONLY = False  # Frontend needs to read this
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
+CSRF_TRUSTED_ORIGINS = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:5173,http://127.0.0.1:5173",
+    cast=Csv()
+)
 
 # Magic link redirect configuration
-MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"  # Where to redirect after magic link click
-LOGIN_REDIRECT_URL = "http://localhost:5173/auth/callback"       # Alternative setting name
+MAGIC_LINK_REDIRECT_URL = config("MAGIC_LINK_REDIRECT_URL", default="http://localhost:5173/#/auth/callback")  # Where to redirect after magic link click
+LOGIN_REDIRECT_URL = config("LOGIN_REDIRECT_URL", default="http://localhost:5173/auth/callback")      # Alternative setting name
+BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
 
 #OTP things
-MAILTRAP_TOKEN = "94f919803239d1ca9274ca682a670eaa"
+MAILTRAP_TOKEN = config("MAILTRAP_TOKEN", default="")
