@@ -1,293 +1,536 @@
 <template>
-  <!--将整个页面分为左右两个页面的大容器-->
-  <div class="split-login">
-    <!--左侧动画介绍台，包裹左边的最底层容器-->
-    <!--1.section表明是独立功能区，该DOM节点名字为‘leftPaneRef’，类class决定属性，比如长和宽以及位置大小等-->
-    <!--2.:class=‘’表明是动态class，会随着背景值的不同而切换布局，用于切换背景，比如：activeLeftBackground = 'original'，class="left-pane bg-mode-original"-->
-    <section ref="leftPaneRef" class="left-pane" :class="`bg-mode-${activeLeftBackground}`">
-      <!--左侧中层容器，背景舞台层，单独一层是因为要作为最底层的背景，上面还要有文字生成，stack表明是堆叠-->
-      <div class="left-bg-stack">
-        <!--第一种模式的背景，即默认状态下的背景，aria那里表明是只是装饰-->
-        <div
-          class="bg-slideshow"
-          :class="{ active: activeLeftBackground === 'original' }"
-          aria-hidden="true"
-          >
-          <!--这里是三张图片循环播放作为第一种模式的背景，key是每个循环唯一标识，也就是index，class表明每个背景都是一张图层的样式-->
-          <div
+  <!--
+   * @file LoginPage.vue
+   * @description LoginPage.vue is the unified entry page for the BIOTech Futures mentoring platform. It combines role-guided access selection, passwordless email-to-OTP authentication, multilingual support, and branded platform presentation in one structured login experience.
+   * @author Shiqi Fang
+   * @author Jiachen Ding
+   * @author Qin Chen
+   * @version 1.4.0
+   *
+   * Project: Group Based 5703 Capstone Project
+   * Group: CS17-1
+   * Team: CS17-1 Frontend Team
+   *
+   * Component Type: Frontend Page Component
+   * File Role: Unified role-guided login entry page
+   * Purpose: Provide a structured and user-friendly entry point for students, mentors, supervisors, and administrators to sign in with email OTP while understanding the platform context before entering the system.
+   * Scope: Covers the left hero showcase, role selection and preview, language switching, email submission, OTP verification, resend flow, and post-login navigation.
+   *
+   * Responsibilities:
+   * - Display platform branding, role-guided access selection, and overview information
+   * - Support multilingual login experience with LTR and RTL layout handling
+   * - Handle the full passwordless email-to-OTP authentication flow
+   * - Provide reusable role-aware login copy for different access identities
+   * - Keep authentication feedback, loading state, and OTP interaction consistent
+   *
+   * Dependencies:
+   * - Vue 3 Composition API
+   * - Vue Router
+   * - Pinia auth store
+   * - Login language data
+   * - Login background data
+   * - CSRF header helper
+   * - String and storage utilities
+   *
+   * Revision Summary:
+   * - Major revisions: 4
+   * - Minor revisions: 3
+   *
+   * Last Modified: 2026-04-07
+   * Modified By: CS17-1 Frontend Team
+   *
+   * @文件 LoginPage.vue
+   * @描述 LoginPage.vue 是 BIOTech Futures 导师平台的统一入口页面。该页面将角色引导式访问选择、无密码邮箱验证码登录、多语言支持以及平台品牌展示整合到同一个结构化登录体验中。
+   * @作者 Shiqi Fang
+   * @作者 Jiachen Ding
+   * @作者 Qin Chen
+   * @版本 1.4.0
+   *
+   * 项目名称: Group Based 5703 Capstone Project
+   * 小组编号: CS17-1
+   * 负责方向: CS17-1 Frontend Team
+   *
+   * 组件类型: 前端页面组件
+   * 文件角色: 统一的角色引导式登录入口页
+   * 主要用途: 为学生、导师、监督老师和管理员提供一个结构清晰、易于理解的登录入口，在进入系统前先完成角色感知、平台理解和邮箱 OTP 验证。
+   * 作用范围: 覆盖左侧展示区、角色选择与预览、多语言切换、邮箱提交、OTP 校验、验证码重发以及登录后跳转。
+   *
+   * 核心职责:
+   * - 展示平台品牌、角色化访问入口与平台概览信息
+   * - 支持 LTR 与 RTL 的多语言登录体验
+   * - 处理完整的邮箱到 OTP 的无密码登录流程
+   * - 为不同身份提供角色化登录文案与提示
+   * - 统一登录反馈、加载状态与 OTP 输入交互体验
+   *
+   * 主要依赖:
+   * - Vue 3 Composition API
+   * - Vue Router
+   * - Pinia auth store
+   * - 登录语言配置数据
+   * - 登录背景配置数据
+   * - CSRF 请求头辅助工具
+   * - 字符串与本地存储工具
+   *
+   * 修改统计:
+   * - 大改次数: 4
+   * - 小改次数: 3
+   *
+   * 最后修改时间: 2026-04-07
+   * 修改人: CS17-1 Frontend Team
+   -->
+
+  <!-- Page shell and two-column layout. -->
+  <!-- 页面总容器与左右双栏布局。 
+        1.dir和class动态绑定HTML的dir属性，即文字方向属性，为了适配阿拉伯语言
+        2.pointermove锁定鼠标指针，持续触发，通过计算坐标激活跟随性的光斑
+        3.pointerleave复位不然光斑会卡住
+        4.loginShellRef是为了获取鼠标坐标而给DOM命名作为搭载节点-->
+  <div
+    ref="loginShellRef"
+    class="login-shell"
+    :dir="currentDir"
+    :class="{
+        'pointer-inside': isShellPointerInside
+      }"
+    @pointermove="handleShellPointerMove"
+    @pointerleave="handleShellPointerLeave"
+  >
+    <!-- Left hero pane: background stage, role selection, and platform overview. -->
+    <!-- 左侧展示区：背景舞台、角色选择与平台概览。 -->
+    <section class="hero-pane">
+      <!-- Background stage with slideshow and emerald mode. -->
+      <!-- 背景舞台，承载图片轮播和绿色模式。 -->
+      <div class="hero-stage" aria-hidden="true">
+        <!-- Slideshow scene. -->
+        <!-- 图片轮播场景。 
+              1.active，Vue的动态绑定，是original背景css就是加上active的字符串，否则就没有active
+              2.:src即source,访问的是存在image变量里的值，也就是地址，才能获取到真实图片
+                类比一下静态写法：<img src="/images/fixed-banner.jpg" />
+              3.alt是给用户无障碍阅读用的，这里没有意义所以就不写
+              4.style动态行内样式，每个图片错开时间展示-->
+        <div class="hero-scene hero-scene--slideshow" :class="{ active: activeLeftBackground === 'original' }">
+          <img
             v-for="(image, index) in backgroundImages"
-            :key="index"
-            class="bg-slide"
+            :key="`${image}-${index}`"
+            class="hero-slide-image"
+            :src="image"
+            alt=""
             :style="{
-              backgroundImage: `url(${image})`,
               animationDelay: `${index * slideDuration}s`
             }"
-          ></div>
-          <!--加一层滤镜，让背景更加柔和，不然上面的文字很难看清-->
-          <div class="bg-overlay bg-overlay-original"></div>
+          />
         </div>
-        <!--第二种模式的背景，three.js生成的模型背景-->
-        <div
-          class="biotech-bg"
-          :class="{ active: activeLeftBackground === 'biotech' }"
-          aria-hidden="true"
-        >
-          <!--但不是简单的静态北京，而是js动态渲染特效的载点，在页面加载后把特效渲染进这个DOM里-->
-          <!--class是为了方便css统一外观，ref这里是方便js直接定位，没有ref只是说明这个元素不需要js直接对DOM节点做操作，这里需要往这个节点直接填入里自动化-->
-          <!--比如这里的biotechSceneRef的值为True，那后续可能根据这个值进行一些函数操作-->
-          <div ref="biotechSceneRef" class="biotech-scene"></div>
-          <!--加一层滤镜，让背景更加柔和，不然上面的文字很难看清-->
-          <div class="bg-overlay bg-overlay-biotech"></div>
+
+        <!-- Emerald visual mode scene. -->
+        <!-- 绿色视觉模式场景。 -->
+        <div class="hero-scene hero-scene--emerald" :class="{ active: activeLeftBackground === 'green' }">
+          <div class="hero-green-image" :style="{ backgroundImage: `url(${backgroundImages2})` }"></div>
         </div>
+
+        <!-- Readability overlay and subtle texture. -->
+        <!-- 提升可读性的遮罩层与轻纹理。 -->
+        <div class="hero-overlay"></div>
+        <div class="hero-noise"></div>
       </div>
 
-      <!--除了上述两种背景模式，还需要一个按钮来切换背景-->
-      <!--@click表示是Vue的事件绑定，意思是点击这个按钮的时候，会去调用函数，调整activeLeftBackground这个变量的值，从而决定是哪一个背景-->
-      <!--title=这个变量决定了鼠标悬停时候显示的文字，{{ 按钮上显示的文字 }}-->
-      <button
-        type="button"
-        class="left-bg-toggle"
-        @click="toggleLeftBackground"
-        :aria-label="backgroundToggleLabel"
-        :title="backgroundToggleLabel"
-      >
-        {{ backgroundToggleText }}
-      </button>
-
-      <!--左侧最上层，文字容器-->
-      <!--:dir="currentDir"考虑国际化阿拉伯语言，动态设置文本方向-->
-      <!--:class="{ rtl: currentDir === 'rtl' }"如果当前方向是rtl，就额外加上rtl样式-->
-      <div class="left-inner" :dir="currentDir" :class="{ rtl: currentDir === 'rtl' }">
-        <!--文字第一行标题和品牌区域-->
-        <!--alt是文字替换图片，如果如片加载失败就展示文字-->
-        <div class="brand">
-          <div class="logo-icon">
+      <!-- Foreground hero content. -->
+      <!-- 前景展示内容。 -->
+      <div class="hero-content">
+        <!-- Brand block. -->
+        <!-- 品牌展示区。 -->
+        <div class="hero-brand-row">
+          <div class="brand-mark">
             <img :src="logo" alt="BIOTech Futures" />
           </div>
-          <h1 class="brand-title">{{ t('brandTitle') }}</h1>
+
+          <div class="brand-copy">
+            <span class="eyebrow">{{ t('brandTitle') }}</span>
+            <h1 class="hero-title">{{ t('aboutTitle') }}</h1>
+          </div>
         </div>
 
-        <!--角色标签容器，一共四个小板块，快速定位用户身份-->
-        <div class="role-tags" aria-label="Portal roles">
-          <span class="role-tag">{{ t('roleStudent') }}</span>
-          <span class="role-tag">{{ t('roleMentor') }}</span>
-          <span class="role-tag">{{ t('roleSupervisor') }}</span>
-          <span class="role-tag">{{ t('roleAdmin') }}</span>
-        </div>
-
-        <!--自定义文本内容容器，通过变量注入，方便更改-->
-        <div class="custom-content" v-html="leftHtml"></div>
-
-        <!--跳官网按钮-->
-        <!--target="_blank"，意思是新标签页打开，用户不会离开当前系统界面。-->
-        <div class="links">
-          <a
-            class="btn btn-secondary"
-            href="https://biotechfutures.org"
-            target="_blank"
-            rel="noopener"
+        <!-- Main hero card grid. -->
+        <!-- 左侧主体卡片网格。 -->
+        <div class="hero-grid">
+          <!-- Role-guided access card. -->
+          <!-- 角色引导式访问卡片。 -->
+          <article
+            class="hero-card hero-card--primary"
+            @pointermove="handleCardPointerMove"
           >
-            {{ t('visitWebsite') }}
-          </a>
+            <div class="section-head">
+              <div>
+                <span class="section-kicker">{{ t('accessMode') }}</span>
+                <h2 class="section-title">{{ t('chooseRoleTitle') }}</h2>
+              </div>
+
+              <!-- Persistent role hint for the selected access identity. -->
+              <!-- 当前选中访问身份的固定提示。 -->
+              <span class="selection-pill" :class="roleThemeClass(selectedLoginRole)">
+                {{ selectedRoleLoginHint }}
+              </span>
+            </div>
+
+            <!-- Role selector. -->
+            <!-- 角色选择器。 -->
+            <!-- Click selects the login identity. Hover or focus previews the role content. -->
+            <!-- 点击用于确定登录身份，悬停或聚焦用于预览角色内容。 -->
+            <div
+              class="role-selector"
+              aria-label="Portal roles"
+            >
+              <button
+                v-for="item in rolePreviewItems"
+                :key="item.key"
+                type="button"
+                class="role-pill"
+                :class="[
+                  roleThemeClass(item.key),
+                  {
+                    selected: selectedLoginRole === item.key
+                  }
+                ]"
+                :aria-pressed="selectedLoginRole === item.key"
+                @mouseenter="previewLoginRole(item.key)"
+                @mouseleave="clearPreviewRole"
+                @focus="previewLoginRole(item.key)"
+                @blur="clearPreviewRole"
+                @click="selectLoginRole(item.key)"
+              >
+                <span class="role-pill-dot"></span>
+                <span>{{ t(item.labelKey) }}</span>
+              </button>
+            </div>
+
+            <!-- Role detail card. -->
+            <!-- 角色详情卡片。 -->
+            <!-- The displayed data follows preview first, then selected state as fallback. -->
+            <!-- 显示内容优先跟随预览状态，未预览时回退到当前选中角色。 -->
+            <transition name="content-fade" mode="out-in">
+              <div :key="displayedRoleKey" class="role-detail-card" :class="roleThemeClass(displayedRoleKey)">
+                <div class="role-detail-header">
+                  <div class="role-detail-badge" :class="roleThemeClass(displayedRoleKey)"></div>
+
+                  <div>
+                    <p class="role-detail-kicker">{{ t('selectedAccess') }}</p>
+                    <h3 class="role-detail-title">{{ displayedRoleData?.title || selectedRoleLoginLabel }}</h3>
+                  </div>
+                </div>
+
+                <p class="role-detail-summary">
+                  {{ displayedRoleData?.summary || selectedRoleLoginSubtitle }}
+                </p>
+
+                <ul class="role-detail-list">
+                  <li v-for="point in displayedRoleData?.points?.slice(0, 3) || []" :key="point">
+                    {{ point }}
+                  </li>
+                </ul>
+              </div>
+            </transition>
+          </article>
+
+          <!-- Platform overview card. -->
+          <!-- 平台概览卡片。 -->
+          <article
+            class="hero-card hero-card--secondary interactive-surface"
+            @pointermove="handleCardPointerMove"
+          >
+            <div class="section-head section-head--compact">
+              <div>
+                <span class="section-kicker">{{ t('platformOverview') }}</span>
+                <h2 class="section-title overview-title">{{ t('platformGlanceTitle') }}</h2>
+              </div>
+            </div>
+
+            <!-- Showcase metrics. -->
+            <!-- 展示型指标卡。 -->
+            <div class="hero-stats">
+              <div v-for="stat in showcaseStats" :key="stat.label" class="stat-card">
+                <span class="stat-value">{{ stat.value }}</span>
+                <span class="stat-label">{{ stat.label }}</span>
+              </div>
+            </div>
+
+            <div class="overview-capabilities">
+              <div
+                v-for="item in platformCapabilities"
+                :key="item.title"
+                class="capability-card"
+              >
+                <span class="capability-title">{{ item.title }}</span>
+                <span class="capability-subtitle">{{ item.subtitle }}</span>
+              </div>
+            </div>
+
+            <!-- Background mode switch and official website link. -->
+            <!-- 背景模式切换与官网入口。 -->
+            <div class="hero-footer">
+              <div class="mode-switch" role="group" :aria-label="t('visualMode')">
+                <button
+                  type="button"
+                  class="mode-button"
+                  :class="{ active: activeLeftBackground === 'original' }"
+                  @click="setBackgroundMode('original')"
+                >
+                  {{ t('imageMode') }}
+                </button>
+                <button
+                  type="button"
+                  class="mode-button"
+                  :class="{ active: activeLeftBackground === 'green' }"
+                  @click="setBackgroundMode('green')"
+                >
+                  {{ t('emeraldMode') }}
+                </button>
+              </div>
+
+              <a
+                class="hero-link"
+                href="https://biotechfutures.org"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ t('visitWebsite') }}
+              </a>
+            </div>
+          </article>
         </div>
       </div>
     </section>
 
-    <!--右侧登录控制台，包裹右侧的最底层容器-->
-    <section class="right-pane">
-      <div class="login-card fade-in" :dir="currentDir" :class="{ rtl: currentDir === 'rtl' }">
-        
-        <!--邮箱入口，只有currentStep这个变量是email时，这里才显示，不然显示的就是验证码-->
-        <div v-if="currentStep === 'email'" class="step-email">
-          <div class="login-logo">
-            <div class="login-logo-icon">
-              <img :src="logo" alt="BIOTech Futures" />
-            </div>
-            <h2 class="login-title">{{ t('signIn') }}</h2>
-            <p class="login-subtitle">{{ t('welcomeSubtitle') }}</p>
+    <!-- Right auth pane: badges, language, email step, OTP step. -->
+    <!-- 右侧认证区：顶部标签、语言切换、邮箱步骤、OTP 步骤。 -->
+    <section class="auth-pane">
+      <div class="auth-shell">
+        <!-- Top bar with trust badges and language switcher. -->
+        <!-- 顶部工具条，包含信任标签与语言切换器。 -->
+        <div class="auth-topbar">
+          <div class="top-badges">
+            <span class="top-badge">{{ t('passwordless') }}</span>
+            <span class="top-badge">{{ t('enterpriseReady') }}</span>
           </div>
 
-          <!--form提交表单，填写邮箱后通过接口传输给后端进行下一步处理-->
-          <!--submit.prevent阻止浏览器默认提交刷新页面，novalidate不依赖原生弹窗-->
-          <form @submit.prevent="handleLogin" novalidate>
-            <div class="form-group">
-
-              <!--输入框上方的小标签，表明需要输入的内容是什么，屏幕阅读器也会读出这个内容-->
-              <label class="form-label" for="login-email">
-                {{ t('emailLabel') }}
-              </label>
-
-              <!--邮箱输入框-->
-              <!--ref="emailInputRef"以后可以通过该变量直接访问这个DOM元素，比如页面加载好自动聚焦到这里-->
-              <!--:placeholder="t('emailPlaceholder')"占位符-->
-              <!--autocomplete="email"允许浏览器自动填充邮箱-->
-              <input
-                id="login-email"
-                ref="emailInputRef"
-                v-model.trim="email"
-                type="email"
-                class="form-control"
-                :placeholder="t('emailPlaceholder')"
-                :aria-invalid="Boolean(error)"
-                autocomplete="email"
-                required
-                "
-              />
-              <small class="form-text">
-                {{ t('emailHelper') }}
-              </small>
-            </div>
-
-            <!--发送验证码按钮-->
-            <!--type=submit说明按钮会触发表单form提交-->
-            <!--:disabled说明邮箱在两种情况下是禁用的，一个取决于sandingcode的值，如果在发送验证码就是禁用，第二个取决于发送后倒计时是否归零，不然就只能等-->
+          <div class="language-switcher" role="tablist" aria-label="Language switcher">
             <button
-              type="submit"
-              class="btn btn-primary btn-lg full-width"
-              :disabled="sendingCode || resendCountdown > 0"
-            >
-              <!--如果满足条件，显示的就是该文字，即正常状态下的发送验证码-->
-              <span v-if="!sendingCode && resendCountdown === 0">
-                {{ t('sendVerificationCode') }}
-              </span>
-              <!--如果满足正在发送，那么就是显示laoding动画-->
-              <span v-else-if="sendingCode" class="loading"></span>
-              <!--如果都不是，那就说明正在倒计时，显示倒计时resend in xxs动画-->
-              <span v-else>
-                {{ t('resendIn') }} {{ resendCountdown }}s
-              </span>
-            </button>
-          </form>
-
-          <!--输入框下方的提示，如果成功发送，就会提示已经发送验证码，如果邮箱格式错误，就会提示错误-->
-          <p v-if="statusMessage" class="status-message" aria-live="polite">
-            {{ statusMessage }}
-          </p>
-          <p v-if="error" class="error-message" role="alert" aria-live="assertive">
-            {{ error }}
-          </p>
-        </div>
-
-        <!--和之前的div if对应，如果此时的步骤不是email，说明就是到了OTP验证区，显示的是输入验证码-->
-        <div v-else class="step-otp">
-
-          <!--验证码容器第一层，网页标签图片-->
-          <div class="login-logo otp-logo-compact">
-            <div class="login-logo-icon">
-              <img :src="logo" alt="BIOTech Futures" />
-            </div>
-          </div>
-
-          <!--第二层，文字，显示已发送验证码至邮箱-->
-          <div class="otp-screen-content">
-            <p class="otp-email">
-              {{ t('codeSentTo') }} <strong>{{ maskedEmail }}</strong>
-            </p>
-
-            <!--第三层，提供返回上一层修改邮箱的按钮-->
-            <div class="otp-actions-top">
-              <button type="button" class="linklike" @click="goBackToEmailStep">
-                {{ t('changeEmail') }}
-              </button>
-            </div>
-
-            <!--第四层，验证码输入框-->
-            <!--v-for为了方便一次性生成六个input小格子，根据otpDigits的长度和里面的值决定，digit是当前值，index是当前下标，v-model捆绑在对应名字的数组里-->
-            <!--:ref="(el) => setOtpRef(el, index)"：每一格输入框都被命名为响应变量，方便后续函数操作，焦点切换-->
-            <!--type=‘text’表明输入的是文本数字-->
-            <!--maxlength=“1”每格长度是1-->
-            <!--事件对象$event，发生了什么事件就是什么事件对象，传递给相应的函数，比如@input就是键盘输入这个事件，绑定的函数可能是自动跳到下一格-->
-            <!--@keydown键盘控制，比如左右移动光标切换焦点-->
-            <!--@keydown.enter按回车尝试验证-->
-            <div class="otp-container">
-              <input
-                v-for="(digit, index) in otpDigits"
-                :key="index"
-                :ref="(el) => setOtpRef(el, index)"
-                v-model="otpDigits[index]"
-                type="text"
-                maxlength="1"
-                class="otp-input"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                :aria-label="`${t('digit')} ${index + 1}`"
-                @input="handleOTPInput($event, index)"
-                @keydown="handleOTPKeydown($event, index)"
-                @keydown.enter.prevent="handleOTPEnter"
-                @focus="handleOTPFocus($event)"
-                @paste="handleOTPPaste($event)"
-              />
-            </div>
-
-            <!--验证按钮-->
-            <button
+              v-for="item in languageOptions"
+              :key="item.value"
               type="button"
-              class="btn btn-primary full-width mt-1"
-              :disabled="verifyingCode || !isOtpComplete"
-              @click="verifyOTP"
+              class="language-option"
+              :class="{ active: locale === item.value }"
+              @click="switchLanguage(item.value)"
             >
-              <span v-if="!verifyingCode">{{ t('verifyCode') }}</span>
-              <span v-else class="loading"></span>
+              {{ item.label }}
             </button>
+          </div>
+        </div>
 
-            <!--重新发送验证码按钮-->
-            <div class="text-center mt-small">
-              <button
-                type="button"
-                class="linklike"
-                :disabled="resendingCode || resendCountdown > 0"
-                @click="resendCode"
-              >
-                <span v-if="resendCountdown === 0">
-                  {{ t('resendCode') }}
-                </span>
-                <span v-else>
-                  {{ t('resendIn') }} {{ resendCountdown }}s
-                </span>
-              </button>
+        <!-- Auth card container. -->
+        <!-- 登录卡片容器。 -->
+        <div
+          class="auth-card interactive-surface"
+          @pointermove="handleCardPointerMove"
+        >
+          <div class="auth-card-glow"></div>
+
+          <!-- Two-step progress indicator. -->
+          <!-- 两步式认证进度指示器。 -->
+          <div class="auth-progress" aria-label="Authentication progress">
+            <div class="progress-item" :class="{ active: currentStepIndex >= 1, current: currentStepIndex === 1 }">
+              <span class="progress-dot">1</span>
+              <span class="progress-label">{{ t('emailStep') }}</span>
             </div>
-
-            <p class="otp-expiry-hint">
-              {{ t('codeExpiryHint') }}
-            </p>
-
-            <!--求助链接-->
-            <div class="help-links otp-help-links">
-              <!--前半句提示词，没有交互，只是显示文字-->
-              <span>{{ t('needHelp') }}</span>
-              <!--点击后，尝试调用手机或电脑端的邮件客户端并发邮件-->
-              <a href="mailto:support@biotechfutures.org">{{ t('contactSupport') }}</a>
+            <div class="progress-line" :class="{ active: currentStepIndex === 2 }"></div>
+            <div class="progress-item" :class="{ active: currentStepIndex >= 2, current: currentStepIndex === 2 }">
+              <span class="progress-dot">2</span>
+              <span class="progress-label">{{ t('otpStep') }}</span>
             </div>
           </div>
 
-          <p v-if="statusMessage" class="status-message" aria-live="polite">
-            {{ statusMessage }}
-          </p>
-          <p v-if="error" class="error-message" role="alert" aria-live="assertive">
-            {{ error }}
-          </p>
-        </div>
+          <!-- Step transition wrapper. -->
+          <!-- 步骤内容切换容器。 -->
+          <transition name="content-fade" mode="out-in">
+            <!-- Email step panel. -->
+            <!-- 邮箱输入步骤。 -->
+            <div v-if="currentStep === 'email'" key="email" class="step-panel">
+              <header class="auth-header">
+                <div class="auth-logo-wrap">
+                  <div class="auth-logo">
+                    <img :src="logo" alt="BIOTech Futures" />
+                  </div>
 
-        <!--横线-->
-        <div class="card-spacer"></div>
+                  <div class="auth-logo-copy">
+                    <span class="auth-kicker">{{ t('secureAccess') }}</span>
+                    <h2 class="auth-title">{{ selectedRoleLoginHeading }}</h2>
+                  </div>
+                </div>
 
-        <!--语言开关容器-->
-        <div class="language-switcher" role="tablist" aria-label="Language switcher">
+                <p class="auth-subtitle">{{ selectedRoleLoginSubtitle }}</p>
 
-          <!--批量制造按钮，通过for循环，将languageOptions里的变量都拿出来生成按钮-->
-          <!--比如：item = { value: 'en', label: 'English' }-->
-          <!--:class="{ active: locale === item.value }"高亮开关-->
-          <!--@click通过点击事件来切换语言-->
-          <button
-            v-for="item in languageOptions"
-            :key="item.value"
-            type="button"
-            class="language-option"
-            :class="{ active: locale === item.value }"
-            @click="switchLanguage(item.value)"
-          >
-            {{ item.label }}
-          </button>
+                <!-- Meta chips for selected identity and auth method. -->
+                <!-- 当前身份与认证方式标签。 -->
+                <div class="meta-row">
+                  <span class="meta-chip" :class="roleThemeClass(selectedLoginRole)">
+                    {{ selectedRoleLoginHint }}
+                  </span>
+                  <span class="meta-chip meta-chip--neutral">{{ t('secureOtp') }}</span>
+                </div>
+              </header>
+
+              <!-- Email submission form. -->
+              <!-- 邮箱提交表单。 -->
+              <form class="auth-form" @submit.prevent="handleLogin" novalidate>
+                <div class="field-block">
+                  <label class="field-label" for="login-email">{{ t('emailLabel') }}</label>
+
+                  <!-- Field shell highlights focus and error state at container level. -->
+                  <!-- 输入框容器负责表现聚焦态和错误态。 -->
+                  <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
+                    <input
+                      id="login-email"
+                      ref="emailInputRef"
+                      v-model.trim="email"
+                      type="email"
+                      class="field-input"
+                      :placeholder="t('emailPlaceholder')"
+                      :aria-invalid="Boolean(error)"
+                      autocomplete="email"
+                      required
+                    />
+                  </div>
+
+                  <small class="field-help">{{ selectedRoleEmailHelper }}</small>
+                </div>
+
+                <button
+                  type="submit"
+                  class="primary-button"
+                  :disabled="sendingCode || resendCountdown > 0"
+                >
+                  <span v-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
+                  <span v-else-if="resendCountdown > 0">{{ t('resendIn') }} {{ resendCountdown }}s</span>
+                  <span v-else>{{ t('sendVerificationCode') }}</span>
+                </button>
+              </form>
+
+              <!-- Step feedback messages. -->
+              <!-- 当前步骤的反馈消息。 -->
+              <transition name="message-slide">
+                <p v-if="statusMessage" class="status-message" aria-live="polite">
+                  {{ statusMessage }}
+                </p>
+              </transition>
+
+              <transition name="message-slide">
+                <p v-if="error" class="error-message" role="alert" aria-live="assertive">
+                  {{ error }}
+                </p>
+              </transition>
+            </div>
+
+            <!-- OTP step panel. -->
+            <!-- OTP 验证步骤。 -->
+            <div v-else key="otp" class="step-panel step-panel--otp">
+              <header class="auth-header auth-header--compact">
+                <div class="auth-logo-wrap">
+                  <div class="auth-logo auth-logo--small">
+                    <img :src="logo" alt="BIOTech Futures" />
+                  </div>
+
+                  <div class="auth-logo-copy">
+                    <span class="auth-kicker">{{ t('secureAccess') }}</span>
+                    <h2 class="auth-title">{{ t('verifyHeading') }}</h2>
+                  </div>
+                </div>
+
+                <p class="auth-subtitle">{{ t('codeSentTo') }} {{ maskedEmail }}</p>
+
+                <!-- Meta row keeps role context visible during OTP verification. -->
+                <!-- OTP 步骤继续保留当前角色语境。 -->
+                <div class="meta-row meta-row--stack">
+                  <span class="meta-chip" :class="roleThemeClass(selectedLoginRole)">
+                    {{ selectedRoleLoginHint }}
+                  </span>
+                  <button type="button" class="text-link" @click="goBackToEmailStep">
+                    {{ t('changeEmail') }}
+                  </button>
+                </div>
+              </header>
+
+              <!-- OTP box. -->
+              <!-- OTP 输入区。 -->
+              <!-- Each box binds to one digit, while input, keyboard, focus, and paste are centrally handled in script helpers. -->
+              <!-- 每个输入框只绑定一位数字，输入、键盘、聚焦和粘贴交互统一由 script 中的辅助函数处理。 -->
+              <div class="otp-box" :class="{ 'has-error': otpErrorActive, shaking: otpShake }">
+                <input
+                  v-for="(digit, index) in otpDigits"
+                  :key="index"
+                  :ref="(el) => setOtpRef(el, index)"
+                  v-model="otpDigits[index]"
+                  type="text"
+                  maxlength="1"
+                  class="otp-input"
+                  :class="{ 'otp-input-error': otpErrorActive }"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  :aria-label="`${t('digit')} ${index + 1}`"
+                  @input="handleOTPInput($event, index)"
+                  @keydown="handleOTPKeydown($event, index)"
+                  @keydown.enter.prevent="handleOTPEnter"
+                  @focus="handleOTPFocus($event)"
+                  @paste="handleOTPPaste($event, index)"
+                />
+              </div>
+
+              <div class="otp-footer-copy">
+                <p>{{ t('codeExpiryHint') }}</p>
+              </div>
+
+              <!-- OTP primary and secondary actions. -->
+              <!-- OTP 主次操作区。 -->
+              <div class="otp-action-stack">
+                <button
+                  type="button"
+                  class="primary-button"
+                  :disabled="verifyingCode || !isOtpComplete"
+                  @click="verifyOTP"
+                >
+                  <span v-if="verifyingCode" class="button-spinner" aria-hidden="true"></span>
+                  <span v-else>{{ t('verifyCode') }}</span>
+                </button>
+
+                <div class="otp-secondary-actions">
+                  <button
+                    type="button"
+                    class="secondary-button"
+                    :disabled="resendingCode || resendCountdown > 0"
+                    @click="resendCode"
+                  >
+                    {{ resendCountdown > 0 ? `${t('resendIn')} ${resendCountdown}s` : t('resendCode') }}
+                  </button>
+                </div>
+              </div>
+
+              <transition name="message-slide">
+                <p v-if="statusMessage" class="status-message" aria-live="polite">
+                  {{ statusMessage }}
+                </p>
+              </transition>
+
+              <transition name="message-slide">
+                <p v-if="error" class="error-message" role="alert" aria-live="assertive">
+                  {{ error }}
+                </p>
+              </transition>
+
+              <!-- Support link row. -->
+              <!-- 帮助与支持入口。 -->
+              <div class="support-row">
+                <span>{{ t('needHelp') }}</span>
+                <a href="mailto:support@biotechfutures.org">{{ t('contactSupport') }}</a>
+              </div>
+            </div>
+          </transition>
         </div>
       </div>
     </section>
@@ -295,407 +538,390 @@
 </template>
 
 <script setup>
-import { ref, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
-import * as THREE from 'three'
+/*
+  Imports and external modules.
+  依赖导入与外部模块。
+*/
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
-import logo from '@/assets/btf-logo.png'
-import bg1 from '@/assets/login/login-bg-1.jpg'
-import bg2 from '@/assets/login/login-bg-2.jpg'
-import bg3 from '@/assets/login/login-bg-3.jpg'
+import { buildSessionHeaders } from '@/utils/csrf'
+import { isValidEmail, maskEmail } from '@/utils/string'
+import {
+  LOGIN_LANGUAGE_KEY,
+  safeLocalStorageGet,
+  safeLocalStorageSet
+} from '@/utils/storage'
 
+import logo from '@/assets/btf-logo.png'
+import {
+  LOGIN_LANGUAGE_OPTIONS,
+  LOGIN_MESSAGES,
+  LOGIN_ROLE_HINT_PREFIX_MAP,
+  LOGIN_ROLE_PREVIEW_CONTENT,
+  LOGIN_ROLE_PREVIEW_ITEMS
+} from '@/data/login_language'
+import {
+  LOGIN_BACKGROUND_IMAGES,
+  LOGIN_BACKGROUND_IMAGES2,
+  LOGIN_SLIDE_DURATION
+} from '@/data/login_background'
+
+/*
+  Page-level instances.
+  页面级实例。
+*/
 const router = useRouter()
 const auth = useAuthStore()
 
-const backgroundImages = [bg1, bg2, bg3]
-const slideDuration = 6
-
+/*
+  Static configuration.
+  静态配置常量。
+*/
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const RESEND_SECONDS = 30
 
+/*
+  Shared page data.
+  页面共享静态数据。
+*/
+const backgroundImages = LOGIN_BACKGROUND_IMAGES
+const backgroundImages2 = LOGIN_BACKGROUND_IMAGES2
+const slideDuration = LOGIN_SLIDE_DURATION
+const languageOptions = LOGIN_LANGUAGE_OPTIONS
+const messages = LOGIN_MESSAGES
+const rolePreviewItems = LOGIN_ROLE_PREVIEW_ITEMS
+const rolePreviewContent = LOGIN_ROLE_PREVIEW_CONTENT
+const loginRoleHintPrefixMap = LOGIN_ROLE_HINT_PREFIX_MAP
+
+/*
+  Auth flow state.
+  登录流程状态。
+*/
 const email = ref('')
-
-//默认状态就是输入email状态
 const currentStep = ref('email')
 const error = ref('')
 const statusMessage = ref('')
 const sendingCode = ref(false)
 const verifyingCode = ref(false)
 const resendingCode = ref(false)
-const otpDigits = ref(['', '', '', '', '', ''])
-const otpRefs = ref([])
-const emailInputRef = ref(null)
 const resendCountdown = ref(0)
 
-let resendTimer = null
+/*
+  OTP interaction state.
+  OTP 交互状态。
+*/
+const otpDigits = ref(['', '', '', '', '', ''])
+const otpRefs = ref([])
+const otpShake = ref(false)
+const otpErrorActive = ref(false)
 
+/*
+  UI presentation state.
+  页面展示状态。
+*/
 const locale = ref('en')
-const leftPaneRef = ref(null)
-const biotechSceneRef = ref(null)
 const activeLeftBackground = ref('original')
+const selectedLoginRole = ref(rolePreviewItems[0]?.key || 'student')
+const previewLoginRoleKey = ref('')
+const isShellPointerInside = ref(false)
 
-// 切换背景使用，如果是模式一就切换到模式二，
-// 这是一个箭头函数arrow function，被赋值给常量，本质上是函数：function toggleLeftBackground() {......}
-//用于点击事件绑定的动作（函数），目的是更改
-const toggleLeftBackground = () => {
-  activeLeftBackground.value = activeLeftBackground.value === 'original' ? 'biotech' : 'original'
-}
+/*
+  DOM refs.
+  DOM 引用。
+*/
+const emailInputRef = ref(null)
+const loginShellRef = ref(null)
 
-// 虽然也是箭头函数，但跟上一个不一样，这个并不是直接把函数赋值，而是把computed返回结果赋值给常量
-// 这是一个计算值computed，根据当前状态显示，调用的话需要使用 backgroundToggleText.value
-//用于给按钮显示文字，目的是算出一个值
-const backgroundToggleText = computed(() => {
-  return activeLeftBackground.value === 'original' ? 'DNA' : 'IMG'
+/*
+  Runtime timer handles.
+  运行时定时器句柄。
+*/
+let resendTimer = null
+let otpErrorTimer = null
+let otpAutoSubmitTimer = null
+
+/*
+  Translation accessor.
+  统一翻译读取函数。
+*/
+const t = (key) => messages[locale.value]?.[key] || messages.en?.[key] || key
+
+/*
+  Basic derived values.
+  基础衍生值。
+*/
+const currentDir = computed(() => (locale.value === 'ar' ? 'rtl' : 'ltr'))
+const currentStepIndex = computed(() => (currentStep.value === 'email' ? 1 : 2))
+const maskedEmail = computed(() => maskEmail(email.value))
+const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.test(digit)))
+
+/*
+  Role display state.
+  角色显示状态。
+*/
+/*
+  displayedRoleKey prefers hover-preview state and falls back to the currently selected login role.
+  displayedRoleKey 优先跟随悬浮预览状态，未预览时回退到当前选中的登录角色。
+*/
+
+const selectedRoleData = computed(() => {
+  return rolePreviewContent[locale.value]?.[selectedLoginRole.value]
+    || rolePreviewContent.en?.[selectedLoginRole.value]
+    || null
 })
 
-//用于悬停背景切换按钮显示文字，和上面同理
-const backgroundToggleLabel = computed(() => {
-  return activeLeftBackground.value === 'original'
-    ? 'Switch to biotech 3D background'
-    : 'Switch to image slideshow background'
+const displayedRoleKey = computed(() => previewLoginRoleKey.value || selectedLoginRole.value)
+
+const displayedRoleData = computed(() => {
+  return rolePreviewContent[locale.value]?.[displayedRoleKey.value]
+    || rolePreviewContent.en?.[displayedRoleKey.value]
+    || null
 })
 
-//value用来告诉v-for建造几个button，label则是button的名字，{{item.label}}
-const languageOptions = [
-  { value: 'en', label: 'English' },
-  { value: 'zh-CN', label: '简体中文' },
-  { value: 'ja', label: '日本語' },
-  { value: 'ko', label: '한국어' },
-  { value: 'ar', label: 'العربية' },
-]
+/*
+  Role-aware login copy.
+  角色化登录文案。
+*/
+const selectedRoleLoginLabel = computed(() => {
+  const currentRoleItem = rolePreviewItems.find((item) => item.key === selectedLoginRole.value)
+  return currentRoleItem ? t(currentRoleItem.labelKey) : ''
+})
 
-const messages = {
-  en: {
-    brandTitle: 'BIOTech Futures Hub',
-    signIn: 'Sign in',
-    welcomeSubtitle: 'Access your mentoring portal securely and continue where you left off.',
-    emailLabel: 'Email Address',
-    emailPlaceholder: 'Enter your email',
-    emailHelper: 'We will send a short-lived verification code to your email.',
-    sendVerificationCode: 'Send Verification Code',
-    otpMessage: 'Enter the 6-digit code from your email to continue.',
-    verifyCode: 'Verify Code',
-    resendCode: 'Resend Code',
-    resendIn: 'Resend in',
-    visitWebsite: 'Visit Main Website',
-    roleStudent: 'Student',
-    roleMentor: 'Mentor',
-    roleSupervisor: 'Supervisor',
-    roleAdmin: 'Admin',
-    codeSentTo: 'Code sent to',
-    changeEmail: 'Change email',
-    back: 'Back',
-    digit: 'Digit',
-    codeExpiryHint: 'Codes are single-use and expire after a short time.',
-    needHelp: 'Need help?',
-    contactSupport: 'Contact support',
-    aboutTitle: 'Welcome to the BIOTech Futures Mentoring Portal',
-    aboutP1: 'This platform helps students, mentors, supervisors, and administrators stay connected throughout the mentoring program.',
-    aboutLi1: 'Access group communication and shared resources',
-    aboutLi2: 'Track milestones, updates, and mentoring progress',
-    aboutLi3: 'Support role-based workflows across the program',
-    aboutP2: 'Use one secure portal for communication, resources, events, and progress tracking.',
-    errorEnterEmail: 'Please enter your email address.',
-    errorInvalidEmail: 'Please enter a valid email address.',
-    errorSendLink: 'Failed to send the verification code. Please try again.',
-    errorNetworkLogin: 'Network error. Please check your connection and try again.',
-    errorCompleteCode: 'Please enter the complete 6-digit code.',
-    errorInvalidCode: 'Invalid or expired code.',
-    errorNetworkOtp: 'Network error. Please try again.',
-    errorEnterEmailFirst: 'Please enter your email address first.',
-    errorResendFail: 'Failed to resend the code. Please try again.',
-    resendSuccess: 'A new code has been sent to your email.',
-    sendingSuccess: 'Verification code sent. Please check your inbox.',
-    signingIn: 'Signing you in...',
+const selectedRoleLoginHeading = computed(() => `${t('signIn')} · ${selectedRoleLoginLabel.value}`)
+const selectedRoleLoginSubtitle = computed(() => selectedRoleData.value?.summary || t('welcomeSubtitle'))
+const selectedRoleEmailHelper = computed(() => selectedRoleData.value?.points?.[0] || t('emailHelper'))
+const selectedRoleLoginHint = computed(() => {
+  const prefix = loginRoleHintPrefixMap[locale.value] || loginRoleHintPrefixMap.en || t('selectedAccess')
+  return `${prefix}: ${selectedRoleLoginLabel.value}`
+})
+
+/*
+  Hero showcase metrics.
+  左侧展示型统计数据。
+*/
+const showcaseStats = computed(() => [
+  {
+    value: String(rolePreviewItems.length).padStart(2, '0'),
+    label: t('statsRoles')
   },
-
-  'zh-CN': {
-    brandTitle: 'BIOTech Futures 平台',
-    signIn: '登录',
-    welcomeSubtitle: '安全进入你的导师项目平台，并继续之前的进度。',
-    emailLabel: '邮箱地址',
-    emailPlaceholder: '请输入你的邮箱',
-    emailHelper: '我们会向你的邮箱发送一个短时有效的验证码。',
-    sendVerificationCode: '发送验证码',
-    otpMessage: '请输入邮件中的 6 位验证码以继续。',
-    verifyCode: '验证验证码',
-    resendCode: '重新发送验证码',
-    resendIn: '可重发于',
-    visitWebsite: '访问主网站',
-    roleStudent: '学生',
-    roleMentor: '导师',
-    roleSupervisor: '监督老师',
-    roleAdmin: '管理员',
-    codeSentTo: '验证码已发送至',
-    changeEmail: '更换邮箱',
-    back: '返回',
-    digit: '第',
-    codeExpiryHint: '验证码仅可使用一次，并会在短时间后失效。',
-    needHelp: '需要帮助？',
-    contactSupport: '联系支持',
-    aboutTitle: '欢迎来到 BIOTech Futures 导师平台',
-    aboutP1: '该平台帮助学生、导师、监督老师和管理员在整个导师项目中保持连接。',
-    aboutLi1: '访问小组沟通与共享资源',
-    aboutLi2: '追踪里程碑、更新与辅导进展',
-    aboutLi3: '支持平台中的角色化工作流程',
-    aboutP2: '通过一个安全平台统一完成沟通、资源访问、活动查看与进度跟踪。',
-    errorEnterEmail: '请输入你的邮箱地址。',
-    errorInvalidEmail: '请输入有效的邮箱地址。',
-    errorSendLink: '发送验证码失败，请重试。',
-    errorNetworkLogin: '网络异常，请检查连接后重试。',
-    errorCompleteCode: '请输入完整的 6 位验证码。',
-    errorInvalidCode: '验证码无效或已过期。',
-    errorNetworkOtp: '网络异常，请重试。',
-    errorEnterEmailFirst: '请先输入邮箱地址。',
-    errorResendFail: '重新发送验证码失败，请重试。',
-    resendSuccess: '新的验证码已发送到你的邮箱。',
-    sendingSuccess: '验证码已发送，请检查收件箱。',
-    signingIn: '正在登录...',
+  {
+    value: '10',
+    label: t('statsWeeks')
   },
+  {
+    value: 'OTP',
+    label: t('statsSecureAccess')
+  }
+])
 
-  ja: {
-    brandTitle: 'BIOTech Futures ハブ',
-    signIn: 'サインイン',
-    welcomeSubtitle: '安全にメンタリングポータルへアクセスし、続きから再開できます。',
-    emailLabel: 'メールアドレス',
-    emailPlaceholder: 'メールアドレスを入力してください',
-    emailHelper: '短時間のみ有効な確認コードをメールで送信します。',
-    sendVerificationCode: '確認コードを送信',
-    otpMessage: '続行するには、メールに届いた 6 桁のコードを入力してください。',
-    verifyCode: 'コードを確認',
-    resendCode: 'コードを再送信',
-    resendIn: '再送信まで',
-    visitWebsite: '公式サイトへ',
-    roleStudent: '学生',
-    roleMentor: 'メンター',
-    roleSupervisor: 'スーパーバイザー',
-    roleAdmin: '管理者',
-    codeSentTo: 'コード送信先',
-    changeEmail: 'メールを変更',
-    back: '戻る',
-    digit: '桁',
-    codeExpiryHint: 'コードは一度だけ使用でき、短時間で失効します。',
-    needHelp: 'お困りですか？',
-    contactSupport: 'サポートに連絡',
-    aboutTitle: 'BIOTech Futures メンタリングポータルへようこそ',
-    aboutP1: 'このプラットフォームは、学生、メンター、スーパーバイザー、管理者がプログラム全体を通してつながることを支援します。',
-    aboutLi1: 'グループ連絡と共有リソースにアクセス',
-    aboutLi2: 'マイルストーン、更新、進捗を追跡',
-    aboutLi3: '役割別ワークフローをサポート',
-    aboutP2: 'コミュニケーション、リソース、イベント、進捗管理を一つの安全なポータルで行えます。',
-    errorEnterEmail: 'メールアドレスを入力してください。',
-    errorInvalidEmail: '有効なメールアドレスを入力してください。',
-    errorSendLink: '確認コードの送信に失敗しました。もう一度お試しください。',
-    errorNetworkLogin: 'ネットワークエラーです。接続を確認してもう一度お試しください。',
-    errorCompleteCode: '6 桁のコードをすべて入力してください。',
-    errorInvalidCode: 'コードが無効か、有効期限が切れています。',
-    errorNetworkOtp: 'ネットワークエラーです。もう一度お試しください。',
-    errorEnterEmailFirst: '先にメールアドレスを入力してください。',
-    errorResendFail: 'コードの再送信に失敗しました。もう一度お試しください。',
-    resendSuccess: '新しいコードをメールに送信しました。',
-    sendingSuccess: '確認コードを送信しました。受信箱を確認してください。',
-    signingIn: 'サインイン中...',
+const platformCapabilities = computed(() => [
+  {
+    title: t('capabilityGroupSpacesTitle'),
+    subtitle: t('capabilityGroupSpacesSubtitle')
   },
-
-  ko: {
-    brandTitle: 'BIOTech Futures 허브',
-    signIn: '로그인',
-    welcomeSubtitle: '안전하게 멘토링 포털에 접속하고 이어서 진행하세요.',
-    emailLabel: '이메일 주소',
-    emailPlaceholder: '이메일을 입력하세요',
-    emailHelper: '짧은 시간만 유효한 인증 코드를 이메일로 보내드립니다.',
-    sendVerificationCode: '인증 코드 보내기',
-    otpMessage: '계속하려면 이메일의 6자리 코드를 입력하세요.',
-    verifyCode: '코드 확인',
-    resendCode: '코드 다시 보내기',
-    resendIn: '재전송 가능까지',
-    visitWebsite: '메인 웹사이트 방문',
-    roleStudent: '학생',
-    roleMentor: '멘토',
-    roleSupervisor: '슈퍼바이저',
-    roleAdmin: '관리자',
-    codeSentTo: '코드 전송 대상',
-    changeEmail: '이메일 변경',
-    back: '뒤로',
-    digit: '자리',
-    codeExpiryHint: '코드는 1회용이며 짧은 시간 후 만료됩니다.',
-    needHelp: '도움이 필요하신가요?',
-    contactSupport: '지원 문의',
-    aboutTitle: 'BIOTech Futures 멘토링 포털에 오신 것을 환영합니다',
-    aboutP1: '이 플랫폼은 학생, 멘토, 슈퍼바이저, 관리자가 멘토링 프로그램 전반에서 연결되도록 돕습니다.',
-    aboutLi1: '그룹 소통 및 공유 자료 접근',
-    aboutLi2: '마일스톤, 업데이트, 멘토링 진행 추적',
-    aboutLi3: '역할 기반 워크플로 지원',
-    aboutP2: '하나의 안전한 포털에서 소통, 자료, 이벤트, 진행 상황을 관리하세요.',
-    errorEnterEmail: '이메일 주소를 입력해 주세요.',
-    errorInvalidEmail: '유효한 이메일 주소를 입력해 주세요.',
-    errorSendLink: '인증 코드 전송에 실패했습니다. 다시 시도해 주세요.',
-    errorNetworkLogin: '네트워크 오류입니다. 연결을 확인한 뒤 다시 시도해 주세요.',
-    errorCompleteCode: '6자리 코드를 모두 입력해 주세요.',
-    errorInvalidCode: '코드가 잘못되었거나 만료되었습니다.',
-    errorNetworkOtp: '네트워크 오류입니다. 다시 시도해 주세요.',
-    errorEnterEmailFirst: '먼저 이메일 주소를 입력해 주세요.',
-    errorResendFail: '코드 재전송에 실패했습니다. 다시 시도해 주세요.',
-    resendSuccess: '새 코드가 이메일로 전송되었습니다.',
-    sendingSuccess: '인증 코드가 전송되었습니다. 받은편지함을 확인해 주세요.',
-    signingIn: '로그인 중...',
+  {
+    title: t('capabilityResourcesTitle'),
+    subtitle: t('capabilityResourcesSubtitle')
   },
-
-  ar: {
-    brandTitle: 'مركز BIOTech Futures',
-    signIn: 'تسجيل الدخول',
-    welcomeSubtitle: 'ادخل إلى بوابة الإرشاد بأمان وتابع من حيث توقفت.',
-    emailLabel: 'البريد الإلكتروني',
-    emailPlaceholder: 'أدخل بريدك الإلكتروني',
-    emailHelper: 'سنرسل رمز تحقق قصير الصلاحية إلى بريدك الإلكتروني.',
-    sendVerificationCode: 'إرسال رمز التحقق',
-    otpMessage: 'أدخل الرمز المكوّن من 6 أرقام من بريدك الإلكتروني للمتابعة.',
-    verifyCode: 'تأكيد الرمز',
-    resendCode: 'إعادة إرسال الرمز',
-    resendIn: 'إعادة الإرسال خلال',
-    visitWebsite: 'زيارة الموقع الرئيسي',
-    roleStudent: 'طالب',
-    roleMentor: 'مرشد',
-    roleSupervisor: 'مشرف',
-    roleAdmin: 'مسؤول',
-    codeSentTo: 'تم إرسال الرمز إلى',
-    changeEmail: 'تغيير البريد الإلكتروني',
-    back: 'رجوع',
-    digit: 'الخانة',
-    codeExpiryHint: 'الرموز للاستخدام مرة واحدة وتنتهي صلاحيتها بعد وقت قصير.',
-    needHelp: 'هل تحتاج إلى مساعدة؟',
-    contactSupport: 'التواصل مع الدعم',
-    aboutTitle: 'مرحبًا بك في بوابة BIOTech Futures للإرشاد',
-    aboutP1: 'تساعد هذه المنصة الطلاب والمرشدين والمشرفين والمسؤولين على البقاء متصلين طوال برنامج الإرشاد.',
-    aboutLi1: 'الوصول إلى تواصل المجموعات والموارد المشتركة',
-    aboutLi2: 'متابعة المراحل والتحديثات وتقدم الإرشاد',
-    aboutLi3: 'دعم سير العمل حسب الدور',
-    aboutP2: 'استخدم بوابة آمنة واحدة للتواصل والموارد والفعاليات وتتبع التقدم.',
-    errorEnterEmail: 'يرجى إدخال بريدك الإلكتروني.',
-    errorInvalidEmail: 'يرجى إدخال بريد إلكتروني صالح.',
-    errorSendLink: 'فشل إرسال رمز التحقق. يرجى المحاولة مرة أخرى.',
-    errorNetworkLogin: 'خطأ في الشبكة. يرجى التحقق من الاتصال والمحاولة مرة أخرى.',
-    errorCompleteCode: 'يرجى إدخال الرمز الكامل المكوّن من 6 أرقام.',
-    errorInvalidCode: 'الرمز غير صالح أو منتهي الصلاحية.',
-    errorNetworkOtp: 'خطأ في الشبكة. يرجى المحاولة مرة أخرى.',
-    errorEnterEmailFirst: 'يرجى إدخال بريدك الإلكتروني أولاً.',
-    errorResendFail: 'فشل إعادة إرسال الرمز. يرجى المحاولة مرة أخرى.',
-    resendSuccess: 'تم إرسال رمز جديد إلى بريدك الإلكتروني.',
-    sendingSuccess: 'تم إرسال رمز التحقق. يرجى فحص بريدك الوارد.',
-    signingIn: 'جارٍ تسجيل الدخول...',
+  {
+    title: t('capabilityProgressTitle'),
+    subtitle: t('capabilityProgressSubtitle')
+  },
+  {
+    title: t('capabilityEventsTitle'),
+    subtitle: t('capabilityEventsSubtitle')
+  },
+  {
+    title: t('capabilityMatchingTitle'),
+    subtitle: t('capabilityMatchingSubtitle')
+  },
+  {
+    title: t('capabilityAdminTitle'),
+    subtitle: t('capabilityAdminSubtitle')
   }
+])
+
+/*
+  Theme class builder.
+  角色主题类名构建函数。
+*/
+const roleThemeClass = (roleKey) => `role-theme--${roleKey || 'default'}`
+
+const previewLoginRole = (roleKey) => {
+  previewLoginRoleKey.value = roleKey
 }
 
-// t('signIn')：调用函数 t，并把 'signIn' 这个字符串传进去。也就是这里的（key）是形参
-// 如果messages[locale.value]存在，就取key，否则就退回英文
-// ?.语法是一个判断optional chaining，如果?前的结果存在，那么取.后的值，不存在返回undifined
-const t = (key) => {
-  return messages[locale.value]?.[key] || messages.en[key]
+const clearPreviewRole = () => {
+  previewLoginRoleKey.value = ''
 }
 
-// 这个是调整文字方向的
-const currentDir = computed(() => {
-  return locale.value === 'ar' ? 'rtl' : 'ltr'
-})
-
-// leftHtml是一个计算属性
-// ``这是反引号，用来定义模板字符串，里面还可以用${}来引用变量
-const leftHtml = computed(() => `
-  <h2 class="info-title">${t('aboutTitle')}</h2>
-  <p>${t('aboutP1')}</p>
-  <ul class="info-list">
-    <li>${t('aboutLi1')}</li>
-    <li>${t('aboutLi2')}</li>
-    <li>${t('aboutLi3')}</li>
-  </ul>
-  <p>${t('aboutP2')}</p>
-`)
-
-const isOtpComplete = computed(() => {
-  return otpDigits.value.join('').length === 6
-})
-
-// 计算属性，根据email的值计算
-// 如果email值存在?.trim()就删去前后空格
-// 邮箱按照@分前后两部分，比如fsq136656和gmail.com
-const maskedEmail = computed(() => {
-  const value = email.value?.trim() || ''
-  const parts = value.split('@')
-
-  if (parts.length !== 2) {
-    return value
-  }
-
-  // fsq136656和gmail.com
-  const [name, domain] = parts
-
-  if (name.length <= 2) {
-    return `${name[0] || '*'}***@${domain}`
-  }
-
-  return `${name.slice(0, 2)}***@${domain}`
-})
-
-// 切换语言的函数，（lang）形参，在切换语言区域，点击对应的按钮，就会调用此函数切换语言，语言是由locale的值决定
-// 最后一句，用户点击后，语言会被保存到本地浏览器里。
-// 页面下次打开时，默认点亮的就不是写死的初始值，而是上次用户选过的语言。
-const switchLanguage = (lang) => {
-  locale.value = lang
-  error.value = ''
-  statusMessage.value = ''
-  localStorage.setItem('login-language', lang)
-}
-
-// 从本地浏览器数据中读出‘login-language’，看上次使用的是什么语言加载
-// languageOptions是那五种语言，检查数组里至少有一个满足条件
-const savedLanguage = localStorage.getItem('login-language')
-if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
-  locale.value = savedLanguage
-}
-
-// 保存验证码每一位值
-const setOtpRef = (el, index) => {
-  if (el) {
-    otpRefs.value[index] = el
-  }
-}
-
-// async异步函数，可在函数内部使用await
-// 异步函数是不需要立刻出结果的动作，不能像普通代码一样立刻跑完，因为操作时间长，比如请求后端，读取文件，查询数据库
-// 同步函数比如普通的a+b函数，立刻就能得到结果。
-// 异步函数需要async()声明，而且返回的是一个promise，也就是未来会拿到的一个状态
-// 先调用接口并使用await等待完成比如：const response = await fetch('/api/user')
-// 然后等接口返回后再执行下面代码，把响应转化为JSON：const data = await response.json()
-// 用户触发输入验证码完成后，检查验证码是否完整并是否正在验证，如果允许就进入验证环节
-const handleOTPEnter = async () => {
-  if (!isOtpComplete.value || verifyingCode.value) {
+const updatePointerVariables = (element, clientX, clientY) => {
+  if (!element) {
     return
   }
-  await verifyOTP()
+
+  const rect = element.getBoundingClientRect()
+  const x = clientX - rect.left
+  const y = clientY - rect.top
+
+  element.style.setProperty('--pointer-x', `${x}px`)
+  element.style.setProperty('--pointer-y', `${y}px`)
 }
 
-// 处理 OTP 输入框输入事件的函数，$event是看当前的事件是什么，对事件进行处理
-// event.target表示触发这次事件的元素，比如要是在第三个OTP输入框输入内容，那么它就表示这个框的DOM元素
-// event.target.value就表示这个输入框的元素
-// .replace清洗字符串，把所有不是数字的字符全部换成空字符
-const handleOTPInput = (event, index) => {
-  const value = event.target.value.replace(/[^0-9]/g, '')
-  otpDigits.value[index] = value
+const handleCardPointerMove = (event) => {
+  updatePointerVariables(event.currentTarget, event.clientX, event.clientY)
+}
 
-  // 有内容且不是最后一个输入框，就自动跳转到下一格输入框
-  if (value && index < otpDigits.value.length - 1) {
+const handleShellPointerMove = (event) => {
+  updatePointerVariables(loginShellRef.value, event.clientX, event.clientY)
+  isShellPointerInside.value = true
+}
+
+const handleShellPointerLeave = () => {
+  isShellPointerInside.value = false
+}
+
+/*
+  Message helpers.
+  消息状态辅助函数。
+*/
+const clearMessages = () => {
+  error.value = ''
+  statusMessage.value = ''
+}
+
+/*
+  Timer cleanup helpers.
+  定时器清理辅助函数。
+*/
+const clearOtpAnimationTimers = () => {
+  if (otpErrorTimer) {
+    clearTimeout(otpErrorTimer)
+    otpErrorTimer = null
+  }
+}
+
+const clearOtpAutoSubmitTimer = () => {
+  if (otpAutoSubmitTimer) {
+    clearTimeout(otpAutoSubmitTimer)
+    otpAutoSubmitTimer = null
+  }
+}
+
+/*
+  Hero pane interaction helpers.
+  左侧展示区交互辅助函数。
+*/
+const setBackgroundMode = (mode) => {
+  activeLeftBackground.value = mode
+}
+
+/*
+  Role selection persists the login identity and also refreshes the preview state.
+  选择角色会记录当前登录身份，并同步刷新预览状态。
+*/
+const selectLoginRole = (roleKey) => {
+  selectedLoginRole.value = roleKey
+  previewLoginRoleKey.value = ''
+  clearMessages()
+}
+
+/*
+  Language switching and persistence.
+  语言切换与本地持久化。
+*/
+const switchLanguage = (lang) => {
+  locale.value = lang
+  clearMessages()
+  safeLocalStorageSet(LOGIN_LANGUAGE_KEY, lang)
+}
+
+/*
+  OTP ref collection.
+  OTP 输入框 ref 收集。
+*/
+const setOtpRef = (element, index) => {
+  if (element) {
+    otpRefs.value[index] = element
+  }
+}
+
+/*
+  OTP state reset.
+  OTP 输入状态重置。
+*/
+const resetOtpState = async () => {
+  clearOtpAutoSubmitTimer()
+  otpDigits.value = ['', '', '', '', '', '']
+  otpShake.value = false
+  otpErrorActive.value = false
+  await nextTick()
+  otpRefs.value[0]?.focus()
+}
+
+/*
+  Fill OTP digits from pasted or merged input text.
+  将粘贴文本或多字符输入拆分填入 OTP。
+*/
+const fillOtpFromText = async (value, startIndex = 0) => {
+  const digits = value.replace(/\D/g, '').slice(0, 6 - startIndex).split('')
+
+  if (!digits.length) {
+    return
+  }
+
+  digits.forEach((digit, offset) => {
+    otpDigits.value[startIndex + offset] = digit
+  })
+
+  await nextTick()
+
+  const nextIndex = Math.min(startIndex + digits.length, 5)
+  otpRefs.value[nextIndex]?.focus()
+}
+
+/*
+  OTP input handlers.
+  OTP 输入交互处理。
+*/
+const handleOTPInput = async (event, index) => {
+  otpErrorActive.value = false
+  otpShake.value = false
+  clearOtpAnimationTimers()
+
+  const normalizedValue = event.target.value.replace(/\D/g, '')
+
+  if (!normalizedValue) {
+    otpDigits.value[index] = ''
+    return
+  }
+
+  if (normalizedValue.length > 1) {
+    otpDigits.value[index] = ''
+    await fillOtpFromText(normalizedValue, index)
+    return
+  }
+
+  otpDigits.value[index] = normalizedValue
+
+  if (index < otpDigits.value.length - 1) {
     otpRefs.value[index + 1]?.focus()
   }
 }
 
-// OTP 输入框的键盘按键控制函数
-// event来说，如果按1，event就是“1”这个按钮，如果回车就是回车，如果backspace就是删除等
 const handleOTPKeydown = (event, index) => {
-
-  // event.key保存的是对应键值的字符串名称
   const key = event.key
 
-  //不依赖默认的删除行为，自定义
+  /*
+    Allow common system shortcuts such as Ctrl/Cmd + C/V/A/X.
+    允许常见系统快捷键，例如 Ctrl 或 Cmd 加 C、V、A、X。
+  */
+  if (event.ctrlKey || event.metaKey) {
+    return
+  }
+
   if (key === 'Backspace') {
     event.preventDefault()
 
@@ -708,6 +934,7 @@ const handleOTPKeydown = (event, index) => {
       otpDigits.value[index - 1] = ''
       otpRefs.value[index - 1]?.focus()
     }
+
     return
   }
 
@@ -723,70 +950,48 @@ const handleOTPKeydown = (event, index) => {
     return
   }
 
-  //如果是空格就阻止输入
   if (key === ' ' || key === 'Spacebar') {
     event.preventDefault()
     return
   }
 
-  //允许这类功能键通过，即什么都不做
-  const allowedKeys = ['Tab', 'Shift', 'Control', 'Meta', 'Alt', 'Enter']
-  if (allowedKeys.includes(key)) {
+  if (['Tab', 'Shift', 'Control', 'Meta', 'Alt', 'Enter', 'Delete', 'Home', 'End'].includes(key)) {
     return
   }
 
-  // 正则表达式：^表示字符串开头，[0-9]表示一个数字字符，$字符串结尾
-  //.test()正则方法，检验key是否匹配
-  if (!/^[0-9]$/.test(key)) {
+  if (!/^\d$/.test(key)) {
     event.preventDefault()
   }
 }
 
-//输入框只要被点击，被tab，被程序focus()到的时候，函数就会执行
-// .select()代表选中文本内容
 const handleOTPFocus = (event) => {
   event.target.select()
 }
 
-// 一次性粘贴验证码时，拦截默认粘贴行为，将内容清洗为纯数字，并填充进6个OTP输入框中
-// 为什么拦截？因为可能会导致第一个框直接把所有验证码都接受了，然后被截断
-const handleOTPPaste = (event) => {
+const handleOTPPaste = async (event, index = 0) => {
   event.preventDefault()
+  otpErrorActive.value = false
+  otpShake.value = false
+  clearOtpAnimationTimers()
 
-  // event.clipboardData是粘贴事件里的剪贴板数据对象
-  // .getData('text')获取纯文本内容
-  // .slice(0,6)只保留第0-5为数字，一共六位
-  const pastedText = event.clipboardData
-    .getData('text')
-    .replace(/[^0-9]/g, '')
-    .slice(0, 6)
+  const pastedText = event.clipboardData?.getData('text') || ''
+  await fillOtpFromText(pastedText, index)
+}
 
-  if (!pastedText) {
+const handleOTPEnter = async () => {
+  if (!isOtpComplete.value || verifyingCode.value) {
     return
   }
 
-  const chars = pastedText.split('')
-  otpDigits.value = ['', '', '', '', '', '']
-
-  chars.forEach((char, index) => {
-    otpDigits.value[index] = char
-  })
-
-  // 如果只输入了3位那么焦点就会摆在最近一位空着的地方，也就是length = 4，第4位
-  // 如果输入满了，length = 6,那么最后还是会在最后一位第五位那里
-  const nextIndex = Math.min(chars.length, 5)
-  otpRefs.value[nextIndex]?.focus()
+  await verifyOTP()
 }
 
-// 判断是否是合法邮箱格式
-// ^字符串开头，[]字符集合，[^]^表示取反，\s表示空白字符比如空格换行之类的，[^\s@]表示不是空白字符也不是@的任意一个字符
-// +表示至少一个
-// $表示字符串结尾
-const isValidEmail = (value) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
-}
+/*
+  Request helpers.
+  请求辅助函数。
+*/
+const buildCallbackUrl = () => `${window.location.origin}/#/auth/callback`
 
-//尝试把相应回复解析成JSON格式的数据
 const parseErrorMessage = async (response, fallbackText) => {
   try {
     const data = await response.json()
@@ -796,133 +1001,83 @@ const parseErrorMessage = async (response, fallbackText) => {
   }
 }
 
-// 会拼出这样一个字符串https://your-site.com/#/auth/callback
-// window.location.origin表示当前网页的源地址，比如：http://localhost:5173/#/login会变成http://localhost:5173
-// 使用#是因为前端用的是Hash history，网页地址会变成：http://localhost:5173/#/login这种模式
-// # 前面：浏览器真实访问的页面；后面：Vue 前端自己解析的路由路径
-// /#/login是前端的路由地址，作用是让Vue在浏览器知道现在需要渲染哪个页面组件
-// 项目本身是，前端负责路由页面，后端负责接口，认证，数据，两边给通过HTTP来请求通信
-// Vue项目中，浏览器真正加载的只有一个入口，之后的页面跳转要Vue自己切换组件，比如从登陆界面到dashboard界面
-// 这个是为了让后端处理完数据跳转到这个网页去
-const buildCallbackUrl = () => {
-  return `${window.location.origin}/#/auth/callback`
+/*
+  Shared JSON POST request helper.
+  通用 JSON POST 请求辅助函数。
+*/
+const postJson = async (path, payload) => {
+  return fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: buildSessionHeaders({
+      includeCSRF: true
+    }),
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  })
 }
 
-// 重发验证码倒计时
+/*
+  Resend countdown logic.
+  重发验证码倒计时逻辑。
+*/
 const startResendCountdown = () => {
-  // 验证码有效时限30s
-  resendCountdown.value = 30
+  resendCountdown.value = RESEND_SECONDS
 
-  // 如果之前有定时器了就清除掉
   if (resendTimer) {
     clearInterval(resendTimer)
   }
 
-  //创建一个每秒执行一次的定时器，并把它保存在resendTimer里，直到减到零位置
-  // 1000ms就是一秒
-  // 之哟啊调用一次，就是跑一轮30s的，而不是一秒一秒的调用，一次跑满
-  // Vue会每次自动刷新渲染
   resendTimer = setInterval(() => {
-    if (resendCountdown.value > 0) {
-      resendCountdown.value -= 1
-    } else {
+    if (resendCountdown.value <= 1) {
+      resendCountdown.value = 0
       clearInterval(resendTimer)
       resendTimer = null
+      return
     }
+
+    resendCountdown.value -= 1
   }, 1000)
 }
 
-// 重置OTP状态
-// await nextTick()，等待 Vue 先把刚刚的数据变化更新到 DOM 上。
-// 之后等待光标自动回到第一个格子里
-// 修改响应式数据不代表DOM会在这一行代码执行完的瞬间立刻更新好。
-// Vue 为了性能，通常会把这些更新先收集起来，然后在“下一轮 DOM 更新”里一起渲染。
-// 所以如果紧接着立刻去操作页面元素，比如：focus()；读取某个 input；获取某个元素是否已经出现，这时候可能页面还没更新完。
-const resetOtpState = async () => {
+/*
+  OTP error feedback.
+  OTP 错误反馈动画。
+*/
+const triggerOtpErrorFeedback = async () => {
+  clearOtpAnimationTimers()
+  clearOtpAutoSubmitTimer()
+  otpErrorActive.value = true
+  otpShake.value = false
   otpDigits.value = ['', '', '', '', '', '']
+
   await nextTick()
+
+  otpShake.value = true
   otpRefs.value[0]?.focus()
+
+  otpErrorTimer = setTimeout(() => {
+    otpShake.value = false
+  }, 420)
 }
 
-// 从change email那里返回输入邮箱的界面
+/*
+  Step navigation helper.
+  步骤回退辅助函数。
+*/
 const goBackToEmailStep = async () => {
   currentStep.value = 'email'
-  error.value = ''
-  statusMessage.value = ''
+  clearMessages()
+  otpErrorActive.value = false
+  otpShake.value = false
+  clearOtpAutoSubmitTimer()
   await nextTick()
   emailInputRef.value?.focus()
 }
 
-// 邮件提交发送验证码主函数
-const handleLogin = async () => {
-
-  // 处理邮件，去除空格，小写
-  const normalizedEmail = email.value.trim().toLowerCase()
-
-  // 函数三大判断自检是否中断
-  // 判断是否有邮件
-  if (!normalizedEmail) {
-    error.value = t('errorEnterEmail')
-    statusMessage.value = ''
-    return
-  }
-
-  // 邮件格式不合法
-  if (!isValidEmail(normalizedEmail)) {
-    error.value = t('errorInvalidEmail')
-    statusMessage.value = ''
-    return
-  }
-
-  email.value = normalizedEmail
-  error.value = ''
-  statusMessage.value = ''
-
-  if (resendCountdown.value > 0) {
-    statusMessage.value = `${t('resendIn')} ${resendCountdown.value}s`
-    return
-  }
-
-  // 表示正在发送验证码
-  sendingCode.value = true
-
-  // 函数主体
-  try {
-
-    // 请求函数接口
-    const response = await fetch(`${API_BASE_URL}/services/send-login-code/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        email: email.value,
-
-        // 表明后端处理完后的重定向链接地址
-        redirect_url: buildCallbackUrl(),
-      }),
-    })
-
-    // 如果接收成功并返回信息
-    if (response.ok) {
-      currentStep.value = 'otp'
-
-      // 表明发送成功
-      statusMessage.value = t('sendingSuccess')
-      await resetOtpState()
-      startResendCountdown()
-    } else {
-      error.value = await parseErrorMessage(response, t('errorSendLink'))
-    }
-  } catch (err) {
-    console.error('Login error:', err)
-    error.value = t('errorNetworkLogin')
-  } finally {
-    sendingCode.value = false
-  }
-}
-
+/*
+  Post-login route resolver.
+  登录后跳转路由解析。
+*/
 const resolvePostLoginRoute = (user) => {
   const role = user?.role || user?.user_type || user?.role_name || ''
 
@@ -930,70 +1085,111 @@ const resolvePostLoginRoute = (user) => {
     case 'admin':
     case 'global_admin':
     case 'local_admin':
-      return '/dashboard'
     case 'supervisor':
-      return '/dashboard'
     case 'mentor':
-      return '/dashboard'
     case 'student':
-      return '/dashboard'
     default:
       return '/dashboard'
   }
 }
 
-// 检验验证码
+/*
+  Authentication flow: send code.
+  认证主流程：发送验证码。
+*/
+const handleLogin = async () => {
+  const normalizedEmail = email.value.trim().toLowerCase()
+
+  clearMessages()
+
+  if (!normalizedEmail) {
+    error.value = t('errorEnterEmail')
+    return
+  }
+
+  if (!isValidEmail(normalizedEmail)) {
+    error.value = t('errorInvalidEmail')
+    return
+  }
+
+  if (sendingCode.value) {
+    return
+  }
+
+  if (resendCountdown.value > 0) {
+    statusMessage.value = `${t('resendIn')} ${resendCountdown.value}s`
+    return
+  }
+
+  email.value = normalizedEmail
+  sendingCode.value = true
+
+  try {
+    const response = await postJson('/services/send-login-code/', {
+      email: normalizedEmail,
+      redirect_url: buildCallbackUrl()
+    })
+
+    if (!response.ok) {
+      error.value = await parseErrorMessage(response, t('errorSendLink'))
+      return
+    }
+
+    currentStep.value = 'otp'
+    statusMessage.value = t('sendingSuccess')
+    await resetOtpState()
+    startResendCountdown()
+  } catch (requestError) {
+    console.error('Login error:', requestError)
+    error.value = t('errorNetworkLogin')
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+/*
+  Authentication flow: verify OTP.
+  认证主流程：校验 OTP。
+*/
 const verifyOTP = async () => {
-  // 验证码拼接
   const code = otpDigits.value.join('')
 
-  // 如果输入的位数不够就点击验证，报错
   if (code.length !== 6) {
     error.value = t('errorCompleteCode')
     statusMessage.value = ''
     return
   }
 
-  error.value = ''
-  statusMessage.value = t('signingIn')
+  clearMessages()
   verifyingCode.value = true
+  statusMessage.value = t('signingIn')
 
   try {
-    // 发送请求
-    const response = await fetch(`${API_BASE_URL}/services/verify-login-code/`, {
-      method: 'POST',
-      // 说明请求体是 JSON 格式，后端要按 JSON 解析。
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        email: email.value,
-        code,
-      }),
+    const response = await postJson('/services/verify-login-code/', {
+      email: email.value,
+      code
     })
 
-    // 一般ok表示200/204后端返回，进入if判断逻辑，如果错误就会返回400/401/403进入else
-    if (response.ok) {
-      await auth.fetchUserData()
-
-      // nextTick() 是 Vue 里的一个工具，等 Vue 把刚刚更新的数据和页面状态处理完，再继续往下执行。
-      // 有的时候需要，是因为要让Vue刷新更改页面，但有的时候只需要使用更新后的数据，那就不需要这个来刷新了
-      await nextTick()
-
-      const targetRoute = resolvePostLoginRoute(auth.user || auth.currentUser || null)
-
-      try {
-        await router.replace(targetRoute)
-      } catch (err) {
-        window.location.href = `/#${targetRoute}`
-      }
-    } else {
+    if (!response.ok) {
       statusMessage.value = ''
       error.value = await parseErrorMessage(response, t('errorInvalidCode'))
+      await triggerOtpErrorFeedback()
+      return
     }
-  } catch (err) {
-    console.error('OTP verification error:', err)
+
+    statusMessage.value = t('signingIn')
+    await auth.fetchUserData()
+    await nextTick()
+
+    const targetRoute = resolvePostLoginRoute(auth.user || null)
+
+    try {
+      await router.replace(targetRoute)
+    } catch {
+      window.location.href = `/#${targetRoute}`
+    }
+  } catch (requestError) {
+    console.error('OTP verification error:', requestError)
     statusMessage.value = ''
     error.value = t('errorNetworkOtp')
   } finally {
@@ -1001,7 +1197,10 @@ const verifyOTP = async () => {
   }
 }
 
-// 重发验证码，一样的逻辑，也是请求接口
+/*
+  Authentication flow: resend code.
+  认证主流程：重发验证码。
+*/
 const resendCode = async () => {
   if (!email.value) {
     error.value = t('errorEnterEmailFirst')
@@ -1013,32 +1212,25 @@ const resendCode = async () => {
     return
   }
 
-  error.value = ''
-  statusMessage.value = ''
+  clearMessages()
   resendingCode.value = true
 
   try {
-    const response = await fetch(`${API_BASE_URL}/services/send-login-code/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        email: email.value,
-        redirect_url: buildCallbackUrl(),
-      }),
+    const response = await postJson('/services/send-login-code/', {
+      email: email.value,
+      redirect_url: buildCallbackUrl()
     })
 
-    if (response.ok) {
-      statusMessage.value = t('resendSuccess')
-      await resetOtpState()
-      startResendCountdown()
-    } else {
+    if (!response.ok) {
       error.value = await parseErrorMessage(response, t('errorResendFail'))
+      return
     }
-  } catch (err) {
-    console.error('Resend code error:', err)
+
+    statusMessage.value = t('resendSuccess')
+    await resetOtpState()
+    startResendCountdown()
+  } catch (requestError) {
+    console.error('Resend code error:', requestError)
     error.value = t('errorNetworkOtp')
   } finally {
     resendingCode.value = false
@@ -1046,1479 +1238,1323 @@ const resendCode = async () => {
 }
 
 /*
-  Three.js biotech hero scene
+  Document language and direction sync.
+  文档语言与方向同步。
 */
+watch(
+  locale,
+  (nextLocale) => {
+    const direction = nextLocale === 'ar' ? 'rtl' : 'ltr'
+    document.documentElement.lang = nextLocale
+    document.documentElement.dir = direction
+  },
+  { immediate: true }
+)
 
-let scene = null
-let camera = null
-let renderer = null
-let animationId = 0
-let sceneClock = null
-let resizeObserver = null
+/*
+  Step focus sync.
+  步骤切换后的焦点同步。
+*/
+watch(currentStep, async (step) => {
+  await nextTick()
 
-let particleSystem = null
-let particleMaterial = null
-let particleGeometry = null
-
-const floatingItems = []
-const mouseNdc = new THREE.Vector2(10, 10)
-const mouseWorld = new THREE.Vector3(999, 999, 0)
-const raycaster = new THREE.Raycaster()
-const interactionPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
-
-const createSoftMaterial = (color, opacity = 1, emissive = '#000000') => {
-  return new THREE.MeshPhysicalMaterial({
-    color,
-    emissive,
-    emissiveIntensity: 0.08,
-    roughness: 0.18,
-    metalness: 0.06,
-    transmission: opacity < 1 ? 0.38 : 0,
-    transparent: opacity < 1,
-    opacity,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.16,
-    reflectivity: 0.5,
-    ior: 1.28
-  })
-}
-
-const addFloatingItem = (mesh, x, y, z, force = 1) => {
-  mesh.position.set(x, y, z)
-  scene.add(mesh)
-
-  floatingItems.push({
-    mesh,
-    basePosition: new THREE.Vector3(x, y, z),
-    velocity: new THREE.Vector3(),
-    force,
-    noiseOffset: Math.random() * 1000
-  })
-}
-
-const createBacteriaModel = (x, y, scale = 1) => {
-  const group = new THREE.Group()
-
-  const bodyMaterial = createSoftMaterial('#7adf9d', 0.94, '#1b5e37')
-  const stripeMaterial = createSoftMaterial('#bdf6cf', 0.88, '#215c3a')
-  const flagellaMaterial = new THREE.MeshStandardMaterial({
-    color: '#d7ffe4',
-    roughness: 0.52,
-    metalness: 0.04
-  })
-
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.42, 1.45, 14, 28),
-    bodyMaterial
-  )
-  body.rotation.z = Math.PI / 2
-  group.add(body)
-
-  for (let i = -2; i <= 2; i++) {
-    const stripe = new THREE.Mesh(
-      new THREE.TorusGeometry(0.24, 0.024, 12, 40),
-      stripeMaterial
-    )
-    stripe.rotation.y = Math.PI / 2
-    stripe.position.x = i * 0.24
-    stripe.scale.set(1, 1.55, 1)
-    group.add(stripe)
+  if (step === 'email') {
+    emailInputRef.value?.focus()
+  } else {
+    otpRefs.value[0]?.focus()
   }
-
-  const nucleusDots = [
-    [-0.24, 0.06, 0.1],
-    [0.02, -0.1, -0.08],
-    [0.3, 0.12, 0.06],
-    [0.12, 0.18, -0.12]
-  ]
-
-  nucleusDots.forEach(([px, py, pz], index) => {
-    const dot = new THREE.Mesh(
-      new THREE.SphereGeometry(index % 2 === 0 ? 0.065 : 0.05, 18, 18),
-      createSoftMaterial(index % 2 === 0 ? '#e7fff0' : '#9cf4bb', 0.95, '#275f41')
-    )
-    dot.position.set(px, py, pz)
-    group.add(dot)
-  })
-
-  for (let i = 0; i < 6; i++) {
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0.68, 0, 0),
-      new THREE.Vector3(0.98 + i * 0.05, (i - 2.5) * 0.08, 0.08 * Math.sin(i)),
-      new THREE.Vector3(1.28 + i * 0.08, (i - 2.5) * 0.16, 0.2 * Math.cos(i)),
-      new THREE.Vector3(1.72 + i * 0.1, (i - 2.5) * 0.24, 0.26 * Math.sin(i * 1.3))
-    ])
-
-    const tail = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 48, 0.014, 8, false),
-      flagellaMaterial
-    )
-    group.add(tail)
-  }
-
-  group.scale.setScalar(scale)
-  group.rotation.z = -0.28
-  group.position.set(x, y, 0)
-  return group
-}
-
-const createProteinComplex = (x, y, scale = 1) => {
-  const group = new THREE.Group()
-
-  const colors = ['#7fd0ff', '#b9e8ff', '#5db1ff', '#d9f6ff', '#86c7ff']
-  const positions = [
-    [0, 0, 0],
-    [0.48, 0.18, 0.12],
-    [-0.42, 0.26, -0.08],
-    [0.16, -0.42, 0.1],
-    [-0.26, -0.34, -0.12],
-    [0.02, 0.52, -0.06]
-  ]
-
-  positions.forEach((pos, index) => {
-    const blob = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(index === 0 ? 0.34 : 0.22, 2),
-      createSoftMaterial(colors[index % colors.length], 0.96, '#0d3f67')
-    )
-    blob.position.set(pos[0], pos[1], pos[2])
-    blob.rotation.set(Math.random(), Math.random(), Math.random())
-    group.add(blob)
-  })
-
-  const linkMaterial = new THREE.MeshStandardMaterial({
-    color: '#d8f4ff',
-    roughness: 0.42,
-    metalness: 0.06
-  })
-
-  for (let i = 1; i < positions.length; i++) {
-    const start = new THREE.Vector3(...positions[0])
-    const end = new THREE.Vector3(...positions[i])
-    const direction = new THREE.Vector3().subVectors(end, start)
-    const length = direction.length()
-
-    const bond = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.038, Math.max(0.08, length - 0.06), 6, 12),
-      linkMaterial
-    )
-
-    bond.position.copy(start.clone().add(end).multiplyScalar(0.5))
-    bond.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      direction.clone().normalize()
-    )
-
-    group.add(bond)
-  }
-
-  group.scale.setScalar(scale)
-  group.position.set(x, y, 0)
-  return group
-}
-
-const createCapsule = (x, y, scale = 1) => {
-  const group = new THREE.Group()
-
-  const left = new THREE.Mesh(
-    new THREE.SphereGeometry(0.42, 32, 32),
-    createSoftMaterial('#fff2db', 0.95, '#7a4f12')
-  )
-  left.scale.x = 0.9
-  left.position.x = -0.34
-
-  const right = new THREE.Mesh(
-    new THREE.SphereGeometry(0.42, 32, 32),
-    createSoftMaterial('#ffb36b', 0.95, '#7a3d08')
-  )
-  right.scale.x = 0.9
-  right.position.x = 0.34
-
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.36, 0.36, 0.78, 32),
-    createSoftMaterial('#ffe2bf', 0.92, '#7c4b14')
-  )
-  body.rotation.z = Math.PI / 2
-
-  group.add(left, right, body)
-  group.scale.setScalar(scale)
-  group.rotation.z = -0.55
-  group.position.set(x, y, 0)
-  return group
-}
-
-const createPetriDish = (x, y, scale = 1) => {
-  const group = new THREE.Group()
-
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.72, 0.08, 20, 100),
-    createSoftMaterial('#d8f6ff', 0.62, '#14485b')
-  )
-
-  const core = new THREE.Mesh(
-    new THREE.CircleGeometry(0.62, 48),
-    new THREE.MeshPhysicalMaterial({
-      color: '#72baff',
-      transparent: true,
-      opacity: 0.26,
-      roughness: 0.12,
-      metalness: 0.04,
-      transmission: 0.66,
-      clearcoat: 0.8
-    })
-  )
-
-  const colonyPositions = [
-    [-0.18, 0.14, 0.02],
-    [0.12, 0.2, 0.02],
-    [0.22, -0.08, 0.02],
-    [-0.1, -0.2, 0.02]
-  ]
-
-  colonyPositions.forEach(([px, py, pz], index) => {
-    const colony = new THREE.Mesh(
-      new THREE.SphereGeometry(index % 2 === 0 ? 0.06 : 0.045, 16, 16),
-      createSoftMaterial(index % 2 === 0 ? '#dbf5ff' : '#9fd8ff', 0.9, '#154662')
-    )
-    colony.position.set(px, py, pz)
-    group.add(colony)
-  })
-
-  group.add(ring, core)
-  group.scale.setScalar(scale)
-  group.position.set(x, y, -0.2)
-  return group
-}
-
-const createCell = (x, y, scale = 1) => {
-  const group = new THREE.Group()
-
-  const shell = new THREE.Mesh(
-    new THREE.SphereGeometry(0.66, 40, 40),
-    new THREE.MeshPhysicalMaterial({
-      color: '#ffd5f2',
-      transparent: true,
-      opacity: 0.32,
-      roughness: 0.1,
-      metalness: 0.03,
-      transmission: 0.8,
-      clearcoat: 0.95
-    })
-  )
-
-  const nucleus = new THREE.Mesh(
-    new THREE.SphereGeometry(0.22, 24, 24),
-    createSoftMaterial('#ff78cf', 0.94, '#7a1b5a')
-  )
-  nucleus.position.set(0.12, -0.08, 0.14)
-
-  const organelle1 = new THREE.Mesh(
-    new THREE.SphereGeometry(0.09, 16, 16),
-    createSoftMaterial('#ffd8ef', 0.92, '#772050')
-  )
-  organelle1.position.set(-0.16, 0.12, 0.08)
-
-  const organelle2 = new THREE.Mesh(
-    new THREE.SphereGeometry(0.07, 16, 16),
-    createSoftMaterial('#ffb2e1', 0.92, '#7c2454')
-  )
-  organelle2.position.set(0.18, 0.16, -0.04)
-
-  const organelle3 = new THREE.Mesh(
-    new THREE.SphereGeometry(0.05, 16, 16),
-    createSoftMaterial('#ffeaf8', 0.92, '#6d284f')
-  )
-  organelle3.position.set(-0.08, -0.16, 0.02)
-
-  group.add(shell, nucleus, organelle1, organelle2, organelle3)
-  group.scale.setScalar(scale)
-  group.position.set(x, y, 0)
-  return group
-}
-
-const createBreathingParticles = () => {
-  const count = 260
-  const positions = new Float32Array(count * 3)
-  const sizes = new Float32Array(count)
-
-  for (let i = 0; i < count; i++) {
-    const i3 = i * 3
-    positions[i3] = (Math.random() - 0.5) * 11
-    positions[i3 + 1] = (Math.random() - 0.5) * 8
-    positions[i3 + 2] = (Math.random() - 0.5) * 4 - 1.5
-    sizes[i] = 0.8 + Math.random() * 1.8
-  }
-
-  particleGeometry = new THREE.BufferGeometry()
-  particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  particleGeometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
-
-  particleMaterial = new THREE.PointsMaterial({
-    color: '#b7fff0',
-    size: 0.045,
-    transparent: true,
-    opacity: 0.42,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending
-  })
-
-  particleSystem = new THREE.Points(particleGeometry, particleMaterial)
-  particleSystem.position.z = -1.8
-  scene.add(particleSystem)
-}
-
-const animateBreathingParticles = (elapsed) => {
-  if (!particleSystem || !particleGeometry) return
-
-  const positions = particleGeometry.attributes.position.array
-
-  for (let i = 0; i < positions.length; i += 3) {
-    const baseX = positions[i]
-    const baseY = positions[i + 1]
-
-    positions[i + 2] += Math.sin(elapsed * 0.35 + baseX * 0.8 + baseY * 0.6) * 0.0009
-    positions[i + 1] += Math.cos(elapsed * 0.28 + baseX * 0.5) * 0.0007
-  }
-
-  particleGeometry.attributes.position.needsUpdate = true
-  particleMaterial.opacity = 0.25 + Math.sin(elapsed * 0.9) * 0.06
-  particleSystem.rotation.z = elapsed * 0.012
-}
-
-const createDnaHelix = (x, y, scale = 1) => {
-  const group = new THREE.Group()
-
-  const leftMaterial = createSoftMaterial('#15c97d', 0.98, '#0b5d3b')
-  const rightMaterial = createSoftMaterial('#9ef7d1', 0.98, '#16593f')
-  const rungMaterial = new THREE.MeshPhysicalMaterial({
-    color: '#eafff4',
-    roughness: 0.26,
-    metalness: 0.08,
-    clearcoat: 0.95,
-    clearcoatRoughness: 0.12,
-    transmission: 0.12
-  })
-
-  const spineMaterial = new THREE.MeshStandardMaterial({
-    color: '#d8fff0',
-    roughness: 0.34,
-    metalness: 0.05
-  })
-
-  const turns = 28
-  const helixHeight = 5.2
-  const radius = 0.54
-
-  let previousLeft = null
-  let previousRight = null
-
-  for (let i = 0; i < turns; i++) {
-    const tValue = i / (turns - 1)
-    const angle = tValue * Math.PI * 6.2
-    const yPos = (tValue - 0.5) * helixHeight
-
-    const leftPos = new THREE.Vector3(
-      Math.cos(angle) * radius,
-      yPos,
-      Math.sin(angle) * radius * 0.65
-    )
-
-    const rightPos = new THREE.Vector3(
-      Math.cos(angle + Math.PI) * radius,
-      yPos,
-      Math.sin(angle + Math.PI) * radius * 0.65
-    )
-
-    const leftNode = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 22, 22),
-      leftMaterial
-    )
-    leftNode.position.copy(leftPos)
-
-    const rightNode = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 22, 22),
-      rightMaterial
-    )
-    rightNode.position.copy(rightPos)
-
-    group.add(leftNode, rightNode)
-
-    const rungDirection = new THREE.Vector3().subVectors(rightPos, leftPos)
-    const rungLength = rungDirection.length()
-
-    const rung = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.022, Math.max(0.05, rungLength - 0.05), 5, 10),
-      rungMaterial
-    )
-    rung.position.copy(leftPos.clone().add(rightPos).multiplyScalar(0.5))
-    rung.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      rungDirection.clone().normalize()
-    )
-    group.add(rung)
-
-    if (previousLeft) {
-      const leftDir = new THREE.Vector3().subVectors(leftPos, previousLeft)
-      const leftLen = leftDir.length()
-      const leftTube = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.028, Math.max(0.05, leftLen - 0.05), 5, 10),
-        spineMaterial
-      )
-      leftTube.position.copy(previousLeft.clone().add(leftPos).multiplyScalar(0.5))
-      leftTube.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        leftDir.clone().normalize()
-      )
-      group.add(leftTube)
-    }
-
-    if (previousRight) {
-      const rightDir = new THREE.Vector3().subVectors(rightPos, previousRight)
-      const rightLen = rightDir.length()
-      const rightTube = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.028, Math.max(0.05, rightLen - 0.05), 5, 10),
-        spineMaterial
-      )
-      rightTube.position.copy(previousRight.clone().add(rightPos).multiplyScalar(0.5))
-      rightTube.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        rightDir.clone().normalize()
-      )
-      group.add(rightTube)
-    }
-
-    previousLeft = leftPos.clone()
-    previousRight = rightPos.clone()
-  }
-
-  group.scale.setScalar(scale)
-  group.rotation.z = 0.18
-  group.rotation.x = -0.14
-  group.position.set(x, y, -0.55)
-  return group
-}
-
-const setupBiotechScene = () => {
-  if (!biotechSceneRef.value) return
-
-  scene = new THREE.Scene()
-  scene.fog = new THREE.Fog('#061816', 7.5, 18)
-
-  const width = biotechSceneRef.value.clientWidth
-  const height = biotechSceneRef.value.clientHeight
-
-  camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 100)
-  camera.position.set(0, 0, 8.5)
-
-  renderer = new THREE.WebGLRenderer({
-    antialias: true,
-    alpha: true,
-    powerPreference: 'high-performance'
-  })
-
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.setSize(width, height)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-
-  biotechSceneRef.value.appendChild(renderer.domElement)
-
-  const ambient = new THREE.AmbientLight('#d7fff4', 1.15)
-  scene.add(ambient)
-
-  const keyLight = new THREE.DirectionalLight('#aaffea', 1.45)
-  keyLight.position.set(4.5, 5.5, 6.5)
-  scene.add(keyLight)
-
-  const fillLight = new THREE.DirectionalLight('#75bfff', 0.72)
-  fillLight.position.set(-5, 1.5, 4)
-  scene.add(fillLight)
-
-  const rimLight = new THREE.PointLight('#4ff0c5', 1.55, 22)
-  rimLight.position.set(-1.2, -1.5, 4)
-  scene.add(rimLight)
-
-  const topGlow = new THREE.PointLight('#96e9ff', 0.95, 18)
-  topGlow.position.set(1.8, 2.4, 3.2)
-  scene.add(topGlow)
-
-  addFloatingItem(createDnaHelix(-1.95, 0.5, 1.18), -1.95, 0.5, -0.45, 1.18)
-  addFloatingItem(createBacteriaModel(1.95, 1.08, 0.94), 1.95, 1.08, 0, 1.02)
-  addFloatingItem(createCapsule(2.28, -1.46, 0.92), 2.28, -1.46, 0, 0.88)
-
-  addFloatingItem(createCell(0.75, -0.84, 1.06), 0.75, -0.84, 0, 1.02)
-  addFloatingItem(createProteinComplex(-0.1, 1.82, 0.68), -0.1, 1.82, 0, 0.66)
-
-  createBreathingParticles()
-
-  sceneClock = new THREE.Clock()
-}
-
-const updateMouseWorld = () => {
-  if (!camera) return
-  raycaster.setFromCamera(mouseNdc, camera)
-  raycaster.ray.intersectPlane(interactionPlane, mouseWorld)
-}
-
-const animateBiotechScene = () => {
-  if (!scene || !camera || !renderer || !sceneClock) return
-
-  const elapsed = sceneClock.getElapsedTime()
-  updateMouseWorld()
-
-  for (const item of floatingItems) {
-    const base = item.basePosition
-    const current = item.mesh.position
-
-    const toMouse = new THREE.Vector3().subVectors(current, mouseWorld)
-    const distance = Math.max(0.0001, toMouse.length())
-
-    const influenceRadius = 2.35
-    let repelStrength = 0
-
-    if (distance < influenceRadius) {
-      repelStrength = (1 - distance / influenceRadius) * 0.18 * item.force
-      toMouse.normalize()
-      item.velocity.addScaledVector(toMouse, repelStrength)
-    }
-
-    const returnForce = new THREE.Vector3()
-      .subVectors(base, current)
-      .multiplyScalar(0.03)
-
-    item.velocity.add(returnForce)
-    item.velocity.multiplyScalar(0.9)
-
-    current.add(item.velocity)
-
-    const floatY = Math.sin(elapsed * 0.85 + item.noiseOffset) * 0.075
-    const floatX = Math.cos(elapsed * 0.52 + item.noiseOffset * 0.7) * 0.04
-
-    item.mesh.position.x += floatX * 0.07
-    item.mesh.position.y += floatY * 0.07
-
-    item.mesh.rotation.y += 0.0026 * item.force
-    item.mesh.rotation.x = Math.sin(elapsed * 0.55 + item.noiseOffset) * 0.05
-
-    if (repelStrength > 0.01) {
-      item.mesh.rotation.z += 0.0058 * item.force
-    } else {
-      item.mesh.rotation.z *= 0.965
-    }
-  }
-
-  animateBreathingParticles(elapsed)
-
-  if (camera) {
-    camera.position.x = Math.sin(elapsed * 0.12) * 0.08
-    camera.position.y = Math.cos(elapsed * 0.15) * 0.06
-    camera.lookAt(0, 0, 0)
-  }
-
-  renderer.render(scene, camera)
-  animationId = requestAnimationFrame(animateBiotechScene)
-}
-
-const handleScenePointerMove = (event) => {
-  if (!leftPaneRef.value) return
-
-  const rect = leftPaneRef.value.getBoundingClientRect()
-  mouseNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-  mouseNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-}
-
-const handleScenePointerLeave = () => {
-  mouseNdc.set(10, 10)
-  mouseWorld.set(999, 999, 0)
-}
-
-const handleSceneResize = () => {
-  if (!biotechSceneRef.value || !camera || !renderer) return
-
-  const width = biotechSceneRef.value.clientWidth
-  const height = biotechSceneRef.value.clientHeight
-
-  camera.aspect = width / height
-  camera.updateProjectionMatrix()
-  renderer.setSize(width, height)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-}
-
-onMounted(() => {
-  setupBiotechScene()
-  handleSceneResize()
-  animateBiotechScene()
-
-  if (leftPaneRef.value) {
-    leftPaneRef.value.addEventListener('pointermove', handleScenePointerMove)
-    leftPaneRef.value.addEventListener('pointerleave', handleScenePointerLeave)
-  }
-
-  if (leftPaneRef.value) {
-    resizeObserver = new ResizeObserver(() => handleSceneResize())
-    resizeObserver.observe(leftPaneRef.value)
-  }
-
-  window.addEventListener('resize', handleSceneResize)
 })
 
+watch(
+  [isOtpComplete, currentStep],
+  ([complete, step]) => {
+    clearOtpAutoSubmitTimer()
+
+    if (step !== 'otp' || !complete || verifyingCode.value || otpErrorActive.value) {
+      return
+    }
+
+    otpAutoSubmitTimer = setTimeout(() => {
+      if (isOtpComplete.value && currentStep.value === 'otp' && !verifyingCode.value) {
+        verifyOTP()
+      }
+    }, 160)
+  }
+)
+
+/*
+  Restore saved language.
+  恢复上次保存的语言设置。
+*/
+const savedLanguage = safeLocalStorageGet(LOGIN_LANGUAGE_KEY, 'en')
+if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
+  locale.value = savedLanguage
+}
+
+/*
+  Lifecycle: initial focus.
+  生命周期：初始化聚焦。
+*/
+onMounted(async () => {
+  await nextTick()
+  emailInputRef.value?.focus()
+})
+
+/*
+  Lifecycle: cleanup timers.
+  生命周期：清理定时器。
+*/
 onBeforeUnmount(() => {
+  clearOtpAnimationTimers()
+  clearOtpAutoSubmitTimer()
+
   if (resendTimer) {
     clearInterval(resendTimer)
+    resendTimer = null
   }
-
-  window.removeEventListener('resize', handleSceneResize)
-
-  if (leftPaneRef.value) {
-    leftPaneRef.value.removeEventListener('pointermove', handleScenePointerMove)
-    leftPaneRef.value.removeEventListener('pointerleave', handleScenePointerLeave)
-  }
-
-  resizeObserver?.disconnect()
-  cancelAnimationFrame(animationId)
-
-  floatingItems.splice(0, floatingItems.length)
-
-  if (renderer) {
-    renderer.dispose()
-    const canvas = renderer.domElement
-    canvas.parentNode?.removeChild(canvas)
-  }
-
-  scene = null
-  camera = null
-  renderer = null
-  sceneClock = null
 })
 </script>
 
 <style scoped>
-.split-login {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 520px);
-  min-height: 100vh;
-  background: var(--bg-light);
-}
+/*
+  Module 1: page tokens and global two-column shell.
+  模块一：页面设计变量与双栏外层布局。
+*/
 
-.left-pane {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(2rem, 4vw, 4rem);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+/*
+  1.display: grid;把这个容器变成 Grid 网格布局容器。
+  一旦一个元素设成 grid，它的直接子元素就会按照网格规则来排，不再只是普通块级元素从上到下堆叠。
+  login-shell 的直接子元素就是：hero-pane 和 auth-pane
+
+  2.grid-template-columns 这个 grid 容器有几列，每一列多宽。
+  第 1 列：minmax(0, 1.1fr)、
+  第 2 列：minmax(420px, 540px)
+
+  3.开头定义的一堆颜色，为了后续容器中的样式可以直接复用：color: var(--stone-900);
+  emerald 绿色主题，950最深，400最浅，主要用于设置渐变颜色......
+
+  4.white-soft和border是应用于毛玻璃效果
+
+  5.shadow是应用于卡片阴影样式
+
+  6.min-height: 100vh;  viewport height，表示容器最小高度至少等于整个浏览器视口高度
+
+  7.background那部分是分别在左上角和右下角放置圆形渐变光斑，让背景从纯白变成渐变色
+*/
+.login-shell {
+  --emerald-950: #081714;
+  --emerald-900: #0d241f;
+  --emerald-850: #123129;
+  --emerald-800: #173d33;
+  --emerald-700: #1f5d4f;
+  --emerald-600: #27846d;
+  --emerald-500: #2fa486;
+  --emerald-400: #69c3aa;
+  --mint-50: #f5fbf8;
+  --mint-100: #edf7f2;
+  --mint-200: #deefe6;
+  --mint-300: #cce6d8;
+  --stone-900: #10211d;
+  --stone-700: #36514a;
+  --stone-500: #648178;
+  --stone-300: #b6c9c2;
+  --white-soft: rgba(255, 255, 255, 0.74);
+  --border-soft: rgba(16, 33, 29, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --shadow-hero: 0 32px 90px rgba(3, 12, 10, 0.45);
+  --shadow-card: 0 26px 70px rgba(12, 41, 34, 0.14);
+  --shadow-focus: 0 0 0 4px rgba(47, 164, 134, 0.14);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
   min-height: 100vh;
   background:
-    radial-gradient(circle at 18% 16%, rgba(53, 255, 196, 0.14), transparent 20%),
-    radial-gradient(circle at 82% 20%, rgba(96, 154, 255, 0.16), transparent 24%),
-    radial-gradient(circle at 50% 78%, rgba(39, 255, 207, 0.08), transparent 30%),
-    linear-gradient(135deg, #031110 0%, #071a18 22%, #092321 46%, #061513 72%, #030c0c 100%);
+    radial-gradient(circle at top left, rgba(48, 173, 138, 0.16), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(23, 93, 79, 0.08), transparent 28%),
+    linear-gradient(180deg, #eef7f2 0%, #e7f3ec 40%, #dcece2 100%);
 }
 
-.left-bg-stack {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+/*
+  Module 2: hero pane, background stage, and visual effects.
+  模块二：左侧展示区、背景舞台与视觉效果。
+*/
+.hero-pane {
+  position: relative;
+  overflow: hidden;
+  min-height: 100vh;
 }
 
-.bg-slideshow,
-.biotech-bg {
+.hero-stage {
   position: absolute;
   inset: 0;
-  z-index: 0;
+}
+
+.hero-scene {
+  position: absolute;
+  inset: 0;
   opacity: 0;
-  transition: opacity 0.35s ease;
-  pointer-events: none;
+  transition: opacity 0.45s ease;
 }
 
-.bg-slideshow.active,
-.biotech-bg.active {
+.hero-scene.active {
   opacity: 1;
 }
 
-.bg-slide {
+.hero-slide-image,
+.hero-green-image {
   position: absolute;
   inset: 0;
-  background-size: cover;
+  width: 100%;
+  height: 100%;
+}
+
+.hero-slide-image {
+  object-fit: fill;
+  opacity: 0;
+  animation: heroSlideshow 18s infinite;
+  filter: saturate(1.02) contrast(1.01);
+}
+
+.hero-green-image {
   background-position: center center;
   background-repeat: no-repeat;
-  opacity: 0;
-  transform: scale(1.06);
-  animation: heroSlideshow 18s infinite;
-  filter: saturate(1.04) contrast(1.03);
+  background-size: cover;
+  filter: saturate(0.95) contrast(1.02) brightness(0.94);
 }
 
-.biotech-scene {
+.hero-overlay {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  background:
+    radial-gradient(circle at 14% 18%, rgba(115, 232, 193, 0.10), transparent 18%),
+    radial-gradient(circle at 86% 16%, rgba(72, 179, 148, 0.12), transparent 24%),
+    radial-gradient(circle at 50% 88%, rgba(72, 179, 148, 0.06), transparent 28%),
+    linear-gradient(135deg, rgba(3, 15, 13, 0.16) 0%, rgba(4, 18, 15, 0.30) 48%, rgba(4, 12, 11, 0.46) 100%);
 }
 
-.bg-overlay {
+.hero-noise {
   position: absolute;
   inset: 0;
-  z-index: 0;
-  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(circle at center, black 34%, transparent 100%);
 }
 
-.bg-overlay-original {
-  background:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.08), transparent 30%),
-    linear-gradient(
-      135deg,
-      rgba(8, 31, 28, 0.76) 0%,
-      rgba(8, 31, 28, 0.50) 45%,
-      rgba(8, 31, 28, 0.66) 100%
-    );
-}
-
-.bg-overlay-biotech {
-  background:
-    radial-gradient(circle at 18% 20%, rgba(171, 255, 228, 0.12), transparent 24%),
-    radial-gradient(circle at 84% 72%, rgba(112, 178, 255, 0.1), transparent 24%),
-    radial-gradient(circle at 48% 48%, rgba(255, 255, 255, 0.04), transparent 38%),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(255, 255, 255, 0.015) 36%,
-      rgba(10, 58, 49, 0.16) 100%
-    );
-  mix-blend-mode: screen;
-  animation: breatheOverlay 6s ease-in-out infinite;
-}
-
-.left-bg-toggle {
-  position: absolute;
-  top: 1.1rem;
-  left: 1.1rem;
-  z-index: 2;
-  min-width: 52px;
-  height: 36px;
-  padding: 0 0.8rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  color: #effff8;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
-  cursor: pointer;
-  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.left-bg-toggle:hover {
-  transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
-}
-
-.left-pane[dir="rtl"] .left-bg-toggle {
-  left: auto;
-  right: 1.1rem;
-}
-
-.left-inner {
+/*
+  Module 3: hero foreground layout, brand block, and cards.
+  模块三：左侧前景布局、品牌区与卡片结构。
+*/
+.hero-content {
   position: relative;
   z-index: 1;
-  width: 100%;
-  max-width: 560px;
-  color: #ffffff;
-  padding: clamp(1.35rem, 2.6vw, 2rem);
-  border-radius: 28px;
-  background: linear-gradient(180deg, rgba(7, 28, 24, 0.34), rgba(7, 28, 24, 0.18));
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  box-shadow:
-    0 18px 48px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  min-height: 100vh;
+  padding: clamp(28px, 4vw, 52px);
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.hero-brand-row {
+  width: min(100%, 860px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 0;
+  text-align: center;
+}
+
+.brand-mark,
+.auth-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22px;
   overflow: hidden;
 }
 
-.left-inner::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.16), transparent 34%),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.08) 0%,
-      rgba(255, 255, 255, 0.03) 42%,
-      rgba(255, 255, 255, 0.01) 100%
-    );
-  pointer-events: none;
+.brand-mark {
+  width: 68px;
+  height: 68px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 20px 35px rgba(3, 11, 10, 0.28);
+  backdrop-filter: blur(14px);
 }
 
-.left-inner > * {
-  position: relative;
-  z-index: 1;
-}
-
-.left-inner.rtl {
-  text-align: right;
-}
-
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  margin-bottom: 1.15rem;
-  flex-wrap: wrap;
-}
-
-.brand-title {
-  font-size: clamp(1.65rem, 2vw, 1.95rem);
-  font-weight: 750;
-  color: #ffffff;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-  margin: 0;
-  overflow-wrap: anywhere;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
-}
-
-.logo-icon {
-  width: 52px;
-  height: 52px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.1));
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 52px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
-}
-
-.logo-icon img {
-  width: 72%;
-  height: 72%;
-  object-fit: contain;
-}
-
-.custom-content {
-  max-width: 100%;
-}
-
-.custom-content :deep(h2.info-title) {
-  font-size: clamp(2rem, 2.8vw, 2.45rem);
-  font-weight: 760;
-  margin: 0 0 0.9rem;
-  color: #ffffff;
-  line-height: 1.12;
-  letter-spacing: -0.03em;
-  overflow-wrap: anywhere;
-  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.2);
-}
-
-.custom-content :deep(p) {
-  color: rgba(255, 255, 255, 0.92);
-  margin: 0 0 0.9rem;
-  line-height: 1.72;
-  font-size: 1.03rem;
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
-
-.custom-content :deep(ul.info-list) {
-  margin: 0.9rem 0 1.2rem 1.2rem;
-  color: rgba(255, 255, 255, 0.98);
-  line-height: 1.7;
-  padding-inline-start: 0.9rem;
-}
-
-.left-inner.rtl .custom-content :deep(ul.info-list) {
-  margin: 0.9rem 1.2rem 1.2rem 0;
-  padding-inline-start: 0;
-  padding-inline-end: 0.9rem;
-}
-
-.custom-content :deep(li) {
-  margin-bottom: 0.45rem;
-  overflow-wrap: anywhere;
-}
-
-.links {
-  margin-top: 1.35rem;
-}
-
-.right-pane {
-  background: var(--dark-green);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(1.5rem, 3vw, 2.5rem);
-  position: relative;
-}
-
-.right-pane::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.08), transparent 22%),
-    radial-gradient(circle at 88% 82%, rgba(255, 255, 255, 0.06), transparent 26%);
-  pointer-events: none;
-}
-
-.login-card {
-  position: relative;
-  z-index: 1;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95));
-  border-radius: 28px;
-  box-shadow:
-    0 30px 60px rgba(0, 0, 0, 0.18),
-    0 10px 24px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+.brand-mark img,
+.auth-logo img {
   width: 100%;
-  max-width: 432px;
-  padding: 1.9rem 2rem 1.2rem;
+  height: 100%;
+  object-fit: cover;
+}
+
+.brand-copy {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 4rem);
-  overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-
-.login-card.rtl {
-  direction: rtl;
-}
-
-.login-card::-webkit-scrollbar {
-  width: 8px;
-}
-
-.login-card::-webkit-scrollbar-thumb {
-  background: rgba(16, 24, 40, 0.12);
-  border-radius: 999px;
-}
-
-.login-logo {
-  text-align: center;
-  margin-bottom: 1rem;
-}
-
-.login-logo-icon {
-  width: 74px;
-  height: 74px;
-  background: linear-gradient(180deg, #ffffff, #f5f7f8);
-  border-radius: 22px;
-  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 0.55rem;
-  box-shadow: 0 14px 28px rgba(10, 79, 65, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(14, 32, 28, 0.06);
+  gap: 6px;
 }
 
-.login-logo-icon img {
-  width: 70%;
-  height: 70%;
-  object-fit: contain;
+.eyebrow,
+.section-kicker,
+.auth-kicker,
+.role-detail-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-.login-title {
-  color: var(--charcoal);
-  margin: 0 0 0.28rem;
-  line-height: 1.08;
-  font-size: clamp(2rem, 4vw, 2.5rem);
-  font-weight: 780;
-  letter-spacing: -0.04em;
-  overflow-wrap: anywhere;
+.eyebrow {
+  color: rgba(208, 255, 235, 0.82);
 }
 
-.login-subtitle {
-  color: #617184;
-  margin: 0 0 1.15rem;
-  line-height: 1.6;
-  font-size: 1rem;
-  max-width: 30ch;
-  margin-left: auto;
-  margin-right: auto;
+.hero-title {
+  margin: 0;
+  font-size: clamp(2rem, 3.2vw, 2.8rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: #d8fff0;
 }
 
-.form-group {
-  margin-bottom: 1rem;
+
+.hero-grid {
+  width: min(100%, 960px);
+  display: grid;
+  grid-template-columns: 1.08fr 0.92fr;
+  gap: 20px;
+  align-items: stretch;
 }
 
-.form-label {
-  display: inline-block;
-  margin-bottom: 0.55rem;
-  color: #0f2f2a;
-  font-weight: 650;
-  font-size: 0.98rem;
-  letter-spacing: -0.01em;
-}
-
-.form-control {
-  width: 100%;
-  min-height: 54px;
-  padding: 0.95rem 1rem;
-  border-radius: 16px;
-  border: 1px solid #d7dce2;
-  background: linear-gradient(180deg, #ffffff, #fbfcfd);
-  color: #102a28;
-  font-size: 1rem;
-  transition:
-    border-color 0.22s ease,
-    box-shadow 0.22s ease,
-    transform 0.16s ease,
-    background-color 0.22s ease;
-  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.04);
-}
-
-.form-control::placeholder {
-  color: #94a3b8;
-}
-
-.form-control:hover {
-  border-color: #c6cdd6;
-  background: #ffffff;
-}
-
-.form-control:focus {
-  outline: none;
-  border-color: rgba(10, 79, 65, 0.45);
-  box-shadow: 0 0 0 4px rgba(10, 79, 65, 0.12), 0 10px 24px rgba(10, 79, 65, 0.08);
-  background: #ffffff;
-}
-
-.form-text {
-  display: inline-block;
-  margin-top: 0.6rem;
-  color: #6b7b8e;
-  font-size: 0.92rem;
-  line-height: 1.55;
-}
-
-.full-width {
-  width: 100%;
-}
-
-.btn {
-  min-height: 50px;
-  border-radius: 16px;
-  font-weight: 680;
-  font-size: 1rem;
-  letter-spacing: -0.01em;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.2s ease,
-    opacity 0.2s ease,
-    background-color 0.2s ease;
-}
-
-.btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.btn:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.btn-primary {
-  background: linear-gradient(180deg, rgba(7, 128, 91, 1) 0%, rgba(7, 117, 84, 1) 100%);
-  color: #ffffff;
-  border: 1px solid rgba(7, 92, 67, 0.72);
-  box-shadow: 0 16px 28px rgba(7, 116, 84, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-
-.btn-primary:hover:not(:disabled) {
-  box-shadow: 0 18px 32px rgba(7, 116, 84, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-}
-
-.btn-primary:disabled {
-  opacity: 0.72;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.btn-secondary {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
-}
-
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.14);
-}
-
-.otp-container {
-  display: flex;
-  gap: 0.6rem;
-  justify-content: center;
-  margin: 1.9rem 0 1rem;
-}
-
-.otp-input {
-  width: 48px;
-  height: 56px;
-  border: 1px solid #d8dee6;
-  border-radius: 18px;
-  text-align: center;
-  font-size: 1.18rem;
-  font-weight: 650;
-  color: #102a28;
-  outline: none;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.16s ease,
-    background-color 0.2s ease;
-  caret-color: transparent;
-  user-select: none;
-  background: linear-gradient(180deg, #ffffff, #fbfcfd);
-  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.03);
-}
-
-.otp-input:hover {
-  border-color: #c8d0d9;
-}
-
-.otp-input:focus {
-  border-color: rgba(10, 79, 65, 0.5);
-  box-shadow: 0 0 0 4px rgba(10, 79, 65, 0.12), 0 10px 22px rgba(10, 79, 65, 0.08);
-  background: #ffffff;
-  transform: translateY(-1px);
-}
-
-.mt-1 {
-  margin-top: 1rem;
-}
-
-.mt-small {
-  margin-top: 0.8rem;
-}
-
-.text-center {
-  text-align: center;
-}
-
-.error-message {
-  color: #b42318;
-  background: linear-gradient(180deg, #fff5f5, #fff0f0);
-  border: 1px solid #f1c4c4;
-  text-align: center;
-  margin-top: 0.9rem;
-  margin-bottom: 0;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  padding: 0.75rem 0.85rem;
-  border-radius: 14px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.linklike {
-  background: none;
-  border: none;
-  color: var(--dark-green);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-  padding: 0;
-  text-decoration: none;
+.hero-card {
   position: relative;
-  transition: color 0.18s ease, opacity 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  border-radius: 30px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.07));
+  box-shadow: var(--shadow-hero);
+  backdrop-filter: blur(18px);
 }
 
-.linklike::after {
+.hero-card::before,
+.auth-card::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 1px;
-  background: currentColor;
-  opacity: 0.5;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
-.linklike:hover::after {
-  opacity: 1;
-  transform: scaleX(1);
+.hero-card--primary {
+  min-height: 468px;
 }
 
-.linklike:hover {
-  color: #08664f;
+.hero-card--secondary {
+  min-height: 468px;
+  background: linear-gradient(180deg, rgba(6, 22, 19, 0.42), rgba(7, 18, 16, 0.28));
 }
 
-.card-spacer {
-  height: 1rem;
-}
-
-.language-switcher {
-  margin-top: 0.9rem;
-  padding-top: 0.95rem;
-  border-top: 1px solid rgba(16, 24, 40, 0.08);
+.section-head {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.55rem 0.8rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
 }
 
-.language-option {
-  background: rgba(16, 24, 40, 0.03);
-  border: 1px solid transparent;
-  color: #7a8796;
-  cursor: pointer;
-  font-size: 0.92rem;
-  font-weight: 560;
-  padding: 0.38rem 0.78rem;
+.section-head--compact {
+  margin-bottom: 20px;
+}
+
+.section-kicker {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: rgba(205, 255, 232, 0.7);
+}
+
+.section-title,
+.role-detail-title,
+.auth-title {
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  color: #ffffff;
+}
+
+.selection-pill,
+.meta-chip,
+.top-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    transform 0.18s ease;
+  font-size: 0.82rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 
-.language-option.active {
-  color: #0f2f2a;
-  font-weight: 700;
-  background: rgba(10, 79, 65, 0.08);
-  border-color: rgba(10, 79, 65, 0.14);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+.selection-pill {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
-.language-option:hover {
-  color: #111827;
-  background: rgba(16, 24, 40, 0.05);
+/*
+  Module 4: role selector and role detail presentation.
+  模块四：角色选择器与角色详情展示。
+*/
+.role-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.role-pill {
+  --role-color: rgba(255, 255, 255, 0.92);
+  --role-surface: rgba(255, 255, 255, 0.08);
+  --role-border: rgba(255, 255, 255, 0.12);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--role-border);
+  border-radius: 999px;
+  background: var(--role-surface);
+  color: var(--role-color);
+  font-size: 0.92rem;
+  font-weight: 700;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+}
+
+.role-pill:hover,
+.role-pill:focus-visible,
+.mode-button:hover,
+.mode-button:focus-visible,
+.hero-link:hover,
+.hero-link:focus-visible,
+.language-option:hover,
+.language-option:focus-visible,
+.primary-button:hover,
+.primary-button:focus-visible,
+.secondary-button:hover,
+.secondary-button:focus-visible,
+.text-link:hover,
+.text-link:focus-visible {
   transform: translateY(-1px);
 }
 
-.role-tags {
+.role-pill:focus-visible,
+.mode-button:focus-visible,
+.hero-link:focus-visible,
+.language-option:focus-visible,
+.field-input:focus-visible,
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.text-link:focus-visible,
+.otp-input:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.role-pill-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08);
+}
+
+.role-pill {
+  position: relative;
+  overflow: hidden;
+}
+
+.role-pill.selected {
+  transform: translateY(-2px) scale(1.03);
+  border-color: currentColor;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 0 0 1px currentColor inset,
+    0 16px 32px rgba(5, 14, 12, 0.28),
+    0 0 18px rgba(255, 255, 255, 0.12);
+}
+
+.role-pill.selected::before {
+  opacity: 1;
+}
+
+.role-pill.selected .role-pill-dot {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 7px rgba(255, 255, 255, 0.10),
+    0 0 12px currentColor;
+}
+
+.role-pill-dot {
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.role-detail-card {
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+  min-height: 250px;
+  padding: 20px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+}
+
+.role-detail-header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  margin: 0 0 1.15rem;
-}
-
-.role-tag {
-  display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0.26rem 0.8rem;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.role-detail-badge {
+  width: 16px;
+  height: 42px;
   border-radius: 999px;
-  font-size: 0.88rem;
-  font-weight: 560;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #ffffff;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+  background: currentColor;
+  opacity: 0.86;
 }
 
-.otp-email {
-  margin: 1rem 0 0;
-  text-align: center;
-  color: #667588;
-  font-size: 0.95rem;
-  line-height: 1.55;
+.role-detail-kicker {
+  margin: 0 0 4px;
+  color: rgba(215, 255, 237, 0.66);
 }
 
-.otp-email strong {
-  color: #0f2f2a;
+.role-detail-title {
+  font-size: 1.1rem;
+  color: #fff;
+}
+
+.role-detail-summary,
+.role-detail-list {
+  margin: 0;
+  color: rgba(238, 247, 242, 0.86);
+  line-height: 1.72;
+}
+
+.role-detail-list {
+  padding-left: 1.2rem;
+}
+
+.role-detail-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/*
+  Module 5: hero overview stats and footer actions.
+  模块五：左侧概览统计与底部操作区。
+*/
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stat-value {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: rgba(222, 245, 235, 0.74);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.hero-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.mode-switch {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mode-button,
+.hero-link,
+.language-option,
+.primary-button,
+.secondary-button,
+.text-link {
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease, color 0.22s ease;
+}
+
+.mode-button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(233, 247, 240, 0.76);
   font-weight: 700;
 }
 
-.otp-actions-top {
-  margin-top: 0.7rem;
+.mode-button.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.hero-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.overview-title {
+  font-size: 1.65rem;
+  line-height: 1.18;
+  color: #ffffff;
+}
+
+.overview-capabilities {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  flex: 1;
+}
+
+.capability-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 15px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  min-height: 82px;
+}
+
+.capability-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.25;
+}
+
+.capability-subtitle {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: rgba(230, 244, 237, 0.76);
+}
+
+.stat-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+  transition: all 0.35s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+}
+
+.stat-card:hover::after {
+  opacity: 1;
+}
+
+
+/* 功能卡片升级（核心） */
+.capability-card {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 14px 15px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  min-height: 82px;
+  overflow: hidden;
+  transition: all 0.35s ease;
+}
+
+.capability-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg,
+    transparent,
+    rgba(115, 232, 193, 0.12),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.capability-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(120deg,
+    rgba(115, 232, 193, 0.4),
+    rgba(72, 179, 148, 0.2),
+    transparent
+  );
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 0.35s ease;
+}
+
+.capability-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 50px rgba(5, 18, 15, 0.35);
+}
+
+.capability-card:hover::before {
+  opacity: 1;
+}
+
+.capability-card:hover::after {
+  opacity: 1;
+}
+
+
+/* 模式按钮升级 */
+.mode-switch {
+  position: relative;
+  display: inline-flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.mode-button {
+  position: relative;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(233, 247, 240, 0.7);
+  font-weight: 700;
+  transition: all 0.3s ease;
+}
+
+.mode-button.active {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(47,164,134,0.6), rgba(115,232,193,0.4));
+  box-shadow: 0 10px 20px rgba(47,164,134,0.3);
+}
+
+.mode-button:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.12);
+}
+
+
+/* 官网按钮升级（高级 outline） */
+.hero-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  transition: all 0.35s ease;
+}
+
+.hero-link::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg,
+    transparent,
+    rgba(115,232,193,0.2),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.hero-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(115,232,193,0.6);
+  box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+}
+
+.hero-link:hover::before {
+  opacity: 1;
+}
+
+/*
+  Module 6: auth pane shell, top bar, and card container.
+  模块六：右侧认证区外层、顶部工具条与卡片容器。
+*/
+.auth-pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: clamp(22px, 4vw, 40px);
+}
+
+.auth-shell {
+  width: min(100%, 560px);
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+}
+
+.auth-topbar {
+  width: min(100%, 520px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.top-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.top-badge {
+  color: var(--emerald-700);
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(31, 93, 79, 0.08);
+  box-shadow: 0 8px 24px rgba(12, 41, 34, 0.06);
+}
+
+.language-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.language-option {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--stone-700);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.language-option.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
+  box-shadow: 0 14px 24px rgba(31, 93, 79, 0.16);
+}
+
+.auth-card {
+  position: relative;
+  overflow: hidden;
+  width: min(100%, 520px);
+  border-radius: 32px;
+  padding: 28px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 248, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  box-shadow: var(--shadow-card);
+}
+
+.auth-card::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0));
+}
+
+.auth-card-glow {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 200px;
+  background: radial-gradient(circle at top left, rgba(47, 164, 134, 0.16), transparent 58%);
+  pointer-events: none;
+}
+
+/*
+  Module 7: auth progress and shared header presentation.
+  模块七：认证进度条与步骤头部展示。
+*/
+.auth-progress {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 26px;
+}
+
+.progress-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--stone-500);
+}
+
+.progress-item.active {
+  color: var(--stone-900);
+}
+
+.progress-item.current .progress-dot {
+  box-shadow: 0 12px 26px rgba(31, 93, 79, 0.18);
+}
+
+.progress-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 0.9rem;
+  font-weight: 800;
+  background: rgba(31, 93, 79, 0.08);
+  color: inherit;
+}
+
+.progress-item.active .progress-dot {
+  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
+  color: #fff;
+}
+
+.progress-label {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.progress-line {
+  flex: 1;
+  height: 2px;
+  margin: 0 14px;
+  border-radius: 999px;
+  background: rgba(16, 33, 29, 0.08);
+}
+
+.progress-line.active {
+  background: linear-gradient(90deg, var(--emerald-700), var(--emerald-400));
+}
+
+.step-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  display: grid;
+  gap: 22px;
+}
+
+.auth-header {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
   text-align: center;
 }
 
-.otp-expiry-hint {
-  margin: 1rem 0 0;
-  text-align: center;
-  color: #6d7b8d;
+.auth-header--compact {
+  gap: 12px;
+}
+
+.auth-logo-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.auth-logo {
+  width: 62px;
+  height: 62px;
+  background: linear-gradient(180deg, rgba(39, 132, 109, 0.12), rgba(39, 132, 109, 0.04));
+  border: 1px solid rgba(39, 132, 109, 0.1);
+}
+
+.auth-logo--small {
+  width: 54px;
+  height: 54px;
+}
+
+.auth-logo-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-kicker,
+.role-detail-kicker {
+  color: var(--emerald-700);
+}
+
+.auth-title {
+  font-size: clamp(1.55rem, 2.6vw, 2rem);
+  color: var(--stone-900);
+}
+
+.auth-subtitle {
+  margin: 0;
+  color: var(--stone-700);
+  line-height: 1.7;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.meta-row--stack {
+  justify-content: center;
+  align-items: center;
+}
+
+.meta-chip {
+  color: var(--stone-900);
+  border: 1px solid rgba(16, 33, 29, 0.08);
+  background: rgba(39, 132, 109, 0.08);
+}
+
+.meta-chip--neutral {
+  background: rgba(16, 33, 29, 0.05);
+  color: var(--stone-700);
+}
+
+/*
+  Module 8: form fields and action buttons.
+  模块八：表单字段与操作按钮。
+*/
+.auth-form {
+  width: 100%;
+  display: grid;
+  gap: 18px;
+}
+
+.field-block {
+  display: grid;
+  gap: 10px;
+}
+
+.field-label {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--stone-900);
+}
+
+.field-shell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 0 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.field-shell:focus-within {
+  border-color: rgba(39, 132, 109, 0.38);
+  box-shadow: var(--shadow-focus);
+  background: #fff;
+}
+
+.field-shell.is-error {
+  border-color: rgba(210, 75, 75, 0.34);
+}
+
+.field-icon {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--emerald-700);
+}
+
+.field-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-size: 1rem;
+  color: var(--stone-900);
+}
+
+.field-input::placeholder {
+  color: rgba(54, 81, 74, 0.54);
+}
+
+.field-help {
+  color: var(--stone-500);
+  line-height: 1.6;
+}
+
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 0 18px;
+  border-radius: 18px;
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+
+.primary-button {
+  border: 0;
+  color: #fff;
+  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
+  box-shadow: 0 18px 28px rgba(31, 93, 79, 0.2);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.text-link:disabled {
+  cursor: not-allowed;
+  transform: none;
+  opacity: 0.6;
+  box-shadow: none;
+}
+
+.secondary-button {
+  border: 1px solid rgba(16, 33, 29, 0.1);
+  color: var(--stone-700);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.text-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--emerald-700);
   font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.button-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+/*
+  Module 9: OTP inputs, feedback blocks, and support row.
+  模块九：OTP 输入区、反馈消息与支持区域。
+*/
+.otp-footer-copy p,
+.support-row {
+  margin: 0;
+  color: var(--stone-700);
+  line-height: 1.68;
+}
+
+.otp-box {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.otp-input {
+  min-width: 0;
+  height: 62px;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 29, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--stone-900);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.otp-input:focus {
+  border-color: rgba(39, 132, 109, 0.38);
+  transform: translateY(-1px);
+}
+
+.otp-input-error,
+.otp-box.has-error .otp-input {
+  border-color: rgba(210, 75, 75, 0.34);
+  background: rgba(255, 245, 245, 0.94);
+}
+
+.otp-box.shaking {
+  animation: shake 0.42s ease;
+}
+
+.otp-action-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.otp-secondary-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.status-message,
+.error-message {
+  margin: 0;
+  padding: 13px 15px;
+  border-radius: 16px;
+  font-size: 0.92rem;
   line-height: 1.55;
 }
 
 .status-message {
-  color: #0f5132;
-  background: linear-gradient(180deg, #f1fbf4, #ebf8ef);
-  border: 1px solid #cfe9d7;
-  border-radius: 14px;
-  text-align: center;
-  margin-top: 0.9rem;
-  margin-bottom: 0;
-  padding: 0.78rem 0.9rem;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  color: var(--emerald-700);
+  border: 1px solid rgba(39, 132, 109, 0.12);
+  background: rgba(39, 132, 109, 0.08);
 }
 
-.help-links {
-  margin-top: 1rem;
-  text-align: center;
-  color: #6b7b8e;
-  font-size: 0.92rem;
-  line-height: 1.5;
+.error-message {
+  color: #b33d3d;
+  border: 1px solid rgba(210, 75, 75, 0.18);
+  background: rgba(255, 235, 235, 0.76);
 }
 
-.help-links a {
-  margin-left: 0.35rem;
-  color: var(--dark-green);
-  text-decoration: none;
-  font-weight: 600;
-  position: relative;
+.support-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.help-links a::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 1px;
-  background: currentColor;
-  opacity: 0.45;
-}
-
-.linklike:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.support-row a {
+  color: var(--emerald-700);
+  font-weight: 800;
   text-decoration: none;
 }
 
-.linklike:disabled::after {
-  display: none;
+.support-row a:hover,
+.support-row a:focus-visible {
+  text-decoration: underline;
 }
 
-.step-email,
-.step-otp {
-  display: flex;
-  flex-direction: column;
-  animation: fadeSlideIn 0.28s ease;
+/*
+  Module 10: role theme utilities and transition effects.
+  模块十：角色主题工具类与过渡动画。
+*/
+.role-theme--student {
+  color: #6fc6ff;
 }
 
-.step-otp {
-  flex: 1;
+.role-theme--mentor {
+  color: #75d9b7;
 }
 
-.otp-topbar {
-  display: flex;
-  align-items: center;
-  margin-bottom: 0.75rem;
+.role-theme--supervisor {
+  color: #ffd37b;
 }
 
-.back-button {
-  background: rgba(10, 79, 65, 0.06);
-  border: 1px solid rgba(10, 79, 65, 0.08);
-  padding: 0.46rem 0.78rem;
-  color: var(--dark-green);
-  font: inherit;
-  font-weight: 650;
-  border-radius: 999px;
-  cursor: pointer;
-  transition:
-    background-color 0.18s ease,
-    transform 0.18s ease,
-    border-color 0.18s ease;
+.role-theme--teacher {
+  color: #ffd37b;
 }
 
-.back-button:hover {
-  background: rgba(10, 79, 65, 0.1);
-  border-color: rgba(10, 79, 65, 0.14);
-  transform: translateY(-1px);
+.role-theme--admin {
+  color: #c5b0ff;
 }
 
-.otp-logo-compact {
-  margin-bottom: 0.35rem;
+.role-theme--default {
+  color: #9fddd0;
 }
 
-.otp-screen-content {
-  text-align: center;
-  margin-top: 0.35rem;
+.content-fade-enter-active,
+.content-fade-leave-active,
+.message-slide-enter-active,
+.message-slide-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s ease;
 }
 
-.otp-main-title {
-  color: var(--charcoal);
-  font-size: 1.12rem;
-  font-weight: 650;
-  line-height: 1.6;
-  margin: 0.55rem 0 0;
-  letter-spacing: -0.02em;
-}
-
-.otp-help-links {
-  margin-top: 1.1rem;
-}
-
-.loading {
-  display: inline-block;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.45);
-  border-top-color: rgba(255, 255, 255, 1);
-  animation: spin 0.7s linear infinite;
-  vertical-align: middle;
-}
-
-@keyframes breatheOverlay {
-  0%,
-  100% {
-    opacity: 0.92;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1.02);
-  }
+.content-fade-enter-from,
+.content-fade-leave-to,
+.message-slide-enter-from,
+.message-slide-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 @keyframes heroSlideshow {
   0% {
     opacity: 0;
-    transform: scale(1.06);
   }
-
-  8% {
+  6% {
     opacity: 1;
-    transform: scale(1.03);
   }
-
-  28% {
+  24% {
     opacity: 1;
-    transform: scale(1);
   }
-
-  36% {
+  30% {
     opacity: 0;
-    transform: scale(1.02);
   }
-
   100% {
     opacity: 0;
-    transform: scale(1.06);
-  }
-}
-
-@keyframes fadeSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -2528,102 +2564,579 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 1100px) {
-  .split-login {
-    grid-template-columns: minmax(0, 1fr) minmax(380px, 460px);
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
   }
-
-  .login-card {
-    max-width: 410px;
+  25% {
+    transform: translateX(-6px);
+  }
+  50% {
+    transform: translateX(6px);
+  }
+  75% {
+    transform: translateX(-4px);
   }
 }
 
-@media (max-width: 900px) {
-  .split-login {
+/*
+  Module 11: responsive behavior.
+  模块十一：响应式适配。
+*/
+@media (max-width: 1200px) {
+  .login-shell {
     grid-template-columns: 1fr;
   }
 
-  .right-pane {
-    order: -1;
+  .hero-pane {
+    min-height: auto;
   }
 
-  .left-pane,
-  .right-pane {
-    padding: 1.5rem 1.25rem;
+  .hero-content {
+    min-height: auto;
   }
 
-  .login-card {
-    max-height: none;
-    overflow-y: visible;
-    max-width: 460px;
-    width: 100%;
+  .hero-grid {
+    grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 560px) {
-  .left-inner {
-    padding: 1.1rem 1rem;
-    border-radius: 22px;
+  .auth-pane {
+    min-height: auto;
+    padding-top: 0;
   }
 }
 
-@media (max-width: 560px) {
-  .login-card {
-    padding: 1.25rem 1.05rem 1rem;
+@media (max-width: 760px) {
+  .hero-content,
+  .auth-pane {
+    padding: 20px;
+  }
+
+  .overview-capabilities {
+  grid-template-columns: 1fr;
+  }
+
+  .overview-flow-track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-brand-row,
+  .auth-topbar,
+  .meta-row--stack,
+  .hero-footer {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .hero-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-card {
+    padding: 22px 18px;
     border-radius: 24px;
   }
 
-  .login-logo-icon {
-    width: 66px;
-    height: 66px;
-    border-radius: 20px;
-  }
-
-  .otp-container {
-    gap: 0.42rem;
-  }
-
-  .otp-input {
-    width: 42px;
-    height: 50px;
-    border-radius: 16px;
-  }
-
-  .brand-title {
-    font-size: 1.45rem;
-  }
-
-  .custom-content :deep(h2.info-title) {
-    font-size: 1.7rem;
-  }
-
-  .custom-content :deep(p),
-  .custom-content :deep(li) {
-    font-size: 0.98rem;
-  }
-
-  .language-option {
-    font-size: 0.88rem;
-    padding: 0.34rem 0.68rem;
-  }
-
-  .role-tags {
-    gap: 0.42rem;
-  }
-
-  .role-tag {
-    font-size: 0.8rem;
-    padding: 0.22rem 0.66rem;
-  }
-
-  .status-message,
-  .error-message {
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-
-  .otp-main-title {
-    font-size: 1rem;
+  .otp-box {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/*
+  Module 12: reduced-motion accessibility support.
+  模块十二：降低动画偏好支持。
+*/
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide-image,
+  .button-spinner,
+  .otp-box.shaking,
+  .content-fade-enter-active,
+  .content-fade-leave-active,
+  .message-slide-enter-active,
+  .message-slide-leave-active,
+  .role-pill,
+  .mode-button,
+  .hero-link,
+  .language-option,
+  .primary-button,
+  .secondary-button,
+  .text-link,
+  .otp-input {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+
+/*
+  Module 13: immersive motion polish and premium interaction upgrades.
+  模块十三：沉浸式动效强化与高级交互升级。
+*/
+
+/*
+    --pointer分别表示鼠标横向以及纵向的位置，50%也就是容器中间。32%就是容器靠上部分
+    isolate相当于给这片区域单独开一个图层
+*/
+.login-shell {
+  --pointer-x: 50%;
+  --pointer-y: 32%;
+  isolation: isolate;
+}
+
+/*
+    虚拟子元素，表示浏览器会在login-shell DOM 元素前后额外生成两个装饰用的盒子
+    before是在前面插入，after是在后面插入
+
+    <div class="login-shell">
+      <pseudo-before></pseudo-before>
+      <div class="login-card">...</div>
+      <pseudo-after></pseudo-after>
+    </div>
+
+    这里是两个为元素的公共样式
+    为元素必须有content才可以生成
+
+    ::before 的作用：做一个会根据鼠标位置变化、并且在鼠标进入时才显示的动态发光层。
+    ::after 的作用：做一个固定在右下角、一直存在的静态背景发光层。
+*/
+.login-shell::before,
+.login-shell::after {
+  content: '';
+  position: fixed;
+  inset: auto;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(48px);
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.login-shell::before {
+  top: calc(var(--pointer-y) * 0.18);
+  left: calc(var(--pointer-x) * 0.16);
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(103, 228, 193, 0.24), transparent 72%);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+}
+
+.login-shell.pointer-inside::before {
+  opacity: 0.5;
+}
+
+.login-shell::after {
+  right: 5%;
+  bottom: 4%;
+  width: 360px;
+  height: 360px;
+  background: radial-gradient(circle, rgba(20, 94, 79, 0.16), transparent 72%);
+  opacity: 0.5;
+}
+
+.hero-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.06), transparent 30%),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.03), transparent 42%);
+  pointer-events: none;
+}
+
+.hero-ambient-orb,
+.hero-grid-line {
+  position: absolute;
+  pointer-events: none;
+}
+
+.hero-ambient-orb {
+  border-radius: 50%;
+  filter: blur(8px);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+  transition: transform 0.22s ease;
+}
+
+.hero-ambient-orb--a {
+  top: 8%;
+  left: 6%;
+  width: clamp(160px, 24vw, 280px);
+  height: clamp(160px, 24vw, 280px);
+  background: radial-gradient(circle, rgba(132, 255, 226, 0.22), rgba(132, 255, 226, 0.02) 64%, transparent 72%);
+  animation: ambientFloatA 12s ease-in-out infinite;
+}
+
+.hero-ambient-orb--b {
+  right: 10%;
+  bottom: 12%;
+  width: clamp(220px, 28vw, 360px);
+  height: clamp(220px, 28vw, 360px);
+  background: radial-gradient(circle, rgba(79, 191, 162, 0.18), rgba(79, 191, 162, 0.02) 62%, transparent 72%);
+  animation: ambientFloatB 15s ease-in-out infinite;
+}
+
+.hero-grid-line {
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.92), transparent 82%);
+  opacity: 0.2;
+}
+
+.interactive-surface {
+  --pointer-x: 50%;
+  --pointer-y: 50%;
+  transform-style: preserve-3d;
+  transition: transform 0.26s ease, box-shadow 0.26s ease, border-color 0.26s ease, background 0.26s ease;
+}
+
+.interactive-surface::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      240px circle at var(--pointer-x) var(--pointer-y),
+      rgba(255, 255, 255, 0.20),
+      rgba(255, 255, 255, 0.10) 18%,
+      transparent 56%
+    );
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.interactive-surface:hover {
+  transform: translateY(-4px);
+}
+
+.interactive-surface:hover::after {
+  opacity: 1;
+}
+
+.hero-card--primary,
+.hero-card--secondary,
+.auth-card {
+  backdrop-filter: blur(24px);
+}
+
+.hero-card--primary:hover,
+.hero-card--secondary:hover {
+  border-color: rgba(214, 255, 239, 0.24);
+  box-shadow:
+    0 34px 84px rgba(3, 12, 10, 0.46),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+.auth-card:hover {
+  border-color: rgba(47, 164, 134, 0.18);
+  box-shadow:
+    0 30px 70px rgba(12, 41, 34, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.38) inset;
+}
+
+.hero-brand-row,
+.hero-grid,
+.auth-shell {
+  position: relative;
+  z-index: 1;
+}
+
+.selection-pill,
+.meta-chip,
+.top-badge,
+.language-option,
+.mode-button,
+.hero-link,
+.primary-button,
+.secondary-button,
+.text-link,
+.otp-input,
+.field-shell,
+.stat-card,
+.capability-card {
+  will-change: transform;
+}
+
+.role-pill {
+  backdrop-filter: blur(10px);
+}
+
+.role-pill:hover,
+.role-pill:focus-visible {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 38px rgba(4, 14, 12, 0.22);
+}
+
+.role-detail-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04)),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.14), transparent 36%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.stat-card,
+.capability-card {
+  backdrop-filter: blur(12px);
+}
+
+.capability-card:hover {
+  border-color: rgba(115, 232, 193, 0.22);
+}
+
+.auth-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 248, 0.92)),
+    radial-gradient(circle at top left, rgba(115, 232, 193, 0.12), transparent 34%);
+}
+
+.auth-card-glow {
+  height: 240px;
+  background:
+    radial-gradient(circle at top left, rgba(47, 164, 134, 0.18), transparent 54%),
+    radial-gradient(circle at top right, rgba(103, 228, 193, 0.12), transparent 36%);
+}
+
+.top-badge {
+  backdrop-filter: blur(10px);
+}
+
+.language-option {
+  position: relative;
+  overflow: hidden;
+}
+
+.language-option::before,
+.primary-button::before,
+.secondary-button::before,
+.hero-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.28), transparent 72%);
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.language-option:hover::before,
+.primary-button:hover::before,
+.secondary-button:hover::before,
+.hero-link:hover::after {
+  opacity: 1;
+}
+
+.progress-dot {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.36), transparent 52%);
+  opacity: 0.78;
+}
+
+.field-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.field-shell::after {
+  content: '';
+  position: absolute;
+  inset: auto 12px 0 12px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(47, 164, 134, 0.4), transparent);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.field-shell:focus-within::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.primary-button,
+.secondary-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.primary-button {
+  background:
+    linear-gradient(135deg, rgba(18, 96, 80, 1), rgba(47, 164, 134, 0.96)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.14), transparent 28%);
+  box-shadow:
+    0 18px 36px rgba(31, 93, 79, 0.20),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.primary-button:hover,
+.primary-button:focus-visible {
+  box-shadow:
+    0 24px 42px rgba(31, 93, 79, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.secondary-button {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 251, 249, 0.92)),
+    radial-gradient(circle at top left, rgba(47, 164, 134, 0.08), transparent 32%);
+}
+
+.otp-box {
+  position: relative;
+}
+
+.otp-input {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 249, 247, 0.96)),
+    radial-gradient(circle at top left, rgba(47, 164, 134, 0.08), transparent 34%);
+}
+
+.otp-input:hover,
+.otp-input:focus-visible {
+  transform: translateY(-2px);
+  box-shadow:
+    0 12px 26px rgba(31, 93, 79, 0.14),
+    var(--shadow-focus);
+}
+
+.otp-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 33, 29, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(246, 250, 248, 0.88)),
+    radial-gradient(circle at top left, rgba(47, 164, 134, 0.08), transparent 36%);
+}
+
+.otp-status-strip.ready {
+  border-color: rgba(47, 164, 134, 0.16);
+  box-shadow: 0 12px 26px rgba(31, 93, 79, 0.08);
+}
+
+.otp-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(39, 132, 109, 0.08);
+  color: var(--emerald-700);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.otp-status-text {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--stone-700);
+}
+
+.status-message,
+.error-message {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.status-message::before,
+.error-message::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  opacity: 0.4;
+}
+
+.support-row {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(16, 33, 29, 0.03);
+  border: 1px solid rgba(16, 33, 29, 0.05);
+}
+
+@keyframes ambientFloatA {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(18px, -14px, 0);
+  }
+}
+
+@keyframes ambientFloatB {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-18px, 16px, 0);
+  }
+}
+
+@media (max-width: 1120px) {
+  .interactive-surface:hover {
+    transform: none;
+  }
+
+  .otp-status-strip {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 10px 14px;
+  }
+}
+
+@media (max-width: 760px) {
+  .hero-ambient-orb--a {
+    top: -2%;
+    left: -10%;
+  }
+
+  .hero-ambient-orb--b {
+    right: -16%;
+    bottom: -4%;
+  }
+
+  .otp-status-strip {
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-shell::before,
+  .login-shell::after,
+  .hero-ambient-orb,
+  .hero-grid-line,
+  .interactive-surface,
+  .interactive-surface::after,
+  .language-option::before,
+  .primary-button::before,
+  .secondary-button::before,
+  .hero-link::after {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
 </style>

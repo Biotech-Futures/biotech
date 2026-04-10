@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="content-area">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;">
       <h1>Recent Announcements</h1>
@@ -28,10 +28,10 @@
       <p style="margin-bottom:1rem;line-height:1.7;">{{ a.summary }}</p>
 
       <div>
-        <!-- Internal details page (if added later) -->
+        <!-- 内部详情页（若未来有） -->
         <RouterLink v-if="a.route" :to="a.route" class="btn btn-outline btn-sm">Read more</RouterLink>
 
-        <!-- External link -->
+        <!-- 外部链接 -->
         <a
           v-else-if="a.link"
           :href="a.link"

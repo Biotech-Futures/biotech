@@ -910,7 +910,7 @@
           <button
             class="logout-button"
             type="button"
-            @click="auth.logout(); go('/login')"
+            @click="handleLogout"
           >
             <i class="fas fa-sign-out-alt"></i>
             <span>Log out</span>
@@ -943,6 +943,10 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import logo from '@/assets/btf-logo.png'
 
+const handleLogout = async () => {
+  await auth.logout()
+  go('/login')
+}
 /*
   ItemType
   中文：日历项目类型，只允许 holiday 或 event

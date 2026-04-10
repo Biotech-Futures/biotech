@@ -1,6 +1,6 @@
-﻿<template>
+<template>
   <div class="content-area group-detail" :data-active="activeTab">
-    <!-- Header -->
+    <!-- 顶部信息 -->
     <div class="gd-head">
       <div class="gd-head-left">
         <div class="group-avatars">
@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <!-- Mobile tabs (hidden on desktop) -->
+    <!-- 移动端 Tabs（桌面隐藏） -->
     <nav class="mobile-tabs">
       <button
         class="tab-btn"
@@ -31,9 +31,9 @@
       </button>
     </nav>
 
-    <!-- Desktop: two columns; mobile: single column via tabs -->
+    <!-- 桌面：双栏；移动：单栏由 tabs 切换 -->
     <div class="split" :data-active="activeTab">
-      <!-- Left column: Plan -->
+      <!-- 左栏：Plan -->
       <section class="pane pane--plan card">
         <div class="card-header">
           <h3 class="card-title">Plan</h3>
@@ -82,10 +82,10 @@
         </div>
       </section>
 
-      <!-- Right column: Discussion -->
+      <!-- 右栏：Discussion -->
       <section class="pane pane--discussion">
         <div class="chat-container">
-          <!-- Discussion header in white -->
+          <!-- 讨论区头部改为白色 -->
           <div class="chat-header">
             <h3 style="margin:0;">Discussion Board</h3>
 
@@ -146,10 +146,10 @@ const route = useRoute()
 const groupId = route.params.id
 const group = ref(mockGroups.find(g => g.id === groupId) || mockGroups[0])
 
-// Only keep plan / discussion
+// 只保留 plan / discussion
 const activeTab = ref('plan')
 
-// Sample task data
+// 示例任务数据
 const tasks = ref([
   {
     id: 1,
@@ -177,7 +177,7 @@ const addTask = (m) => {
   m.tasks.push({ id: nextId, name: 'New Task', completed: false })
 }
 
-// Discussion data (each message includes a date field)
+// 讨论区（每条消息增加 date 字段）
 const messages = ref([
   {
     id: 1,
@@ -234,7 +234,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* Header */
+/* 顶部信息 */
 .gd-head {
   display: flex;
   justify-content: space-between;
@@ -249,7 +249,7 @@ onMounted(() => {
 .gd-title { margin: 0; color: var(--charcoal); }
 .gd-subtitle { color: #6c757d; margin-top: 0.15rem; }
 
-/* Mobile tabs (hidden on desktop) */
+/* 移动端 tabs（桌面隐藏） */
 .mobile-tabs {
   display: none;
   gap: 0.75rem;
@@ -271,7 +271,7 @@ onMounted(() => {
   border-bottom-color: var(--dark-green);
 }
 
-/* Two-column layout container */
+/* 双栏布局容器 */
 .split {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
@@ -281,7 +281,7 @@ onMounted(() => {
   height: 70vh;
 }
 
-/* Left column: Plan */
+/* 左栏：Plan */
 .pane--plan {
   display: flex;
   flex-direction: column;
@@ -289,7 +289,7 @@ onMounted(() => {
   min-height: 320px;
 }
 
-/* Right column: Discussion */
+/* 右栏：Discussion */
 .pane--discussion {
   display: flex;
   flex-direction: column;
@@ -297,7 +297,7 @@ onMounted(() => {
   min-height: 320px;
 }
 
-/* Card styles */
+/* 卡片样式 */
 .card {
   height: 100%;
   min-height: 320px;
@@ -329,7 +329,7 @@ onMounted(() => {
   overflow-y: auto;
 }
 
-/* Tweak Add Task row to match global button styles */
+/* Add Task 行的微调，保持与全站按钮风格一致 */
 .add-task-row {
   padding-left: 0.25rem;
   margin-top: 0.4rem;
@@ -341,14 +341,14 @@ onMounted(() => {
   border-color: var(--border-light);
 }
 
-/* Discussion header in white (override global .chat-header green background) */
+/* 讨论区头部改为白色（覆盖全局 .chat-header 绿色背景） */
 .pane--discussion .chat-header {
   background-color: var(--white) !important;
   color: var(--charcoal) !important;
   border-bottom: 1px solid var(--border-light);
 }
 
-/* Ensure chat-container fills available space */
+/* 确保 chat-container 填满可用空间 */
 .pane--discussion .chat-container {
   display: flex;
   flex-direction: column;
@@ -357,14 +357,14 @@ onMounted(() => {
   min-height: 0;
 }
 
-/* Let chat-messages take available space */
+/* 使 chat-messages 占据可用空间 */
 .chat-messages {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
 }
 
-/* Layout to show date and time on the right of each message header */
+/* 在每条消息头部右侧同时显示日期与时间的排版 */
 .message-meta {
   display: flex;
   align-items: center;
@@ -375,7 +375,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* Only own messages: make date text white to match the bubble */
+/* 仅“你自己的消息”把日期变为白色，与气泡一致 */
 .pane--discussion .message.own .message-date {
   color: #fff !important;
   opacity: 0.95;
@@ -386,7 +386,7 @@ onMounted(() => {
   color: #fff !important;
 }
 
-/* Mobile: single column with tabs controlling visibility */
+/* 移动端：单列 + 由 tabs 控制显示哪一块 */
 @media (max-width: 900px) {
   .split {
     grid-template-columns: 1fr;
