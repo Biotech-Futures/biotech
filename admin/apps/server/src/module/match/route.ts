@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { sValidator } from "@hono/standard-validator";
-import { confirmMatchAssignmentSchema } from "./schema.js";
+import { confirmMatchAssignmentSchema, matchUidQuerySchema } from "./schema.js";
 import {
   confirmStudentAssignments,
   getIndividualStudents,
@@ -9,10 +9,15 @@ import {
 
 export const matchRoute = new Hono();
 
-matchRoute.get("/student", async (c) => {
-  const data = await matchStudent();
-  return c.json({ data });
-});
+matchRoute.get(
+  "/student",
+  sValidator("query", matchUidQuerySchema),
+  async (c) => {
+    const { uid } = c.req.valid("query");
+    const data = await matchStudent(uid);
+    return c.json({ data });
+  },
+);
 
 matchRoute.get("/individual", async (c) => {
   const data = await getIndividualStudents();

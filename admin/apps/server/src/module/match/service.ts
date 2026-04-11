@@ -12,10 +12,12 @@ import {
   countryStates,
   groupMembership,
   groups,
+  matchRun,
   mentorProfile,
   studentInterest,
   studentProfile,
   tracks,
+  userInAdminUser,
   users,
 } from "@/db/schema/index.js";
 import {
@@ -45,7 +47,7 @@ function mapInterestsByUserId(rows: InterestRow[]): Map<number, string[]> {
   return interestsByUserId;
 }
 
-export async function matchStudent() {
+export async function matchStudent(uid: number) {
   if (useMatchDemoData()) {
     return demoMatchRecommendations;
   }
@@ -217,8 +219,34 @@ export async function matchStudent() {
     formattedGroupStudents,
     formattedIndividualStudents,
   );
+  const recommendations = recommendGroupsByTrack(input);
 
-  return recommendGroupsByTrack(input);
+  const systemAdminUser = await db
+    .select({ userId: users.id, adminUserId: users.adminUserId })
+    .from(users)
+    .innerJoin(userInAdminUser, eq(users.adminUserId, userInAdminUser.id))
+    .where(eq(users.id, uid))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (systemAdminUser?.adminUserId) {
+    const latestMatchRun = await db
+      .select({ id: matchRun.id })
+      .from(matchRun)
+      .orderBy(desc(matchRun.id))
+      .limit(1);
+
+    await db.insert(matchRun).values({
+      id: (latestMatchRun[0]?.id ?? 0) + 1,
+      initiatedByUserId: systemAdminUser.userId,
+      runType: "student-match",
+      payload: input,
+      result: recommendations,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  return recommendations;
 }
 
 export async function getIndividualStudents() {

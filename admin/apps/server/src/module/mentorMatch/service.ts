@@ -38,7 +38,7 @@ function groupInterestsByKey<K>(
 
 // ─── matchMentor ────────────────────────────────────────────────────────────
 
-export async function matchMentor() {
+export async function matchMentor(uid: number) {
   // 1. Find groups that have no accepted mentor recommendation
   const groupsWithMembers = await db
     .select({
@@ -186,12 +186,13 @@ export async function matchMentor() {
 
   // 5. Create matchRun record + insert all recommendations into DB
   const systemUser = await db
-    .select({ id: users.id })
+    .select({ id: users.id, adminUserId: users.adminUserId })
     .from(users)
+    .where(eq(users.id, uid))
     .limit(1)
     .then((rows) => rows[0]);
 
-  if (!systemUser) {
+  if (!systemUser?.adminUserId) {
     return [];
   }
 
