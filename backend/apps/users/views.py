@@ -1,23 +1,28 @@
 from datetime import timedelta
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.http import HttpResponse
 from django.db import transaction
-from rest_framework import serializers, generics, permissions, status
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, RelationshipType, StudentSupervisor
+from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates
-from .serializers import UserSerializer, UserStatusPatchSerializer
+from .serializers import (
+    JoinPermissionRequestSerializer,
+    UserRegisterRequestSerializer,
+    UserSerializer,
+    UserStatusPatchSerializer,
+)
 
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema
 
 # Create your views here.
 #Issue 41
 class UsersRetrieveView(generics.RetrieveAPIView):
-    queryset = User.objects.select_related("track","state")
+    queryset = User.objects.select_related("track", "track__state")
     serializer_class = UserSerializer
     permission_classes = [permissions.AllowAny]
     # renderer_classes = [JSONRenderer]
@@ -32,7 +37,6 @@ class UserPagePagination(PageNumberPagination):
 
 #Issue 42
 class UserListHTMLView(generics.ListAPIView):
-    # queryset = Users.objects.select_related("track", "state")
     serializer_class = UserSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -41,10 +45,10 @@ class UserListHTMLView(generics.ListAPIView):
     template_name = "users/list.html"
 
     def get_queryset(self):
-        queryset = User.objects.all()
-        status_param = self.request.query_params.get("status")
-        if status_param is not None:
-            queryset = queryset.filter(status=status_param)
+        queryset = User.objects.select_related("track", "track__state").all()
+        is_active_param = self.request.query_params.get("is_active")
+        if is_active_param is not None:
+            queryset = queryset.filter(is_active=is_active_param.lower() in {"1", "true", "yes"})
         email_param = self.request.query_params.get("email")
         if email_param is not None:
             queryset = queryset.filter(email=email_param)
@@ -52,7 +56,7 @@ class UserListHTMLView(generics.ListAPIView):
     
 #issue 43
 class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
-    queryset = User.objects.select_related("track","state")
+    queryset = User.objects.select_related("track", "track__state")
     permission_classes = [permissions.AllowAny]
     renderer_classes = [TemplateHTMLRenderer]
     template_name = "users/details.html"
@@ -64,9 +68,9 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
-        if "status" in data:
-            user.status = data["status"]
-            user.save(update_fields=["status"])
+        if "is_active" in data:
+            user.is_active = data["is_active"]
+            user.save(update_fields=["is_active"])
 
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
@@ -80,7 +84,6 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     
 #issue 40
 class MeRetrieveView(generics.RetrieveAPIView):
-    # queryset = User.objects.select_related("track","state")
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
@@ -92,9 +95,9 @@ class MeRetrieveView(generics.RetrieveAPIView):
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
-        if "status" in data:
-            user.status = data["status"]
-            user.save(update_fields=["status"])
+        if "is_active" in data:
+            user.is_active = data["is_active"]
+            user.save(update_fields=["is_active"])
 
         #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
         if "role_id" in data:
@@ -109,7 +112,9 @@ class MeRetrieveView(generics.RetrieveAPIView):
     
 class UserRegisterView(APIView):
     permission_classes = [permissions.AllowAny]
+    serializer_class = UserRegisterRequestSerializer
 
+    @extend_schema(request=UserRegisterRequestSerializer, responses={200: UserRegisterRequestSerializer})
     @transaction.atomic
     def post(self, request):
         data = request.data
@@ -138,7 +143,6 @@ class UserRegisterView(APIView):
                 user_track, t_created = Tracks.objects.get_or_create(track_name="Brazil", state=user_country)
             else:
                 user_track, t_created = Tracks.objects.get_or_create(track_name="Global", state=user_country)
-        user.state = user_country
         user.track = user_track
     
 
@@ -157,12 +161,9 @@ class UserRegisterView(APIView):
         sup_role = get_object_or_404(Roles, pk=2)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
         
-        #relationshiptype check
         if databody["SupervisorEmail"] == databody["GuardianEmail"]:
-            rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Guardian")
             pgflag = True
         else:
-            rel, rel_created = RelationshipType.objects.get_or_create(relationship_type="Supervisor")
             pgflag = False
 
         #supervisorprofile creation
@@ -173,9 +174,8 @@ class UserRegisterView(APIView):
             user=user,
             pg_first_name=databody["GuardianName"],
             pg_last_name=databody["GuardianSurname"],
-            parent_guardian_flag=True,
+            parent_guardian_flag=pgflag,
             supervisor=supprof,
-            interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
             school_name=databody["SchoolName"],
             year_lvl=databody["YearLevel"]
         )
@@ -184,7 +184,6 @@ class UserRegisterView(APIView):
         ss = StudentSupervisor.objects.create(
             student_user=sp,
             supervisor_user=supprof,
-            relationship_type=rel
         )
 
         #interest
@@ -197,7 +196,9 @@ class UserRegisterView(APIView):
 #issue 128
 class ReceiveJoinPermissionView(APIView):
     permission_classes = [permissions.AllowAny]
+    serializer_class = JoinPermissionRequestSerializer
 
+    @extend_schema(request=JoinPermissionRequestSerializer, responses={200: JoinPermissionRequestSerializer})
     @transaction.atomic
     def post(self, request):
         data = request.data

@@ -4,8 +4,17 @@ from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config("DJANGO_SECRET_KEY")
-DEBUG = config("DEBUG", default=True, cast=bool)
+
+def env_bool(value):
+    value = str(value).strip().lower()
+    if value in {"1", "true", "t", "yes", "y", "on", "debug"}:
+        return True
+    if value in {"0", "false", "f", "no", "n", "off", "release", "prod", "production", ""}:
+        return False
+    raise ValueError(f"Invalid truth value: {value}")
+
+SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-only-not-for-production")
+DEBUG = config("DEBUG", default="true", cast=env_bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
 INSTALLED_APPS = [
@@ -26,7 +35,7 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.services',
-    'emailing',
+    'apps.emailing',
     'matching',
     'drf_spectacular',
     'rest_framework',
@@ -37,8 +46,8 @@ INSTALLED_APPS = [
 ]
 
 # Azure Blob Storage
-AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME")
-AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY")
+AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME", default="")
+AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY", default="")
 AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
 AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
@@ -134,7 +143,7 @@ USE_TZ = True
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 
