@@ -14,38 +14,6 @@ CREATE TABLE "admin_user"."account" (
 	"updated_at" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "admin_user"."session" (
-	"id" text PRIMARY KEY NOT NULL,
-	"expires_at" timestamp NOT NULL,
-	"token" text NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp NOT NULL,
-	"ip_address" text,
-	"user_agent" text,
-	"user_id" text NOT NULL,
-	CONSTRAINT "session_token_unique" UNIQUE("token")
-);
---> statement-breakpoint
-CREATE TABLE "admin_user"."user" (
-	"id" text PRIMARY KEY NOT NULL,
-	"name" text NOT NULL,
-	"email" text NOT NULL,
-	"email_verified" boolean DEFAULT false NOT NULL,
-	"image" text,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "user_email_unique" UNIQUE("email")
-);
---> statement-breakpoint
-CREATE TABLE "admin_user"."verification" (
-	"id" text PRIMARY KEY NOT NULL,
-	"identifier" text NOT NULL,
-	"value" text NOT NULL,
-	"expires_at" timestamp NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "admin_scope" (
 	"id" bigint PRIMARY KEY NOT NULL,
 	"user_id" bigint NOT NULL,
@@ -233,6 +201,18 @@ CREATE TABLE "roles" (
 	CONSTRAINT "roles_slug_key" UNIQUE("slug")
 );
 --> statement-breakpoint
+CREATE TABLE "admin_user"."session" (
+	"id" text PRIMARY KEY NOT NULL,
+	"expires_at" timestamp NOT NULL,
+	"token" text NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp NOT NULL,
+	"ip_address" text,
+	"user_agent" text,
+	"user_id" text NOT NULL,
+	CONSTRAINT "session_token_unique" UNIQUE("token")
+);
+--> statement-breakpoint
 CREATE TABLE "student_interest" (
 	"id" bigint PRIMARY KEY NOT NULL,
 	"student_user_id" bigint NOT NULL,
@@ -258,6 +238,17 @@ CREATE TABLE "tracks" (
 	"track_code" varchar(100) NOT NULL,
 	"state_id" bigint NOT NULL,
 	CONSTRAINT "tracks_track_code_key" UNIQUE("track_code")
+);
+--> statement-breakpoint
+CREATE TABLE "admin_user"."user" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"email" text NOT NULL,
+	"email_verified" boolean DEFAULT false NOT NULL,
+	"image" text,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "user_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
 CREATE TABLE "user_role_assignment" (
@@ -292,12 +283,16 @@ CREATE TABLE "users" (
 	CONSTRAINT "users_email_key" UNIQUE("email")
 );
 --> statement-breakpoint
-DROP TABLE "account" CASCADE;--> statement-breakpoint
-DROP TABLE "session" CASCADE;--> statement-breakpoint
-DROP TABLE "user" CASCADE;--> statement-breakpoint
-DROP TABLE "verification" CASCADE;--> statement-breakpoint
+CREATE TABLE "admin_user"."verification" (
+	"id" text PRIMARY KEY NOT NULL,
+	"identifier" text NOT NULL,
+	"value" text NOT NULL,
+	"expires_at" timestamp NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 ALTER TABLE "admin_user"."account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "admin_user"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "admin_user"."session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "admin_user"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "admin_scope" ADD CONSTRAINT "admin_scope_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "admin_scope" ADD CONSTRAINT "admin_scope_track_id_fkey" FOREIGN KEY ("track_id") REFERENCES "public"."tracks"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "alert" ADD CONSTRAINT "alert_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "public"."user_session"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -333,6 +328,7 @@ ALTER TABLE "resource_audience" ADD CONSTRAINT "resource_audience_role_id_fkey" 
 ALTER TABLE "resource_audience" ADD CONSTRAINT "resource_audience_track_id_fkey" FOREIGN KEY ("track_id") REFERENCES "public"."tracks"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_uploader_user_id_fkey" FOREIGN KEY ("uploader_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_track_id_fkey" FOREIGN KEY ("track_id") REFERENCES "public"."tracks"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "admin_user"."session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "admin_user"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "student_interest" ADD CONSTRAINT "student_interest_student_user_id_fkey" FOREIGN KEY ("student_user_id") REFERENCES "public"."student_profile"("user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "student_interest" ADD CONSTRAINT "student_interest_interest_id_fkey" FOREIGN KEY ("interest_id") REFERENCES "public"."areas_of_interest"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "student_profile" ADD CONSTRAINT "student_profile_supervisor_user_id_fkey" FOREIGN KEY ("supervisor_user_id") REFERENCES "public"."supervisor_profile"("user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -346,9 +342,9 @@ ALTER TABLE "users" ADD CONSTRAINT "users_id_fkey" FOREIGN KEY ("id") REFERENCES
 ALTER TABLE "users" ADD CONSTRAINT "users_id_fkey1" FOREIGN KEY ("id") REFERENCES "public"."mentor_profile"("user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_id_fkey2" FOREIGN KEY ("id") REFERENCES "public"."student_profile"("user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "account_userId_idx" ON "admin_user"."account" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "session_userId_idx" ON "admin_user"."session" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "verification_identifier_idx" ON "admin_user"."verification" USING btree ("identifier");--> statement-breakpoint
 CREATE UNIQUE INDEX "country_states_country_id_state_name_idx" ON "country_states" USING btree ("country_id" int8_ops,"state_name" int8_ops);--> statement-breakpoint
 CREATE UNIQUE INDEX "mentor_availability_mentor_user_id_weekday_start_time_end_t_idx" ON "mentor_availability" USING btree ("mentor_user_id" int2_ops,"weekday" time_ops,"start_time" int8_ops,"end_time" time_ops);--> statement-breakpoint
 CREATE UNIQUE INDEX "mentor_interest_mentor_user_id_interest_id_idx" ON "mentor_interest" USING btree ("mentor_user_id" int8_ops,"interest_id" int8_ops);--> statement-breakpoint
-CREATE UNIQUE INDEX "user_role_assignment_user_id_role_id_valid_from_idx" ON "user_role_assignment" USING btree ("user_id" int8_ops,"role_id" int8_ops,"valid_from" int8_ops);
+CREATE INDEX "session_userId_idx" ON "admin_user"."session" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_role_assignment_user_id_role_id_valid_from_idx" ON "user_role_assignment" USING btree ("user_id" int8_ops,"role_id" int8_ops,"valid_from" int8_ops);--> statement-breakpoint
+CREATE INDEX "verification_identifier_idx" ON "admin_user"."verification" USING btree ("identifier");

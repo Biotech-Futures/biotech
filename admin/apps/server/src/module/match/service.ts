@@ -17,7 +17,7 @@ import {
   studentProfile,
   tracks,
   users,
-} from "drizzle/schema.js";
+} from "@/db/schema/index.js";
 import {
   demoIndividualStudents,
   demoMatchRecommendations,
@@ -144,13 +144,13 @@ export async function matchStudent() {
           })
           .from(groupMembership)
           .innerJoin(groups, eq(groups.id, groupMembership.groupId))
-          .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
+          .innerJoin(
+            mentorProfile,
+            eq(mentorProfile.userId, groupMembership.userId),
+          )
           .innerJoin(users, eq(users.id, mentorProfile.userId))
           .where(
-            and(
-              inArray(groups.id, groupIds),
-              isNull(groupMembership.leftAt),
-            ),
+            and(inArray(groups.id, groupIds), isNull(groupMembership.leftAt)),
           );
 
   const tutorByGroupId = new Map<
@@ -207,12 +207,11 @@ export async function matchStudent() {
       interests: interestsByUserId.get(student.userId) ?? [],
     }));
 
-  const formattedGroupStudents: GroupStudentSource[] = groupStudentsWithTutors.map(
-    (student) => ({
+  const formattedGroupStudents: GroupStudentSource[] =
+    groupStudentsWithTutors.map((student) => ({
       ...student,
       interests: interestsByUserId.get(student.userId) ?? [],
-    }),
-  );
+    }));
 
   const input = formatRecommendationInput(
     formattedGroupStudents,

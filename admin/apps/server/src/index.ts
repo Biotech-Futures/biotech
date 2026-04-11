@@ -8,6 +8,7 @@ import { demoRoute } from "./module/demo/route.js";
 import { mentorMatchRoute } from "./module/mentorMatch/route.js";
 import { userRoute } from "./module/user/route.js";
 import { auth } from "./lib/auth.js";
+import { HTTPException } from "hono/http-exception";
 
 const app = new Hono();
 
@@ -29,6 +30,17 @@ app
   .route("mentor-match", mentorMatchRoute)
   .route("user", userRoute);
 
+app.onError((error, c) => {
+  console.log("Error occurred:", error);
+  if (error instanceof HTTPException) {
+    return c.json(
+      { error: true, message: error.message, code: error.status },
+      error.status,
+    );
+  }
+
+  return c.json({ error: true, message: error.message, code: 500 }, 500);
+});
 serve(
   {
     fetch: app.fetch,

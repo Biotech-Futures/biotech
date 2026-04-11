@@ -21,7 +21,7 @@
   --line: rgba(23, 58, 64, 0.14);
   --inset-glint: rgba(255, 255, 255, 0.82);
   --kicker: rgba(47, 106, 74, 0.9);
-  --bg-base: #e7f3ec;
+  --bg-base: white;
   --header-bg: rgba(251, 255, 248, 0.84);
   --chip-bg: rgba(255, 255, 255, 0.8);
   --chip-line: rgba(47, 106, 74, 0.18);

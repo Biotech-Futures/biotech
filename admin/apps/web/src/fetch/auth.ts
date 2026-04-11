@@ -5,10 +5,11 @@ import { toast } from "sonner";
 export function useMagicLinkSignIn() {
   return useMutation({
     mutationFn: async (email: string) => {
+      const webOrigin = window.location.origin;
       const { data, error } = await authClient.signIn.magicLink({
         email: email,
-        callbackURL: "/",
-        errorCallbackURL: "/error",
+        callbackURL: `${webOrigin}/`,
+        errorCallbackURL: `${webOrigin}/error`,
       });
       if (error) {
         toast.error(error.message);
