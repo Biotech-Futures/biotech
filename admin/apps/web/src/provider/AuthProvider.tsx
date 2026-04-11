@@ -2,11 +2,7 @@ import { authClient } from "@/lib/authClient";
 import type { Session, User } from "better-auth/types";
 import { createContext, useContext } from "react";
 
-type AuthUser = User & {
-  profile?: {
-    level?: string;
-  };
-};
+type AuthUser = User & {};
 
 export interface AuthContextValue {
   session: Session | null;

@@ -8,6 +8,13 @@
       "when": 1775875747529,
       "tag": "0000_goofy_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775880192033,
+      "tag": "0001_confused_salo",
+      "breakpoints": true
     }
   ]
 }
