@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import db from "./db.js";
-import { account, session, user, verification } from "@/db/schema/index.js";
+import { account, session, adminUser, verification } from "@/drizzle/schema.js";
 import { magicLink } from "better-auth/plugins";
 import { sendEmail } from "./email.js";
 
@@ -9,7 +9,7 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {
-      user: user,
+      user: adminUser,
       account: account,
       session: session,
       verification: verification,
