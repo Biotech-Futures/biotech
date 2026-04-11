@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SignupRouteImport } from './routes/signup'
+import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
 import { Route as AuthUserRouteImport } from './routes/_auth/user'
@@ -20,6 +22,16 @@ import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthEmailRouteImport } from './routes/_auth/email'
 import { Route as AuthDemoRouteImport } from './routes/_auth/demo'
 
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SigninRoute = SigninRouteImport.update({
+  id: '/signin',
+  path: '/signin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRouteRoute = AuthRouteRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
@@ -72,6 +84,8 @@ const AuthDemoRoute = AuthDemoRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
+  '/signin': typeof SigninRoute
+  '/signup': typeof SignupRoute
   '/demo': typeof AuthDemoRoute
   '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
@@ -82,6 +96,8 @@ export interface FileRoutesByFullPath {
   '/user': typeof AuthUserRoute
 }
 export interface FileRoutesByTo {
+  '/signin': typeof SigninRoute
+  '/signup': typeof SignupRoute
   '/demo': typeof AuthDemoRoute
   '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
@@ -95,6 +111,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_auth': typeof AuthRouteRouteWithChildren
+  '/signin': typeof SigninRoute
+  '/signup': typeof SignupRoute
   '/_auth/demo': typeof AuthDemoRoute
   '/_auth/email': typeof AuthEmailRoute
   '/_auth/event': typeof AuthEventRoute
@@ -109,6 +127,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/signin'
+    | '/signup'
     | '/demo'
     | '/email'
     | '/event'
@@ -119,6 +139,8 @@ export interface FileRouteTypes {
     | '/user'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/signin'
+    | '/signup'
     | '/demo'
     | '/email'
     | '/event'
@@ -131,6 +153,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_auth'
+    | '/signin'
+    | '/signup'
     | '/_auth/demo'
     | '/_auth/email'
     | '/_auth/event'
@@ -144,10 +168,26 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
+  SigninRoute: typeof SigninRoute
+  SignupRoute: typeof SignupRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signin': {
+      id: '/signin'
+      path: '/signin'
+      fullPath: '/signin'
+      preLoaderRoute: typeof SigninRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth': {
       id: '/_auth'
       path: ''
@@ -251,6 +291,8 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   AuthRouteRoute: AuthRouteRouteWithChildren,
+  SigninRoute: SigninRoute,
+  SignupRoute: SignupRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

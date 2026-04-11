@@ -7,6 +7,7 @@ import { groupRoute } from "./module/group/route.js";
 import { demoRoute } from "./module/demo/route.js";
 import { mentorMatchRoute } from "./module/mentorMatch/route.js";
 import { userRoute } from "./module/user/route.js";
+import { auth } from "./lib/auth.js";
 
 const app = new Hono();
 
@@ -15,6 +16,10 @@ app.get("/", (c) => {
 });
 app.use(logger());
 app.use("*", myCors);
+
+app.on(["POST", "GET"], "/api/auth/*", (c) => {
+  return auth.handler(c.req.raw);
+});
 
 app
   .basePath("/api/v1")

@@ -1,43 +1,34 @@
-import { Outlet, createRootRoute } from "@tanstack/react-router";
+import { Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import "../styles.css";
+import type { AuthContextValue } from "@/provider/AuthProvider";
+interface MyRouterContext {
+  auth: AuthContextValue;
+}
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<MyRouterContext>()({
   component: RootComponent,
-});
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      retry: false,
-    },
-  },
 });
 
 function RootComponent() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Outlet />
-        <Toaster richColors position="top-right" />
-        <TanStackDevtools
-          config={{
-            position: "bottom-right",
-          }}
-          plugins={[
-            {
-              name: "TanStack Router",
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <TooltipProvider>
+      <Outlet />
+      <Toaster richColors position="top-right" />
+      <TanStackDevtools
+        config={{
+          position: "bottom-right",
+        }}
+        plugins={[
+          {
+            name: "TanStack Router",
+            render: <TanStackRouterDevtoolsPanel />,
+          },
+        ]}
+      />
+    </TooltipProvider>
   );
 }

@@ -94,18 +94,11 @@ export const tracks = pgTable("tracks", {
 	trackCode: varchar("track_code", { length: 100 }).notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	stateId: bigint("state_id", { mode: "number" }).notNull(),
-	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
-	parentTrackId: bigint("parent_track_id", { mode: "number" }),
 }, (table) => [
 	foreignKey({
 			columns: [table.stateId],
 			foreignColumns: [countryStates.id],
 			name: "tracks_state_id_fkey"
-		}),
-	foreignKey({
-			columns: [table.parentTrackId],
-			foreignColumns: [table.id],
-			name: "tracks_parent_track_id_fkey"
 		}),
 	unique("tracks_track_code_key").on(table.trackCode),
 ]);

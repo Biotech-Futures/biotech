@@ -65,14 +65,6 @@ export const tracksRelations = relations(tracks, ({one, many}) => ({
 		fields: [tracks.stateId],
 		references: [countryStates.id]
 	}),
-	track: one(tracks, {
-		fields: [tracks.parentTrackId],
-		references: [tracks.id],
-		relationName: "tracks_parentTrackId_tracks_id"
-	}),
-	tracks: many(tracks, {
-		relationName: "tracks_parentTrackId_tracks_id"
-	}),
 	groups: many(groups),
 	resources: many(resources),
 	resourceAudiences: many(resourceAudience),
