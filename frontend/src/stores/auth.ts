@@ -294,44 +294,39 @@ export const useAuthStore = defineStore('auth', {
     // }
     // 调用接口
     async fetchUserData() {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
-          // 把浏览器里的 cookie 一起带给后端
-          // 这是 Django session 认证必须要有的
-          credentials: 'include',
-        })
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      credentials: 'include',
+    })
 
-        // 接近当前后端 serializer 的返回示例：
-        // {
-        //   "id": 1,
-        //   "first_name": "Shiqi",
-        //   "last_name": "Fang",
-        //   "email": "xxx@example.com",
-        //   "current_role_name": "student",
-        //   "school_name": "Some School"
-        // }
-        if (response.ok) {
-          const userData = await response.json()
+    console.log('GET /api/v1/users/me/ status:', response.status)
 
-          // 把从后端拿到的用户对象写入 store
-          // 一旦 this.user 改变，所有依赖它的页面都会自动响应更新
-          this.user = userData
+    let parsedData: any = null
 
-          // 同时把用户数据保存到浏览器本地存储
-          localStorage.setItem('auth.user', JSON.stringify(userData))
+    try {
+      parsedData = await response.json()
+    } catch (parseError) {
+      console.error('Failed to parse /users/me/ response as JSON:', parseError)
+    }
 
-          return userData
-        }
+    console.log('GET /api/v1/users/me/ payload:', parsedData)
 
-        this.user = null
-        localStorage.removeItem('auth.user')
-      } catch (error) {
-        console.error('Failed to fetch user data:', error)
-        this.user = null
-        localStorage.removeItem('auth.user')
-      }
-      return null
-    },
+    if (response.ok) {
+      this.user = parsedData
+      localStorage.setItem('auth.user', JSON.stringify(parsedData))
+      return parsedData
+    }
+
+    this.user = null
+    localStorage.removeItem('auth.user')
+  } catch (error) {
+    console.error('Failed to fetch user data:', error)
+    this.user = null
+    localStorage.removeItem('auth.user')
+  }
+
+  return null
+},
 
     async initializeAuth() {
       try {

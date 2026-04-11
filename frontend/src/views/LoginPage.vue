@@ -1,7 +1,12 @@
 <template>
   <!--
+  --------------------------------------------------------------------------------------------------------------
    * @file LoginPage.vue
-   * @description LoginPage.vue is the unified entry page for the BIOTech Futures mentoring platform. It combines role-guided access selection, passwordless email-to-OTP authentication, multilingual support, and branded platform presentation in one structured login experience.
+   *
+   * @description LoginPage.vue is the unified entry page for the BIOTech Futures mentoring platform. 
+   It combines role-guided access selection, passwordless email-to-OTP authentication, multilingual support, 
+   and branded platform presentation in one structured login experience.
+   *
    * @author Shiqi Fang
    * @author Jiachen Ding
    * @author Qin Chen
@@ -13,8 +18,12 @@
    *
    * Component Type: Frontend Page Component
    * File Role: Unified role-guided login entry page
-   * Purpose: Provide a structured and user-friendly entry point for students, mentors, supervisors, and administrators to sign in with email OTP while understanding the platform context before entering the system.
-   * Scope: Covers the left hero showcase, role selection and preview, language switching, email submission, OTP verification, resend flow, and post-login navigation.
+   *
+   * Purpose: Provide a structured and user-friendly entry point for students, mentors, supervisors, 
+   and administrators to sign in with email OTP while understanding the platform context before entering the system.
+   *
+   * Scope: Covers the left hero showcase, role selection and preview, language switching, email submission, 
+   OTP verification, resend flow, and post-login navigation.
    *
    * Responsibilities:
    * - Display platform branding, role-guided access selection, and overview information
@@ -33,14 +42,14 @@
    * - String and storage utilities
    *
    * Revision Summary:
-   * - Major revisions: 4
-   * - Minor revisions: 3
+   * - Major revisions: 5
+   * - Minor revisions: 5
    *
-   * Last Modified: 2026-04-07
+   * Last Modified: 2026-04-10
    * Modified By: CS17-1 Frontend Team
    *
    * @文件 LoginPage.vue
-   * @描述 LoginPage.vue 是 BIOTech Futures 导师平台的统一入口页面。该页面将角色引导式访问选择、无密码邮箱验证码登录、多语言支持以及平台品牌展示整合到同一个结构化登录体验中。
+   * @描述 LoginPage.vue 是 BIOTech Futures 导师平台的统一入口页面。
    * @作者 Shiqi Fang
    * @作者 Jiachen Ding
    * @作者 Qin Chen
@@ -72,19 +81,40 @@
    * - 字符串与本地存储工具
    *
    * 修改统计:
-   * - 大改次数: 4
-   * - 小改次数: 3
+   * - 大改次数: 5
+   * - 小改次数: 5
    *
-   * 最后修改时间: 2026-04-07
+   * 最后修改时间: 2026-04-10
    * 修改人: CS17-1 Frontend Team
+   -----------------------------------------------------------------------------------------------------------------------------
    -->
 
+
+
   <!-- Page shell and two-column layout. -->
-  <!-- 页面总容器与左右双栏布局。 
-        1.dir和class动态绑定HTML的dir属性，即文字方向属性，为了适配阿拉伯语言
-        2.pointermove锁定鼠标指针，持续触发，通过计算坐标激活跟随性的光斑
-        3.pointerleave复位不然光斑会卡住
-        4.loginShellRef是为了获取鼠标坐标而给DOM命名作为搭载节点-->
+  <!-- 页面总容器
+    1..login-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
+        min-height: 100vh;
+        background: ...;
+      }
+      说明这个容器负责：整体双栏布局，整页高度撑满屏幕，页面底色和渐变背景
+
+    2.ref="loginShellRef" 是为了获取鼠标坐标而给DOM命名作为搭载节点。
+
+    3.dir和class动态绑定HTML的dir属性，即文字方向属性，为了适配阿拉伯语言
+
+    4.通过isShellpointerInside判断鼠标是否在内，动态添加class：login-shell pointer-inside
+    
+    5.两个方法用于监听鼠标在整个容器的移动和离开。
+      pointermove：锁定鼠标指针，持续触发，通过计算坐标激活跟随性的光斑
+      pointerleave：指针离开元素时触发一次
+      event是系统变量，事件触发时，浏览器自动传输进来的，@pointermove，意思就是监听，只要鼠标动了就传输这个动的事件
+      
+      总之效果就是：根据鼠标在某个元素里的位置，实时给这个元素写入一组 CSS 变量，
+      用来驱动“跟随光效 + 轻微倾斜 + 发光强度变化”的交互效果。
+      -->
   <div
     ref="loginShellRef"
     class="login-shell"
@@ -95,6 +125,16 @@
     @pointermove="handleShellPointerMove"
     @pointerleave="handleShellPointerLeave"
   >
+    <div class="shell-aurora" aria-hidden="true">
+
+      <!-- 添加三个不同的光团，实现更高级的移动混合光效果 -->
+      <span class="shell-aurora-orb shell-aurora-orb--one"></span>
+      <span class="shell-aurora-orb shell-aurora-orb--two"></span>
+      <span class="shell-aurora-orb shell-aurora-orb--three"></span>
+      <span class="shell-mesh"></span>
+
+
+    </div>
     <!-- Left hero pane: background stage, role selection, and platform overview. -->
     <!-- 左侧展示区：背景舞台、角色选择与平台概览。 -->
     <section class="hero-pane">
@@ -103,7 +143,7 @@
       <div class="hero-stage" aria-hidden="true">
         <!-- Slideshow scene. -->
         <!-- 图片轮播场景。 
-              1.active，Vue的动态绑定，是original背景css就是加上active的字符串，否则就没有active
+              1.active，Vue的动态绑定，hero-scene的opacity是0，只有这个背景激活，即hero-scene.active才是opacity=1可见
               2.:src即source,访问的是存在image变量里的值，也就是地址，才能获取到真实图片
                 类比一下静态写法：<img src="/images/fixed-banner.jpg" />
               3.alt是给用户无障碍阅读用的，这里没有意义所以就不写
@@ -134,10 +174,9 @@
       </div>
 
       <!-- Foreground hero content. -->
-      <!-- 前景展示内容。 -->
+      <!-- 前景展示内容。和上面的背景层是一层，为的就是把内容覆盖上去 -->
       <div class="hero-content">
         <!-- Brand block. -->
-        <!-- 品牌展示区。 -->
         <div class="hero-brand-row">
           <div class="brand-mark">
             <img :src="logo" alt="BIOTech Futures" />
@@ -150,25 +189,19 @@
         </div>
 
         <!-- Main hero card grid. -->
-        <!-- 左侧主体卡片网格。 -->
+        <!-- 左侧主体卡片网格。依旧是同一层 -->
         <div class="hero-grid">
           <!-- Role-guided access card. -->
           <!-- 角色引导式访问卡片。 -->
           <article
-            class="hero-card hero-card--primary"
+            class="hero-card hero-card--primary interactive-surface"
             @pointermove="handleCardPointerMove"
+            @pointerleave="handleCardPointerLeave"
           >
             <div class="section-head">
               <div>
-                <span class="section-kicker">{{ t('accessMode') }}</span>
-                <h2 class="section-title">{{ t('chooseRoleTitle') }}</h2>
+                <h2 class="section-kicker">{{ t('previewRolesTitle') }}</h2>
               </div>
-
-              <!-- Persistent role hint for the selected access identity. -->
-              <!-- 当前选中访问身份的固定提示。 -->
-              <span class="selection-pill" :class="roleThemeClass(selectedLoginRole)">
-                {{ selectedRoleLoginHint }}
-              </span>
             </div>
 
             <!-- Role selector. -->
@@ -179,25 +212,39 @@
               class="role-selector"
               aria-label="Portal roles"
             >
+
+            <!-- 循环生成按钮，且引用的是外部数据形成的数组{key，labelKey} -->
+            <!-- 1.:class里面的selected或者active生效的化就是 .selected .active这样;
+                  搭配前面的class一起使用： role-pill.active......
+                2.item.key代表点击的是哪一个按钮，比如如果是student，那就是'student'，selectLoginRole('student')
+                3.@keydown就是元素处于焦点并按下键盘时，比如左右键+回车选中
+                4.@mouseenter鼠标悬停,展示对应弹窗
+                5.@mouseleave鼠标离开，清理弹窗
+                6.@focus获得焦点时，展示弹窗服务于键盘，@mouseenter服务于鼠标
+                7.@blur失去焦点时，清理弹窗-->
               <button
-                v-for="item in rolePreviewItems"
+                v-for="(item, index) in rolePreviewItems"
                 :key="item.key"
                 type="button"
                 class="role-pill"
                 :class="[
                   roleThemeClass(item.key),
                   {
-                    selected: selectedLoginRole === item.key
+                    selected: pinnedRoleKey === item.key,
+                    active: activeDisplayRoleKey === item.key
                   }
                 ]"
-                :aria-pressed="selectedLoginRole === item.key"
+                :aria-pressed="pinnedRoleKey === item.key"
+                :ref="(el) => setRoleButtonRef(el, index)"
+                @click="selectLoginRole(item.key)"
+                @keydown="handleRoleKeydown($event, index)"
                 @mouseenter="previewLoginRole(item.key)"
                 @mouseleave="clearPreviewRole"
                 @focus="previewLoginRole(item.key)"
                 @blur="clearPreviewRole"
-                @click="selectLoginRole(item.key)"
               >
                 <span class="role-pill-dot"></span>
+                <!-- button的class：role-pill 控制字体 -->
                 <span>{{ t(item.labelKey) }}</span>
               </button>
             </div>
@@ -207,24 +254,54 @@
             <!-- The displayed data follows preview first, then selected state as fallback. -->
             <!-- 显示内容优先跟随预览状态，未预览时回退到当前选中角色。 -->
             <transition name="content-fade" mode="out-in">
-              <div :key="displayedRoleKey" class="role-detail-card" :class="roleThemeClass(displayedRoleKey)">
+              <div
+                v-if="activeDisplayRoleKey"
+                :key="activeDisplayRoleKey"
+                class="role-detail-card"
+                :class="roleThemeClass(activeDisplayRoleKey)"
+              >
+                <div class="role-detail-glow" aria-hidden="true"></div>
                 <div class="role-detail-header">
-                  <div class="role-detail-badge" :class="roleThemeClass(displayedRoleKey)"></div>
+                  <div class="role-detail-badge" :class="roleThemeClass(activeDisplayRoleKey)"></div>
 
                   <div>
-                    <p class="role-detail-kicker">{{ t('selectedAccess') }}</p>
-                    <h3 class="role-detail-title">{{ displayedRoleData?.title || selectedRoleLoginLabel }}</h3>
+                    <p class="role-detail-kicker">{{ t('rolePreviewLabel') }}</p>
+                    <h3 class="role-detail-title">{{ activeRoleTitle }}</h3>
                   </div>
                 </div>
 
                 <p class="role-detail-summary">
-                  {{ displayedRoleData?.summary || selectedRoleLoginSubtitle }}
+                  {{ activeRoleSummary }}
                 </p>
 
                 <ul class="role-detail-list">
-                  <li v-for="point in displayedRoleData?.points?.slice(0, 3) || []" :key="point">
+                  <li v-for="point in activeRolePoints" :key="point">
                     {{ point }}
                   </li>
+                </ul>
+              </div>
+
+              <div
+                v-else
+                key="generic-role-card"
+                class="role-detail-card role-detail-card--generic"
+              >
+                <div class="role-detail-glow" aria-hidden="true"></div>
+                <div class="role-detail-header">
+                  <div>
+                    <p class="role-detail-kicker">{{ t('portalPreviewLabel') }}</p>
+                    <h3 class="role-detail-title">{{ t('portalPreviewTitle') }}</h3>
+                  </div>
+                </div>
+
+                <p class="role-detail-summary">
+                  {{ t('portalPreviewSummary') }}
+                </p>
+
+                <ul class="role-detail-list">
+                  <li>{{ t('portalPreviewPoint1') }}</li>
+                  <li>{{ t('portalPreviewPoint2') }}</li>
+                  <li>{{ t('portalPreviewPoint3') }}</li>
                 </ul>
               </div>
             </transition>
@@ -235,11 +312,11 @@
           <article
             class="hero-card hero-card--secondary interactive-surface"
             @pointermove="handleCardPointerMove"
+            @pointerleave="handleCardPointerLeave"
           >
             <div class="section-head section-head--compact">
               <div>
                 <span class="section-kicker">{{ t('platformOverview') }}</span>
-                <h2 class="section-title overview-title">{{ t('platformGlanceTitle') }}</h2>
               </div>
             </div>
 
@@ -330,8 +407,10 @@
         <div
           class="auth-card interactive-surface"
           @pointermove="handleCardPointerMove"
+          @pointerleave="handleCardPointerLeave"
         >
           <div class="auth-card-glow"></div>
+          <div class="auth-card-noise"></div>
 
           <!-- Two-step progress indicator. -->
           <!-- 两步式认证进度指示器。 -->
@@ -361,18 +440,15 @@
 
                   <div class="auth-logo-copy">
                     <span class="auth-kicker">{{ t('secureAccess') }}</span>
-                    <h2 class="auth-title">{{ selectedRoleLoginHeading }}</h2>
+                    <h2 class="auth-title">{{ authHeading }}</h2>
                   </div>
                 </div>
 
-                <p class="auth-subtitle">{{ selectedRoleLoginSubtitle }}</p>
+                <p class="auth-subtitle">{{ authSubtitle }}</p>
 
                 <!-- Meta chips for selected identity and auth method. -->
                 <!-- 当前身份与认证方式标签。 -->
                 <div class="meta-row">
-                  <span class="meta-chip" :class="roleThemeClass(selectedLoginRole)">
-                    {{ selectedRoleLoginHint }}
-                  </span>
                   <span class="meta-chip meta-chip--neutral">{{ t('secureOtp') }}</span>
                 </div>
               </header>
@@ -386,6 +462,7 @@
                   <!-- Field shell highlights focus and error state at container level. -->
                   <!-- 输入框容器负责表现聚焦态和错误态。 -->
                   <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
+                    <span class="field-leading-icon" aria-hidden="true"></span>
                     <input
                       id="login-email"
                       ref="emailInputRef"
@@ -399,7 +476,7 @@
                     />
                   </div>
 
-                  <small class="field-help">{{ selectedRoleEmailHelper }}</small>
+                  <small class="field-help">{{ emailStepHelper }}</small>
                 </div>
 
                 <button
@@ -448,9 +525,6 @@
                 <!-- Meta row keeps role context visible during OTP verification. -->
                 <!-- OTP 步骤继续保留当前角色语境。 -->
                 <div class="meta-row meta-row--stack">
-                  <span class="meta-chip" :class="roleThemeClass(selectedLoginRole)">
-                    {{ selectedRoleLoginHint }}
-                  </span>
                   <button type="button" class="text-link" @click="goBackToEmailStep">
                     {{ t('changeEmail') }}
                   </button>
@@ -461,7 +535,7 @@
               <!-- OTP 输入区。 -->
               <!-- Each box binds to one digit, while input, keyboard, focus, and paste are centrally handled in script helpers. -->
               <!-- 每个输入框只绑定一位数字，输入、键盘、聚焦和粘贴交互统一由 script 中的辅助函数处理。 -->
-              <div class="otp-box" :class="{ 'has-error': otpErrorActive, shaking: otpShake }">
+              <div class="otp-box" :class="{ 'has-error': otpErrorActive, 'is-complete': isOtpComplete && !otpErrorActive, shaking: otpShake }">
                 <input
                   v-for="(digit, index) in otpDigits"
                   :key="index"
@@ -470,7 +544,7 @@
                   type="text"
                   maxlength="1"
                   class="otp-input"
-                  :class="{ 'otp-input-error': otpErrorActive }"
+                  :class="{ 'otp-input-error': otpErrorActive, 'otp-input-filled': Boolean(digit) }"
                   inputmode="numeric"
                   autocomplete="one-time-code"
                   :aria-label="`${t('digit')} ${index + 1}`"
@@ -480,6 +554,10 @@
                   @focus="handleOTPFocus($event)"
                   @paste="handleOTPPaste($event, index)"
                 />
+              </div>
+
+              <div class="otp-progress-rail" aria-hidden="true">
+                <span class="otp-progress-fill" :style="{ width: otpProgressPercent }"></span>
               </div>
 
               <div class="otp-footer-copy">
@@ -546,7 +624,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
-import { buildSessionHeaders } from '@/utils/csrf'
+import { buildSessionHeaders, getCSRFToken } from '@/utils/csrf'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
   LOGIN_LANGUAGE_KEY,
@@ -558,7 +636,6 @@ import logo from '@/assets/btf-logo.png'
 import {
   LOGIN_LANGUAGE_OPTIONS,
   LOGIN_MESSAGES,
-  LOGIN_ROLE_HINT_PREFIX_MAP,
   LOGIN_ROLE_PREVIEW_CONTENT,
   LOGIN_ROLE_PREVIEW_ITEMS
 } from '@/data/login_language'
@@ -593,7 +670,6 @@ const languageOptions = LOGIN_LANGUAGE_OPTIONS
 const messages = LOGIN_MESSAGES
 const rolePreviewItems = LOGIN_ROLE_PREVIEW_ITEMS
 const rolePreviewContent = LOGIN_ROLE_PREVIEW_CONTENT
-const loginRoleHintPrefixMap = LOGIN_ROLE_HINT_PREFIX_MAP
 
 /*
   Auth flow state.
@@ -614,6 +690,7 @@ const resendCountdown = ref(0)
 */
 const otpDigits = ref(['', '', '', '', '', ''])
 const otpRefs = ref([])
+const roleButtonRefs = ref([])
 const otpShake = ref(false)
 const otpErrorActive = ref(false)
 
@@ -623,9 +700,10 @@ const otpErrorActive = ref(false)
 */
 const locale = ref('en')
 const activeLeftBackground = ref('original')
-const selectedLoginRole = ref(rolePreviewItems[0]?.key || 'student')
 const previewLoginRoleKey = ref('')
+const pinnedRoleKey = ref(rolePreviewItems[0]?.key || '')
 const isShellPointerInside = ref(false)
+const prefersReducedMotion = ref(false)
 
 /*
   DOM refs.
@@ -641,6 +719,7 @@ const loginShellRef = ref(null)
 let resendTimer = null
 let otpErrorTimer = null
 let otpAutoSubmitTimer = null
+let reduceMotionQuery = null
 
 /*
   Translation accessor.
@@ -656,6 +735,10 @@ const currentDir = computed(() => (locale.value === 'ar' ? 'rtl' : 'ltr'))
 const currentStepIndex = computed(() => (currentStep.value === 'email' ? 1 : 2))
 const maskedEmail = computed(() => maskEmail(email.value))
 const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.test(digit)))
+const otpProgressPercent = computed(() => {
+  const filledCount = otpDigits.value.filter((digit) => /^\d$/.test(digit)).length
+  return `${(filledCount / otpDigits.value.length) * 100}%`
+})
 
 /*
   Role display state.
@@ -666,36 +749,38 @@ const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.tes
   displayedRoleKey 优先跟随悬浮预览状态，未预览时回退到当前选中的登录角色。
 */
 
-const selectedRoleData = computed(() => {
-  return rolePreviewContent[locale.value]?.[selectedLoginRole.value]
-    || rolePreviewContent.en?.[selectedLoginRole.value]
+const activeDisplayRoleKey = computed(() => {
+  return previewLoginRoleKey.value || pinnedRoleKey.value || rolePreviewItems[0]?.key || ''
+})
+
+const activeRoleData = computed(() => {
+  if (!activeDisplayRoleKey.value) {
+    return null
+  }
+
+  return rolePreviewContent[locale.value]?.[activeDisplayRoleKey.value]
+    || rolePreviewContent.en?.[activeDisplayRoleKey.value]
     || null
 })
 
-const displayedRoleKey = computed(() => previewLoginRoleKey.value || selectedLoginRole.value)
+const activeRoleLabel = computed(() => {
+  if (!activeDisplayRoleKey.value) {
+    return ''
+  }
 
-const displayedRoleData = computed(() => {
-  return rolePreviewContent[locale.value]?.[displayedRoleKey.value]
-    || rolePreviewContent.en?.[displayedRoleKey.value]
-    || null
-})
-
-/*
-  Role-aware login copy.
-  角色化登录文案。
-*/
-const selectedRoleLoginLabel = computed(() => {
-  const currentRoleItem = rolePreviewItems.find((item) => item.key === selectedLoginRole.value)
+  const currentRoleItem = rolePreviewItems.find((item) => item.key === activeDisplayRoleKey.value)
   return currentRoleItem ? t(currentRoleItem.labelKey) : ''
 })
 
-const selectedRoleLoginHeading = computed(() => `${t('signIn')} · ${selectedRoleLoginLabel.value}`)
-const selectedRoleLoginSubtitle = computed(() => selectedRoleData.value?.summary || t('welcomeSubtitle'))
-const selectedRoleEmailHelper = computed(() => selectedRoleData.value?.points?.[0] || t('emailHelper'))
-const selectedRoleLoginHint = computed(() => {
-  const prefix = loginRoleHintPrefixMap[locale.value] || loginRoleHintPrefixMap.en || t('selectedAccess')
-  return `${prefix}: ${selectedRoleLoginLabel.value}`
-})
+const authHeading = computed(() => t('signIn'))
+
+const authSubtitle = computed(() => t('welcomeSubtitle'))
+
+const emailStepHelper = computed(() => t('emailHelper'))
+
+const activeRoleTitle = computed(() => activeRoleData.value?.title || activeRoleLabel.value)
+const activeRoleSummary = computed(() => activeRoleData.value?.summary || '')
+const activeRolePoints = computed(() => activeRoleData.value?.points?.slice(0, 3) || [])
 
 /*
   Hero showcase metrics.
@@ -749,6 +834,68 @@ const platformCapabilities = computed(() => [
 */
 const roleThemeClass = (roleKey) => `role-theme--${roleKey || 'default'}`
 
+const setRoleButtonRef = (element, index) => {
+  if (element) {
+    roleButtonRefs.value[index] = element
+  }
+}
+
+const focusRoleButton = async (index) => {
+  await nextTick()
+  roleButtonRefs.value[index]?.focus()
+}
+
+const handleRoleKeydown = async (event, index) => {
+  const total = rolePreviewItems.length
+
+  if (!total) {
+    return
+  }
+
+  const isRtl = currentDir.value === 'rtl'
+  const previousIndex = (index - 1 + total) % total
+  const nextIndex = (index + 1) % total
+
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    await focusRoleButton(isRtl ? previousIndex : nextIndex)
+    return
+  }
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    await focusRoleButton(isRtl ? nextIndex : previousIndex)
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    await focusRoleButton(nextIndex)
+    return
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    await focusRoleButton(previousIndex)
+    return
+  }
+
+  if (event.key === 'Home') {
+    event.preventDefault()
+    await focusRoleButton(0)
+    return
+  }
+
+  if (event.key === 'End') {
+    event.preventDefault()
+    await focusRoleButton(total - 1)
+  }
+}
+
+const selectLoginRole = (roleKey) => {
+  pinnedRoleKey.value = roleKey
+}
+
 const previewLoginRole = (roleKey) => {
   previewLoginRoleKey.value = roleKey
 }
@@ -757,21 +904,55 @@ const clearPreviewRole = () => {
   previewLoginRoleKey.value = ''
 }
 
+const resetPointerVariables = (element) => {
+  if (!element) {
+    return
+  }
+
+  element.style.setProperty('--pointer-x', '50%')
+  element.style.setProperty('--pointer-y', '50%')
+  element.style.setProperty('--rotate-x', '0deg')
+  element.style.setProperty('--rotate-y', '0deg')
+  element.style.setProperty('--glow-opacity', '0')
+}
+
+// 
 const updatePointerVariables = (element, clientX, clientY) => {
   if (!element) {
     return
   }
 
+  // 获取矩形信息对象，包含：rect.left这个元素离浏览器左边多远，
+  // rect.top离顶部多远,rect.width宽多少,rect.height高多少
   const rect = element.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
 
   element.style.setProperty('--pointer-x', `${x}px`)
   element.style.setProperty('--pointer-y', `${y}px`)
+
+  if (prefersReducedMotion.value) {
+    element.style.setProperty('--rotate-x', '0deg')
+    element.style.setProperty('--rotate-y', '0deg')
+    element.style.setProperty('--glow-opacity', '0')
+    return
+  }
+
+  const rotateX = ((0.5 - y / rect.height) * 9).toFixed(2)
+  const rotateY = (((x / rect.width) - 0.5) * 9).toFixed(2)
+  const glowOpacity = (0.14 + Math.abs(Number(rotateX)) * 0.018 + Math.abs(Number(rotateY)) * 0.018).toFixed(2)
+
+  element.style.setProperty('--rotate-x', `${rotateX}deg`)
+  element.style.setProperty('--rotate-y', `${rotateY}deg`)
+  element.style.setProperty('--glow-opacity', glowOpacity)
 }
 
 const handleCardPointerMove = (event) => {
   updatePointerVariables(event.currentTarget, event.clientX, event.clientY)
+}
+
+const handleCardPointerLeave = (event) => {
+  resetPointerVariables(event.currentTarget)
 }
 
 const handleShellPointerMove = (event) => {
@@ -781,6 +962,7 @@ const handleShellPointerMove = (event) => {
 
 const handleShellPointerLeave = () => {
   isShellPointerInside.value = false
+  resetPointerVariables(loginShellRef.value)
 }
 
 /*
@@ -819,16 +1001,6 @@ const setBackgroundMode = (mode) => {
 }
 
 /*
-  Role selection persists the login identity and also refreshes the preview state.
-  选择角色会记录当前登录身份，并同步刷新预览状态。
-*/
-const selectLoginRole = (roleKey) => {
-  selectedLoginRole.value = roleKey
-  previewLoginRoleKey.value = ''
-  clearMessages()
-}
-
-/*
   Language switching and persistence.
   语言切换与本地持久化。
 */
@@ -836,6 +1008,10 @@ const switchLanguage = (lang) => {
   locale.value = lang
   clearMessages()
   safeLocalStorageSet(LOGIN_LANGUAGE_KEY, lang)
+}
+
+const handleReduceMotionChange = (event) => {
+  prefersReducedMotion.value = event.matches
 }
 
 /*
@@ -1001,6 +1177,24 @@ const parseErrorMessage = async (response, fallbackText) => {
   }
 }
 
+const ensureCsrfReady = async () => {
+  const existingToken = getCSRFToken()
+  if (existingToken) {
+    return true
+  }
+
+  try {
+    await fetch(`${API_BASE_URL}/api-auth/login/`, {
+      method: 'GET',
+      credentials: 'include'
+    })
+  } catch (error) {
+    console.error('Failed to warm up CSRF cookie:', error)
+  }
+
+  return Boolean(getCSRFToken())
+}
+
 /*
   Shared JSON POST request helper.
   通用 JSON POST 请求辅助函数。
@@ -1066,31 +1260,13 @@ const triggerOtpErrorFeedback = async () => {
 */
 const goBackToEmailStep = async () => {
   currentStep.value = 'email'
+  previewLoginRoleKey.value = ''
   clearMessages()
   otpErrorActive.value = false
   otpShake.value = false
   clearOtpAutoSubmitTimer()
   await nextTick()
   emailInputRef.value?.focus()
-}
-
-/*
-  Post-login route resolver.
-  登录后跳转路由解析。
-*/
-const resolvePostLoginRoute = (user) => {
-  const role = user?.role || user?.user_type || user?.role_name || ''
-
-  switch (role) {
-    case 'admin':
-    case 'global_admin':
-    case 'local_admin':
-    case 'supervisor':
-    case 'mentor':
-    case 'student':
-    default:
-      return '/dashboard'
-  }
 }
 
 /*
@@ -1112,6 +1288,13 @@ const handleLogin = async () => {
     return
   }
 
+  const csrfReady = await ensureCsrfReady()
+  if (!csrfReady) {
+    error.value = 'Unable to establish a secure session with the backend. Please refresh and try again.'
+    statusMessage.value = ''
+    return
+  }
+
   if (sendingCode.value) {
     return
   }
@@ -1126,19 +1309,20 @@ const handleLogin = async () => {
 
   try {
     const response = await postJson('/services/send-login-code/', {
-      email: normalizedEmail,
-      redirect_url: buildCallbackUrl()
-    })
+    email: normalizedEmail,
+    redirect_url: buildCallbackUrl()
+  })
 
-    if (!response.ok) {
-      error.value = await parseErrorMessage(response, t('errorSendLink'))
-      return
-    }
+  if (!response.ok) {
+    error.value = await parseErrorMessage(response, t('errorSendLink'))
+    return
+  }
 
-    currentStep.value = 'otp'
-    statusMessage.value = t('sendingSuccess')
-    await resetOtpState()
-    startResendCountdown()
+  previewLoginRoleKey.value = ''
+  currentStep.value = 'otp'
+  statusMessage.value = t('sendingSuccess')
+  await resetOtpState()
+  startResendCountdown()
   } catch (requestError) {
     console.error('Login error:', requestError)
     error.value = t('errorNetworkLogin')
@@ -1160,6 +1344,13 @@ const verifyOTP = async () => {
     return
   }
 
+  const csrfReady = await ensureCsrfReady()
+  if (!csrfReady) {
+    error.value = 'Unable to establish a secure session with the backend. Please refresh and try again.'
+    statusMessage.value = ''
+    return
+  }
+
   clearMessages()
   verifyingCode.value = true
   statusMessage.value = t('signingIn')
@@ -1177,16 +1368,20 @@ const verifyOTP = async () => {
       return
     }
 
-    statusMessage.value = t('signingIn')
     await auth.fetchUserData()
-    await nextTick()
 
-    const targetRoute = resolvePostLoginRoute(auth.user || null)
+    if (!auth.user) {
+      error.value = 'Login succeeded, but failed to load current user from /api/v1/users/me/. Please check session cookie or backend authentication.'
+      statusMessage.value = ''
+      return
+    }
+
+    previewLoginRoleKey.value = ''
 
     try {
-      await router.replace(targetRoute)
+      await router.replace('/dashboard')
     } catch {
-      window.location.href = `/#${targetRoute}`
+      window.location.href = '/#/dashboard'
     }
   } catch (requestError) {
     console.error('OTP verification error:', requestError)
@@ -1217,18 +1412,20 @@ const resendCode = async () => {
 
   try {
     const response = await postJson('/services/send-login-code/', {
-      email: email.value,
-      redirect_url: buildCallbackUrl()
-    })
+    email: email.value,
+    redirect_url: buildCallbackUrl()
+  })
 
-    if (!response.ok) {
-      error.value = await parseErrorMessage(response, t('errorResendFail'))
-      return
-    }
+  if (!response.ok) {
+    error.value = await parseErrorMessage(response, t('errorResendFail'))
+    return
+  }
 
-    statusMessage.value = t('resendSuccess')
-    await resetOtpState()
-    startResendCountdown()
+  previewLoginRoleKey.value = ''
+
+  statusMessage.value = t('resendSuccess')
+  await resetOtpState()
+  startResendCountdown()
   } catch (requestError) {
     console.error('Resend code error:', requestError)
     error.value = t('errorNetworkOtp')
@@ -1296,6 +1493,19 @@ if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage
   生命周期：初始化聚焦。
 */
 onMounted(async () => {
+  ensureCsrfReady().catch((error) => {
+    console.error('Initial CSRF warm-up failed:', error)
+  })
+
+  reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  prefersReducedMotion.value = reduceMotionQuery.matches
+
+  if (reduceMotionQuery.addEventListener) {
+    reduceMotionQuery.addEventListener('change', handleReduceMotionChange)
+  } else if (reduceMotionQuery.addListener) {
+    reduceMotionQuery.addListener(handleReduceMotionChange)
+  }
+
   await nextTick()
   emailInputRef.value?.focus()
 })
@@ -1311,6 +1521,16 @@ onBeforeUnmount(() => {
   if (resendTimer) {
     clearInterval(resendTimer)
     resendTimer = null
+  }
+
+  if (reduceMotionQuery) {
+    if (reduceMotionQuery.removeEventListener) {
+      reduceMotionQuery.removeEventListener('change', handleReduceMotionChange)
+    } else if (reduceMotionQuery.removeListener) {
+      reduceMotionQuery.removeListener(handleReduceMotionChange)
+    }
+
+    reduceMotionQuery = null
   }
 })
 </script>
@@ -1408,7 +1628,7 @@ onBeforeUnmount(() => {
 }
 
 .hero-slide-image {
-  object-fit: fill;
+  object-fit: cover;
   opacity: 0;
   animation: heroSlideshow 18s infinite;
   filter: saturate(1.02) contrast(1.01);
@@ -1504,7 +1724,7 @@ onBeforeUnmount(() => {
 .section-kicker,
 .auth-kicker,
 .role-detail-kicker {
-  font-size: 0.72rem;
+  font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -1587,7 +1807,7 @@ onBeforeUnmount(() => {
 }
 
 .section-title {
-  font-size: 0.8rem;
+  font-size: 1.2rem;
   color: #ffffff;
 }
 
@@ -1635,7 +1855,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   background: var(--role-surface);
   color: var(--role-color);
-  font-size: 0.92rem;
+  font-size: 0.8rem;
   font-weight: 700;
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
 }
@@ -1691,6 +1911,11 @@ onBeforeUnmount(() => {
     0 0 0 1px currentColor inset,
     0 16px 32px rgba(5, 14, 12, 0.28),
     0 0 18px rgba(255, 255, 255, 0.12);
+}
+
+.role-pill.active:not(.selected) {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .role-pill.selected::before {
@@ -1852,11 +2077,6 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.overview-title {
-  font-size: 1.65rem;
-  line-height: 1.18;
-  color: #ffffff;
-}
 
 .overview-capabilities {
   display: grid;
@@ -2326,11 +2546,6 @@ onBeforeUnmount(() => {
   border-color: rgba(210, 75, 75, 0.34);
 }
 
-.field-icon {
-  font-size: 1rem;
-  font-weight: 800;
-  color: var(--emerald-700);
-}
 
 .field-input {
   width: 100%;
@@ -2443,6 +2658,13 @@ onBeforeUnmount(() => {
 .otp-box.has-error .otp-input {
   border-color: rgba(210, 75, 75, 0.34);
   background: rgba(255, 245, 245, 0.94);
+}
+
+.otp-box.is-complete .otp-input {
+  border-color: rgba(39, 132, 109, 0.22);
+  box-shadow:
+    0 10px 22px rgba(31, 93, 79, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.44);
 }
 
 .otp-box.shaking {
@@ -2745,47 +2967,6 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.hero-ambient-orb,
-.hero-grid-line {
-  position: absolute;
-  pointer-events: none;
-}
-
-.hero-ambient-orb {
-  border-radius: 50%;
-  filter: blur(8px);
-  mix-blend-mode: screen;
-  opacity: 0.9;
-  transition: transform 0.22s ease;
-}
-
-.hero-ambient-orb--a {
-  top: 8%;
-  left: 6%;
-  width: clamp(160px, 24vw, 280px);
-  height: clamp(160px, 24vw, 280px);
-  background: radial-gradient(circle, rgba(132, 255, 226, 0.22), rgba(132, 255, 226, 0.02) 64%, transparent 72%);
-  animation: ambientFloatA 12s ease-in-out infinite;
-}
-
-.hero-ambient-orb--b {
-  right: 10%;
-  bottom: 12%;
-  width: clamp(220px, 28vw, 360px);
-  height: clamp(220px, 28vw, 360px);
-  background: radial-gradient(circle, rgba(79, 191, 162, 0.18), rgba(79, 191, 162, 0.02) 62%, transparent 72%);
-  animation: ambientFloatB 15s ease-in-out infinite;
-}
-
-.hero-grid-line {
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 72px 72px;
-  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.92), transparent 82%);
-  opacity: 0.2;
-}
 
 .interactive-surface {
   --pointer-x: 50%;
@@ -3012,44 +3193,6 @@ onBeforeUnmount(() => {
     var(--shadow-focus);
 }
 
-.otp-status-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 42px;
-  padding: 0 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(16, 33, 29, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(246, 250, 248, 0.88)),
-    radial-gradient(circle at top left, rgba(47, 164, 134, 0.08), transparent 36%);
-}
-
-.otp-status-strip.ready {
-  border-color: rgba(47, 164, 134, 0.16);
-  box-shadow: 0 12px 26px rgba(31, 93, 79, 0.08);
-}
-
-.otp-status-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: rgba(39, 132, 109, 0.08);
-  color: var(--emerald-700);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.otp-status-text {
-  font-size: 0.86rem;
-  font-weight: 700;
-  color: var(--stone-700);
-}
 
 .status-message,
 .error-message {
@@ -3098,41 +3241,411 @@ onBeforeUnmount(() => {
   .interactive-surface:hover {
     transform: none;
   }
+}
 
-  .otp-status-strip {
-    flex-wrap: wrap;
-    justify-content: center;
-    padding: 10px 14px;
-  }
+
+
+.shell-aurora {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.shell-aurora-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(18px);
+  opacity: 0.78;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.shell-aurora-orb--one {
+  top: 6%;
+  left: -3%;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(126, 255, 223, 0.32), rgba(74, 209, 176, 0.08) 58%, transparent 76%);
+  animation: ambientFloatA 16s ease-in-out infinite;
+}
+
+.shell-aurora-orb--two {
+  right: 10%;
+  top: 12%;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(circle, rgba(193, 224, 255, 0.22), rgba(116, 184, 255, 0.06) 54%, transparent 76%);
+  animation: ambientFloatB 19s ease-in-out infinite;
+}
+
+.shell-aurora-orb--three {
+  right: -4%;
+  bottom: 2%;
+  width: 360px;
+  height: 360px;
+  background: radial-gradient(circle, rgba(124, 255, 217, 0.18), rgba(32, 124, 103, 0.06) 52%, transparent 78%);
+  animation: ambientFloatA 22s ease-in-out infinite reverse;
+}
+
+.shell-mesh {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.64), transparent 82%);
+  opacity: 0.18;
+}
+
+.hero-pane,
+.auth-pane {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-card,
+.auth-card,
+.role-detail-card,
+.field-shell,
+.language-switcher,
+.mode-switch {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.hero-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.16), transparent 34%);
+  opacity: 0.58;
+}
+
+.interactive-surface {
+  --pointer-x: 50%;
+  --pointer-y: 50%;
+  --rotate-x: 0deg;
+  --rotate-y: 0deg;
+  --glow-opacity: 0;
+  transform-style: preserve-3d;
+  transform: perspective(1400px) rotateX(var(--rotate-x)) rotateY(var(--rotate-y)) translate3d(0, 0, 0);
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 280ms ease,
+    background 280ms ease;
+}
+
+.interactive-surface::after {
+  opacity: var(--glow-opacity, 0);
+  background:
+    radial-gradient(
+      240px circle at var(--pointer-x) var(--pointer-y),
+      rgba(255, 255, 255, 0.24),
+      rgba(255, 255, 255, 0.10) 18%,
+      transparent 58%
+    );
+}
+
+.interactive-surface:hover {
+  transform: perspective(1400px) rotateX(var(--rotate-x)) rotateY(var(--rotate-y)) translate3d(0, -8px, 0);
+}
+
+.interactive-surface:hover::after {
+  opacity: calc(var(--glow-opacity, 0) + 0.12);
+}
+
+.role-selector {
+  align-items: center;
+}
+
+.role-pill {
+  min-height: 42px;
+  padding: 0 14px;
+  letter-spacing: 0.01em;
+}
+
+.role-pill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.18), transparent 74%);
+  opacity: 0;
+  transition: opacity 0.24s ease;
+}
+
+.role-pill:hover::after,
+.role-pill:focus-visible::after,
+.role-pill.active::after,
+.role-pill.selected::after {
+  opacity: 1;
+}
+
+.role-pill:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.role-detail-card {
+  position: relative;
+  isolation: isolate;
+}
+
+.role-detail-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 88% 16%, rgba(255, 255, 255, 0.18), transparent 24%),
+    radial-gradient(circle at 18% 100%, rgba(117, 217, 183, 0.12), transparent 32%);
+  opacity: 0.9;
+}
+
+.role-detail-header,
+.role-detail-summary,
+.role-detail-list {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-stats,
+.overview-capabilities {
+  position: relative;
+  z-index: 1;
+}
+
+.stat-card,
+.capability-card {
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.auth-topbar {
+  position: relative;
+  z-index: 1;
+}
+
+.language-switcher {
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  box-shadow:
+    0 14px 30px rgba(12, 41, 34, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.54);
+}
+
+.language-option {
+  min-width: 64px;
+}
+
+.language-option.active {
+  transform: translateY(-1px);
+}
+
+.mode-switch {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 10px 24px rgba(4, 15, 13, 0.12);
+}
+
+.mode-button {
+  min-width: 86px;
+}
+
+.auth-card {
+  isolation: isolate;
+}
+
+.auth-card::after {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  pointer-events: none;
+}
+
+.auth-card-glow {
+  animation: ambientFloatA 13s ease-in-out infinite;
+}
+
+.auth-card-noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(rgba(16, 33, 29, 0.035) 0.8px, transparent 0.8px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.10), transparent 24%);
+  background-size: 18px 18px, auto;
+  opacity: 0.46;
+}
+
+.auth-progress,
+.step-panel {
+  position: relative;
+  z-index: 1;
+}
+
+.progress-item {
+  transition: transform 0.24s ease, color 0.24s ease;
+}
+
+.progress-item.current {
+  transform: translateY(-1px);
+}
+
+.field-shell {
+  gap: 12px;
+  min-height: 62px;
+  padding: 0 18px 0 16px;
+}
+
+.field-leading-icon {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(31, 93, 79, 0.88), rgba(103, 228, 193, 0.92));
+  box-shadow:
+    0 0 0 6px rgba(47, 164, 134, 0.10),
+    0 10px 18px rgba(31, 93, 79, 0.16);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.field-leading-icon::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+  border: 1px solid rgba(47, 164, 134, 0.16);
+  opacity: 0.9;
+}
+
+.field-shell:focus-within .field-leading-icon {
+  transform: scale(1.08);
+  box-shadow:
+    0 0 0 8px rgba(47, 164, 134, 0.12),
+    0 12px 24px rgba(31, 93, 79, 0.20);
+}
+
+.field-input {
+  letter-spacing: 0.01em;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 56px;
+  border-radius: 20px;
+}
+
+.primary-button:active,
+.secondary-button:active,
+.hero-link:active,
+.language-option:active,
+.mode-button:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.otp-progress-rail {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(16, 33, 29, 0.06);
+  box-shadow: inset 0 1px 2px rgba(16, 33, 29, 0.06);
+}
+
+.otp-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(31, 93, 79, 0.94), rgba(103, 228, 193, 0.92)),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.16), transparent 72%);
+  box-shadow: 0 10px 18px rgba(31, 93, 79, 0.18);
+  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.24s ease;
+}
+
+.otp-input {
+  backdrop-filter: blur(10px);
+}
+
+.otp-input-filled {
+  border-color: rgba(39, 132, 109, 0.20);
+  box-shadow:
+    0 10px 22px rgba(31, 93, 79, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.50);
+}
+
+.otp-box.is-complete .otp-progress-fill {
+  box-shadow:
+    0 14px 24px rgba(31, 93, 79, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.20) inset;
+}
+
+.status-message,
+.error-message,
+.support-row {
+  backdrop-filter: blur(10px);
+}
+
+.support-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 @media (max-width: 760px) {
-  .hero-ambient-orb--a {
-    top: -2%;
-    left: -10%;
+  .shell-aurora-orb--one {
+    width: 240px;
+    height: 240px;
   }
 
-  .hero-ambient-orb--b {
-    right: -16%;
-    bottom: -4%;
+  .shell-aurora-orb--two {
+    width: 200px;
+    height: 200px;
   }
 
-  .otp-status-strip {
-    gap: 8px;
+  .shell-aurora-orb--three {
+    width: 260px;
+    height: 260px;
+  }
+
+  .language-switcher {
+    width: 100%;
+  }
+
+  .language-option {
+    flex: 1 1 auto;
+  }
+
+  .support-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .login-shell::before,
   .login-shell::after,
-  .hero-ambient-orb,
-  .hero-grid-line,
   .interactive-surface,
   .interactive-surface::after,
   .language-option::before,
   .primary-button::before,
   .secondary-button::before,
-  .hero-link::after {
+  .hero-link::after,
+  .shell-aurora-orb,
+  .auth-card-glow,
+  .field-leading-icon,
+  .role-detail-glow {
     animation: none !important;
     transition: none !important;
     transform: none !important;

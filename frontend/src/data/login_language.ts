@@ -93,7 +93,17 @@ export const LOGIN_MESSAGES = {
     flowMatch: 'Match',
     flowCommunicate: 'Communicate',
     flowTrack: 'Track',
-    flowComplete: 'Complete'
+    flowComplete: 'Complete',
+    previewRolesTitle: 'Preview portal roles',
+    rolePreviewLabel: 'Role preview',
+    portalPreviewLabel: 'Before sign-in',
+    portalPreviewTitle: 'Role will be identified after verification',
+    portalPreviewSummary: 'Enter your email and complete OTP verification first. After sign-in, the platform will automatically detect your account role and show the correct role view, tasks, and access.',
+    portalPreviewPoint1: 'Enter your email and request a verification code.',
+    portalPreviewPoint2: 'Complete OTP verification to confirm your account.',
+    portalPreviewPoint3: 'Your role-specific tasks and access will appear after sign-in.',
+    roleAssignedAfterSignIn: 'Role shown after verification'
+
   },
 
   'zh-CN': {
@@ -175,7 +185,16 @@ export const LOGIN_MESSAGES = {
     flowMatch: '匹配',
     flowCommunicate: '沟通',
     flowTrack: '跟踪',
-    flowComplete: '完成'
+    flowComplete: '完成',
+    previewRolesTitle: '查看不同角色入口',
+    rolePreviewLabel: '角色预览',
+    portalPreviewLabel: '登录前说明',
+    portalPreviewTitle: '验证后自动识别角色',
+    portalPreviewSummary: '请先输入邮箱并完成 OTP 验证。登录成功后，平台会根据你的账户自动识别角色，并显示对应的角色视图、任务和访问权限。',
+    portalPreviewPoint1: '输入邮箱并发送验证码。',
+    portalPreviewPoint2: '完成 OTP 验证以确认账户身份。',
+    portalPreviewPoint3: '登录后将显示对应角色的任务与权限。',
+    roleAssignedAfterSignIn: '验证后显示角色'
   },
 
   ja: {
@@ -257,7 +276,16 @@ export const LOGIN_MESSAGES = {
     flowMatch: 'マッチ',
     flowCommunicate: '連携',
     flowTrack: '追跡',
-    flowComplete: '完了'
+    flowComplete: '完了',
+    previewRolesTitle: 'ポータルの役割をプレビュー',
+    rolePreviewLabel: '役割プレビュー',
+    portalPreviewLabel: 'サインイン前',
+    portalPreviewTitle: '認証後に役割が自動で表示されます',
+    portalPreviewSummary: 'まずメールアドレスを入力して OTP 認証を完了してください。サインイン後、システムがアカウントに基づいて適切な役割を自動的に判定し、対応する画面やタスク、権限を表示します。',
+    portalPreviewPoint1: 'メールアドレスを入力して認証コードを取得します。',
+    portalPreviewPoint2: 'OTPコードでアカウントを確認します。',
+    portalPreviewPoint3: 'サインイン後、役割に応じた機能が表示されます。',
+    roleAssignedAfterSignIn: '認証後に役割が表示されます'
   },
 
   ko: {
@@ -339,7 +367,16 @@ export const LOGIN_MESSAGES = {
     flowMatch: '매칭',
     flowCommunicate: '소통',
     flowTrack: '추적',
-    flowComplete: '완료'
+    flowComplete: '완료',
+    previewRolesTitle: '포털 역할 미리보기',
+    rolePreviewLabel: '역할 미리보기',
+    portalPreviewLabel: '로그인 전 안내',
+    portalPreviewTitle: '인증 후 역할이 자동으로 표시됩니다',
+    portalPreviewSummary: '먼저 이메일을 입력하고 OTP 인증을 완료하세요. 로그인 후 시스템이 계정을 기반으로 자동으로 역할을 식별하고, 해당 역할에 맞는 화면과 작업 및 권한을 제공합니다.',
+    portalPreviewPoint1: '이메일을 입력하고 인증 코드를 요청하세요.',
+    portalPreviewPoint2: 'OTP 코드를 입력하여 계정을 확인하세요.',
+    portalPreviewPoint3: '로그인 후 역할에 맞는 기능이 표시됩니다.',
+    roleAssignedAfterSignIn: '인증 후 역할이 표시됩니다'
   },
 
   ar: {
@@ -421,8 +458,17 @@ export const LOGIN_MESSAGES = {
     flowMatch: 'مطابقة',
     flowCommunicate: 'تواصل',
     flowTrack: 'متابعة',
-    flowComplete: 'إنجاز'
-  }
+    flowComplete: 'إنجاز',
+    previewRolesTitle: 'استعراض أدوار المنصة',
+    rolePreviewLabel: 'معاينة الدور',
+    portalPreviewLabel: 'قبل تسجيل الدخول',
+    portalPreviewTitle: 'سيتم تحديد الدور بعد التحقق',
+    portalPreviewSummary: 'يرجى إدخال بريدك الإلكتروني أولاً وإكمال التحقق باستخدام رمز OTP. بعد تسجيل الدخول، سيقوم النظام تلقائيًا بتحديد دورك وعرض الواجهة والمهام والصلاحيات المناسبة.',
+    portalPreviewPoint1: 'أدخل بريدك الإلكتروني واطلب رمز التحقق.',
+    portalPreviewPoint2: 'أكمل التحقق باستخدام رمز OTP.',
+    portalPreviewPoint3: 'بعد تسجيل الدخول، سيتم عرض المهام والصلاحيات الخاصة بدورك.',
+    roleAssignedAfterSignIn: 'سيتم عرض الدور بعد التحقق'
+      }
 }
 
 export const LOGIN_ROLE_PREVIEW_CONTENT = {
