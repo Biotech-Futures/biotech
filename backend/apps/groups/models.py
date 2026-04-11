@@ -11,6 +11,17 @@ class Groups(models.Model):
     creation_datetime = models.DateTimeField(default=timezone.now) # Default to current time on creation
     deleted_flag = models.BooleanField(default=False) # Default to False for better data integrity
     deleted_datetime = models.DateTimeField(null=True, blank=True) # Allow null/blank for groups that aren't deleted
+    # Refined schema (table_statements.sql): matching / cohort fields
+    year_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    year_max = models.PositiveSmallIntegerField(null=True, blank=True)
+    lead_mentor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="led_groups",
+    )
+    max_members = models.PositiveSmallIntegerField(default=8, null=True, blank=True)
 
     class Meta:
         db_table = 'groups'
@@ -18,6 +29,7 @@ class Groups(models.Model):
         models.Index(fields=['track']),
         models.Index(fields=['deleted_flag']),
         models.Index(fields=['creation_datetime']),
+        models.Index(fields=['lead_mentor']),
         ]
 
         constraints = [
@@ -53,11 +65,45 @@ class Groups(models.Model):
             models.CheckConstraint(
                 condition=Q(creation_datetime__lte=models.functions.Now()),
                 name='group_creation_not_future'
-            ),  
+            ),
+            models.CheckConstraint(
+                condition=Q(year_min__isnull=True)
+                | Q(year_max__isnull=True)
+                | Q(year_min__lte=F("year_max")),
+                name="groups_year_range_valid",
+            ),
         ]
     
     def __str__(self):
         return self.group_name
+
+
+class GroupInterest(models.Model):
+    """Junction: group-level interests for matching (refined DDL: group_interest)."""
+
+    group = models.ForeignKey("Groups", on_delete=models.CASCADE, related_name="group_interests")
+    interest = models.ForeignKey(
+        "users.AreasOfInterest",
+        on_delete=models.CASCADE,
+        related_name="group_links",
+    )
+
+    class Meta:
+        db_table = "group_interest"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "interest"],
+                name="unique_group_interest",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["group"]),
+            models.Index(fields=["interest"]),
+        ]
+
+    def __str__(self):
+        return f"{self.group_id}:{self.interest_id}"
+
 
 class GroupMembers(models.Model):
     group = models.ForeignKey('Groups', models.CASCADE) # thinking cascade since if a group is deleted, members should be removed from that group

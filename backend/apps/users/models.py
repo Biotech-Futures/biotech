@@ -31,6 +31,23 @@ class MentorProfile(models.Model):
     institution = models.CharField(db_column='Institution', max_length=255)  # Field name made lowercase.
     mentor_reason = models.CharField(max_length=255)
     max_group_count = models.PositiveIntegerField(default=3)
+    # Refined schema: geo + matching display (table_statements.sql mentor_profile)
+    country = models.ForeignKey(
+        "groups.Countries",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="mentor_profiles",
+    )
+    state = models.ForeignKey(
+        "groups.CountryStates",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="mentor_profiles",
+    )
+    background = models.CharField(max_length=120, blank=True, default="")
+    region = models.CharField(max_length=80, blank=True, default="")
 
     class Meta:
         db_table = 'mentor_profile'
@@ -42,6 +59,10 @@ class MentorProfile(models.Model):
                 condition=Q(max_group_count__gte=0),
                 name='mentor_max_group_count_non_negative'
             ),
+        ]
+        indexes = [
+            models.Index(fields=["country"]),
+            models.Index(fields=["state"]),
         ]
     
     def __str__(self):
@@ -124,6 +145,22 @@ class StudentProfile(models.Model):
     year_lvl = models.CharField(max_length=255)
     has_join_permission = models.BooleanField(default=False)
     joinperm_responseID = models.CharField(max_length=255, null=True)
+    # Refined schema: geo + pre-assignment (table_statements.sql student_profile)
+    country = models.ForeignKey(
+        "groups.Countries",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="student_profiles",
+    )
+    state = models.ForeignKey(
+        "groups.CountryStates",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="student_profiles",
+    )
+    preassigned_group = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         db_table = 'student_profile'
@@ -131,6 +168,8 @@ class StudentProfile(models.Model):
         verbose_name_plural = "Student Profiles"
         indexes = [
             models.Index(fields=['supervisor']),
+            models.Index(fields=["country"]),
+            models.Index(fields=["state"]),
         ]
         constraints = [
         # Ensure first and last names are not empty

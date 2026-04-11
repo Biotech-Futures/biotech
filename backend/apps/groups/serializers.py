@@ -19,7 +19,10 @@ class TrackSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'track', 'creation_datetime', 'deleted_flag', 'deleted_datetime'] 
+    fields = [
+        'id', 'group_name', 'track', 'creation_datetime', 'deleted_flag', 'deleted_datetime',
+        'year_min', 'year_max', 'lead_mentor', 'max_members',
+    ]
     read_only_fields = ['id', 'creation_datetime', 'deleted_flag', 'deleted_datetime']
 
 

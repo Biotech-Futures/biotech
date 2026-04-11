@@ -1,9 +1,10 @@
 from django.contrib import admin
-from .models import Groups, GroupMembers, Countries, CountryStates, Tracks
+from .models import Groups, GroupMembers, GroupInterest, Countries, CountryStates, Tracks
 
 # Register your models here.
 admin.site.register(Groups)
 admin.site.register(GroupMembers)
+admin.site.register(GroupInterest)
 admin.site.register(Countries)
 admin.site.register(CountryStates)
 admin.site.register(Tracks)
