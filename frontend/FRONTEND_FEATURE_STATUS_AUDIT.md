@@ -104,3 +104,80 @@ The frontend is currently a **solid functional shell + partial API integration**
 - Many core business features are present as **UI prototypes** but still depend on **mock/local/demo logic**.
 - The project is **not yet production-ready** for the full CS17 Phase II deliverable scope described in the PDF.
 
+---
+
+## 7. Incremental Update (2026-04-12)
+
+This section records changes observed after the 2026-03-22 snapshot.
+
+### 7.1 Newly Integrated Backend APIs (Since 2026-03-22)
+
+#### A. Dashboard data APIs (newly wired in frontend)
+
+The dashboard now issues parallel API requests on page load (`loadDashboardData` with `Promise.all` in `src/views/DashboardPage.vue`).
+
+| Feature Slice | Endpoint | Method | Frontend Integration Point | Runtime Behavior |
+|---|---|---|---|---|
+| Dashboard summary cards | `/api/v1/dashboard/summary/` | GET | `loadSummary()` in `src/views/DashboardPage.vue` | Uses API response; falls back to local derived values on failure |
+| My groups overview | `/api/v1/groups/my/` | GET | `loadGroups()` | Uses API response; falls back to `mockGroups` on failure |
+| Dashboard resources preview | `/api/v1/resources/` | GET | `loadResources()` | Uses API response; falls back to `mockResources` on failure |
+| Dashboard announcements preview | `/api/v1/announcements/` | GET | `loadAnnouncements()` | Uses API response; falls back to `mockAnnouncements` on failure |
+| Upcoming events preview | `/api/v1/events/upcoming/` | GET | `loadEvents()` | Uses API response; falls back to `mockEvents` on failure |
+| Admin workflow summary | `/api/v1/admin/workflow/summary/` | GET | `loadAdminWorkflow()` | Admin-only request path; uses hardcoded fallback metrics on failure |
+| Progress snapshot | `/api/v1/dashboard/progress/` | GET | `loadProgress()` | Uses API response; falls back to default snapshot on failure |
+| Action center | `/api/v1/dashboard/action-center/` | GET | `loadActionCenter()` | Uses API response; falls back to role-based local builders |
+| Checklist | `/api/v1/dashboard/checklist/` | GET | `loadChecklist()` | Uses API response; falls back to role-based local builders |
+
+#### B. Authentication/session APIs (newly expanded usage)
+
+| Feature Slice | Endpoint | Method | Frontend Integration Point | Runtime Behavior |
+|---|---|---|---|---|
+| Logout session invalidation | `/services/logout/` | POST | `logout()` in `src/stores/auth.ts` (triggered by app logout actions) | Calls backend logout then clears local auth state |
+| App bootstrap current-user sync (expanded flow) | `/api/v1/users/me/` | GET | `initializeAuth()` called in `src/main.ts` before mount | Hydrates local cache, then synchronizes with backend session |
+
+#### C. API hooks present but not fully activated in page flow
+
+| Endpoint | Method | Status |
+|---|---|---|
+| `/api/v1/public/biotech-showcase/` | GET | Loader function exists in dashboard (`loadBiotechShowcase`) but is not currently included in the main dashboard loading sequence (`Promise.all` list) |
+
+### 7.2 Other Frontend Changes (Non-API or Partial-API)
+
+#### A. Dashboard architecture and UX enhancements
+
+- Dashboard was significantly expanded in layout/interaction complexity (hero area, role-aware sections, action center/checklist composition, fallback builders).
+- Data loading now follows an API-first pattern with graceful per-module fallback rather than mock-only rendering.
+- Multiple dashboard blocks still initialize with local mock seed values and degrade to mock/defaults on fetch failure.
+
+#### B. Authentication lifecycle improvements
+
+- Frontend bootstrap now awaits auth initialization before routing/mount, improving session consistency at first render.
+- Auth callback flow explicitly calls `fetchUserData()` then redirects based on session availability.
+
+#### C. Resource page behavior upgrades
+
+- Resource list page has explicit loading/error/empty states and retry action.
+- Resource list is API-backed (`fetchResources`) with frontend transformation for display.
+- Resource card "open" action remains placeholder (`alert(...)`), and upload button is still UI-only (no upload API wiring in page flow).
+
+### 7.3 Still Mock/Demo or Not Fully Connected (Current)
+
+The following areas remain primarily local/mock/demo despite frontend UI availability:
+
+- Events page list source remains `mockEvents`; register/create actions are still alert/demo placeholders.
+- Announcements page list/search remains `mockAnnouncements`.
+- Admin page table/stats remain `mockUsers` + `mockGroups` + hardcoded counters.
+- Profile page still uses mock user data; save remains demo-only.
+- Group detail page (group info, plan/tasks, discussion messages) remains local/mock state.
+- Resource API helper has CRUD functions (`create/update/delete/fetch by id`), but those workflows are not wired into current page actions.
+- Resource type helper (`fetchResourceTypes`) is still hardcoded and not backed by an endpoint.
+
+### 7.4 Updated Practical Interpretation (Post-Update)
+
+Compared with 2026-03-22, frontend backend-integration scope has expanded from:
+- Authentication + resource listing
+
+to:
+- Authentication/session lifecycle + resource listing + dashboard multi-endpoint aggregation.
+
+However, a large part of operational workflows (events, profile editing persistence, admin operations, group collaboration workflows) remains mock/demo or partially connected, so end-to-end production readiness is still incomplete.

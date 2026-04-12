@@ -250,16 +250,14 @@
             </div>
 
             <!-- Role detail card. -->
-            <!-- 角色详情卡片。 -->
             <!-- The displayed data follows preview first, then selected state as fallback. -->
-            <!-- 显示内容优先跟随预览状态，未预览时回退到当前选中角色。 -->
             <transition name="content-fade" mode="out-in">
               <div
                 v-if="activeDisplayRoleKey"
                 :key="activeDisplayRoleKey"
                 class="role-detail-card"
-                :class="roleThemeClass(activeDisplayRoleKey)"
               >
+              <!-- 卡片背景对角打光 -->
                 <div class="role-detail-glow" aria-hidden="true"></div>
                 <div class="role-detail-header">
                   <div class="role-detail-badge" :class="roleThemeClass(activeDisplayRoleKey)"></div>
@@ -278,30 +276,6 @@
                   <li v-for="point in activeRolePoints" :key="point">
                     {{ point }}
                   </li>
-                </ul>
-              </div>
-
-              <div
-                v-else
-                key="generic-role-card"
-                class="role-detail-card role-detail-card--generic"
-              >
-                <div class="role-detail-glow" aria-hidden="true"></div>
-                <div class="role-detail-header">
-                  <div>
-                    <p class="role-detail-kicker">{{ t('portalPreviewLabel') }}</p>
-                    <h3 class="role-detail-title">{{ t('portalPreviewTitle') }}</h3>
-                  </div>
-                </div>
-
-                <p class="role-detail-summary">
-                  {{ t('portalPreviewSummary') }}
-                </p>
-
-                <ul class="role-detail-list">
-                  <li>{{ t('portalPreviewPoint1') }}</li>
-                  <li>{{ t('portalPreviewPoint2') }}</li>
-                  <li>{{ t('portalPreviewPoint3') }}</li>
                 </ul>
               </div>
             </transition>
@@ -378,7 +352,10 @@
 
     <!-- Right auth pane: badges, language, email step, OTP step. -->
     <!-- 右侧认证区：顶部标签、语言切换、邮箱步骤、OTP 步骤。 -->
-    <section class="auth-pane">
+    <section class="auth-pane" @mousemove="handleInkMouseMove" @mouseleave="handleInkMouseLeave">
+      <!-- Chinese ink ripple canvas — sits behind all auth content. -->
+      <!-- 中国水墨波纹画布，位于认证内容层之下。 -->
+      <canvas ref="inkCanvasRef" class="ink-canvas" aria-hidden="true"></canvas>
       <div class="auth-shell">
         <!-- Top bar with trust badges and language switcher. -->
         <!-- 顶部工具条，包含信任标签与语言切换器。 -->
@@ -427,10 +404,8 @@
           </div>
 
           <!-- Step transition wrapper. -->
-          <!-- 步骤内容切换容器。 -->
           <transition name="content-fade" mode="out-in">
             <!-- Email step panel. -->
-            <!-- 邮箱输入步骤。 -->
             <div v-if="currentStep === 'email'" key="email" class="step-panel">
               <header class="auth-header">
                 <div class="auth-logo-wrap">
@@ -439,7 +414,6 @@
                   </div>
 
                   <div class="auth-logo-copy">
-                    <span class="auth-kicker">{{ t('secureAccess') }}</span>
                     <h2 class="auth-title">{{ authHeading }}</h2>
                   </div>
                 </div>
@@ -447,22 +421,19 @@
                 <p class="auth-subtitle">{{ authSubtitle }}</p>
 
                 <!-- Meta chips for selected identity and auth method. -->
-                <!-- 当前身份与认证方式标签。 -->
                 <div class="meta-row">
                   <span class="meta-chip meta-chip--neutral">{{ t('secureOtp') }}</span>
                 </div>
               </header>
 
               <!-- Email submission form. -->
-              <!-- 邮箱提交表单。 -->
               <form class="auth-form" @submit.prevent="handleLogin" novalidate>
                 <div class="field-block">
                   <label class="field-label" for="login-email">{{ t('emailLabel') }}</label>
 
                   <!-- Field shell highlights focus and error state at container level. -->
-                  <!-- 输入框容器负责表现聚焦态和错误态。 -->
                   <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
-                    <span class="field-leading-icon" aria-hidden="true"></span>
+                   
                     <input
                       id="login-email"
                       ref="emailInputRef"
@@ -555,11 +526,6 @@
                   @paste="handleOTPPaste($event, index)"
                 />
               </div>
-
-              <div class="otp-progress-rail" aria-hidden="true">
-                <span class="otp-progress-fill" :style="{ width: otpProgressPercent }"></span>
-              </div>
-
               <div class="otp-footer-copy">
                 <p>{{ t('codeExpiryHint') }}</p>
               </div>
@@ -618,11 +584,11 @@
 <script setup>
 /*
   Imports and external modules.
-  依赖导入与外部模块。
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import * as THREE from 'three'
 
 import { buildSessionHeaders, getCSRFToken } from '@/utils/csrf'
 import { isValidEmail, maskEmail } from '@/utils/string'
@@ -647,21 +613,19 @@ import {
 
 /*
   Page-level instances.
-  页面级实例。
 */
 const router = useRouter()
 const auth = useAuthStore()
 
 /*
   Static configuration.
-  静态配置常量。
 */
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const RESEND_SECONDS = 30
+const REQUEST_TIMEOUT_MS = 15000
 
 /*
   Shared page data.
-  页面共享静态数据。
 */
 const backgroundImages = LOGIN_BACKGROUND_IMAGES
 const backgroundImages2 = LOGIN_BACKGROUND_IMAGES2
@@ -673,7 +637,6 @@ const rolePreviewContent = LOGIN_ROLE_PREVIEW_CONTENT
 
 /*
   Auth flow state.
-  登录流程状态。
 */
 const email = ref('')
 const currentStep = ref('email')
@@ -686,7 +649,6 @@ const resendCountdown = ref(0)
 
 /*
   OTP interaction state.
-  OTP 交互状态。
 */
 const otpDigits = ref(['', '', '', '', '', ''])
 const otpRefs = ref([])
@@ -696,7 +658,6 @@ const otpErrorActive = ref(false)
 
 /*
   UI presentation state.
-  页面展示状态。
 */
 const locale = ref('en')
 const activeLeftBackground = ref('original')
@@ -707,10 +668,10 @@ const prefersReducedMotion = ref(false)
 
 /*
   DOM refs.
-  DOM 引用。
 */
 const emailInputRef = ref(null)
 const loginShellRef = ref(null)
+const inkCanvasRef = ref(null)
 
 /*
   Runtime timer handles.
@@ -720,6 +681,198 @@ let resendTimer = null
 let otpErrorTimer = null
 let otpAutoSubmitTimer = null
 let reduceMotionQuery = null
+
+/*
+  Three.js ink effect state (non-reactive — managed entirely outside Vue reactivity).
+  水墨效果 Three.js 状态（不参与 Vue 响应式系统）。
+*/
+const INK_MAX_DROPS = 12
+const INK_DROP_INTERVAL_MS = 80   // ~12 Hz — sparse trail, not a dense smear
+const INK_LIFESPAN = 1.8          // seconds each drop lives
+
+const INK_VERT = /* glsl */`
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`
+
+/*
+  INK_FRAG — Chinese ink-wash (水墨) fragment shader.
+
+  Techniques used:
+  1. Quintic-interpolated Perlin gradient noise  — eliminates banding present in value noise.
+  2. 5-octave FBM with per-octave rotation       — prevents axis-alignment grid artifacts.
+  3. Two-level domain warping (Inigo Quilez)      — computed ONCE per pixel, shared by all
+     drops; simulates how paper fibres guide ink in complex, non-circular paths.
+  4. Very slow time drift on the warp base        — ink "breathes" gently even after the mouse
+     stops moving.
+  5. Gaussian (exp(-d²/2σ²)) ink blob             — far softer than smoothstep; mirrors how
+     pigment concentration follows a Fick-diffusion bell curve.
+  6. Backrun / edge-darkening ring                — real ink and watercolour deposit pigment
+     at the drying front (the most distinctive feature of traditional brush work).
+  7. Fast outer wave + trailing secondary ring    — represent the initial kinetic impact and
+     capillary recoil of the drop hitting wet paper.
+  8. Paper-grain texture (value-noise FBM)        — uneven fibre absorption breaks uniformity.
+  9. Micro brush-stroke texture overlay           — adds fine directional variation inside
+     dense ink regions.
+  10. Two-tone ink colour blend                   — dense regions near-black (墨); diluted
+      wash lighter blue-grey, as traditional 水墨 painting uses.
+*/
+const INK_FRAG = /* glsl */`
+precision highp float;
+varying vec2 vUv;
+
+uniform float uTime;
+uniform float uAspect;
+uniform int   uDropCount;
+uniform vec3  uDrops[${INK_MAX_DROPS}]; // .xy = UV position (unscaled), .z = birth time
+
+// ── Gradient noise helpers ────────────────────────────────────────────────────
+vec2 hash22(vec2 p) {
+  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(p) * 43758.5453) * 2.0 - 1.0;
+}
+
+// Quintic-interpolated Perlin noise (smooth, no banding)
+float gnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0); // quintic fade
+  float a = dot(hash22(i),            f            );
+  float b = dot(hash22(i+vec2(1,0)),  f-vec2(1,0)  );
+  float c = dot(hash22(i+vec2(0,1)),  f-vec2(0,1)  );
+  float d = dot(hash22(i+vec2(1,1)),  f-vec2(1,1)  );
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+
+// 5-octave FBM — rotated each octave to break axis symmetry
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  mat2 m = mat2(0.80, 0.60, -0.60, 0.80); // 36.87° rotation
+  for (int i = 0; i < 5; i++) {
+    v += a * gnoise(p);
+    p  = m * p * 2.1;
+    a *= 0.48;
+  }
+  return v;
+}
+
+// ── Value noise — fast, used only for paper grain ─────────────────────────────
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = fract(sin(dot(i,            vec2(127.1,311.7))) * 43758.5);
+  float b = fract(sin(dot(i+vec2(1,0),  vec2(127.1,311.7))) * 43758.5);
+  float c = fract(sin(dot(i+vec2(0,1),  vec2(127.1,311.7))) * 43758.5);
+  float d = fract(sin(dot(i+vec2(1,1),  vec2(127.1,311.7))) * 43758.5);
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+
+float paperFbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.1; a *= 0.5; }
+  return v;
+}
+
+void main() {
+  vec2 uv  = vUv;
+  vec2 asp = vec2(uv.x * uAspect, uv.y);
+
+  // ── Global domain warp (computed once — shared by all drops) ─────────────────
+  // Represents the paper fibre structure that bends ink paths.
+  // uTime * 0.013 gives an imperceptibly slow "breathing" drift.
+  vec2 wc = uv * 4.3 + uTime * 0.013;
+  vec2 q  = vec2(fbm(wc),               fbm(wc + vec2(5.2, 1.3)));
+  vec2 gw = vec2(fbm(wc + 3.2*q + vec2(1.7, 9.2)),
+                 fbm(wc + 3.2*q + vec2(8.3, 2.8)));  // two-level warp
+
+  float totalInk = 0.0;
+
+  for (int i = 0; i < ${INK_MAX_DROPS}; i++) {
+    if (i >= uDropCount) break;
+
+    float age = uTime - uDrops[i].z;
+    if (age < 0.0 || age > ${INK_LIFESPAN.toFixed(1)}) continue;
+
+    vec2  dpos = vec2(uDrops[i].x * uAspect, uDrops[i].y);
+    float t    = clamp(age / ${INK_LIFESPAN.toFixed(1)}, 0.0, 1.0);
+
+    // Per-drop rotation offset — makes each drop's boundary slightly different
+    float seed = fract(uDrops[i].z * 7.53);
+    vec2  perDrop = vec2(cos(seed * 6.2832), sin(seed * 6.2832)) * 0.010;
+
+    // Warp grows gently — subtle organic boundary, never jagged
+    float ws = 0.032 * (0.2 + pow(age, 0.50) * 0.60);
+    float d  = distance(asp + gw * ws + perDrop, dpos);
+
+    // ── Spread radius (Fick diffusion: r ∝ √age) ─────────────────────────────
+    float r = 0.003 + pow(age, 0.50) * 0.026;
+
+    // ── Layer 1 — moisture halo: paper absorbs water before visible ink ───────
+    // Extremely soft, barely-there pale wash at the outermost edge
+    float haloSig = r * 3.0;
+    float halo    = exp(-(d*d) / (2.0*haloSig*haloSig)) * 0.09;
+
+    // ── Layer 2 — diffusion fringe: diluted ink wash spreading outward ────────
+    float fringeSig = r * 1.4;
+    float fringe    = exp(-(d*d) / (2.0*fringeSig*fringeSig)) * 0.18;
+
+    // ── Layer 3 — dense core: concentrated pigment at impact point ───────────
+    float coreSig = r * 0.45;
+    float core    = exp(-(d*d) / (2.0*coreSig*coreSig)) * 0.28;
+
+    // ── Backrun ring: dark halo at drying front — characteristic of real brush ink
+    float backrun = exp(-pow((d - r) / max(r * 0.20, 0.0005), 2.0));
+    backrun *= (1.0 - smoothstep(0.0, 0.35, t)) * 0.22; // disappears as ink dries
+
+    // ── Whisper wave: barely perceptible kinetic ring, like ink touching water ─
+    float wR   = age * 0.082;
+    float wW   = 0.008 * max(0.10, 1.0 - t * 0.88);
+    float wave = exp(-pow((d - wR) / max(wW, 0.0005), 2.0));
+    wave *= max(0.0, 1.0 - t * 1.6) * 0.14;
+
+    // ── Natural drying: exponential decay — fast onset, long graceful tail ────
+    float fade = exp(-3.8 * t);
+
+    totalInk += (halo + fringe + core + backrun + wave) * fade;
+  }
+
+  // ── Dual-scale paper grain: coarse fibre bundles + fine individual fibres ────
+  float coarseGrain = paperFbm(uv * 7.0  + vec2(2.7, 6.1));
+  float fineGrain   = paperFbm(uv * 28.0 + vec2(9.1, 3.4));
+  float grain       = coarseGrain * 0.60 + fineGrain * 0.40;
+  totalInk *= mix(0.68, 1.0, grain); // fibres cause ±16% uneven absorption
+
+  // ── Ultra-fine gnoise — adds imperceptible depth to ink without noise
+  float micro = gnoise(uv * 65.0 + vec2(1.2, 4.7)) * 0.5 + 0.5;
+  totalInk   += micro * totalInk * 0.055;
+
+  totalInk = clamp(totalInk, 0.0, 0.52);
+
+  // ── 墨 Ink colour with warm/cool tonal variation ──────────────────────────────
+  // Real sumi-e ink shifts between indigo-black (cool, well-ground ink stick)
+  // and warm brown-black (older or more diluted ink). The variation is subtle
+  // but prevents the effect from looking like a flat opacity mask.
+  float warmth  = fbm(asp * 5.2 + vec2(7.3, 2.1)) * 0.5 + 0.5; // slow spatial variation
+  vec3 inkCool  = vec3(0.050, 0.060, 0.090); // indigo-black
+  vec3 inkWarm  = vec3(0.072, 0.063, 0.078); // warm brown-black
+  vec3 inkDense = mix(inkCool, inkWarm, warmth * 0.38);
+  vec3 inkWash  = vec3(0.15,  0.17,  0.23 ); // very pale blue-grey diluted wash
+  vec3 inkColor = mix(inkWash, inkDense, smoothstep(0.07, 0.55, totalInk));
+
+  gl_FragColor  = vec4(inkColor, totalInk);
+}
+`
+
+let inkRenderer  = null
+let inkScene     = null
+let inkCamera    = null
+let inkMaterial  = null
+let inkClock     = null
+let inkAnimId    = null
+let inkDrops     = []           // { x, y, birthTime }[]
+let inkLastDropT = 0            // timestamp of last drop (Date.now)
 
 /*
   Translation accessor.
@@ -744,11 +897,6 @@ const otpProgressPercent = computed(() => {
   Role display state.
   角色显示状态。
 */
-/*
-  displayedRoleKey prefers hover-preview state and falls back to the currently selected login role.
-  displayedRoleKey 优先跟随悬浮预览状态，未预览时回退到当前选中的登录角色。
-*/
-
 const activeDisplayRoleKey = computed(() => {
   return previewLoginRoleKey.value || pinnedRoleKey.value || rolePreviewItems[0]?.key || ''
 })
@@ -784,10 +932,10 @@ const activeRolePoints = computed(() => activeRoleData.value?.points?.slice(0, 3
 
 /*
   Hero showcase metrics.
-  左侧展示型统计数据。
 */
 const showcaseStats = computed(() => [
   {
+    // 转成字符串，如果长度不够2在前面补零："3".padStart(2, '0')   // "03"
     value: String(rolePreviewItems.length).padStart(2, '0'),
     label: t('statsRoles')
   },
@@ -830,10 +978,10 @@ const platformCapabilities = computed(() => [
 
 /*
   Theme class builder.
-  角色主题类名构建函数。
 */
 const roleThemeClass = (roleKey) => `role-theme--${roleKey || 'default'}`
 
+// 保存每一个role按钮的DOM元素
 const setRoleButtonRef = (element, index) => {
   if (element) {
     roleButtonRefs.value[index] = element
@@ -845,6 +993,7 @@ const focusRoleButton = async (index) => {
   roleButtonRefs.value[index]?.focus()
 }
 
+// 处理键盘按键对role的选取
 const handleRoleKeydown = async (event, index) => {
   const total = rolePreviewItems.length
 
@@ -853,6 +1002,7 @@ const handleRoleKeydown = async (event, index) => {
   }
 
   const isRtl = currentDir.value === 'rtl'
+  // 相当于循环数组
   const previousIndex = (index - 1 + total) % total
   const nextIndex = (index + 1) % total
 
@@ -1200,14 +1350,22 @@ const ensureCsrfReady = async () => {
   通用 JSON POST 请求辅助函数。
 */
 const postJson = async (path, payload) => {
-  return fetch(`${API_BASE_URL}${path}`, {
-    method: 'POST',
-    headers: buildSessionHeaders({
-      includeCSRF: true
-    }),
-    credentials: 'include',
-    body: JSON.stringify(payload)
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: buildSessionHeaders({
+        includeCSRF: true
+      }),
+      credentials: 'include',
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 /*
@@ -1288,19 +1446,19 @@ const handleLogin = async () => {
     return
   }
 
-  const csrfReady = await ensureCsrfReady()
-  if (!csrfReady) {
-    error.value = 'Unable to establish a secure session with the backend. Please refresh and try again.'
-    statusMessage.value = ''
-    return
-  }
-
   if (sendingCode.value) {
     return
   }
 
   if (resendCountdown.value > 0) {
     statusMessage.value = `${t('resendIn')} ${resendCountdown.value}s`
+    return
+  }
+
+  const csrfReady = await ensureCsrfReady()
+  if (!csrfReady) {
+    error.value = t('errorCsrfFailed')
+    statusMessage.value = ''
     return
   }
 
@@ -1346,7 +1504,7 @@ const verifyOTP = async () => {
 
   const csrfReady = await ensureCsrfReady()
   if (!csrfReady) {
-    error.value = 'Unable to establish a secure session with the backend. Please refresh and try again.'
+    error.value = t('errorCsrfFailed')
     statusMessage.value = ''
     return
   }
@@ -1371,7 +1529,7 @@ const verifyOTP = async () => {
     await auth.fetchUserData()
 
     if (!auth.user) {
-      error.value = 'Login succeeded, but failed to load current user from /api/v1/users/me/. Please check session cookie or backend authentication.'
+      error.value = t('errorUserLoadFailed')
       statusMessage.value = ''
       return
     }
@@ -1489,6 +1647,124 @@ if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage
 }
 
 /*
+  Ink effect: init, resize, drop creation, mouse handlers, dispose.
+  水墨效果：初始化、缩放、墨滴生成、鼠标事件处理与资源释放。
+*/
+function initInkEffect() {
+  if (!inkCanvasRef.value || prefersReducedMotion.value) return
+
+  const pane = inkCanvasRef.value.parentElement
+  const { width, height } = pane.getBoundingClientRect()
+
+  inkRenderer = new THREE.WebGLRenderer({
+    canvas: inkCanvasRef.value,
+    alpha: true,
+    antialias: false,
+    powerPreference: 'low-power'
+  })
+  inkRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+  inkRenderer.setClearColor(0x000000, 0)
+  inkRenderer.setSize(width, height)
+
+  inkScene  = new THREE.Scene()
+  inkCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+  inkCamera.position.z = 1
+
+  // Build initial drops uniform array (all inactive)
+  const dropVecs = Array.from({ length: INK_MAX_DROPS }, () => new THREE.Vector3(0, 0, -9999))
+
+  inkMaterial = new THREE.ShaderMaterial({
+    vertexShader: INK_VERT,
+    fragmentShader: INK_FRAG,
+    uniforms: {
+      uTime:      { value: 0 },
+      uAspect:    { value: width / height },
+      uDropCount: { value: 0 },
+      uDrops:     { value: dropVecs }
+    },
+    transparent: true,
+    depthWrite:  false,
+    depthTest:   false
+  })
+
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), inkMaterial)
+  inkScene.add(quad)
+
+  inkClock = new THREE.Clock()
+  inkDrops = []
+
+  animateInk()
+}
+
+function resizeInkCanvas() {
+  if (!inkRenderer || !inkCanvasRef.value) return
+  const { width, height } = inkCanvasRef.value.parentElement.getBoundingClientRect()
+  inkRenderer.setSize(width, height)
+  if (inkMaterial) inkMaterial.uniforms.uAspect.value = width / height
+}
+
+function syncInkDropUniforms() {
+  if (!inkMaterial) return
+  for (let i = 0; i < INK_MAX_DROPS; i++) {
+    if (i < inkDrops.length) {
+      inkMaterial.uniforms.uDrops.value[i].set(inkDrops[i].x, inkDrops[i].y, inkDrops[i].birthTime)
+    } else {
+      inkMaterial.uniforms.uDrops.value[i].set(0, 0, -9999)
+    }
+  }
+  inkMaterial.uniforms.uDropCount.value = inkDrops.length
+}
+
+function addInkDrop(uvX, uvY) {
+  if (!inkMaterial || !inkClock) return
+  const birthTime = inkClock.getElapsedTime()
+  if (inkDrops.length >= INK_MAX_DROPS) inkDrops.shift()
+  inkDrops.push({ x: uvX, y: uvY, birthTime })
+  syncInkDropUniforms()
+}
+
+function handleInkMouseMove(event) {
+  if (!inkCanvasRef.value || prefersReducedMotion.value) return
+  const now = Date.now()
+  if (now - inkLastDropT < INK_DROP_INTERVAL_MS) return
+  inkLastDropT = now
+
+  const rect = inkCanvasRef.value.parentElement.getBoundingClientRect()
+  const uvX  = (event.clientX - rect.left)  / rect.width
+  const uvY  = 1.0 - (event.clientY - rect.top) / rect.height  // flip Y for GL coords
+  addInkDrop(uvX, uvY)
+}
+
+function handleInkMouseLeave() {
+  // Drops fade out naturally; no explicit action needed.
+}
+
+function animateInk() {
+  if (!inkRenderer) return
+  inkAnimId = requestAnimationFrame(animateInk)
+
+  const elapsed = inkClock.getElapsedTime()
+  inkMaterial.uniforms.uTime.value = elapsed
+
+  // Prune expired drops so the uniform array stays clean
+  const before = inkDrops.length
+  inkDrops = inkDrops.filter((d) => elapsed - d.birthTime < INK_LIFESPAN + 0.2)
+  if (inkDrops.length !== before) syncInkDropUniforms()
+
+  inkRenderer.render(inkScene, inkCamera)
+}
+
+function disposeInkEffect() {
+  if (inkAnimId) { cancelAnimationFrame(inkAnimId); inkAnimId = null }
+  if (inkRenderer) { inkRenderer.dispose(); inkRenderer = null }
+  inkScene    = null
+  inkCamera   = null
+  inkMaterial = null
+  inkClock    = null
+  inkDrops    = []
+}
+
+/*
   Lifecycle: initial focus.
   生命周期：初始化聚焦。
 */
@@ -1508,6 +1784,8 @@ onMounted(async () => {
 
   await nextTick()
   emailInputRef.value?.focus()
+  initInkEffect()
+  window.addEventListener('resize', resizeInkCanvas)
 })
 
 /*
@@ -1517,6 +1795,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearOtpAnimationTimers()
   clearOtpAutoSubmitTimer()
+  disposeInkEffect()
+  window.removeEventListener('resize', resizeInkCanvas)
 
   if (resendTimer) {
     clearInterval(resendTimer)
@@ -2277,7 +2557,20 @@ onBeforeUnmount(() => {
   padding: clamp(22px, 4vw, 40px);
 }
 
+/* Ink canvas: fills the auth-pane, lives behind all content. */
+/* 水墨画布：铺满认证区，层叠在所有内容之下。 */
+.ink-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .auth-shell {
+  position: relative;
+  z-index: 1;
   width: min(100%, 560px);
   display: grid;
   justify-items: center;
@@ -3649,6 +3942,11 @@ onBeforeUnmount(() => {
     animation: none !important;
     transition: none !important;
     transform: none !important;
+  }
+
+  /* Hide WebGL ink canvas for users who prefer reduced motion. */
+  .ink-canvas {
+    display: none !important;
   }
 }
 

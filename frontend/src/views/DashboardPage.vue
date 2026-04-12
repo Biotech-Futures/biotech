@@ -1,297 +1,80 @@
 <template>
-  <!--
-    最外层页面容器
-    作用：
-    1. 作为整个 Dashboard 页面的根节点
-    2. 承载全局页面布局类名
-    3. 通过 :style="dashboardThemeStyle" 动态注入主题样式
-       例如：
-       - 切换不同背景主题时，这里可能改变背景渐变、主色调、阴影色
-  -->
-  <div class="content-area dashboard-page-shell" :style="dashboardThemeStyle">
+  <!-- Dashboard shell -->
+  <div
+    ref="dashboardShellRef"
+    class="content-area dashboard-page-shell"
+    :class="isDayMode ? 'is-day-mode' : 'is-night-mode'"
+    :style="dashboardThemeStyle"
+  >
 
-    <!--
-      页面内部主包裹层
-      作用：
-      1. 限制内容最大宽度
-      2. 统一控制内容的内边距、居中方式、纵向排列
-      3. 作为所有 Dashboard 功能区块的直接父容器
-    -->
+    
     <div class="dashboard-page-inner">
+      <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
 
-      <!--
-        背景装饰元素 1
-        作用：
-        - 提供视觉氛围，不承载业务逻辑
-        - 通常表现为发光圆球、模糊渐变球等
-      -->
-      <div class="dashboard-backdrop-orb orb-one"></div>
+      <div class="dashboard-backdrop-orb orb-one" aria-hidden="true"></div>
+      <div class="dashboard-backdrop-orb orb-two" aria-hidden="true"></div>
+      <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-      <!--
-        背景装饰元素 2
-        作用：
-        - 与 orb-one 配合形成层次感
-        - 一般通过不同位置、大小、透明度制造高级感
-      -->
-      <div class="dashboard-backdrop-orb orb-two"></div>
-
-      <!--
-        背景网格层
-        作用：
-        - 增强页面科技感/结构感
-        - 常见于管理后台、数据看板、平台型产品
-      -->
-      <div class="dashboard-backdrop-grid"></div>
-
-      <!--
-        粒子效果层
-        作用：
-        - 用于叠加粒子、轻微动态背景、浮动光点等
-        - 纯展示层，不直接参与业务
-      -->
-      <div class="dashboard-particle-layer"></div>
-
-      <!--
-        Hero 区域外层 section
-        作用：
-        - 展示 Dashboard 的最核心欢迎区
-        - 一般放用户身份信息、当前阶段、重点入口、轮播展示等
-      -->
+      
       <section class="dashboard-hero-shell">
 
-        <!--
-          Hero 主卡片
-          作用：
-          1. 作为头部欢迎模块的主要视觉承载体
-          2. 包含主题切换入口、欢迎文案、角色信息、展示轮播、关键指标
-        -->
-        <div class="dashboard-hero-card">
+        
+        <div class="dashboard-hero-card interactive-surface">
 
-          <!--
-            主题切换侧边控制区
-            作用：
-            - 提供主题/背景切换入口
-            - 允许用户切换当前 Dashboard 的视觉风格
-          -->
+          
           <div class="dashboard-theme-rail">
-
-            <!--
-              主题切换按钮
-              作用：
-              - 点击后展开/收起主题面板
-            相关引用：
-            - ref="themeTriggerRef"
-              作用：保存按钮 DOM 引用
-              常见用途：
-              1. 配合点击外部关闭逻辑
-              2. 做定位或焦点控制
-            相关方法：
-            - toggleThemeRail
-              作用：切换 isThemeRailOpen 的布尔值
-              常见逻辑：
-              isThemeRailOpen = !isThemeRailOpen
-            -->
             <button
-              ref="themeTriggerRef"
               type="button"
               class="theme-rail-trigger"
-              @click.stop="toggleThemeRail"
+              :aria-pressed="isDayMode"
+              :title="isDayMode ? 'Switch to night mode' : 'Switch to day mode'"
+              @click.stop="toggleSurfaceMode"
             >
-              <!-- 调色盘图标，仅作视觉提示 -->
-              <i class="fas fa-palette"></i>
-              <!-- 按钮文字，说明这是主题设置入口 -->
-              <span>Theme</span>
+              <i :class="isDayMode ? 'fas fa-sun' : 'fas fa-moon'"></i>
+              <span>{{ currentSurfaceModeLabel }}</span>
             </button>
-
-            <!--
-              主题面板展开/收起动画
-              作用：
-              - 提高交互自然度
-              - 使用 theme-rail-panel 过渡名称对应 CSS transition 动画
-            -->
-            <transition name="theme-rail-panel">
-
-              <!--
-                主题面板主体
-                显示条件：
-                - v-if="isThemeRailOpen"
-                  当主题面板处于打开状态时显示
-                相关变量：
-                - isThemeRailOpen
-                  类型：Boolean
-                  含义：当前主题列表面板是否展开
-                  示例：
-                  true  -> 显示主题列表
-                  false -> 隐藏主题列表
-                - ref="themeRailRef"
-                  用途：保存面板 DOM 引用，用于点击外部关闭等逻辑
-              -->
-              <div
-                v-if="isThemeRailOpen"
-                ref="themeRailRef"
-                class="theme-rail-panel"
-                @click.stop
-              >
-
-                <!--
-                  主题选项列表容器
-                  作用：
-                  - 包裹所有可选背景主题按钮
-                -->
-                <div class="theme-rail-list">
-
-                  <!--
-                    单个主题按钮
-                    数据来源：
-                    - backgroundOptions
-                      类型通常是数组
-                      例如：
-                      [
-                        { key: 'emerald', label: 'Emerald' },
-                        { key: 'midnight', label: 'Midnight' },
-                        { key: 'biotech', label: 'Biotech' }
-                      ]
-                      用途：定义所有可切换的主题项
-                    相关变量：
-                    - item.key
-                      唯一标识主题，例如 'emerald'
-                    - item.label
-                      展示给用户的主题名称，例如 'Emerald'
-                    - selectedBackgroundKey
-                      当前已选中的主题 key
-                      例如：
-                      'emerald' / 'midnight'
-                    相关方法：
-                    - handleBackgroundChange(item.key)
-                      作用：切换当前主题
-                      可能还会同步到 localStorage，确保刷新后保留主题
-                  -->
-                  <button
-                    v-for="item in backgroundOptions"
-                    :key="item.key"
-                    type="button"
-                    class="theme-rail-item simple-theme-item"
-                    :class="{ active: selectedBackgroundKey === item.key }"
-                    @click="handleBackgroundChange(item.key)"
-                  >
-                    {{ item.label }}
-                  </button>
-                </div>
-              </div>
-            </transition>
           </div>
 
-          <!--
-            Hero 主体区
-            作用：
-            - 左侧放欢迎信息与身份信息
-            - 右侧放轮播展示卡片
-          -->
+          
           <div class="dashboard-hero-main">
 
-            <!--
-              Hero 左侧文案区
-              作用：
-              - 用于向用户传递当前页面最重要的身份、时间、状态和引导信息
-            -->
+            
             <div class="dashboard-hero-copy">
 
-              <!--
-                眉标题与组织名一行
-                作用：
-                - 通常展示小标题和平台归属信息
-              -->
+              
               <div class="hero-eyebrow-row">
 
-                <!--
-                  heroEyebrow
-                  含义：Hero 区顶部的小标题
-                  示例：
-                  - 'Dashboard'
-                  - 'Student Workspace'
-                  - 'Mentor Console'
-                -->
+                
                 <span class="hero-eyebrow">{{ heroEyebrow }}</span>
 
-                <!--
-                  organizationLabel
-                  含义：组织/平台名称
-                  示例：
-                  - 'BIOTech Futures Hub'
-                  - 'Global Mentoring Platform'
-                -->
-                <span class="hero-org">{{ organizationLabel }}</span>
+                
               </div>
 
-              <!--
-                欢迎标题
-                displayName
-                含义：当前登录用户的显示名称
-                示例：
-                - 'Shiqi'
-                - 'Alex Chen'
-                - 'Dr. Brown'
-                作用：
-                - 增强个性化体验
-                - 帮用户确认当前登录身份
-              -->
+              
               <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
 
-              <!--
-                次级信息文本
-                作用：
-                - 汇总展示当前日期、所属 Track、当前 Role
-                相关变量：
-                - currentDateText
-                  示例：'31 Mar 2026'
-                - displayTrack
-                  含义：用户当前所属培养路径/项目方向
-                  示例：
-                  'Entrepreneurship'
-                  'Research'
-                  'Leadership'
-                - roleLabel
-                  含义：当前用户角色名称
-                  示例：
-                  'Student'
-                  'Mentor'
-                  'Supervisor'
-                  'Administrator'
-              -->
+              
+              <div class="hero-meta-row">
+                <span
+                  v-for="chip in heroMetaChips"
+                  :key="chip.key"
+                  class="hero-meta-chip"
+                  :class="`hero-meta-chip--${chip.tone}`"
+                >
+                  <span class="hero-meta-chip-label">{{ chip.label }}</span>
+                  <strong class="hero-meta-chip-value">{{ chip.value }}</strong>
+                </span>
+              </div>
+
               <p class="dashboard-subtext">
-                {{ currentDateText }} · Track: {{ displayTrack }} · Role: {{ roleLabel }}
+                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current milestones, and the next best actions.
               </p>
 
-              <!--
-                Hero 主消息文案
-                heroMessage
-                含义：根据角色、阶段、状态动态生成的欢迎语/提醒语
-                示例：
-                - 'You have two mentoring tasks pending this week.'
-                - 'Your team review closes on Friday.'
-                - 'Review platform activity and pending approvals.'
-                作用：
-                - 让不同角色看到定制化提示
-              -->
               <p class="dashboard-hero-message">
                 {{ heroMessage }}
               </p>
 
-              <!--
-                顶部状态标签容器
-                作用：
-                - 展示若干重点状态信息
-                - 常用于快速扫描当前系统状态
-                数据来源：
-                - headerHighlights
-                  类型通常为数组
-                  例如：
-                  [
-                    { key: 'cohort', label: 'Cohort Active' },
-                    { key: 'mentors', label: '12 Mentors Online' },
-                    { key: 'deadline', label: 'Review due Friday' }
-                  ]
-              -->
+              
               <div class="hero-highlight-wrap">
                 <span
                   v-for="item in headerHighlights"
@@ -301,62 +84,33 @@
                   {{ item.label }}
                 </span>
               </div>
+
+              
             </div>
 
-            <!--
-              Hero 右侧展示区
-              作用：
-              - 放一个轮播展示卡片
-              - 用于展示平台亮点、活动、图片、官方资讯等
-            -->
+            
             <div class="dashboard-hero-aside">
 
-              <!--
-                当存在当前展示项时才渲染展示卡片
-                activeShowcaseItem
-                含义：当前轮播激活的展示对象
-                类型通常是对象，例如：
-                {
-                  id: 1,
-                  title: 'Global Innovation Summit',
-                  summary: 'Explore upcoming biotech-led initiatives...',
-                  image: 'https://...',
-                  link: 'https://...'
-                }
-              -->
+              
               <div
                 v-if="activeShowcaseItem"
-                class="showcase-card"
+                class="showcase-card interactive-surface"
                 @mouseenter="stopShowcaseAutoplay"
                 @mouseleave="startShowcaseAutoplay"
               >
-                <!--
-                  鼠标进入卡片时停止自动轮播
-                  stopShowcaseAutoplay
-                  作用：
-                  - 防止用户阅读时自动切换内容
-                  鼠标离开时恢复轮播
-                  startShowcaseAutoplay
-                  作用：
-                  - 继续自动切换展示项
-                -->
+                
 
-                <!-- 轮播头部：标题说明 + 左右切换按钮 -->
+                
                 <div class="showcase-heading-row">
                   <div>
-                    <!-- 小标题 -->
+                    
                     <div class="showcase-kicker">BIOTECH HIGHLIGHTS</div>
 
-                    <!-- 次说明 -->
+                    
                     <div class="showcase-mini-label">Official-style image and info rotation</div>
                   </div>
 
-                  <!--
-                    左右切换控制区
-                    相关方法：
-                    - goToPrevShowcase：切换到上一项
-                    - goToNextShowcase：切换到下一项
-                  -->
+                  
                   <div class="showcase-controls">
                     <button type="button" class="showcase-nav-btn" @click="goToPrevShowcase">
                       <i class="fas fa-chevron-left"></i>
@@ -367,63 +121,33 @@
                   </div>
                 </div>
 
-                <!--
-                  轮播主体切换动画
-                  mode="out-in"
-                  作用：
-                  - 先让旧内容离开，再显示新内容
-                  - 避免图片和文字同时闪动
-                -->
+                
                 <transition name="showcase-fade" mode="out-in">
 
-                  <!--
-                    当前轮播项主体
-                    :key="activeShowcaseItem.id"
-                    作用：
-                    - 告诉 Vue 当前展示项发生变化时要重新渲染并触发过渡
-                  -->
+                  
                   <div :key="activeShowcaseItem.id" class="showcase-body">
 
-                    <!--
-                      展示图片区域
-                      activeShowcaseItem.image
-                      含义：当前轮播项的背景图地址
-                      用法：
-                      backgroundImage: `url(...)`
-                    -->
+                    
                     <div
                       class="showcase-image"
                       :style="{ backgroundImage: `url(${activeShowcaseItem.image})` }"
                     >
-                      <!-- 图片遮罩层，提升文字对比度 -->
+                      
                       <div class="showcase-image-overlay"></div>
                     </div>
 
-                    <!-- 展示文案区 -->
+                    
                     <div class="showcase-copy">
 
-                      <!-- 当前轮播项标题 -->
+                      
                       <h3 class="showcase-title">{{ activeShowcaseItem.title }}</h3>
 
-                      <!-- 当前轮播项摘要 -->
+                      
                       <p class="showcase-summary">{{ activeShowcaseItem.summary }}</p>
 
-                      <!--
-                        底部区域：轮播点 + Explore 按钮
-                      -->
                       <div class="showcase-footer">
 
-                        <!--
-                          轮播圆点容器
-                          数据来源：
-                          - biotechShowcaseItems
-                            所有轮播项数组
-                          - activeShowcaseIndex
-                            当前轮播索引
-                            例如：
-                            0 表示第一项
-                            1 表示第二项
-                        -->
+                        
                         <div class="showcase-dots">
                           <button
                             v-for="(item, index) in biotechShowcaseItems"
@@ -435,14 +159,7 @@
                           ></button>
                         </div>
 
-                        <!--
-                          Explore 按钮
-                          相关方法：
-                          - openShowcaseLink(activeShowcaseItem)
-                            作用：打开当前轮播项关联链接
-                            可能逻辑：
-                            window.open(activeShowcaseItem.link, '_blank')
-                        -->
+                        
                         <button
                           type="button"
                           class="showcase-link-btn"
@@ -459,125 +176,24 @@
             </div>
           </div>
 
-          <!--
-            Hero 底部指标区
-            作用：
-            - 用三格摘要方式展示当前用户最重要的三个关键信息
-            - 属于“快速浏览”信息层
-          -->
-          <div class="hero-bottom-metrics">
-
-            <!-- Workspace 指标 -->
-            <div class="hero-metric">
-              <span class="hero-metric-label">Workspace</span>
-
-              <!--
-                roleLabel
-                这里表示当前工作空间归属角色
-                例如：
-                Student / Mentor / Admin
-              -->
-              <strong class="hero-metric-value">{{ roleLabel }}</strong>
-            </div>
-
-            <!-- Track 指标 -->
-            <div class="hero-metric">
-              <span class="hero-metric-label">Track</span>
-
-              <!--
-                displayTrack
-                表示当前培养路径或项目分组
-              -->
-              <strong class="hero-metric-value">{{ displayTrack }}</strong>
-            </div>
-
-            <!-- 下一里程碑指标 -->
-            <div class="hero-metric">
-              <span class="hero-metric-label">Next milestone</span>
-
-              <!--
-                progressSnapshot.nextMilestone
-                含义：进度快照对象中的下一目标名称
-                progressSnapshot 可能结构示例：
-                {
-                  completionRate: 68,
-                  completedTasks: 17,
-                  totalTasks: 25,
-                  currentWeek: 'Week 7',
-                  nextMilestone: 'Mid-term Review',
-                  nextMilestoneDate: '2026-04-08'
-                }
-              -->
-              <strong class="hero-metric-value">{{ progressSnapshot.nextMilestone }}</strong>
-            </div>
-          </div>
         </div>
       </section>
 
-      <!--
-        错误提示条
-        显示条件：
-        - v-if="loadError"
-        含义：
-        - 当 Dashboard 数据加载失败、接口报错、解析异常时展示
-        变量：
-        - loadError
-          类型：String
-          示例：
-          'Failed to load dashboard data.'
-          'Unable to fetch current user profile.'
-      -->
+      
       <div v-if="loadError" class="dashboard-alert">
         <i class="fas fa-circle-info"></i>
         <span>{{ loadError }}</span>
       </div>
 
-      <!--
-        第一块内容区：摘要卡片区
-        作用：
-        - 用多个统计摘要卡片展示核心业务指标
-        - 适合给用户建立“我当前的整体状态”的第一印象
-      -->
+      
       <section class="dashboard-section">
         <div class="dashboard-section-grid summary-grid">
 
-          <!--
-            单个摘要卡片
-            数据来源：
-            - summaryWidgets
-              类型通常为数组
-              每个元素示例：
-              {
-                key: 'groups',
-                title: 'Active Groups',
-                value: 6,
-                subtext: '2 need attention',
-                icon: 'fas fa-users',
-                accent: 'emerald'
-              }
-            变量说明：
-            - item.key
-              卡片唯一键
-            - item.icon
-              图标类名
-            - item.title
-              卡片标题
-            - item.value
-              主值，例如数字或状态值
-            - item.subtext
-              对主值的补充说明
-            - item.accent
-              强调色标识，用于决定卡片视觉风格
-            方法：
-            - getAccentClass(item.accent)
-              作用：把 accent 值转成 CSS 类名
-              例如：
-              'emerald' -> 'accent-emerald'
-          -->
+          
           <article
             v-for="item in summaryWidgets"
             :key="item.key"
-            class="summary-card"
+            class="summary-card interactive-surface"
             :class="getAccentClass(item.accent)"
           >
             <div class="summary-card-top">
@@ -593,53 +209,22 @@
         </div>
       </section>
 
-      <!--
-        第二块内容区：行动中心 + 进度快照
-        作用：
-        - 左边：引导用户快速进入最重要任务
-        - 右边：用可视化方式展示当前整体进度
-      -->
+      
       <section class="dashboard-section">
         <div class="dashboard-section-grid two-col-layout">
 
-          <!--
-            行动中心卡片
-            作用：
-            - 汇总优先操作入口
-            - 让用户少思考，直接点击执行下一步
-          -->
+          
           <article class="surface-card feature-card action-card">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Priority</p>
 
-                <!--
-                  actionCenterTitle
-                  含义：行动中心标题
-                  可能根据角色变化
-                  示例：
-                  - 'Action Center'
-                  - 'Mentor Tasks'
-                  - 'Admin Queue'
-                -->
+                
                 <h3 class="surface-card-title">{{ actionCenterTitle }}</h3>
               </div>
             </div>
 
-            <!--
-              行动项列表
-              数据来源：
-              - actionCenter
-                类型通常为数组
-                示例：
-                [
-                  {
-                    key: 'review',
-                    label: 'Review pending matches',
-                    helper: '3 items require approval'
-                  }
-                ]
-            -->
+            
             <div class="action-center-list">
               <button
                 v-for="action in actionCenter"
@@ -650,10 +235,10 @@
               >
                 <span class="action-center-content">
 
-                  <!-- action.label：主操作名称 -->
+                  
                   <span class="action-center-main">{{ action.label }}</span>
 
-                  <!-- action.helper：辅助说明，告诉用户点进去会做什么 -->
+                  
                   <span class="action-center-helper">{{ action.helper }}</span>
                 </span>
 
@@ -664,11 +249,7 @@
             </div>
           </article>
 
-          <!--
-            进度快照卡片
-            作用：
-            - 用圆环、进度条、关键字段概括当前项目/培养计划完成情况
-          -->
+          
           <article class="surface-card feature-card progress-card">
             <div class="surface-card-header">
               <div>
@@ -679,71 +260,56 @@
 
             <div class="progress-layout">
 
-              <!--
-                左侧圆环区域
-                progressCircleStyle
-                含义：圆环的动态样式
-                常见做法：
-                - conic-gradient 根据 completionRate 生成圆环填充效果
-                示例：
-                {
-                  background: `conic-gradient(#38b2ac 0% 68%, rgba(...) 68% 100%)`
-                }
-              -->
+              
               <div class="progress-ring-shell">
+                <div class="progress-ring-aura"></div>
+                <div class="progress-ring-track"></div>
+                <div class="progress-ring-orbit progress-ring-orbit--outer"></div>
+                <div class="progress-ring-orbit progress-ring-orbit--inner"></div>
+                <span class="progress-ring-marker" :style="progressMarkerStyle"></span>
+                <span class="progress-ring-spark progress-ring-spark--one"></span>
+                <span class="progress-ring-spark progress-ring-spark--two"></span>
                 <div class="progress-ring" :style="progressCircleStyle">
                   <div class="progress-ring-inner">
 
-                    <!-- 当前完成百分比 -->
+                    
                     <div class="progress-value">{{ progressSnapshot.completionRate }}%</div>
 
-                    <!-- 固定标签 -->
+                    
                     <div class="progress-label">Completion</div>
+                    <div class="progress-caption">{{ progressStatusCaption }}</div>
                   </div>
                 </div>
               </div>
 
-              <!-- 右侧进度明细 -->
+              
               <div class="progress-details">
 
-                <!-- 已完成任务数 / 总任务数 -->
+                
                 <div class="progress-detail-row">
                   <span>Tasks</span>
                   <strong>{{ progressSnapshot.completedTasks }}/{{ progressSnapshot.totalTasks }}</strong>
                 </div>
 
-                <!-- 当前阶段 -->
+                
                 <div class="progress-detail-row">
                   <span>Current stage</span>
                   <strong>{{ progressSnapshot.currentWeek }}</strong>
                 </div>
 
-                <!-- 下一里程碑 -->
+                
                 <div class="progress-detail-row">
                   <span>Next milestone</span>
                   <strong>{{ progressSnapshot.nextMilestone }}</strong>
                 </div>
 
-                <!--
-                  下一里程碑日期
-                  formatEventDate(progressSnapshot.nextMilestoneDate)
-                  作用：
-                  - 把原始日期格式化成更适合展示的文本
-                  示例：
-                  '2026-04-08' -> '08 Apr 2026'
-                -->
+                
                 <div class="progress-detail-row">
                   <span>Due</span>
                   <strong>{{ formatDateAU(progressSnapshot.nextMilestoneDate) || 'TBC' }}</strong>
                 </div>
 
-                <!--
-                  线性进度条
-                  progressPercentStyle
-                  含义：进度条填充样式
-                  典型示例：
-                  { width: '68%' }
-                -->
+                
                 <div class="progress-bar-shell">
                   <div class="progress-bar-fill" :style="progressPercentStyle"></div>
                 </div>
@@ -753,82 +319,47 @@
         </div>
       </section>
 
-      <!--
-        第三块内容区：下一事件 + 公告
-        作用：
-        - 左边突出最近事件
-        - 右边展示最近公告更新
-      -->
+      
       <section class="dashboard-section">
         <div class="dashboard-section-grid two-col-layout">
 
-          <!-- 下一事件卡片 -->
-          <article class="surface-card">
+          
+          <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Calendar</p>
                 <h3 class="surface-card-title">Next Event</h3>
               </div>
 
-              <!-- 跳转到完整事件页 -->
+              
               <RouterLink to="/events" class="surface-link">Open calendar</RouterLink>
             </div>
 
-            <!--
-              当存在 nextEvent 时显示事件详情
-              nextEvent 可能示例：
-              {
-                title: 'Mentor Matching Session',
-                date: '2026-04-06',
-                time: '14:00 - 15:30',
-                mode: 'Online',
-                location: 'Zoom Room A'
-              }
-            -->
+            
             <div v-if="nextEvent" class="event-detail-card">
 
-              <!--
-                日期徽章
-                formatEventDate(nextEvent.date).split(' ')
-                作用：
-                - 把格式化日期拆成“日期主体”和“剩余部分”
-                例如：
-                '06 Apr 2026' 拆成：
-                [0] => '06'
-                [1...] => 'Apr 2026'
-              -->
+              
               <div class="event-date-badge">
                 <span class="event-date-day">{{ nextEventDateParts.day }}</span>
                 <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
               </div>
 
               <div class="event-content">
-                <!-- 事件标题 -->
+                
                 <div class="event-title">{{ nextEvent.title }}</div>
 
-                <!-- 事件时间与模式 -->
+                
                 <div class="event-meta-row">
                   <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
                   <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
                 </div>
 
-                <!-- 事件地点 -->
+                
                 <div class="event-meta-row location-row">
                   <span><i class="fas fa-location-dot"></i>{{ nextEvent.location || 'Location TBC' }}</span>
                 </div>
 
-                <!--
-                  按角色显示不同按钮文案
-                  相关变量：
-                  - isAdmin
-                    是否平台管理员
-                  - isTeacher
-                    是否导师/教师角色
-                  逻辑：
-                  平台管理员 -> Manage event
-                  导师 -> Open session
-                  其他 -> View event
-                -->
+                
                 <div class="event-actions">
                   <RouterLink to="/events" class="primary-chip">
                     {{ isAdmin ? 'Manage event' : isTeacher ? 'Open session' : 'View event' }}
@@ -837,34 +368,26 @@
               </div>
             </div>
 
-            <!-- 无事件时的空状态 -->
+            
             <div v-else class="empty-state">
               <i class="fas fa-calendar-xmark"></i>
               <p>No upcoming event is available yet.</p>
             </div>
           </article>
 
-          <!-- 公告卡片 -->
-          <article class="surface-card">
+          
+          <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Updates</p>
 
-                <!--
-                  announcementsSectionTitle
-                  含义：公告区标题
-                  可能根据角色不同变化
-                  示例：
-                  - 'Announcements'
-                  - 'Platform Updates'
-                  - 'Latest Notices'
-                -->
+                
                 <h3 class="surface-card-title">{{ announcementsSectionTitle }}</h3>
               </div>
               <RouterLink to="/announcements" class="surface-link">View all</RouterLink>
             </div>
 
-            <!-- announcementsPreview：公告预览数组 -->
+            
             <div v-if="announcementsPreview.length" class="list-stack">
               <RouterLink
                 v-for="announcement in announcementsPreview"
@@ -877,16 +400,13 @@
                 </div>
 
                 <div class="list-row-content">
-                  <!-- 获取公告标题 -->
+                  
                   <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
 
-                  <!--
-                    getAnnouncementMeta(announcement)
-                    先取原始时间信息，再由 formatAnnouncementDate 格式化
-                  -->
+                  
                   <div class="list-row-meta">{{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}</div>
 
-                  <!-- 获取公告摘要 -->
+                  
                   <div class="list-row-description">{{ getAnnouncementSnippet(announcement) }}</div>
                 </div>
 
@@ -896,7 +416,7 @@
               </RouterLink>
             </div>
 
-            <!-- 无公告时的空状态 -->
+            
             <div v-else class="empty-state">
               <i class="fas fa-bell-slash"></i>
               <p>No recent announcements are available yet.</p>
@@ -905,14 +425,9 @@
         </div>
       </section>
 
-      <!--
-        第四块内容区：小组预览
-        作用：
-        - 展示当前用户最相关的几个小组
-        - 帮助快速进入小组详情
-      -->
+      
       <section class="dashboard-section">
-        <article class="surface-card">
+        <article class="surface-card interactive-surface">
           <div class="surface-card-header">
             <div>
               <p class="surface-kicker">Groups</p>
@@ -921,7 +436,7 @@
             <RouterLink to="/groups" class="surface-link">View all</RouterLink>
           </div>
 
-          <!-- groupsPreview：小组预览数据 -->
+          
           <div v-if="groupsPreview.length" class="groups-grid">
             <RouterLink
               v-for="group in groupsPreview"
@@ -929,40 +444,23 @@
               :to="group.id ? '/groups/' + group.id : '/groups'"
               class="group-card-link"
             >
-              <div class="group-card-surface">
+              <div class="group-card-surface interactive-surface">
 
-                <!-- 小组卡片顶部：头像组 + 外链提示 -->
+                
                 <div class="group-card-top">
                   <div class="group-avatars">
 
-                    <!--
-                      主头像
-                      getInitials(getGroupName(group))
-                      作用：
-                      - 从小组名称中提取首字母
-                      示例：
-                      'Bio Leaders' -> 'BL'
-                    -->
+                    
                     <div class="group-avatar primary-avatar">
                       {{ getInitials(getGroupName(group)) }}
                     </div>
 
-                    <!--
-                      次头像
-                      getGroupSecondaryLabel(group)
-                      含义：
-                      - 用简短文字补充小组信息
-                      可能是小组类型、导师简称、方向标签等
-                    -->
+                    
                     <div class="group-avatar secondary-avatar">
                       {{ getGroupSecondaryLabel(group) }}
                     </div>
 
-                    <!--
-                      第三头像
-                      显示“除前两位之外还有多少成员”
-                      例如总人数 5，则显示 +3
-                    -->
+                    
                     <div class="group-avatar tertiary-avatar">
                       +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
                     </div>
@@ -973,20 +471,16 @@
                   </span>
                 </div>
 
-                <!-- 小组名 -->
+                
                 <div class="group-name">{{ getGroupName(group) }}</div>
 
-                <!--
-                  小组元信息
-                  - 成员数量
-                  - 负责人
-                -->
+                
                 <div class="group-meta">{{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}</div>
               </div>
             </RouterLink>
           </div>
 
-          <!-- 无小组时空状态 -->
+          
           <div v-else class="empty-state">
             <i class="fas fa-users-slash"></i>
             <p>No group is available yet.</p>
@@ -994,17 +488,12 @@
         </article>
       </section>
 
-      <!--
-        第五块内容区：资源库 + 清单
-        作用：
-        - 左边展示资源入口
-        - 右边展示当前建议处理的 checklist
-      -->
+      
       <section class="dashboard-section">
         <div class="dashboard-section-grid two-col-layout">
 
-          <!-- 资源库卡片 -->
-          <article class="surface-card">
+          
+          <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Library</p>
@@ -1013,7 +502,7 @@
               <RouterLink to="/resources" class="surface-link">View all</RouterLink>
             </div>
 
-            <!-- resourcesPreview：资源预览数组 -->
+            
             <div v-if="resourcesPreview.length" class="resource-grid">
               <RouterLink
                 v-for="resource in resourcesPreview"
@@ -1021,37 +510,18 @@
                 :to="resource.id ? '/resources/' + resource.id : '/resources'"
                 class="resource-card-link"
               >
-                <div class="resource-card-surface">
+                <div class="resource-card-surface interactive-surface">
 
-                  <!--
-                    资源图标
-                    getResourceIcon(resource.type)
-                    根据资源类型返回不同图标
-                    示例：
-                    pdf -> fas fa-file-pdf
-                    video -> fas fa-video
-                    article -> fas fa-newspaper
-                  -->
+                  
                   <div class="resource-icon">
                     <i :class="getResourceIcon(resource.type)"></i>
                   </div>
 
                   <div class="resource-content">
-                    <!-- 资源标题 -->
+                    
                     <div class="resource-title">{{ getResourceTitle(resource) }}</div>
 
-                    <!--
-                      资源元信息
-                      getResourceCategory(resource)
-                      例如：
-                      'Guide'
-                      'Template'
-                      'Case Study'
-                      getResourceMeta(resource)
-                      例如：
-                      '2 days ago'
-                      '31 Mar 2026'
-                    -->
+                    
                     <div class="resource-meta">
                       {{ getResourceCategory(resource) }} · Updated {{ getResourceMeta(resource) }}
                     </div>
@@ -1060,15 +530,15 @@
               </RouterLink>
             </div>
 
-            <!-- 无资源时空状态 -->
+            
             <div v-else class="empty-state">
               <i class="fas fa-folder-open"></i>
               <p>No resource is available yet.</p>
             </div>
           </article>
 
-          <!-- 清单卡片 -->
-          <article class="surface-card">
+          
+          <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Checklist</p>
@@ -1076,16 +546,7 @@
               </div>
             </div>
 
-            <!--
-              checklistItems：清单项数组
-              典型元素示例：
-              {
-                key: 'profile',
-                title: 'Complete your profile',
-                meta: 'Required before mentor matching',
-                to: '/profile'
-              }
-            -->
+            
             <div class="list-stack">
               <RouterLink
                 v-for="item in checklistItems"
@@ -1111,14 +572,9 @@
         </div>
       </section>
 
-      <!--
-        第六块内容区：时间线
-        作用：
-        - 用于展示项目/培养流程中的阶段路线图
-        - 帮用户理解当前所处阶段与后续节点
-      -->
+      
       <section class="dashboard-section">
-        <article class="surface-card">
+        <article class="surface-card interactive-surface">
           <div class="surface-card-header">
             <div>
               <p class="surface-kicker">Roadmap</p>
@@ -1126,32 +582,7 @@
             </div>
           </div>
 
-          <!--
-            时间线列表
-            数据来源：
-            - timelineItems
-              类型通常为数组
-              示例：
-              [
-                { key: 'wk1', label: '01', title: 'Onboarding', status: 'Completed' },
-                { key: 'wk2', label: '02', title: 'Team Matching', status: 'In Progress' },
-                { key: 'wk3', label: '03', title: 'Pitch Review', status: 'Upcoming' }
-              ]
-            变量说明：
-            - item.label
-              显示在线路上的简短编号或阶段号
-            - item.title
-              阶段名称
-            - item.status
-              阶段状态
-              常见值：
-              'Completed'
-              'In Progress'
-              'Upcoming'
-            方法：
-            - getTimelineStatusClass(item.status)
-              把状态映射为不同样式类
-          -->
+          
           <div class="timeline-list">
             <div
               v-for="item in timelineItems"
@@ -1170,19 +601,7 @@
         </article>
       </section>
 
-      <!--
-        页面全局加载状态
-        显示条件：
-        - v-if="isLoading"
-        含义：
-        - 当 Dashboard 初始化加载中时显示遮罩式/悬浮式 loading 提示
-        变量：
-        - isLoading
-          类型：Boolean
-          示例：
-          true  -> 正在加载
-          false -> 加载完成
-      -->
+      
       <div v-if="isLoading" class="dashboard-loading">
         <div class="loading-ring"></div>
         <span>Loading dashboard...</span>
@@ -1190,79 +609,19 @@
     </div>
   </div>
 </template>
-<script setup>
-// Import reactive utilities from Vue
-// 1.ref是响应式变量，也就是这个值变了，页面里用到它的地方会自动更新。
-//    在 script 里取值要用 .value。
-//    在 template 里通常不用写 .value，Vue 会解包。
-// 2.computed是用来创建一个依赖其他响应式数据自动计算出来的值
-//    本质上是一个会跟着依赖变化自动重新计算的响应式结果。
-//    const fullName = computed(() => {return firstName.value + ' ' + lastName.value})
-// 3.onMounted 表示：组件已经挂载到页面上之后执行的代码，当需要“页面出现后再做某件事”时，就用它。
-//    也就是页面相关的 DOM 已经渲染出来了，这时候可以：获取 DOM，调接口，读取浏览器本地存储等
-// 4.onBeforeUnmount 表示：组件即将从页面移除之前执行的代码，一般用来做清理工作。
-//    如果在页面里开启了：定时器，事件监听，WebSocket，第三方库实例，那么组件销毁前最好把它们清掉
-// 5.watch 用来监听某个响应式数据的变化，一旦变化，就执行指定的逻辑。
-// 6.nextTick 表示：等 Vue 把这次数据更新引起的 DOM 渲染完成后，再执行代码
-//    因为 Vue 更新数据后，不一定立刻马上改 DOM，很多时候是“异步批量更新”的。
-//    所以如果刚改完数据，就立刻去拿 DOM，可能拿到的是“旧的页面状态”。
-// 7.DOM：Document Object Model，中文一般叫 文档对象模型
-//    浏览器把 HTML 页面“读进去以后”，在内存里整理成的一棵树状结构。
-//    这棵树里的每一个标签、文字、属性，都会变成一个“节点对象”，JavaScript 就可以通过这些对象去：
-//    找到页面元素，修改文字，改样式，添加或删除内容，监听点击等事件
-//    Document
-//      └── html
-//            └── body
-//                  └── div#app
-//                      ├── h1
-//                          └── "Hello"
-//                      └── p
-//                          └── "This is a paragraph."
 
+<script setup>
+// Dashboard page
+// Core imports
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 
-// Import router utilities
-// 1.RouterLink 是 Vue 里专门用来做页面内跳转链接的组件。
-//    <RouterLink to="/login">Go to Login</RouterLink>点击后跳到 /login 页面。
-//    <a href="/login">Go to Login</a>同样也是跳转，但是会导致浏览器重新加载页面
-// 2.useRouter 是一个函数，用来拿到当前项目的 router 对象。
-//    拿到这个对象后，就可以在 JavaScript 代码里主动控制跳转，而不是只能点链接跳。
-//    比如：登录成功后跳首页，注册成功后跳登录页，点击按钮后跳某个详情页，提交表单后跳
-/* 
-      <script setup>
-      import { useRouter } from 'vue-router'
-
-      const router = useRouter()
-
-      function handleLoginSuccess() {
-        router.push('/dashboard')
-      }
-      <script>不要写正确的会导致编译出错，比如这里正确语法应该是script前面有个/
-
-      <template>
-        <button @click="handleLoginSuccess">Login</button>
-      </template> 
-*/
 import { RouterLink, useRouter } from 'vue-router'
 
-// Import Pinia helpers
-// 1.从 pinia 导入 storeToRefs。pinia 是 Vue 常用的状态管理库。
-//    可以把它理解成一个“全局数据仓库”，专门存放多个页面都可能要用的数据：用户信息，登录状态
-// 2.storeToRefs 的作用是：把 Pinia store 里的响应式状态拆成一个个 ref，方便直接使用，同时保持响应式。
-//    比如：const authStore = useAuthStore()，里面有user，token，isLoggedIn
-//    const { user, isLoggedIn } = storeToRefs(authStore)不用这个函数可能出错
 import { storeToRefs } from 'pinia'
 
-// Import authentication store
-// 1.auth前端中专门管理用户认证状态的模块，
-//    它通常会调用后端接口，
-//    并把返回的 token、用户信息、登录状态统一保存下来，
-//    供整个应用使用
-// 2.而这个useAuthAtore：通常就是 auth 文件里定义并导出的一个函数，类似于类一样提供了方法
 import { useAuthStore } from '@/stores/auth'
+import * as THREE from 'three'
 
-// Import mock data
-// 引入虚拟数据，需要替换成API
 import {
   mockGroups,
   mockResources,
@@ -1276,10 +635,6 @@ import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/util
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { DASHBOARD_BACKGROUND_KEY, safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
-import {
-  DASHBOARD_BACKGROUND_OPTIONS,
-  DASHBOARD_DEFAULT_BACKGROUND_KEY
-} from '@/data/dashboard_background'
 import { getTimelineStatusClass, getAccentClass } from '@/utils/ui'
 
 const router = useRouter()
@@ -1295,17 +650,14 @@ const {
 } = storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-// Core state
 const isLoading = ref(false)
 const loadError = ref('')
 
-// Main dashboard data
 const groups = ref(Array.isArray(mockGroups) ? [...mockGroups] : [])
 const resources = ref(Array.isArray(mockResources) ? [...mockResources] : [])
 const announcements = ref(Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : [])
 const events = ref(Array.isArray(mockEvents) ? [...mockEvents] : [])
 
-// Dashboard-specific state
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
   upcomingEvents: events.value.length,
@@ -1345,24 +697,125 @@ const timelineItems = ref(
   Array.isArray(mockDashboardTimeline) ? [...mockDashboardTimeline] : []
 )
 
-const backgroundOptions = DASHBOARD_BACKGROUND_OPTIONS
+const DASHBOARD_SURFACE_MODE_KEY = 'dashboard-surface-mode'
 
-const selectedBackground = computed(() => {
-  return backgroundOptions.find(item => item.key === selectedBackgroundKey.value) || backgroundOptions[0]
+function resolveInitialSurfaceMode() {
+  const storedSurfaceMode = safeLocalStorageGet(DASHBOARD_SURFACE_MODE_KEY, '')
+
+  if (storedSurfaceMode === 'day' || storedSurfaceMode === 'night') {
+    return storedSurfaceMode
+  }
+
+  const legacyBackgroundKey = safeLocalStorageGet(DASHBOARD_BACKGROUND_KEY, '')
+  return legacyBackgroundKey === 'background2' ? 'day' : 'night'
+}
+
+const selectedSurfaceMode = ref(resolveInitialSurfaceMode())
+const isDayMode = computed(() => selectedSurfaceMode.value === 'day')
+const currentSurfaceModeLabel = computed(() => isDayMode.value ? 'Day' : 'Night')
+
+function toggleSurfaceMode() {
+  selectedSurfaceMode.value = isDayMode.value ? 'night' : 'day'
+  safeLocalStorageSet(DASHBOARD_SURFACE_MODE_KEY, selectedSurfaceMode.value)
+}
+
+const dashboardShellRef = ref(null)
+const dashboardFxCanvasRef = ref(null)
+const prefersReducedMotion = ref(false)
+
+let reduceMotionQuery = null
+let dashboardResizeRaf = null
+
+const dashboardFxState = {
+  renderer: null,
+  scene: null,
+  camera: null,
+  material: null,
+  clock: null,
+  animationId: null
+}
+
+const nightPalette = {
+  textPrimary: '#eef5ff',
+  textSecondary: '#aac0dc',
+  textMuted: '#7d95b4',
+  textLink: '#8fd1ff',
+  surfaceBase: 'rgba(8, 16, 36, 0.84)',
+  surfaceElevated: 'rgba(10, 18, 40, 0.92)',
+  surfaceSoft: 'rgba(255, 255, 255, 0.06)',
+  borderDefault: 'rgba(255, 255, 255, 0.10)',
+  borderStrong: 'rgba(255, 255, 255, 0.18)',
+  accentBlue: '#6cb6ff',
+  accentTeal: '#41d9c6',
+  accentViolet: '#b197ff',
+  accentAmber: '#ffc56e',
+  accentRose: '#ff8cab',
+  shadowLg: '0 24px 70px rgba(0, 4, 20, 0.48)',
+  shadowMd: '0 16px 40px rgba(0, 4, 20, 0.34)',
+  heroOverlayA: 'rgba(10, 18, 44, 0.86)',
+  heroOverlayB: 'rgba(9, 16, 34, 0.74)',
+  shellBackdrop: 'linear-gradient(180deg, #07101d 0%, #0a1628 55%, #0b1324 100%)',
+  pageGlowOne: 'rgba(88, 165, 255, 0.08)',
+  pageGlowTwo: 'rgba(168, 85, 247, 0.07)',
+  pageGlowThree: 'rgba(45, 212, 191, 0.06)',
+  fxOpacity: '0.90'
+}
+
+const dayPalette = {
+  textPrimary: '#283246',
+  textSecondary: '#4e5d73',
+  textMuted: '#6c7a90',
+  textLink: '#2f5fb8',
+  surfaceBase: 'rgba(255, 248, 237, 0.82)',
+  surfaceElevated: 'rgba(252, 246, 234, 0.92)',
+  surfaceSoft: 'rgba(177, 145, 76, 0.08)',
+  borderDefault: 'rgba(112, 94, 58, 0.16)',
+  borderStrong: 'rgba(112, 94, 58, 0.24)',
+  accentBlue: '#3f6cc6',
+  accentTeal: '#1f8a7c',
+  accentViolet: '#7450c6',
+  accentAmber: '#af7a16',
+  accentRose: '#b74d7e',
+  shadowLg: '0 26px 72px rgba(129, 104, 57, 0.16)',
+  shadowMd: '0 18px 42px rgba(129, 104, 57, 0.12)',
+  heroOverlayA: 'rgba(255, 247, 233, 0.94)',
+  heroOverlayB: 'rgba(246, 236, 214, 0.78)',
+  shellBackdrop: 'linear-gradient(180deg, #fbf6ea 0%, #f6efdf 52%, #efe4cf 100%)',
+  pageGlowOne: 'rgba(190, 154, 88, 0.13)',
+  pageGlowTwo: 'rgba(120, 102, 186, 0.08)',
+  pageGlowThree: 'rgba(36, 137, 124, 0.08)',
+  fxOpacity: '0.12'
+}
+
+const dashboardPalette = computed(() => {
+  return isDayMode.value ? dayPalette : nightPalette
 })
-
-const isThemeRailOpen = ref(false)
-const themeRailRef = ref<HTMLElement | null>(null)
-const themeTriggerRef = ref<HTMLElement | null>(null)
-
-const selectedBackgroundKey = ref(
-  safeLocalStorageGet(DASHBOARD_BACKGROUND_KEY, DASHBOARD_DEFAULT_BACKGROUND_KEY)
-    || DASHBOARD_DEFAULT_BACKGROUND_KEY
-)
 
 const dashboardThemeStyle = computed(() => {
   return {
-    '--dashboard-bg-image': `url("${selectedBackground.value.image}")`
+    '--text-primary': dashboardPalette.value.textPrimary,
+    '--text-secondary': dashboardPalette.value.textSecondary,
+    '--text-muted': dashboardPalette.value.textMuted,
+    '--text-link': dashboardPalette.value.textLink,
+    '--surface-base': dashboardPalette.value.surfaceBase,
+    '--surface-elevated': dashboardPalette.value.surfaceElevated,
+    '--surface-soft': dashboardPalette.value.surfaceSoft,
+    '--border-default': dashboardPalette.value.borderDefault,
+    '--border-strong': dashboardPalette.value.borderStrong,
+    '--accent-blue': dashboardPalette.value.accentBlue,
+    '--accent-teal': dashboardPalette.value.accentTeal,
+    '--accent-violet': dashboardPalette.value.accentViolet,
+    '--accent-amber': dashboardPalette.value.accentAmber,
+    '--accent-rose': dashboardPalette.value.accentRose,
+    '--shadow-lg': dashboardPalette.value.shadowLg,
+    '--shadow-md': dashboardPalette.value.shadowMd,
+    '--hero-overlay-a': dashboardPalette.value.heroOverlayA,
+    '--hero-overlay-b': dashboardPalette.value.heroOverlayB,
+    '--dashboard-shell-backdrop': dashboardPalette.value.shellBackdrop,
+    '--page-glow-one': dashboardPalette.value.pageGlowOne,
+    '--page-glow-two': dashboardPalette.value.pageGlowTwo,
+    '--page-glow-three': dashboardPalette.value.pageGlowThree,
+    '--dashboard-fx-opacity': dashboardPalette.value.fxOpacity
   }
 })
 
@@ -1378,9 +831,16 @@ const activeShowcaseItem = computed(() => {
   return biotechShowcaseItems.value[activeShowcaseIndex.value] || biotechShowcaseItems.value[0]
 })
 
-// Header display
 const currentDateText = computed(() => {
   return formatLongDateAU(new Date(), true)
+})
+
+const heroMetaChips = computed(() => {
+  return [
+    { key: 'date', label: 'Today', value: currentDateText.value, tone: 'neutral' },
+    { key: 'track', label: 'Track', value: displayTrack.value || 'General', tone: 'cyan' },
+    { key: 'role', label: 'Role', value: roleLabel.value || 'Member', tone: 'violet' }
+  ]
 })
 
 const heroMessage = computed(() => {
@@ -1393,6 +853,14 @@ const heroMessage = computed(() => {
   }
 
   return 'Stay focused on your next event, active group, and current milestones with a dashboard designed for fast decisions.'
+})
+
+const heroShowcaseFacts = computed(() => {
+  return [
+    { key: 'groups', label: `${groupsCount.value} groups` },
+    { key: 'resources', label: `${resourcesCount.value} resources` },
+    { key: 'updates', label: `${announcementsCount.value} updates` }
+  ]
 })
 
 const headerHighlights = computed(() => {
@@ -1425,7 +893,6 @@ const heroEyebrow = computed(() => {
   return 'Student Workspace'
 })
 
-// Derived data
 const announcementsCount = computed(() => announcements.value.length)
 const resourcesCount = computed(() => resources.value.length)
 const groupsCount = computed(() => groups.value.length)
@@ -1456,8 +923,26 @@ const progressPercentStyle = computed(() => {
 const progressCircleStyle = computed(() => {
   const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
   return {
-    background: `conic-gradient(#60a5fa 0deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`
+    background: `conic-gradient(var(--accent-blue) 0deg ${value * 2.2}deg, var(--accent-teal) ${value * 2.2}deg ${value * 3.1}deg, var(--accent-violet) ${value * 3.1}deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`
   }
+})
+
+const progressMarkerStyle = computed(() => {
+  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
+  const angle = (value / 100) * Math.PI * 2 - Math.PI / 2
+  const radius = 86
+  const x = Math.cos(angle) * radius
+  const y = Math.sin(angle) * radius
+
+  return {
+    transform: `translate(${x}px, ${y}px)`
+  }
+})
+
+const progressStatusCaption = computed(() => {
+  if (progressSnapshot.value.completionRate >= 80) return 'Strong momentum'
+  if (progressSnapshot.value.completionRate >= 45) return 'On track'
+  return 'Early cycle'
 })
 
 const summaryWidgets = computed(() => {
@@ -1601,7 +1086,6 @@ const checklistSectionTitle = computed(() => {
   return 'My Next Steps'
 })
 
-// Data loading
 async function fetchJson(url) {
   const response = await fetch(url, {
     method: 'GET',
@@ -1807,12 +1291,7 @@ async function loadChecklist() {
   }
 }
 
-// Showcase data loader
-
 async function loadBiotechShowcase() {
-  // You can replace this endpoint with your own backend proxy
-  // Example return format:
-  // [{ id, title, summary, image, link }]
   try {
     const data = await fetchJson(`${API_BASE_URL}/api/v1/public/biotech-showcase/`)
 
@@ -1833,38 +1312,7 @@ async function loadBiotechShowcase() {
   }
 }
 
-function handleBackgroundChange(nextKey) {
-  selectedBackgroundKey.value = nextKey
-  safeLocalStorageSet(DASHBOARD_BACKGROUND_KEY, nextKey)
-  isThemeRailOpen.value = false
-}
 
-function toggleThemeRail() {
-  isThemeRailOpen.value = !isThemeRailOpen.value
-}
-
-function closeThemeRail() {
-  isThemeRailOpen.value = false
-}
-
-function handleClickOutside(event) {
-  if (!isThemeRailOpen.value) return
-
-  const clickedInsidePanel = themeRailRef.value?.contains(event.target)
-  const clickedTrigger = themeTriggerRef.value?.contains(event.target)
-
-  if (!clickedInsidePanel && !clickedTrigger) {
-    closeThemeRail()
-  }
-}
-
-function handleEscapeClose(event) {
-  if (event.key === 'Escape') {
-    closeThemeRail()
-  }
-}
-
-// Showcase autoplay
 function goToNextShowcase() {
   if (!biotechShowcaseItems.value.length) return
   activeShowcaseIndex.value = (activeShowcaseIndex.value + 1) % biotechShowcaseItems.value.length
@@ -1904,7 +1352,6 @@ function restartShowcaseAutoplay() {
   startShowcaseAutoplay()
 }
 
-// Fallback builders
 function buildFallbackActionCenter() {
   if (isAdmin.value) {
     return [
@@ -2034,7 +1481,7 @@ function buildFallbackChecklist() {
     {
       key: 'event',
       title: 'Prepare for your next event',
-      meta: nextEvent.value ? `${nextEvent.value.title} · ${formatEventDate(nextEvent.value.date)}` : 'No event scheduled',
+      meta: nextEvent.value ? `${nextEvent.value.title} · ${formatDateAU(nextEvent.value.date) || 'TBC'}` : 'No event scheduled',
       to: '/events'
     },
     {
@@ -2052,7 +1499,6 @@ function buildFallbackChecklist() {
   ]
 }
 
-// User action handlers
 function handleActionClick(action) {
   if (!action) return
 
@@ -2079,7 +1525,6 @@ function openShowcaseLink(item) {
   }
 }
 
-// Helpers
 function filterResourcesByRole(items) {
   const role = normalizedRole.value
 
@@ -2137,6 +1582,253 @@ function getGroupSecondaryLabel(group) {
   return String(source).slice(0, 2).toUpperCase()
 }
 
+const DASHBOARD_FX_VERT = `
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`
+
+const DASHBOARD_FX_FRAG = `
+precision highp float;
+
+varying vec2 vUv;
+
+uniform float uTime;
+uniform vec2 uResolution;
+
+mat2 rotate2d(float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return mat2(c, -s, s, c);
+}
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 hash22(vec2 p) {
+  float n = hash12(p);
+  return vec2(n, hash12(p + n + 19.19));
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+
+  float a = hash12(i);
+  float b = hash12(i + vec2(1.0, 0.0));
+  float c = hash12(i + vec2(0.0, 1.0));
+  float d = hash12(i + vec2(1.0, 1.0));
+
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  float amplitude = 0.56;
+
+  for (int i = 0; i < 5; i++) {
+    value += amplitude * noise(p);
+    p = rotate2d(0.67) * p * 2.03 + vec2(4.81, 3.17);
+    amplitude *= 0.52;
+  }
+
+  return value;
+}
+
+float voronoi(vec2 x) {
+  vec2 n = floor(x);
+  vec2 f = fract(x);
+  float minDist = 10.0;
+
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 o = hash22(n + g);
+      o = 0.5 + 0.35 * sin(uTime * 0.22 + 6.283185 * o);
+      vec2 r = g + o - f;
+      minDist = min(minDist, dot(r, r));
+    }
+  }
+
+  return sqrt(minDist);
+}
+
+void main() {
+  vec2 uv = vUv;
+  vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
+  vec2 p = (uv - 0.5) * aspect;
+
+  vec2 warpA = vec2(
+    fbm(p * 1.25 + vec2(uTime * 0.032, -uTime * 0.018)),
+    fbm(rotate2d(0.74) * p * 1.5 + vec2(-uTime * 0.024, uTime * 0.028))
+  );
+
+  vec2 warpB = vec2(
+    fbm(rotate2d(-0.38) * p * 2.1 + warpA * 1.2 + vec2(uTime * 0.014, uTime * 0.018)),
+    fbm(rotate2d(0.46) * p * 2.45 - warpA * 1.1 + vec2(-uTime * 0.016, uTime * 0.01))
+  );
+
+  vec2 q = p + (warpA - 0.5) * 0.42 + (warpB - 0.5) * 0.16;
+
+  float fieldA = fbm(q * 1.45 + vec2(0.0, uTime * 0.022));
+  float fieldB = fbm(rotate2d(0.85) * q * 2.25 - vec2(uTime * 0.018, 0.0));
+  float fieldC = fbm(rotate2d(-0.52) * q * 3.15 + vec2(uTime * 0.011, uTime * 0.014));
+
+  float membraneDistance = voronoi(q * 3.25 + warpA * 1.6);
+  float membrane = 1.0 - smoothstep(0.13, 0.24, abs(membraneDistance - 0.22));
+
+  float nebula = smoothstep(0.42, 0.98, fieldA * 0.82 + fieldB * 0.28);
+  float stream = smoothstep(0.5, 1.05, fieldB * 0.86 + fieldC * 0.24);
+  float bloom = smoothstep(0.58, 1.08, fieldC * 0.92 + fieldA * 0.18);
+
+  float pulseA = exp(-pow((q.y + 0.18 + sin(uTime * 0.34 + q.x * 2.7) * 0.09) / 0.34, 2.0));
+  float pulseB = exp(-pow((q.y - 0.24 + cos(uTime * 0.26 - q.x * 2.2) * 0.07) / 0.28, 2.0));
+
+  float spores = smoothstep(0.88, 0.995, noise(q * 16.0 + vec2(uTime * 0.08, -uTime * 0.05)));
+  spores *= 0.16 + membrane * 0.12;
+
+  vec3 base = vec3(0.018, 0.028, 0.064);
+  vec3 teal = vec3(0.08, 0.82, 0.72);
+  vec3 azure = vec3(0.21, 0.56, 0.98);
+  vec3 violet = vec3(0.62, 0.38, 0.98);
+  vec3 coral = vec3(0.97, 0.47, 0.66);
+  vec3 amber = vec3(0.95, 0.72, 0.33);
+  vec3 pearl = vec3(0.92, 0.98, 1.0);
+
+  vec3 color = base;
+  color += teal * nebula * 0.24;
+  color += azure * stream * 0.26;
+  color += violet * bloom * 0.18;
+  color += coral * membrane * 0.12;
+  color += amber * (pulseA * 0.035 + pulseB * 0.025);
+  color += pearl * spores * 0.22;
+
+  float vignette = smoothstep(1.22, 0.14, length((uv - 0.5) * vec2(1.02, 0.9)));
+  float alpha = clamp((nebula * 0.18 + stream * 0.16 + bloom * 0.12 + membrane * 0.12 + spores * 0.12 + pulseA * 0.04 + pulseB * 0.03) * vignette, 0.0, 0.42);
+
+  gl_FragColor = vec4(color, alpha);
+}
+`
+
+function handleReduceMotionChange(event) {
+  prefersReducedMotion.value = event.matches
+
+  if (prefersReducedMotion.value) {
+    disposeDashboardFx()
+  } else {
+    initDashboardFx()
+  }
+}
+
+function initDashboardFx() {
+  if (!dashboardFxCanvasRef.value || prefersReducedMotion.value || dashboardFxState.renderer) return
+
+  const shell = dashboardShellRef.value
+  if (!shell) return
+
+  const rect = shell.getBoundingClientRect()
+
+  dashboardFxState.renderer = new THREE.WebGLRenderer({
+    canvas: dashboardFxCanvasRef.value,
+    alpha: true,
+    antialias: true,
+    powerPreference: 'high-performance'
+  })
+  dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  dashboardFxState.renderer.setSize(rect.width, rect.height, false)
+  dashboardFxState.renderer.setClearColor(0x000000, 0)
+
+  dashboardFxState.scene = new THREE.Scene()
+  dashboardFxState.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+  dashboardFxState.camera.position.z = 1
+  dashboardFxState.clock = new THREE.Clock()
+
+  dashboardFxState.material = new THREE.ShaderMaterial({
+    vertexShader: DASHBOARD_FX_VERT,
+    fragmentShader: DASHBOARD_FX_FRAG,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uResolution: { value: new THREE.Vector2(rect.width, rect.height) }
+    }
+  })
+
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), dashboardFxState.material)
+  dashboardFxState.scene.add(plane)
+
+  animateDashboardFx()
+}
+
+function resizeDashboardFx() {
+  if (!dashboardFxState.renderer || !dashboardShellRef.value || !dashboardFxState.material) return
+
+  if (dashboardResizeRaf) cancelAnimationFrame(dashboardResizeRaf)
+
+  dashboardResizeRaf = requestAnimationFrame(() => {
+    dashboardResizeRaf = null
+
+    const rect = dashboardShellRef.value.getBoundingClientRect()
+    dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    dashboardFxState.renderer.setSize(rect.width, rect.height, false)
+    dashboardFxState.material.uniforms.uResolution.value.set(rect.width, rect.height)
+  })
+}
+
+function animateDashboardFx() {
+  if (!dashboardFxState.renderer || !dashboardFxState.scene || !dashboardFxState.camera || !dashboardFxState.material || !dashboardFxState.clock) {
+    return
+  }
+
+  dashboardFxState.animationId = requestAnimationFrame(animateDashboardFx)
+
+  const elapsed = dashboardFxState.clock.getElapsedTime()
+
+  dashboardFxState.material.uniforms.uTime.value = elapsed
+
+  dashboardFxState.renderer.render(dashboardFxState.scene, dashboardFxState.camera)
+}
+
+function disposeDashboardFx() {
+  if (dashboardResizeRaf) {
+    cancelAnimationFrame(dashboardResizeRaf)
+    dashboardResizeRaf = null
+  }
+
+  if (dashboardFxState.animationId) {
+    cancelAnimationFrame(dashboardFxState.animationId)
+    dashboardFxState.animationId = null
+  }
+
+  if (dashboardFxState.material) {
+    dashboardFxState.material.dispose()
+    dashboardFxState.material = null
+  }
+
+  if (dashboardFxState.scene) {
+    dashboardFxState.scene.traverse((item) => {
+      if (item.geometry) item.geometry.dispose()
+    })
+    dashboardFxState.scene = null
+  }
+
+  if (dashboardFxState.renderer) {
+    dashboardFxState.renderer.dispose()
+    dashboardFxState.renderer = null
+  }
+
+  dashboardFxState.camera = null
+  dashboardFxState.clock = null
+}
+
 watch(
   () => biotechShowcaseItems.value.length,
   () => {
@@ -2149,306 +1841,351 @@ watch(
 
 onMounted(async () => {
   await loadDashboardData()
+  await loadBiotechShowcase()
 
-  document.addEventListener('click', handleClickOutside)
-  document.addEventListener('keydown', handleEscapeClose)
+  window.addEventListener('resize', resizeDashboardFx)
+
+  reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  prefersReducedMotion.value = reduceMotionQuery.matches
+
+  if (reduceMotionQuery.addEventListener) {
+    reduceMotionQuery.addEventListener('change', handleReduceMotionChange)
+  } else if (reduceMotionQuery.addListener) {
+    reduceMotionQuery.addListener(handleReduceMotionChange)
+  }
 
   await nextTick()
+  initDashboardFx()
   startShowcaseAutoplay()
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside)
-  document.removeEventListener('keydown', handleEscapeClose)
+  window.removeEventListener('resize', resizeDashboardFx)
   stopShowcaseAutoplay()
-})
+  disposeDashboardFx()
 
+  if (reduceMotionQuery) {
+    if (reduceMotionQuery.removeEventListener) {
+      reduceMotionQuery.removeEventListener('change', handleReduceMotionChange)
+    } else if (reduceMotionQuery.removeListener) {
+      reduceMotionQuery.removeListener(handleReduceMotionChange)
+    }
+
+    reduceMotionQuery = null
+  }
+})
 </script>
 
 <style scoped>
+/* ================================================================
+   BIOTECH FUTURES HUB — DASHBOARD
+   Design Language: Cyberpunk / Bioluminescent
+   ================================================================ */
+
+/* ──────────────────────────────────────────────────────────────
+   § 1  DESIGN TOKENS
+   ────────────────────────────────────────────────────────────── */
 .dashboard-page-shell {
-  --dashboard-title: #ecf4ff;
-  --dashboard-text: #d8e3f5;
-  --dashboard-muted: #93a6c6;
-  --dashboard-link: #a8c8ff;
-  --dashboard-line: rgba(255, 255, 255, 0.08);
-  --dashboard-border: rgba(255, 255, 255, 0.12);
-  --dashboard-border-strong: rgba(255, 255, 255, 0.18);
-  --dashboard-surface: rgba(11, 19, 36, 0.56);
-  --dashboard-surface-strong: rgba(10, 18, 34, 0.78);
-  --dashboard-surface-soft: rgba(255, 255, 255, 0.045);
-  --dashboard-shadow: 0 24px 70px rgba(2, 8, 23, 0.36);
-  --dashboard-shadow-soft: 0 14px 34px rgba(2, 8, 23, 0.2);
-  --dashboard-bg-image: linear-gradient(135deg, rgba(9, 15, 30, 0.72), rgba(10, 18, 36, 0.72));
+  --text-primary:   #eef5ff;
+  --text-secondary: #94b8d8;
+  --text-muted:     #5c7a9a;
+  --text-link:      #7ec8ff;
+
+  --surface-base:     rgba(7, 13, 28, 0.82);
+  --surface-elevated: rgba(9, 17, 36, 0.90);
+
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+
+  --accent-blue:   #60a5fa;
+  --accent-teal:   #2dd4bf;
+  --accent-violet: #a78bfa;
+  --accent-amber:  #fbbf24;
+  --accent-rose:   #f87171;
+
+  --shadow-lg: 0 24px 64px rgba(0, 3, 18, 0.52);
+  --shadow-md: 0 14px 38px rgba(0, 3, 18, 0.40);
+  --shadow-sm: 0 8px 22px rgba(0, 3, 18, 0.30);
+
+  --radius-card: 24px;
+  --radius-hero: 28px;
+  --radius-chip: 999px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 180ms;
+  --t-base: 260ms;
+  --t-slow: 400ms;
 
   position: relative;
   isolation: isolate;
   min-height: 100%;
-  height: auto;
   overflow: visible;
-  padding: 1.4rem 1rem 2.5rem;
-  color: var(--dashboard-text);
+  padding: 1.5rem 1.2rem 3rem;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 10% 8%, var(--page-glow-one), transparent 26%),
+    radial-gradient(circle at 86% 12%, var(--page-glow-two), transparent 24%),
+    radial-gradient(circle at 68% 84%, var(--page-glow-three), transparent 26%);
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   § 2  PAGE SHELL & BACKGROUND
+   ────────────────────────────────────────────────────────────── */
+.dashboard-page-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -5;
+  background: var(--dashboard-shell-backdrop, linear-gradient(135deg, #060c1a, #0a1224));
 }
 
 .dashboard-page-inner {
   position: relative;
   max-width: 1520px;
   margin: 0 auto;
-  overflow: visible;
 }
 
-.dashboard-page-shell::before {
-  content: '';
+/* ──────────────────────────────────────────────────────────────
+   § 3  BACKGROUND EFFECTS
+   ────────────────────────────────────────────────────────────── */
+.dashboard-fx-canvas {
   position: absolute;
   inset: 0;
-  z-index: -5;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(56, 189, 248, 0.05), transparent 26%),
-    radial-gradient(circle at 84% 18%, rgba(99, 102, 241, 0.05), transparent 24%),
-    radial-gradient(circle at 78% 80%, rgba(16, 185, 129, 0.05), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
-    var(--dashboard-bg-image);
-  background-size: 100% 100%;
-  background-position: center;
-  background-repeat: no-repeat;
-  transform: none;
-}
-
-.dashboard-page-shell::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -4;
+  width: 100%;
+  height: 100%;
+  z-index: -6;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 28%);
+  opacity: var(--dashboard-fx-opacity, 0.92);
 }
 
 .dashboard-backdrop-orb {
   position: absolute;
   border-radius: 999px;
-  filter: blur(72px);
-  opacity: 0.68;
   pointer-events: none;
-  z-index: -2;
+  z-index: -3;
 }
 
 .orb-one {
-  width: 300px;
-  height: 300px;
-  top: 30px;
-  right: 4%;
-  background: rgba(59, 130, 246, 0.18);
+  width: 520px;
+  height: 520px;
+  top: -60px;
+  right: 1%;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.30), rgba(56, 189, 248, 0.12) 52%, transparent 74%);
+  filter: blur(56px);
+  animation: orbFloat 18s ease-in-out infinite;
 }
 
 .orb-two {
-  width: 260px;
-  height: 260px;
-  left: 2%;
-  bottom: 140px;
-  background: rgba(45, 212, 191, 0.14);
+  width: 440px;
+  height: 440px;
+  left: -2%;
+  bottom: 60px;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.26), rgba(16, 185, 129, 0.10) 52%, transparent 74%);
+  filter: blur(56px);
+  animation: orbFloat 22s ease-in-out infinite reverse;
 }
 
 .dashboard-backdrop-grid {
   position: absolute;
   inset: 0;
-  z-index: -3;
-  opacity: 0.06;
+  z-index: -4;
   pointer-events: none;
+  opacity: 0.13;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.9), transparent 82%);
+    linear-gradient(rgba(100, 180, 255, 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 180, 255, 0.35) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 95% 55% at 50% 0%, black 30%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 95% 55% at 50% 0%, black 30%, transparent 78%);
 }
 
-.dashboard-particle-layer {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 12% 30%, rgba(255, 255, 255, 0.12) 0 1px, transparent 2px),
-    radial-gradient(circle at 28% 62%, rgba(255, 255, 255, 0.1) 0 1px, transparent 2px),
-    radial-gradient(circle at 60% 18%, rgba(255, 255, 255, 0.1) 0 1px, transparent 2px),
-    radial-gradient(circle at 82% 38%, rgba(255, 255, 255, 0.09) 0 1px, transparent 2px),
-    radial-gradient(circle at 72% 76%, rgba(255, 255, 255, 0.08) 0 1px, transparent 2px);
-  animation: particleDrift 18s linear infinite;
-  opacity: 0.55;
+@keyframes orbFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%       { transform: translate3d(-22px, 20px, 0) scale(1.04); }
+  66%       { transform: translate3d(18px, -16px, 0) scale(0.97); }
 }
 
-@keyframes particleDrift {
-  0% {
-    transform: translateY(0) translateX(0);
-  }
-  50% {
-    transform: translateY(-8px) translateX(4px);
-  }
-  100% {
-    transform: translateY(0) translateX(0);
-  }
-}
-
-.dashboard-section {
-  margin-bottom: 1.5rem;
-}
+/* ──────────────────────────────────────────────────────────────
+   § 4  SECTION LAYOUT
+   ────────────────────────────────────────────────────────────── */
+.dashboard-section { margin-bottom: 1.6rem; }
 
 .dashboard-section-grid {
   display: grid;
   gap: 1.2rem;
 }
 
-.two-col-layout {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
+.two-col-layout   { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.summary-grid     { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
-.summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.dashboard-hero-shell {
-  margin-bottom: 1.35rem;
-}
+/* ──────────────────────────────────────────────────────────────
+   § 5  HERO CARD
+   ────────────────────────────────────────────────────────────── */
+.dashboard-hero-shell { margin-bottom: 1.5rem; }
 
 .dashboard-hero-card {
   position: relative;
   overflow: hidden;
-  border-radius: 32px;
-  padding: 1.4rem;
-  border: 1px solid var(--dashboard-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.028)),
-    linear-gradient(135deg, rgba(9, 17, 34, 0.82), rgba(10, 18, 34, 0.62));
-  box-shadow: var(--dashboard-shadow);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  border-radius: var(--radius-hero);
+  padding: 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: linear-gradient(145deg, rgba(8, 18, 42, 0.92), rgba(10, 16, 34, 0.78));
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base);
 }
 
+/* Blue aurora top-left */
 .dashboard-hero-card::before {
   content: '';
   position: absolute;
-  inset: -20% auto auto -8%;
-  width: 360px;
-  height: 360px;
+  top: -35%; left: -6%;
+  width: 52%; height: 72%;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(96, 165, 250, 0.18), transparent 68%);
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.22), transparent 66%);
+  filter: blur(22px);
   pointer-events: none;
 }
 
+/* Teal aurora bottom-right */
 .dashboard-hero-card::after {
   content: '';
   position: absolute;
-  inset: auto -12% -28% auto;
-  width: 340px;
-  height: 340px;
+  bottom: -32%; right: -8%;
+  width: 46%; height: 72%;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(45, 212, 191, 0.12), transparent 72%);
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.18), transparent 68%);
+  filter: blur(22px);
   pointer-events: none;
 }
 
+/* ──────────────────────────────────────────────────────────────
+   § 6  THEME RAIL
+   ────────────────────────────────────────────────────────────── */
 .dashboard-theme-rail {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: 1.1rem; right: 1.1rem;
   z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.7rem;
+  gap: 0.6rem;
 }
 
 .theme-rail-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  min-height: 44px;
-  padding: 0.58rem 1rem;
-  border-radius: 999px;
+  gap: 0.55rem;
+  min-height: 40px;
+  padding: 0.48rem 1rem;
+  border-radius: var(--radius-chip);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(8, 14, 28, 0.62);
-  color: #f8fbff;
+  background: rgba(7, 13, 28, 0.76);
+  color: var(--text-primary);
   cursor: pointer;
-  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.22);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  transition:
-    transform 0.22s ease,
-    border-color 0.22s ease,
-    background 0.22s ease;
+  font-size: 0.86rem;
+  font-weight: 600;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: border-color var(--t-fast), transform var(--t-fast), background var(--t-fast);
 }
 
 .theme-rail-trigger:hover {
   transform: translateY(-2px);
-  border-color: rgba(168, 200, 255, 0.32);
-  background: rgba(10, 18, 34, 0.76);
+  border-color: var(--border-strong);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
 }
 
 .theme-rail-panel {
-  width: 180px;
+  min-width: 168px;
   padding: 0.5rem;
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(8, 14, 28, 0.9);
-  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.22);
+  background: linear-gradient(160deg, rgba(8, 16, 38, 0.95), rgba(10, 16, 30, 0.90));
+  box-shadow: 0 24px 56px rgba(0, 3, 18, 0.46);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 
-.theme-rail-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
+.theme-rail-list { display: flex; flex-direction: column; gap: 0.28rem; }
 
 .theme-rail-item {
   width: 100%;
-  padding: 0.65rem 0.8rem;
-  border-radius: 10px;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.82rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
   background: transparent;
-  color: #f8fbff;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
-  font-size: 0.9rem;
+  font-size: 0.87rem;
   font-weight: 600;
-  transition: background 0.2s ease;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
 }
 
-.theme-rail-item:hover {
-  transform: none;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: none;
-  border-color: transparent;
-}
-
+.theme-rail-item:hover,
 .theme-rail-item.active {
-  background: rgba(255, 255, 255, 0.14);
-  box-shadow: none;
-  border-color: transparent;
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent-blue) 22%, transparent);
+  transform: translateX(4px);
 }
 
 .theme-rail-panel-enter-active,
-.theme-rail-panel-leave-active {
-  transition: all 0.24s ease;
-}
-
+.theme-rail-panel-leave-active { transition: opacity 0.22s ease, transform 0.22s ease; }
 .theme-rail-panel-enter-from,
-.theme-rail-panel-leave-to {
-  opacity: 0;
-  transform: translateY(-8px) scale(0.985);
-}
+.theme-rail-panel-leave-to { opacity: 0; transform: translateY(-6px) scale(0.97); }
 
+/* ──────────────────────────────────────────────────────────────
+   § 7  HERO CONTENT
+   ────────────────────────────────────────────────────────────── */
 .dashboard-hero-main {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 1.2rem;
-  align-items: start;
-  padding-top: 2.9rem;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 1.4rem;
+  align-items: stretch;
+  padding-top: 2.6rem;
+}
+
+.dashboard-hero-copy,
+.dashboard-hero-aside {
+  min-width: 0;
+  display: flex;
 }
 
 .dashboard-hero-copy {
-  min-width: 0;
-  padding: 0.25rem 0.15rem 0.15rem;
+  position: relative;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100%;
+  padding: 1.35rem 1.45rem 1.4rem;
+  border-radius: 28px;
+  background:
+    linear-gradient(160deg, rgba(8, 18, 40, 0.62), rgba(7, 14, 28, 0.40)),
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.14), transparent 44%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.dashboard-hero-copy::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 28%, transparent 72%, rgba(125, 211, 252, 0.06));
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  padding: 1px;
 }
 
 .hero-eyebrow-row {
@@ -2456,96 +2193,274 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.7rem;
   flex-wrap: wrap;
-  margin-bottom: 0.9rem;
+  margin-bottom: 0.95rem;
 }
 
 .hero-eyebrow,
 .hero-org {
+  position: relative;
   display: inline-flex;
   align-items: center;
   min-height: 32px;
-  padding: 0.35rem 0.82rem;
-  border-radius: 999px;
-  font-size: 0.79rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding: 0.3rem 0.88rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .hero-eyebrow {
-  color: #dbeafe;
-  background: rgba(59, 130, 246, 0.14);
-  border: 1px solid rgba(96, 165, 250, 0.2);
+  color: #d9ecff;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.26);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(14, 24, 46, 0.56));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 24px rgba(37, 99, 235, 0.14);
+}
+
+.hero-eyebrow::after {
+  content: '';
+  position: absolute;
+  inset: -30% auto -30% -24%;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transform: skewX(-18deg);
+  animation: heroSheen 7s linear infinite;
 }
 
 .hero-org {
-  color: #d1fae5;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(52, 211, 153, 0.18);
+  color: #bbf7d0;
+  border-radius: 14px 999px 999px 14px;
+  border: 1px solid rgba(74, 222, 128, 0.24);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(10, 20, 18, 0.5));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 24px rgba(5, 150, 105, 0.10);
+}
+
+.hero-org::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-right: 0.55rem;
+  border-radius: 999px;
+  background: #6ee7b7;
+  box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.12), 0 0 16px rgba(110, 231, 183, 0.45);
 }
 
 .hero-title {
   margin: 0;
-  font-size: clamp(2rem, 3vw, 3.1rem);
-  line-height: 1.02;
-  font-weight: 800;
+  font-size: clamp(2rem, 3vw, 3.08rem);
+  line-height: 0.98;
+  font-weight: 850;
   letter-spacing: -0.05em;
-  color: #f8fbff;
+  color: #f5fbff;
+  text-wrap: balance;
+  text-shadow: 0 10px 34px rgba(0, 0, 0, 0.24), 0 0 54px rgba(96, 165, 250, 0.16);
+}
+
+.hero-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.78rem;
+  margin-top: 1.08rem;
+}
+
+.hero-meta-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 58px;
+  padding: 0.78rem 1.05rem;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text-primary);
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+}
+
+.hero-meta-chip:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 48px rgba(0, 3, 18, 0.26);
+}
+
+.hero-meta-chip::before,
+.hero-meta-chip::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.hero-meta-chip::before {
+  inset: -1px;
+  opacity: 0.75;
+  background: linear-gradient(115deg, transparent 10%, rgba(255, 255, 255, 0.14) 30%, transparent 48%, transparent 70%, rgba(255, 255, 255, 0.08) 88%, transparent);
+  transform: translateX(-72%);
+  transition: transform 0.9s var(--ease-out);
+}
+
+.hero-meta-chip:hover::before {
+  transform: translateX(52%);
+}
+
+.hero-meta-chip::after {
+  inset: 1px;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+.hero-meta-chip--neutral {
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(12, 20, 38, 0.82), rgba(6, 12, 24, 0.72));
+  border-color: rgba(226, 232, 240, 0.14);
+}
+
+.hero-meta-chip--neutral::after {
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.10), transparent 42%), linear-gradient(145deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.08));
+}
+
+.hero-meta-chip--cyan {
+  border-radius: 20px 20px 20px 12px;
+  background: linear-gradient(135deg, rgba(6, 78, 96, 0.34), rgba(8, 16, 32, 0.72));
+  border-color: rgba(34, 211, 238, 0.28);
+}
+
+.hero-meta-chip--cyan::after {
+  background: radial-gradient(circle at top left, rgba(34, 211, 238, 0.24), transparent 38%), linear-gradient(135deg, rgba(34, 211, 238, 0.10), rgba(8, 16, 32, 0.02));
+}
+
+.hero-meta-chip--violet {
+  border-radius: 16px 22px 16px 22px;
+  background: linear-gradient(135deg, rgba(91, 33, 182, 0.26), rgba(12, 18, 40, 0.74));
+  border-color: rgba(167, 139, 250, 0.30);
+}
+
+.hero-meta-chip--violet::after {
+  background: radial-gradient(circle at top left, rgba(192, 132, 252, 0.22), transparent 38%), linear-gradient(135deg, rgba(167, 139, 250, 0.10), rgba(8, 16, 32, 0.02));
+}
+
+.hero-meta-chip-label {
+  position: relative;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--text-secondary) 78%, white);
+}
+
+.hero-meta-chip-value {
+  position: relative;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .dashboard-subtext {
-  margin-top: 0.6rem;
-  font-size: 0.96rem;
-  color: rgba(219, 234, 254, 0.8);
-  letter-spacing: -0.01em;
+  margin-top: 0.95rem;
+  font-size: 0.98rem;
+  color: color-mix(in srgb, var(--text-secondary) 92%, white 8%);
+  line-height: 1.72;
+  max-width: 58ch;
 }
 
 .dashboard-hero-message {
   margin-top: 1rem;
-  max-width: 760px;
-  color: rgba(230, 238, 252, 0.9);
-  line-height: 1.72;
-  font-size: 1.01rem;
+  color: rgba(222, 234, 255, 0.94);
+  line-height: 1.8;
+  font-size: 1rem;
+  max-width: 64ch;
 }
 
 .hero-highlight-wrap {
   display: flex;
   flex-wrap: wrap;
   gap: 0.7rem;
-  margin-top: 1.15rem;
+  margin-top: 1.18rem;
 }
 
 .status-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0.45rem 0.9rem;
+  min-height: 38px;
+  padding: 0.42rem 0.94rem;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
-  color: #f8fbff;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 0.83rem;
-  font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow: hidden;
+  isolation: isolate;
 }
 
+.status-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-right: 0.56rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent), 0 0 18px color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.status-pill:nth-child(1) { border: 1px solid rgba(96, 165, 250, 0.24); color: #bfdbfe; }
+.status-pill:nth-child(2) { border: 1px solid rgba(45, 212, 191, 0.24); color: #99f6e4; }
+.status-pill:nth-child(3) { border: 1px solid rgba(244, 114, 182, 0.24); color: #fbcfe8; }
+
+/* ──────────────────────────────────────────────────────────────
+   § 8  SHOWCASE CAROUSEL
+   ────────────────────────────────────────────────────────────── */
 .dashboard-hero-aside {
-  min-width: 0;
-  align-self: start;
+  align-self: stretch;
 }
 
 .showcase-card {
-  height: auto;
-  align-self: start;
-  padding: 0.9rem;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  padding: 1rem;
   border-radius: 28px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.028)),
-    rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: var(--dashboard-shadow-soft);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+    linear-gradient(160deg, rgba(7, 14, 28, 0.88), rgba(10, 18, 36, 0.78)),
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.14), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(167, 139, 250, 0.10), transparent 28%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
+}
+
+.showcase-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, transparent 0deg 40deg, rgba(96, 165, 250, 0.54) 78deg, transparent 126deg, transparent 185deg, rgba(167, 139, 250, 0.42) 230deg, transparent 286deg, rgba(45, 212, 191, 0.42) 326deg, transparent 360deg);
+  opacity: 0.72;
+  animation: showcaseBorderSpin 9s linear infinite;
+  z-index: -2;
+}
+
+.showcase-card::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(28px - 1px);
+  background: linear-gradient(160deg, rgba(8, 16, 32, 0.94), rgba(11, 18, 34, 0.84));
+  z-index: -1;
+}
+
+.showcase-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(125, 211, 252, 0.22);
+  box-shadow: 0 36px 92px rgba(0, 3, 18, 0.50), 0 0 0 1px rgba(96, 165, 250, 0.06) inset;
 }
 
 .showcase-heading-row {
@@ -2557,89 +2472,138 @@ onBeforeUnmount(() => {
 }
 
 .showcase-kicker {
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 800;
-  color: #9dc3ff;
+  letter-spacing: 0.16em;
+  font-weight: 900;
+  color: #8fd4ff;
 }
 
 .showcase-mini-label {
-  margin-top: 0.34rem;
-  color: rgba(216, 227, 245, 0.72);
-  font-size: 0.85rem;
+  margin-top: 0.28rem;
+  color: color-mix(in srgb, var(--text-secondary) 90%, white 10%);
+  font-size: 0.82rem;
 }
 
 .showcase-controls {
   display: flex;
-  gap: 0.48rem;
+  gap: 0.4rem;
+  padding: 0.26rem;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .showcase-nav-btn {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border: none;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fbff;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
   cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease;
+  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
 }
 
 .showcase-nav-btn:hover {
-  transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 10px 24px rgba(0, 3, 18, 0.22);
 }
+
+.showcase-nav-btn:first-child:hover { transform: translateX(-2px) translateY(-1px) scale(1.04); }
+.showcase-nav-btn:last-child:hover  { transform: translateX(2px) translateY(-1px) scale(1.04); }
 
 .showcase-body {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.88rem;
+  flex: 1;
 }
 
 .showcase-image {
   position: relative;
-  aspect-ratio: 16 / 8.2;
-  min-height: unset;
+  aspect-ratio: 16 / 8;
   width: 100%;
   border-radius: 22px;
   overflow: hidden;
   background-size: cover;
   background-position: center;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 50px rgba(0, 3, 18, 0.26);
+  transition: transform var(--t-slow) var(--ease-out), filter var(--t-slow), box-shadow var(--t-slow);
+}
+
+.showcase-image::before {
+  content: '';
+  position: absolute;
+  inset: -35% auto auto -18%;
+  width: 42%;
+  height: 170%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  transform: skewX(-16deg);
+  animation: showcaseImageSheen 10s ease-in-out infinite;
+}
+
+.showcase-card:hover .showcase-image {
+  transform: translateY(-2px) scale(1.022);
+  filter: saturate(1.12) contrast(1.02);
+  box-shadow: 0 28px 62px rgba(0, 3, 18, 0.34);
 }
 
 .showcase-image-overlay {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(2, 6, 23, 0.08), rgba(2, 6, 23, 0.28)),
-    radial-gradient(circle at 24% 20%, rgba(255, 255, 255, 0.08), transparent 28%);
+    linear-gradient(180deg, rgba(0, 3, 18, 0.04), rgba(0, 3, 18, 0.38)),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.10), transparent 28%);
 }
 
 .showcase-copy {
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 .showcase-title {
   margin: 0;
-  color: #f8fbff;
-  font-size: 1.08rem;
-  font-weight: 800;
-  line-height: 1.32;
+  color: var(--text-primary);
+  font-size: 1.12rem;
+  font-weight: 850;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
 }
 
 .showcase-summary {
-  margin: 0.45rem 0 0;
-  color: rgba(226, 232, 240, 0.84);
+  margin: 0.4rem 0 0;
+  color: color-mix(in srgb, var(--text-secondary) 90%, white 10%);
   font-size: 0.9rem;
-  line-height: 1.6;
+  line-height: 1.72;
+}
+
+.showcase-insight-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.95rem;
+}
+
+.showcase-insight-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.34rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .showcase-footer {
-  margin-top: 0.7rem;
+  margin-top: auto;
+  padding-top: 1rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2649,763 +2613,708 @@ onBeforeUnmount(() => {
 .showcase-dots {
   display: flex;
   align-items: center;
-  gap: 0.46rem;
+  gap: 0.42rem;
 }
 
 .showcase-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border: none;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.20);
   cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease,
-    width 0.2s ease;
+  transition: background var(--t-fast), width var(--t-base), box-shadow var(--t-fast), transform var(--t-fast);
+}
+
+.showcase-dot:hover {
+  transform: translateY(-1px) scale(1.08);
 }
 
 .showcase-dot.active {
   width: 22px;
-  background: #93c5fd;
+  background: linear-gradient(90deg, #60a5fa, #7c3aed);
+  box-shadow: 0 0 14px rgba(96, 165, 250, 0.45);
 }
 
 .showcase-link-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
-  min-height: 38px;
-  padding: 0.52rem 0.9rem;
+  gap: 0.52rem;
+  min-height: 40px;
+  padding: 0.5rem 0.96rem;
   border-radius: 999px;
-  border: 1px solid rgba(147, 197, 253, 0.2);
-  background: rgba(59, 130, 246, 0.14);
-  color: #eff6ff;
+  border: 1px solid rgba(96, 165, 250, 0.26);
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.16), rgba(37, 99, 235, 0.08));
+  color: #d6ebff;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 0.84rem;
+  overflow: hidden;
+  transition: transform var(--t-fast), background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.showcase-link-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 18%, rgba(255, 255, 255, 0.16) 50%, transparent 82%);
+  transform: translateX(-110%);
+  transition: transform 0.8s ease;
+}
+
+.showcase-link-btn:hover::before {
+  transform: translateX(110%);
+}
+
+.showcase-link-btn:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(145deg, rgba(59, 130, 246, 0.24), rgba(37, 99, 235, 0.12));
+  border-color: rgba(125, 211, 252, 0.42);
+  box-shadow: 0 14px 30px rgba(37, 99, 235, 0.18);
 }
 
 .showcase-fade-enter-active,
 .showcase-fade-leave-active {
-  transition: opacity 0.32s ease, transform 0.32s ease;
+  transition: opacity 0.34s ease, transform 0.34s ease;
 }
 
 .showcase-fade-enter-from,
 .showcase-fade-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(10px) scale(0.99);
 }
 
-.hero-bottom-metrics {
-  position: relative;
-  z-index: 1;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+@keyframes showcaseBorderSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-.hero-metric {
-  padding: 0.92rem 1rem;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+@keyframes showcaseImageSheen {
+  0%, 72%, 100% { transform: translateX(0) skewX(-16deg); opacity: 0; }
+  10%, 42% { opacity: 1; }
+  50% { transform: translateX(240%) skewX(-16deg); opacity: 0; }
 }
 
-.hero-metric-label {
-  display: block;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: rgba(191, 219, 254, 0.72);
+@keyframes heroSheen {
+  0%, 100% { transform: translateX(0) skewX(-18deg); opacity: 0; }
+  14%, 34% { opacity: 1; }
+  46% { transform: translateX(260%) skewX(-18deg); opacity: 0; }
 }
 
-.hero-metric-value {
-  display: block;
-  margin-top: 0.36rem;
-  color: #f8fbff;
-  font-size: 1rem;
-  font-weight: 800;
-}
-
-.dashboard-alert {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.95rem 1rem;
-  margin-bottom: 1.25rem;
-  border-radius: 18px;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.16);
-  color: #fde68a;
-  box-shadow: var(--dashboard-shadow-soft);
-}
-
+/* ──────────────────────────────────────────────────────────────
+   § 10  SUMMARY CARDS  (vivid neon top-border differentiates each)
+   ────────────────────────────────────────────────────────────── */
 .summary-card {
   position: relative;
   overflow: hidden;
-  min-height: 182px;
-  padding: 1.2rem 1.2rem 1.15rem;
-  border-radius: 26px;
-  border: 1px solid var(--dashboard-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)),
-    rgba(11, 19, 36, 0.5);
-  box-shadow: var(--dashboard-shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  transition:
-    transform 0.24s ease,
-    border-color 0.24s ease,
-    box-shadow 0.24s ease;
+  min-height: 170px;
+  padding: 1.25rem 1.2rem 1.1rem;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(160deg, rgba(8, 16, 36, 0.90), rgba(10, 16, 30, 0.76));
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
 }
 
-.summary-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--dashboard-border-strong);
-  box-shadow: 0 28px 56px rgba(2, 6, 23, 0.38);
+.summary-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2.5px;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
 }
 
 .summary-card::after {
   content: '';
   position: absolute;
-  width: 170px;
-  height: 170px;
-  right: -42px;
-  top: -34px;
+  right: -24px; top: -28px;
+  width: 130px; height: 130px;
   border-radius: 999px;
-  opacity: 0.24;
+  opacity: 0.32;
   pointer-events: none;
 }
 
-.accent-blue::after {
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.85), transparent 70%);
-}
+.summary-card:hover { transform: translateY(-7px) scale(1.014); box-shadow: var(--shadow-lg); }
+.summary-card:hover .summary-icon-wrap { transform: translateY(-4px) rotate(-8deg); }
 
-.accent-violet::after {
-  background: radial-gradient(circle, rgba(139, 92, 246, 0.8), transparent 70%);
-}
+.accent-blue::before  { background: linear-gradient(90deg, transparent, #60a5fa, #38bdf8, transparent); }
+.accent-blue::after   { background: radial-gradient(circle, rgba(96, 165, 250, 0.9), transparent 70%); }
+.accent-blue:hover    { border-color: rgba(96, 165, 250, 0.26); }
+.accent-blue .summary-icon-wrap { color: #93c5fd; }
 
-.accent-teal::after {
-  background: radial-gradient(circle, rgba(20, 184, 166, 0.82), transparent 70%);
-}
+.accent-violet::before { background: linear-gradient(90deg, transparent, #a78bfa, #c084fc, transparent); }
+.accent-violet::after  { background: radial-gradient(circle, rgba(167, 139, 250, 0.88), transparent 70%); }
+.accent-violet:hover   { border-color: rgba(167, 139, 250, 0.26); }
+.accent-violet .summary-icon-wrap { color: #c4b5fd; }
 
-.accent-amber::after {
-  background: radial-gradient(circle, rgba(245, 158, 11, 0.78), transparent 70%);
-}
+.accent-teal::before { background: linear-gradient(90deg, transparent, #2dd4bf, #5eead4, transparent); }
+.accent-teal::after  { background: radial-gradient(circle, rgba(45, 212, 191, 0.9), transparent 70%); }
+.accent-teal:hover   { border-color: rgba(45, 212, 191, 0.26); }
+.accent-teal .summary-icon-wrap { color: #5eead4; }
 
-.accent-rose::after {
-  background: radial-gradient(circle, rgba(244, 63, 94, 0.76), transparent 70%);
-}
+.accent-amber::before { background: linear-gradient(90deg, transparent, #fbbf24, #fcd34d, transparent); }
+.accent-amber::after  { background: radial-gradient(circle, rgba(251, 191, 36, 0.88), transparent 70%); }
+.accent-amber:hover   { border-color: rgba(251, 191, 36, 0.26); }
+.accent-amber .summary-icon-wrap { color: #fcd34d; }
 
-.summary-card-top {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-}
+.accent-rose::before { background: linear-gradient(90deg, transparent, #f87171, #fb7185, transparent); }
+.accent-rose::after  { background: radial-gradient(circle, rgba(248, 113, 113, 0.86), transparent 70%); }
+.accent-rose:hover   { border-color: rgba(248, 113, 113, 0.26); }
+.accent-rose .summary-icon-wrap { color: #fca5a5; }
+
+.summary-card-top { display: flex; align-items: center; gap: 0.8rem; }
 
 .summary-icon-wrap {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
+  width: 46px; height: 46px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #f8fbff;
   background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  font-size: 0.96rem;
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-fast);
 }
 
-.summary-label {
-  color: rgba(226, 232, 240, 0.86);
-  font-size: 0.93rem;
-  font-weight: 700;
-}
+.summary-label   { color: var(--text-secondary); font-size: 0.91rem; font-weight: 700; }
+.summary-card-value { margin-top: 1rem; font-size: clamp(2rem, 3vw, 2.5rem); line-height: 1; font-weight: 800; color: var(--text-primary); letter-spacing: -0.05em; }
+.summary-card-subtext { margin-top: 0.65rem; max-width: 26ch; color: var(--text-muted); font-size: 0.87rem; line-height: 1.55; }
 
-.summary-card-value {
-  margin-top: 1.04rem;
-  font-size: clamp(2rem, 3vw, 2.65rem);
-  line-height: 1;
-  font-weight: 800;
-  color: #f8fbff;
-  letter-spacing: -0.05em;
-}
-
-.summary-card-subtext {
-  margin-top: 0.72rem;
-  max-width: 28ch;
-  color: rgba(203, 213, 225, 0.78);
-  font-size: 0.92rem;
-  line-height: 1.6;
-}
-
+/* ──────────────────────────────────────────────────────────────
+   § 11  SURFACE CARDS  (generic feature card base)
+   ────────────────────────────────────────────────────────────── */
 .surface-card {
-  border-radius: 28px;
-  padding: 1.18rem;
-  border: 1px solid var(--dashboard-border);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
-    var(--dashboard-surface);
-  box-shadow: var(--dashboard-shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(160deg, rgba(8, 16, 36, 0.86), rgba(10, 16, 30, 0.72));
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
-.feature-card {
-  min-height: 100%;
-}
+.feature-card { min-height: 100%; }
 
-.surface-card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
+.surface-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.1rem; }
 
+/* HUD-style kicker: animated dot + label */
 .surface-kicker {
-  margin: 0 0 0.25rem;
-  font-size: 0.76rem;
-  font-weight: 700;
+  margin: 0 0 0.22rem;
+  font-size: 0.72rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: rgba(157, 195, 255, 0.9);
+  letter-spacing: 0.10em;
+  color: #60a5fa;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
 }
 
-.surface-card-title {
-  margin: 0;
-  color: #f8fbff;
-  font-size: 1.16rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+.surface-kicker::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #60a5fa;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.85);
+  flex-shrink: 0;
+  animation: hud-pulse 2.2s ease-in-out infinite;
 }
+
+@keyframes hud-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(96, 165, 250, 0.85); }
+  50%       { opacity: 0.52; box-shadow: 0 0 4px rgba(96, 165, 250, 0.38); }
+}
+
+.surface-card-title { margin: 0; color: var(--text-primary); font-size: 1.12rem; font-weight: 800; letter-spacing: -0.02em; }
 
 .surface-link {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0.42rem 0.82rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--dashboard-link);
-  border: 1px solid rgba(143, 186, 255, 0.12);
+  min-height: 34px;
+  padding: 0.36rem 0.78rem;
+  border-radius: var(--radius-chip);
+  background: rgba(255, 255, 255, 0.04);
+  color: #7ec8ff;
+  border: 1px solid rgba(96, 165, 250, 0.16);
   text-decoration: none;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  transition:
-    transform 0.22s ease,
-    border-color 0.22s ease,
-    background 0.22s ease;
+  transition: transform var(--t-fast), border-color var(--t-fast), background var(--t-fast);
 }
 
-.surface-link:hover {
-  transform: translateY(-1px);
-  border-color: rgba(168, 200, 255, 0.22);
-  background: rgba(255, 255, 255, 0.07);
+.surface-link:hover { transform: translateY(-1px); border-color: rgba(96, 165, 250, 0.32); background: rgba(96, 165, 250, 0.09); }
+
+/* ──────────────────────────────────────────────────────────────
+   § 12  ACTION CENTER  (cyberpunk terminal aesthetic)
+   ────────────────────────────────────────────────────────────── */
+.action-card { border-color: rgba(45, 212, 191, 0.16); }
+
+/* Subtle scanline overlay */
+.action-card::before {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none; z-index: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent, transparent 3px,
+    rgba(45, 212, 191, 0.014) 3px,
+    rgba(45, 212, 191, 0.014) 4px
+  );
 }
 
-.action-center-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.82rem;
-}
+.action-center-list { display: flex; flex-direction: column; gap: 0.72rem; position: relative; z-index: 1; }
 
 .action-center-item {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
   text-align: left;
-  padding: 1rem;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.028)),
-    rgba(255, 255, 255, 0.02);
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
   color: inherit;
   cursor: pointer;
-  transition:
-    transform 0.22s ease,
-    border-color 0.22s ease,
-    box-shadow 0.22s ease;
+  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
 }
 
-.action-center-item:hover {
-  transform: translateY(-2px);
-  border-color: rgba(143, 186, 255, 0.2);
-  box-shadow: var(--dashboard-shadow-soft);
+/* Left neon bar on hover */
+.action-center-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 14px; bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #2dd4bf, #38bdf8);
+  opacity: 0;
+  transform: scaleY(0.3);
+  transition: opacity var(--t-fast), transform var(--t-base) var(--ease-out);
 }
 
-.action-center-content {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
+.action-center-item:nth-child(2)::before { background: linear-gradient(180deg, #60a5fa, #818cf8); }
+.action-center-item:nth-child(3)::before { background: linear-gradient(180deg, #a78bfa, #f472b6); }
 
-.action-center-main {
-  color: #f8fbff;
-  font-weight: 800;
-  font-size: 0.98rem;
-}
+.action-center-item:hover { transform: translateX(6px) translateY(-2px); border-color: rgba(45, 212, 191, 0.24); background: rgba(45, 212, 191, 0.06); box-shadow: var(--shadow-sm); }
+.action-center-item:nth-child(2):hover { border-color: rgba(96, 165, 250, 0.24);  background: rgba(96, 165, 250, 0.06); }
+.action-center-item:nth-child(3):hover { border-color: rgba(167, 139, 250, 0.24); background: rgba(167, 139, 250, 0.06); }
+.action-center-item:hover::before { opacity: 1; transform: scaleY(1); }
 
-.action-center-helper {
-  margin-top: 0.3rem;
-  color: rgba(203, 213, 225, 0.74);
-  font-size: 0.91rem;
-  line-height: 1.5;
-}
+.action-center-content { min-width: 0; display: flex; flex-direction: column; }
+.action-center-main    { color: var(--text-primary); font-weight: 800; font-size: 0.96rem; }
+.action-center-helper  { margin-top: 0.25rem; color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5; }
 
 .action-center-arrow {
-  width: 38px;
-  height: 38px;
+  width: 36px; height: 36px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  background: rgba(59, 130, 246, 0.14);
-  color: #dbeafe;
+  border-radius: 12px;
+  background: rgba(45, 212, 191, 0.12);
+  color: #5eead4;
+  border: 1px solid rgba(45, 212, 191, 0.20);
+  transition: transform var(--t-fast), background var(--t-fast);
 }
 
-.progress-layout {
-  display: flex;
-  gap: 1.1rem;
-  align-items: center;
-  flex-wrap: wrap;
+.action-center-item:hover .action-center-arrow { transform: translateX(3px); background: rgba(45, 212, 191, 0.22); }
+
+/* ──────────────────────────────────────────────────────────────
+   § 13  PROGRESS CARD  (orbital ring display)
+   ────────────────────────────────────────────────────────────── */
+.progress-card { border-color: rgba(167, 139, 250, 0.16); }
+
+.progress-card::after {
+  content: '';
+  position: absolute;
+  bottom: -20%; right: -10%;
+  width: 38%; aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(103, 232, 249, 0.10), transparent 70%);
+  pointer-events: none;
+  filter: blur(16px);
 }
 
-.progress-ring-shell {
-  flex: 0 0 156px;
-  display: flex;
-  justify-content: center;
-}
+.progress-layout { display: flex; gap: 1.1rem; align-items: center; flex-wrap: wrap; }
+
+.progress-ring-shell { flex: 0 0 148px; display: flex; justify-content: center; position: relative; isolation: isolate; }
 
 .progress-ring {
-  width: 136px;
-  height: 136px;
+  position: relative;
+  width: 130px; height: 130px;
   border-radius: 999px;
-  padding: 11px;
+  padding: 10px;
+  box-shadow: 0 24px 52px rgba(0, 3, 18, 0.40), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  transition: transform var(--t-slow) var(--ease-out), box-shadow var(--t-base);
+}
+
+/* Radial halo — breathing */
+.progress-ring::before {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.16), rgba(167, 139, 250, 0.12) 52%, transparent 74%);
+  z-index: -1;
+  animation: halo-breath 6s ease-in-out infinite;
+}
+
+/* Orbiting arc */
+.progress-ring::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg, transparent 30deg,
+    rgba(96, 165, 250, 0.85) 46deg,
+    rgba(45, 212, 191, 0.70) 80deg,
+    transparent 118deg, transparent 360deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 58%, black 64%, black 73%, transparent 78%);
+  mask: radial-gradient(circle, transparent 58%, black 64%, black 73%, transparent 78%);
+  animation: orbit-spin 6s linear infinite;
+  opacity: 0.82;
 }
 
 .progress-ring-inner {
-  width: 100%;
-  height: 100%;
+  width: 100%; height: 100%;
   border-radius: 999px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background:
-    linear-gradient(180deg, rgba(8, 15, 30, 0.95), rgba(7, 12, 24, 0.95));
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(7, 14, 30, 0.97), rgba(6, 12, 24, 0.97));
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.progress-value {
-  font-size: 1.95rem;
-  font-weight: 800;
-  color: #f8fbff;
-  letter-spacing: -0.04em;
-}
+.progress-card:hover .progress-ring { transform: scale(1.06); box-shadow: 0 32px 64px rgba(0, 3, 18, 0.46), 0 0 38px rgba(96, 165, 250, 0.12); }
 
-.progress-label {
-  margin-top: 0.18rem;
-  color: rgba(203, 213, 225, 0.76);
-  font-size: 0.82rem;
-  font-weight: 700;
-}
+.progress-value { font-size: 1.85rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.04em; }
+.progress-label { margin-top: 0.14rem; color: var(--text-muted); font-size: 0.78rem; font-weight: 700; }
 
-.progress-details {
-  flex: 1;
-  min-width: 230px;
-}
+.progress-details { flex: 1; min-width: 220px; }
 
 .progress-detail-row {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.42rem 0;
-  color: rgba(226, 232, 240, 0.82);
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+  padding: 0.70rem 0.82rem;
+  border-radius: 12px;
+  color: var(--text-secondary);
+  transition: transform var(--t-fast), background var(--t-fast);
 }
 
-.progress-detail-row:last-of-type {
-  border-bottom: none;
-}
+.progress-detail-row:hover { transform: translateX(4px); background: rgba(255, 255, 255, 0.04); }
+.progress-detail-row strong { color: var(--text-primary); font-weight: 800; }
 
-.progress-detail-row strong {
-  color: #f8fbff;
-}
-
-.progress-bar-shell {
-  margin-top: 1rem;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.14);
-  overflow: hidden;
-}
+.progress-bar-shell { margin-top: 0.9rem; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: visible; }
 
 .progress-bar-fill {
+  position: relative;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #67e8f9);
-  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.32);
+  background: linear-gradient(90deg, #38bdf8 0%, #2dd4bf 36%, #818cf8 74%, #f472b6 100%);
+  box-shadow: 0 0 16px rgba(96, 165, 250, 0.32);
 }
 
+/* Glowing end-dot */
+.progress-bar-fill::after {
+  content: '';
+  position: absolute;
+  right: -7px; top: 50%;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: radial-gradient(circle, white, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 0 12px rgba(103, 232, 249, 0.65), 0 0 4px rgba(255, 255, 255, 0.85);
+}
+
+@keyframes orbit-spin  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes halo-breath { 0%, 100% { transform: scale(0.95); opacity: 0.70; } 50% { transform: scale(1.07); opacity: 1; } }
+
+/* ──────────────────────────────────────────────────────────────
+   § 14  EVENTS CARD  (calendar badge style)
+   ────────────────────────────────────────────────────────────── */
 .event-detail-card {
   display: flex;
   gap: 1rem;
   align-items: stretch;
+  padding: 0.88rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .event-date-badge {
-  flex: 0 0 92px;
-  min-height: 112px;
-  border-radius: 22px;
-  padding: 0.95rem 0.85rem;
-  background:
-    linear-gradient(180deg, rgba(59, 130, 246, 0.22), rgba(59, 130, 246, 0.08)),
-    rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(96, 165, 250, 0.14);
+  flex: 0 0 82px;
+  min-height: 96px;
+  border-radius: 16px;
+  padding: 0.82rem 0.72rem;
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.24), rgba(45, 212, 191, 0.12));
+  border: 1px solid rgba(56, 189, 248, 0.26);
   display: flex;
   flex-direction: column;
   justify-content: center;
   text-align: center;
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.14);
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-fast);
 }
 
-.event-date-day {
-  color: #f8fbff;
-  font-size: 1.5rem;
-  font-weight: 800;
-  line-height: 1;
-}
+.event-detail-card:hover .event-date-badge { transform: rotate(-4deg) translateY(-4px); box-shadow: 0 0 34px rgba(56, 189, 248, 0.24); }
 
-.event-date-rest {
-  margin-top: 0.42rem;
-  color: rgba(219, 234, 254, 0.78);
-  font-size: 0.85rem;
-  line-height: 1.3;
-}
+.event-date-day  { color: #f0f8ff; font-size: 1.5rem; font-weight: 800; line-height: 1; }
+.event-date-rest { margin-top: 0.34rem; color: rgba(186, 230, 255, 0.88); font-size: 0.80rem; line-height: 1.3; }
 
-.event-content {
-  flex: 1;
-  min-width: 0;
-}
+.event-content { flex: 1; min-width: 0; transition: transform var(--t-base); }
+.event-detail-card:hover .event-content { transform: translateX(3px); }
 
-.event-title {
-  font-size: 1.16rem;
-  font-weight: 800;
-  color: #f8fbff;
-}
+.event-title { font-size: 1.08rem; font-weight: 800; color: var(--text-primary); }
 
-.event-meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-top: 0.72rem;
-  color: rgba(226, 232, 240, 0.8);
-  font-size: 0.93rem;
-}
-
-.event-meta-row span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.location-row {
-  margin-top: 0.55rem;
-}
-
-.event-actions {
-  margin-top: 1rem;
-}
+.event-meta-row { display: flex; flex-wrap: wrap; gap: 0.88rem; margin-top: 0.62rem; color: var(--text-secondary); font-size: 0.90rem; }
+.event-meta-row span { display: inline-flex; align-items: center; gap: 0.42rem; }
+.location-row { margin-top: 0.42rem; }
+.event-actions { margin-top: 0.82rem; }
 
 .primary-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
-  padding: 0.56rem 0.95rem;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #2563eb, #60a5fa);
-  color: #f8fbff;
+  min-height: 38px;
+  padding: 0.48rem 0.9rem;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.24), rgba(45, 212, 191, 0.16));
+  color: #bfdbfe;
   text-decoration: none;
   font-size: 0.84rem;
   font-weight: 700;
-  box-shadow: 0 14px 24px rgba(37, 99, 235, 0.24);
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
 }
 
-.list-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.84rem;
+.primary-chip:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.34), rgba(45, 212, 191, 0.26));
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.22);
 }
 
-.list-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.9rem;
-  text-decoration: none;
-  color: inherit;
-}
+/* ──────────────────────────────────────────────────────────────
+   § 15  LISTS  (announcements, checklist)
+   ────────────────────────────────────────────────────────────── */
+.list-stack { display: flex; flex-direction: column; gap: 0.70rem; }
+
+.list-row { display: flex; align-items: flex-start; gap: 0.82rem; text-decoration: none; color: inherit; }
 
 .premium-row {
-  padding: 0.95rem 1rem;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
-    rgba(255, 255, 255, 0.016);
-  transition:
-    transform 0.22s ease,
-    border-color 0.22s ease,
-    box-shadow 0.22s ease;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), background var(--t-fast);
 }
 
-.premium-row:hover {
-  transform: translateY(-2px);
-  border-color: rgba(143, 186, 255, 0.18);
-  box-shadow: var(--dashboard-shadow-soft);
-}
+.premium-row:hover { transform: translateX(5px); border-color: rgba(251, 191, 36, 0.22); background: rgba(251, 191, 36, 0.05); }
+.checklist-row:hover { border-color: rgba(45, 212, 191, 0.22); background: rgba(45, 212, 191, 0.05); }
 
 .list-row-icon {
-  width: 42px;
-  height: 42px;
+  width: 40px; height: 40px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
-  font-size: 0.96rem;
+  border-radius: 12px;
+  font-size: 0.90rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
 }
 
-.announcement-icon {
-  background: rgba(244, 63, 94, 0.14);
-  color: #fecdd3;
-}
+.announcement-icon { background: rgba(251, 191, 36, 0.12); color: #fcd34d; }
+.checklist-icon    { background: rgba(45, 212, 191, 0.12); color: #5eead4; }
 
-.checklist-icon {
-  background: rgba(59, 130, 246, 0.14);
-  color: #bfdbfe;
-}
+.premium-row:hover .announcement-icon { transform: scale(1.08) rotate(-8deg); box-shadow: 0 10px 22px rgba(251, 191, 36, 0.22); }
+.checklist-row:hover .checklist-icon  { transform: scale(1.08); box-shadow: 0 10px 22px rgba(45, 212, 191, 0.22); }
 
-.list-row-content {
-  min-width: 0;
-  flex: 1;
-}
+.list-row-content { min-width: 0; flex: 1; }
+.list-row-title       { color: var(--text-primary); font-weight: 800; line-height: 1.45; }
+.list-row-meta        { margin-top: 0.14rem; color: var(--text-muted); font-size: 0.84rem; }
+.list-row-description { margin-top: 0.24rem; color: var(--text-secondary); font-size: 0.87rem; line-height: 1.55; }
+.list-row-tail        { color: var(--text-muted); padding-top: 0.18rem; transition: transform var(--t-fast), color var(--t-fast); }
+.premium-row:hover .list-row-tail { transform: translateX(3px); color: var(--text-secondary); }
 
-.list-row-title {
-  color: #f8fbff;
-  font-weight: 800;
-  line-height: 1.45;
-}
-
-.list-row-meta {
-  margin-top: 0.18rem;
-  color: rgba(191, 219, 254, 0.74);
-  font-size: 0.88rem;
-}
-
-.list-row-description {
-  margin-top: 0.3rem;
-  color: rgba(203, 213, 225, 0.78);
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-.list-row-tail {
-  color: rgba(203, 213, 225, 0.52);
-  padding-top: 0.2rem;
-}
-
-.groups-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-}
+/* ──────────────────────────────────────────────────────────────
+   § 16  GROUPS GRID  (identity cards — distinct per card)
+   ────────────────────────────────────────────────────────────── */
+.groups-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.1rem; }
 
 .group-card-link,
-.resource-card-link {
-  display: block;
-  text-decoration: none;
-  color: inherit;
-}
+.resource-card-link { display: block; text-decoration: none; color: inherit; }
 
 .group-card-surface {
+  position: relative;
+  overflow: hidden;
   height: 100%;
-  padding: 1rem 1rem 1.02rem;
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
-    rgba(255, 255, 255, 0.02);
-  transition:
-    transform 0.22s ease,
-    border-color 0.22s ease,
-    box-shadow 0.22s ease;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: transform var(--t-slow) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
 }
 
-.group-card-surface:hover {
-  transform: translateY(-3px);
-  border-color: rgba(143, 186, 255, 0.18);
-  box-shadow: var(--dashboard-shadow-soft);
+.group-card-link:nth-child(1) .group-card-surface { background: linear-gradient(150deg, rgba(29, 78, 216, 0.28), rgba(7, 13, 28, 0.84) 50%); border-color: rgba(96, 165, 250, 0.18); }
+.group-card-link:nth-child(2) .group-card-surface { background: linear-gradient(150deg, rgba(91, 33, 182, 0.28), rgba(7, 13, 28, 0.84) 50%); border-color: rgba(167, 139, 250, 0.18); }
+.group-card-link:nth-child(3) .group-card-surface { background: linear-gradient(150deg, rgba(13, 148, 136, 0.28), rgba(7, 13, 28, 0.84) 50%); border-color: rgba(45, 212, 191, 0.18); }
+.group-card-link:nth-child(4) .group-card-surface { background: linear-gradient(150deg, rgba(234, 88, 12, 0.26), rgba(7, 13, 28, 0.84) 50%); border-color: rgba(251, 146, 60, 0.18); }
+
+/* Bottom shine sweep */
+.group-card-surface::after {
+  content: '';
+  position: absolute;
+  inset: auto 16px 14px;
+  height: 2px; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  transform: scaleX(0.26); transform-origin: center;
+  opacity: 0;
+  transition: opacity var(--t-fast), transform var(--t-base) var(--ease-out);
 }
 
-.group-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-}
+.group-card-link:hover .group-card-surface { transform: translateY(-10px) rotateX(2deg) rotateY(-2deg); box-shadow: 0 28px 60px rgba(0, 3, 18, 0.38); }
+.group-card-link:hover .group-card-surface::after { opacity: 1; transform: scaleX(1); }
 
-.group-avatars {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
+.group-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.72rem; }
+.group-avatars  { display: flex; align-items: center; flex-shrink: 0; }
 
 .group-avatar {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 999px;
+  width: 2.35rem; height: 2.35rem;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid rgba(7, 12, 24, 0.8);
-  margin-left: -0.35rem;
-  font-size: 0.78rem;
-  font-weight: 800;
+  border: 2px solid rgba(7, 13, 28, 0.82);
+  margin-left: -0.30rem;
+  font-size: 0.74rem; font-weight: 800;
+  box-shadow: 0 8px 20px rgba(0, 3, 18, 0.26);
+  transition: transform var(--t-base) var(--ease-out);
 }
 
-.group-avatar:first-child {
-  margin-left: 0;
-}
+.group-avatar:first-child { margin-left: 0; }
 
-.primary-avatar {
-  color: #dbeafe;
-  background: linear-gradient(135deg, #2563eb, #60a5fa);
-}
+.group-card-link:nth-child(1) .primary-avatar { background: linear-gradient(135deg, #60a5fa, #22d3ee); color: #0c4a6e; }
+.group-card-link:nth-child(2) .primary-avatar { background: linear-gradient(135deg, #a78bfa, #f472b6); color: #2e1065; }
+.group-card-link:nth-child(3) .primary-avatar { background: linear-gradient(135deg, #34d399, #38bdf8); color: #064e3b; }
+.group-card-link:nth-child(4) .primary-avatar { background: linear-gradient(135deg, #fb923c, #facc15); color: #431407; }
 
-.secondary-avatar {
-  color: #d1fae5;
-  background: linear-gradient(135deg, #0f766e, #14b8a6);
-}
+.secondary-avatar { background: linear-gradient(135deg, #0f766e, #14b8a6); color: #ccfbf1; }
+.tertiary-avatar  { background: linear-gradient(135deg, #7c3aed, #a78bfa); color: #ede9fe; }
 
-.tertiary-avatar {
-  color: #fef3c7;
-  background: linear-gradient(135deg, #b45309, #f59e0b);
-}
+.group-card-link:hover .primary-avatar   { transform: translateX(-8px) translateY(-2px) scale(1.08); }
+.group-card-link:hover .secondary-avatar { transform: translateX(2px) translateY(3px); }
+.group-card-link:hover .tertiary-avatar  { transform: translateX(10px) translateY(-2px); }
 
 .group-open-indicator {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 32px; height: 32px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #dbeafe;
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(255, 255, 255, 0.07);
+  color: #7ec8ff;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  transition: transform var(--t-fast);
 }
 
-.group-name {
-  margin-top: 0.95rem;
-  color: #f8fbff;
-  font-size: 1rem;
-  font-weight: 800;
-}
+.group-card-link:hover .group-open-indicator { transform: translateY(-2px) scale(1.08); }
 
-.group-meta {
-  margin-top: 0.3rem;
-  color: rgba(203, 213, 225, 0.78);
-  font-size: 0.9rem;
-  line-height: 1.55;
-}
+.group-name { margin-top: 0.9rem; color: var(--text-primary); font-size: 0.98rem; font-weight: 800; }
+.group-meta { margin-top: 0.26rem; color: var(--text-secondary); font-size: 0.86rem; line-height: 1.5; }
 
-.resource-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem;
-}
+/* ──────────────────────────────────────────────────────────────
+   § 17  RESOURCES GRID  (color-coded left accent bar)
+   ────────────────────────────────────────────────────────────── */
+.resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.88rem; }
 
 .resource-card-surface {
+  position: relative;
+  overflow: hidden;
   height: 100%;
   display: flex;
   align-items: flex-start;
-  gap: 0.9rem;
+  gap: 0.85rem;
   padding: 1rem;
-  border-radius: 22px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
-    rgba(255, 255, 255, 0.02);
-  transition:
-    transform 0.22s ease,
-    border-color 0.22s ease,
-    box-shadow 0.22s ease;
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
 }
 
-.resource-card-surface:hover {
-  transform: translateY(-2px);
-  border-color: rgba(143, 186, 255, 0.18);
-  box-shadow: var(--dashboard-shadow-soft);
+/* Left accent bar */
+.resource-card-surface::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 4px; border-radius: 0 3px 3px 0;
+  opacity: 0.72;
+  transition: width var(--t-fast), opacity var(--t-fast);
 }
+
+.resource-card-link:nth-child(1) .resource-card-surface { background: linear-gradient(155deg, rgba(59, 130, 246, 0.16), rgba(7, 13, 28, 0.80) 50%); border-color: rgba(96, 165, 250, 0.16); }
+.resource-card-link:nth-child(1) .resource-card-surface::before { background: #60a5fa; }
+.resource-card-link:nth-child(2) .resource-card-surface { background: linear-gradient(155deg, rgba(168, 85, 247, 0.16), rgba(7, 13, 28, 0.80) 50%); border-color: rgba(167, 139, 250, 0.16); }
+.resource-card-link:nth-child(2) .resource-card-surface::before { background: #a78bfa; }
+.resource-card-link:nth-child(3) .resource-card-surface { background: linear-gradient(155deg, rgba(45, 212, 191, 0.16), rgba(7, 13, 28, 0.80) 50%); border-color: rgba(45, 212, 191, 0.16); }
+.resource-card-link:nth-child(3) .resource-card-surface::before { background: #2dd4bf; }
+.resource-card-link:nth-child(4) .resource-card-surface { background: linear-gradient(155deg, rgba(244, 114, 182, 0.16), rgba(7, 13, 28, 0.80) 50%); border-color: rgba(244, 114, 182, 0.16); }
+.resource-card-link:nth-child(4) .resource-card-surface::before { background: #f472b6; }
+.resource-card-link:nth-child(5) .resource-card-surface { background: linear-gradient(155deg, rgba(251, 191, 36, 0.16), rgba(7, 13, 28, 0.80) 50%); border-color: rgba(251, 191, 36, 0.16); }
+.resource-card-link:nth-child(5) .resource-card-surface::before { background: #fbbf24; }
+.resource-card-link:nth-child(6) .resource-card-surface { background: linear-gradient(155deg, rgba(16, 185, 129, 0.16), rgba(7, 13, 28, 0.80) 50%); border-color: rgba(52, 211, 153, 0.16); }
+.resource-card-link:nth-child(6) .resource-card-surface::before { background: #34d399; }
+
+.resource-card-link:hover .resource-card-surface { transform: translateY(-6px) rotateZ(-0.4deg); box-shadow: 0 24px 52px rgba(0, 3, 18, 0.34); }
+.resource-card-link:hover .resource-card-surface::before { width: 7px; opacity: 1; }
 
 .resource-icon {
-  width: 46px;
-  height: 46px;
-  flex-shrink: 0;
-  border-radius: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(59, 130, 246, 0.12);
-  color: #dbeafe;
-  border: 1px solid rgba(96, 165, 250, 0.12);
+  width: 44px; height: 44px;
+  flex-shrink: 0; border-radius: 13px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.07);
+  color: #93c5fd;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-fast);
 }
 
-.resource-content {
-  min-width: 0;
-}
+.resource-card-link:hover .resource-icon { transform: translateY(-3px) rotate(8deg); box-shadow: 0 14px 28px rgba(96, 165, 250, 0.22); }
 
-.resource-title {
-  color: #f8fbff;
-  font-weight: 800;
-  line-height: 1.45;
-}
+.resource-content { min-width: 0; }
+.resource-title { color: var(--text-primary); font-weight: 800; line-height: 1.45; }
+.resource-meta  { margin-top: 0.22rem; color: var(--text-secondary); font-size: 0.84rem; line-height: 1.5; }
 
-.resource-meta {
-  margin-top: 0.28rem;
-  color: rgba(203, 213, 225, 0.76);
-  font-size: 0.88rem;
-  line-height: 1.55;
-}
+/* ──────────────────────────────────────────────────────────────
+   § 18  TIMELINE  (sci-fi roadmap with connecting line)
+   ────────────────────────────────────────────────────────────── */
+.timeline-list { display: flex; flex-direction: column; gap: 0; position: relative; }
 
-.empty-state {
-  min-height: 160px;
-  border-radius: 22px;
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.02);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.7rem;
-  flex-direction: column;
-  color: rgba(203, 213, 225, 0.78);
-  text-align: center;
-}
-
-.empty-state i {
-  font-size: 1.3rem;
-  color: rgba(191, 219, 254, 0.72);
-}
-
-.timeline-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.88rem;
+/* Vertical neon connecting line */
+.timeline-list::before {
+  content: '';
+  position: absolute;
+  left: 55px; top: 28px; bottom: 28px;
+  width: 2px;
+  background: linear-gradient(180deg,
+    rgba(96, 165, 250, 0.0) 0%,
+    rgba(96, 165, 250, 0.44) 18%,
+    rgba(45, 212, 191, 0.42) 50%,
+    rgba(167, 139, 250, 0.44) 82%,
+    rgba(167, 139, 250, 0.0) 100%
+  );
+  border-radius: 999px;
 }
 
 .timeline-item {
@@ -3414,220 +3323,532 @@ onBeforeUnmount(() => {
   grid-template-columns: 110px minmax(0, 1fr);
   gap: 0.9rem;
   align-items: center;
-  padding: 0.9rem 1rem;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.018)),
-    rgba(255, 255, 255, 0.018);
+  padding: 0.82rem 1rem 0.82rem 0.82rem;
+  border-radius: 18px;
+  border: 1px solid transparent;
+  background: transparent;
+  margin-bottom: 0.56rem;
+  transition: transform var(--t-base) var(--ease-out), background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
 }
 
-.timeline-rail-line {
-  position: absolute;
-  left: 1.05rem;
-  top: 0.8rem;
-  bottom: 0.8rem;
-  width: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-}
+.timeline-item:hover { transform: translateX(8px); background: rgba(255, 255, 255, 0.04); border-color: rgba(96, 165, 250, 0.18); box-shadow: 0 14px 32px rgba(0, 3, 18, 0.20); }
+
+.timeline-rail-line { display: none; }
 
 .timeline-badge {
-  position: relative;
-  z-index: 1;
-  margin-left: 0.8rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  padding: 0.4rem 0.8rem;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 800;
-  background: rgba(255, 255, 255, 0.07);
-  color: #f8fbff;
+  position: relative; z-index: 1;
+  margin-left: 0.55rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 34px;
+  padding: 0.36rem 0.72rem;
+  border-radius: var(--radius-chip);
+  font-size: 0.79rem; font-weight: 800;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
 }
 
-.timeline-content {
-  min-width: 0;
+.timeline-item:hover .timeline-badge { transform: scale(1.06); }
+
+.timeline-content { min-width: 0; }
+.timeline-title   { color: var(--text-primary); font-weight: 800; }
+.timeline-status  { margin-top: 0.20rem; color: var(--text-secondary); font-size: 0.85rem; text-transform: capitalize; }
+
+.timeline-item.is-completed .timeline-badge { background: rgba(16, 185, 129, 0.18); color: #86efac; border-color: rgba(52, 211, 153, 0.26); box-shadow: 0 0 16px rgba(52, 211, 153, 0.16); }
+.timeline-item.is-current   .timeline-badge { background: rgba(59, 130, 246, 0.22); color: #93c5fd; border-color: rgba(96, 165, 250, 0.30); animation: badge-pulse 2.5s ease-in-out infinite; }
+.timeline-item.is-upcoming  .timeline-badge { background: rgba(148, 163, 184, 0.10); color: #94a3b8; border-color: rgba(148, 163, 184, 0.18); }
+
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(96, 165, 250, 0.22); }
+  50%       { box-shadow: 0 0 26px rgba(96, 165, 250, 0.46); }
 }
 
-.timeline-title {
-  color: #f8fbff;
-  font-weight: 800;
-}
-
-.timeline-status {
-  margin-top: 0.24rem;
-  color: rgba(203, 213, 225, 0.72);
-  font-size: 0.88rem;
-  text-transform: capitalize;
-}
-
-.timeline-item.is-completed .timeline-badge {
-  background: rgba(16, 185, 129, 0.16);
-  color: #d1fae5;
-}
-
-.timeline-item.is-current .timeline-badge {
-  background: rgba(59, 130, 246, 0.18);
-  color: #dbeafe;
-}
-
-.timeline-item.is-upcoming .timeline-badge {
-  background: rgba(148, 163, 184, 0.14);
-  color: #e5eefc;
+/* ──────────────────────────────────────────────────────────────
+   § 19  ALERT, LOADING, EMPTY STATE
+   ────────────────────────────────────────────────────────────── */
+.dashboard-alert {
+  display: flex; align-items: center; gap: 0.65rem;
+  padding: 0.9rem 1rem; margin-bottom: 1.25rem;
+  border-radius: 16px;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.20);
+  color: #fcd34d;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(16px);
 }
 
 .dashboard-loading {
-  position: fixed;
-  right: 1.35rem;
-  bottom: 1.35rem;
-  z-index: 20;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.78rem 1rem;
-  border-radius: 999px;
+  position: fixed; right: 1.35rem; bottom: 1.35rem; z-index: 20;
+  display: inline-flex; align-items: center; gap: 0.65rem;
+  padding: 0.72rem 1rem;
+  border-radius: var(--radius-chip);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(8, 14, 28, 0.82);
-  color: #f8fbff;
-  box-shadow: var(--dashboard-shadow);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: linear-gradient(160deg, rgba(8, 16, 38, 0.92), rgba(10, 16, 30, 0.86));
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .loading-ring {
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  border-top-color: #60a5fa;
-  animation: spin 0.9s linear infinite;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: #38bdf8;
+  border-right-color: #a78bfa;
+  border-bottom-color: #2dd4bf;
+  animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty-state {
+  min-height: 140px;
+  border-radius: 18px;
+  border: 1px dashed rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex; align-items: center; justify-content: center;
+  gap: 0.62rem; flex-direction: column;
+  color: var(--text-secondary);
+  text-align: center; padding: 1.5rem;
 }
 
+.empty-state i { font-size: 1.4rem; color: var(--text-muted); }
+
+/* ──────────────────────────────────────────────────────────────
+   § 20  INTERACTIVE SURFACE  (legacy compat stub)
+   ────────────────────────────────────────────────────────────── */
+.interactive-surface { position: relative; isolation: isolate; }
+
+/* ──────────────────────────────────────────────────────────────
+   § 21  RESPONSIVE
+   ────────────────────────────────────────────────────────────── */
 @media (max-width: 1400px) {
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .groups-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .groups-grid  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.dashboard-page-shell.is-day-mode .dashboard-hero-message {
+  color: rgba(74, 84, 100, 0.94);
+}
+
+.dashboard-page-shell.is-day-mode .dashboard-fx-canvas {
+  opacity: 0.12;
+}
+
+.dashboard-page-shell.is-day-mode .orb-one {
+  background: radial-gradient(circle, rgba(190, 154, 88, 0.24), rgba(190, 154, 88, 0.08) 52%, transparent 74%);
+}
+
+.dashboard-page-shell.is-day-mode .orb-two {
+  background: radial-gradient(circle, rgba(92, 138, 128, 0.16), rgba(92, 138, 128, 0.06) 52%, transparent 74%);
+}
+
+.dashboard-page-shell.is-day-mode .hero-meta-chip::before,
+.dashboard-page-shell.is-day-mode .showcase-card::before {
+  opacity: 0.42;
+}
+
+.dashboard-page-shell.is-day-mode .showcase-card::after {
+  background: linear-gradient(160deg, rgba(255, 248, 238, 0.94), rgba(246, 236, 216, 0.88));
+}
+
+.dashboard-page-shell.is-day-mode .showcase-controls,
+.dashboard-page-shell.is-day-mode .showcase-nav-btn,
+.dashboard-page-shell.is-day-mode .showcase-insight-pill,
+.dashboard-page-shell.is-day-mode .theme-rail-trigger,
+.dashboard-page-shell.is-day-mode .theme-rail-panel,
+.dashboard-page-shell.is-day-mode .theme-rail-item,
+.dashboard-page-shell.is-day-mode .group-open-indicator,
+.dashboard-page-shell.is-day-mode .premium-row,
+.dashboard-page-shell.is-day-mode .progress-ring-inner {
+  box-shadow: 0 10px 26px rgba(137, 109, 53, 0.10);
+}
+
+.dashboard-page-shell.is-day-mode .group-avatar {
+  border-color: rgba(250, 245, 236, 0.92);
+  box-shadow: 0 10px 24px rgba(137, 109, 53, 0.16);
+}
+
+.dashboard-page-shell.is-day-mode .status-pill:nth-child(1) { color: #8a5f1f; }
+.dashboard-page-shell.is-day-mode .status-pill:nth-child(2) { color: #1f7f70; }
+.dashboard-page-shell.is-day-mode .status-pill:nth-child(3) { color: #7a4fc1; }
+
+.dashboard-page-shell.is-day-mode .showcase-kicker {
+  color: #8a5f1f;
+}
+
+.dashboard-page-shell.is-day-mode .announcement-icon { color: #a56418; }
+.dashboard-page-shell.is-day-mode .checklist-icon { color: #1f7f70; }
+
+.dashboard-page-shell.is-day-mode .primary-chip {
+  color: #755019;
+  border-color: rgba(130, 100, 40, 0.18);
+  background: linear-gradient(135deg, rgba(175, 122, 22, 0.12), rgba(63, 108, 198, 0.08));
+}
+
+.dashboard-page-shell.is-day-mode .primary-chip:hover {
+  background: linear-gradient(135deg, rgba(175, 122, 22, 0.16), rgba(63, 108, 198, 0.12));
+  box-shadow: 0 12px 28px rgba(137, 109, 53, 0.14);
+}
+
+.dashboard-page-shell.is-night-mode .showcase-card::after {
+  background: linear-gradient(160deg, rgba(9, 18, 40, 0.96), rgba(10, 16, 30, 0.90));
+}
+
+.dashboard-page-shell.is-night-mode .theme-rail-trigger:hover,
+.dashboard-page-shell.is-night-mode .showcase-nav-btn:hover,
+.dashboard-page-shell.is-night-mode .showcase-link-btn:hover,
+.dashboard-page-shell.is-night-mode .primary-chip:hover {
+  box-shadow: 0 12px 28px rgba(108, 182, 255, 0.14);
+}
+
+.dashboard-page-shell.is-night-mode .status-pill:nth-child(1) { color: #8fd1ff; }
+.dashboard-page-shell.is-night-mode .status-pill:nth-child(2) { color: #41d9c6; }
+.dashboard-page-shell.is-night-mode .status-pill:nth-child(3) { color: #ff8cab; }
 
 @media (max-width: 1180px) {
-  .dashboard-hero-main {
-    grid-template-columns: 1fr;
-    padding-top: 3.1rem;
-  }
-
-  .two-col-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .theme-rail-panel {
-    width: min(520px, calc(100vw - 2.4rem));
-  }
+  .dashboard-hero-main { grid-template-columns: 1fr; padding-top: 3rem; }
+  .dashboard-hero-copy { padding: 1.2rem 1.15rem 1.22rem; }
+  .showcase-card { min-height: 0; }
+  .two-col-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 880px) {
-  .dashboard-page-shell {
-    padding: 1rem 0.75rem 2rem;
-  }
-
-  .summary-grid,
-  .groups-grid,
-  .resource-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-bottom-metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .timeline-item {
-    grid-template-columns: 1fr;
-    padding-left: 1rem;
-  }
-
-  .timeline-badge {
-    margin-left: 0.5rem;
-    width: fit-content;
-  }
-
-  .timeline-rail-line {
-    display: none;
-  }
-
-  .event-detail-card {
-    flex-direction: column;
-  }
-
-  .event-date-badge {
-    width: 100%;
-    min-height: 86px;
-  }
-
-  .dashboard-theme-rail {
-    position: static;
-    align-items: stretch;
-    margin-bottom: 1rem;
-  }
-
-  .theme-rail-trigger {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .theme-rail-panel {
-    width: 100%;
-    max-height: none;
-  }
-
-  .dashboard-hero-main {
-    padding-top: 0;
-  }
-
-  .theme-rail-panel-header,
-  .showcase-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .showcase-image {
-    aspect-ratio: 16 / 9;
-  }
+  .dashboard-page-shell { padding: 1rem 0.8rem 2rem; }
+  .summary-grid, .groups-grid, .resource-grid { grid-template-columns: 1fr; }
+  .timeline-item { grid-template-columns: 1fr; }
+  .timeline-badge { margin-left: 0.4rem; width: fit-content; }
+  .timeline-list::before { display: none; }
+  .event-detail-card { flex-direction: column; }
+  .event-date-badge { width: 100%; min-height: 72px; flex-direction: row; justify-content: flex-start; align-items: center; gap: 0.72rem; }
+  .dashboard-theme-rail { position: static; align-items: stretch; margin-bottom: 1rem; }
+  .theme-rail-trigger { width: 100%; justify-content: center; }
+  .theme-rail-panel { width: 100%; }
+  .dashboard-hero-main { padding-top: 0; }
+  .dashboard-hero-copy,
+  .dashboard-hero-aside { display: block; }
+  .showcase-footer { flex-direction: column; align-items: stretch; }
+  .showcase-image { aspect-ratio: 16 / 9; }
 }
 
 @media (max-width: 560px) {
-  .dashboard-hero-card,
-  .surface-card,
-  .summary-card {
-    border-radius: 24px;
-  }
+  .dashboard-hero-card, .surface-card, .summary-card { border-radius: 20px; }
+  .hero-title { font-size: 1.75rem; }
+  .dashboard-subtext, .dashboard-hero-message { font-size: 0.90rem; }
+  .summary-card-value { font-size: 1.9rem; }
+  .showcase-title { font-size: 1rem; }
+}
 
-  .hero-title {
-    font-size: 1.8rem;
-  }
+/* ──────────────────────────────────────────────────────────────
+   § 22  TOUCH & REDUCED-MOTION
+   ────────────────────────────────────────────────────────────── */
+@media (max-width: 1120px) {
+  .group-card-link:hover .group-card-surface,
+  .resource-card-link:hover .resource-card-surface,
+  .summary-card:hover,
+  .action-center-item:hover,
+  .timeline-item:hover,
+  .hero-meta-chip:hover,
+  .hero-metric:hover,
+  .event-detail-card:hover .event-date-badge,
+  .event-detail-card:hover .event-content,
+  .progress-card:hover .progress-ring { transform: none; }
+}
 
-  .dashboard-subtext,
-  .dashboard-hero-message {
-    font-size: 0.92rem;
-  }
+@media (prefers-reduced-motion: reduce) {
+  .orb-one, .orb-two,
+  .progress-ring::before, .progress-ring::after,
+  .surface-kicker::before,
+  .timeline-item.is-current .timeline-badge { animation: none !important; }
 
-  .summary-card-value {
-    font-size: 2rem;
-  }
+  .group-card-link:hover .group-card-surface,
+  .resource-card-link:hover .resource-card-surface,
+  .summary-card:hover,
+  .action-center-item:hover,
+  .timeline-item:hover,
+  .hero-meta-chip:hover,
+  .hero-metric:hover,
+  .event-detail-card:hover .event-date-badge,
+  .event-detail-card:hover .event-content,
+  .progress-card:hover .progress-ring,
+  .showcase-card:hover { transform: none !important; }
+}
 
-  .showcase-title {
-    font-size: 1.02rem;
+
+/* ──────────────────────────────────────────────────────────────
+   § 23  HERO ENRICHMENT & ADAPTIVE OVERRIDES
+   ────────────────────────────────────────────────────────────── */
+.dashboard-page-shell {
+  color: var(--text-primary);
+}
+
+.dashboard-page-shell::before {
+  background: var(--dashboard-shell-backdrop, linear-gradient(135deg, #060c1a, #0a1224));
+}
+
+.dashboard-hero-card {
+  background: linear-gradient(145deg, var(--hero-overlay-a), var(--hero-overlay-b));
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.surface-card,
+.summary-card,
+.showcase-card,
+.theme-rail-panel,
+.dashboard-loading,
+.dashboard-alert {
+  box-shadow: var(--shadow-md);
+}
+
+.hero-title,
+.surface-card-title,
+.group-name,
+.resource-title,
+.showcase-title,
+.summary-card-value,
+.event-title,
+.progress-value,
+.hero-meta-chip-value {
+  color: var(--text-primary);
+}
+
+.dashboard-subtext,
+.dashboard-hero-message,
+.showcase-summary,
+.summary-card-subtext,
+.progress-detail-row span,
+.progress-label,
+.progress-caption,
+.resource-meta,
+.group-meta,
+.list-row-meta,
+.list-row-description,
+.timeline-status,
+.surface-link,
+.theme-rail-trigger,
+.theme-rail-item,
+.showcase-mini-label,
+.event-meta-row,
+.empty-state,
+.dashboard-alert,
+.dashboard-loading,
+.hero-meta-chip-label,
+.showcase-insight-pill,
+.summary-label,
+.status-pill,
+.hero-eyebrow,
+.hero-org {
+  color: var(--text-secondary);
+}
+
+.hero-eyebrow,
+.hero-org,
+.hero-meta-chip,
+.status-pill,
+.showcase-insight-pill,
+.summary-card,
+.surface-card,
+.showcase-card,
+.group-card-surface,
+.resource-card-surface,
+.list-row,
+.timeline-item,
+.theme-rail-trigger,
+.theme-rail-panel,
+.dashboard-loading {
+  border-color: var(--border-default);
+}
+
+.surface-card,
+.summary-card,
+.showcase-card,
+.group-card-surface,
+.resource-card-surface,
+.list-row,
+.timeline-item,
+.hero-meta-chip,
+.status-pill,
+.theme-rail-trigger,
+.theme-rail-panel,
+.hero-eyebrow,
+.hero-org,
+.showcase-insight-pill {
+  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 88%, transparent), color-mix(in srgb, var(--surface-base) 94%, transparent));
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.hero-meta-chip:hover,
+.status-pill:hover,
+.summary-card:hover,
+.surface-card:hover,
+.group-card-link:hover .group-card-surface,
+.resource-card-link:hover .resource-card-surface,
+.list-row:hover,
+.timeline-item:hover,
+.showcase-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-strong);
+}
+
+.progress-ring-shell {
+  flex: 0 0 220px;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  isolation: isolate;
+}
+
+.progress-ring-aura,
+.progress-ring-track,
+.progress-ring-orbit,
+.progress-ring-marker,
+.progress-ring-spark {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.progress-ring-aura {
+  width: 198px;
+  height: 198px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-blue) 22%, transparent), transparent 66%);
+  filter: blur(22px);
+  opacity: 0.95;
+}
+
+.progress-ring-track {
+  width: 192px;
+  height: 192px;
+  border: 1px dashed color-mix(in srgb, var(--text-link) 28%, transparent);
+  opacity: 0.42;
+}
+
+.progress-ring-orbit {
+  animation: orbitFloat 10s linear infinite;
+}
+
+.progress-ring-orbit--outer {
+  width: 210px;
+  height: 210px;
+  border: 1px solid color-mix(in srgb, var(--accent-teal) 18%, transparent);
+}
+
+.progress-ring-orbit--inner {
+  width: 160px;
+  height: 160px;
+  border: 1px solid color-mix(in srgb, var(--accent-violet) 16%, transparent);
+  animation-direction: reverse;
+  animation-duration: 12s;
+}
+
+.progress-ring-marker {
+  left: calc(50% - 7px);
+  top: calc(50% - 7px);
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(135deg, var(--accent-amber), var(--accent-violet));
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--surface-elevated) 74%, transparent), 0 0 18px color-mix(in srgb, var(--accent-blue) 40%, transparent);
+}
+
+.progress-ring-spark {
+  width: 8px;
+  height: 8px;
+  background: var(--text-link);
+  opacity: 0.64;
+  filter: blur(1px);
+  animation: sparkleOrbit 7s ease-in-out infinite;
+}
+
+.progress-ring-spark--one { top: 32px; left: 42px; }
+.progress-ring-spark--two { right: 34px; bottom: 42px; animation-delay: -2.6s; }
+
+.progress-ring {
+  width: 172px;
+  height: 172px;
+  border-radius: 50%;
+  padding: 13px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-blue) 18%, transparent), 0 18px 42px rgba(0, 4, 20, 0.24);
+}
+
+.progress-ring-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-elevated) 98%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.progress-value {
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.progress-label {
+  margin-top: 0.14rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.progress-caption {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-link);
+  font-weight: 700;
+}
+
+@keyframes orbitFloat {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes sparkleOrbit {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.44; }
+  50% { transform: translate3d(6px, -8px, 0) scale(1.5); opacity: 0.92; }
+}
+
+.summary-card:nth-child(1) { border-radius: 28px 18px 24px 18px; }
+.summary-card:nth-child(2) { border-radius: 18px 30px 18px 24px; }
+.summary-card:nth-child(3) { border-radius: 24px 18px 30px 18px; }
+.summary-card:nth-child(4) { border-radius: 18px 24px 18px 30px; }
+.action-card { border-radius: 30px 20px 34px 20px; }
+.progress-card { border-radius: 22px 34px 22px 34px; }
+.event-detail-card { border-radius: 26px 22px 30px 22px; }
+.list-row { border-radius: 18px 14px 18px 14px; }
+.group-card-surface { border-radius: 26px 20px 32px 18px; }
+.resource-card-surface { border-radius: 20px 28px 18px 28px; }
+.timeline-item { border-radius: 16px 28px 16px 28px; }
+
+.hero-meta-chip--neutral { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.hero-meta-chip--cyan { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-teal) 18%, transparent); }
+.hero-meta-chip--violet { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-violet) 18%, transparent); }
+
+@media (max-width: 1180px) {
+  .progress-ring-shell {
+    flex: 0 0 auto;
+    margin-inline: auto;
   }
 }
+
+@media (max-width: 680px) {
+  .hero-meta-row,
+  .hero-highlight-wrap {
+    gap: 0.55rem;
+  }
+
+  .progress-ring-shell {
+    min-height: 192px;
+  }
+}
+
 </style>
