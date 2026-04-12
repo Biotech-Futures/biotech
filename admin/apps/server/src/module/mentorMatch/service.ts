@@ -15,7 +15,7 @@ import {
   studentInterest,
   tracks,
   users,
-} from "@/db/schema/index.js";
+} from "@/drizzle/schema.js";
 import type { ConfirmMentorAssignmentInput } from "./schema.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -37,18 +37,7 @@ function groupInterestsByKey<K>(
 
 // ─── matchMentor ────────────────────────────────────────────────────────────
 
-export async function matchMentor(uid: number) {
-  const systemUser = await db
-    .select({ id: users.id, adminUserId: users.adminUserId })
-    .from(users)
-    .where(eq(users.id, uid))
-    .limit(1)
-    .then((rows) => rows[0]);
-
-  if (!systemUser?.adminUserId) {
-    return [];
-  }
-
+export async function matchMentor(uid: string) {
   // 1. Find groups that have no active mentor membership
   const groupsWithoutMentor = await db
     .select({
@@ -200,16 +189,8 @@ export async function matchMentor(uid: number) {
   // 4. Run algorithm
   const recommendations = matchMentors(groupSources, mentorSources);
 
-  // 5. Save matchRun record
-  const latestMatchRun = await db
-    .select({ id: matchRun.id })
-    .from(matchRun)
-    .orderBy(desc(matchRun.id))
-    .limit(1);
-
   await db.insert(matchRun).values({
-    id: (latestMatchRun[0]?.id ?? 0) + 1,
-    initiatedByUserId: systemUser.id,
+    adminUserId: uid,
     runType: "mentor-match",
     payload: groupSources,
     result: recommendations,

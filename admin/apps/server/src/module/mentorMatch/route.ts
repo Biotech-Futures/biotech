@@ -16,9 +16,12 @@ mentorMatchRoute.get(
   "/recommend",
   sValidator("query", mentorMatchUidQuerySchema),
   async (c) => {
-    const { uid } = c.req.valid("query");
-    const data = await matchMentor(uid);
-    return c.json({ msg: "Mentor recommendations retrieved successfully", data });
+    const { id } = c.get("user");
+    const data = await matchMentor(id);
+    return c.json({
+      msg: "Mentor recommendations retrieved successfully",
+      data,
+    });
   },
 );
 
