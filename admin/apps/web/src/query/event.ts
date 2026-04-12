@@ -1,0 +1,164 @@
+import { myFetch } from "@/lib/myFetch";
+import type {
+  CreateEvent,
+  CreateEventRsvp,
+  UpdateEvent,
+  UpdateEventRsvp,
+} from "@/schema/event";
+import type {
+  ApiResponse,
+  Event,
+  EventRsvp,
+  PaginatedResponse,
+  QueryEventsParams,
+} from "@/type/event";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+export function useQueryEvents(params: QueryEventsParams) {
+  return useQuery({
+    queryKey: ["events", params],
+    queryFn: async (): Promise<PaginatedResponse<Event>> => {
+      const res = await myFetch.get<PaginatedResponse<Event>>("/event", {
+        params,
+      });
+      return res.data;
+    },
+  });
+}
+
+export function useQueryEvent(id: string) {
+  return useQuery({
+    queryKey: ["event", id],
+    queryFn: async (): Promise<ApiResponse<Event | null>> => {
+      const res = await myFetch.get<ApiResponse<Event | null>>(`/event/${id}`);
+      return res.data;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCreateEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateEvent): Promise<ApiResponse<Event | null>> => {
+      const payload = toApiEventPayload(data);
+      const res = await myFetch.post<ApiResponse<Event | null>>("/event", payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
+  });
+}
+
+export function useUpdateEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: number;
+      data: UpdateEvent;
+    }): Promise<ApiResponse<Event | null>> => {
+      const payload = toApiEventPayload(data);
+      const res = await myFetch.put<ApiResponse<Event | null>>(
+        `/event/${id}`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["event", String(id)] });
+    },
+  });
+}
+
+export function useDeleteEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number): Promise<ApiResponse<Event | null>> => {
+      const res = await myFetch.delete<ApiResponse<Event | null>>(`/event/${id}`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+    },
+  });
+}
+
+export function useQueryEventRsvps(eventId: number | null) {
+  return useQuery({
+    queryKey: ["event-rsvps", eventId],
+    queryFn: async (): Promise<ApiResponse<EventRsvp[] | null>> => {
+      const res = await myFetch.get<ApiResponse<EventRsvp[] | null>>(
+        `/event/${eventId}/rsvp`,
+      );
+      return res.data;
+    },
+    enabled: eventId !== null,
+  });
+}
+
+export function useCreateEventRsvp() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      eventId,
+      data,
+    }: {
+      eventId: number;
+      data: CreateEventRsvp;
+    }): Promise<ApiResponse<EventRsvp | null>> => {
+      const res = await myFetch.post<ApiResponse<EventRsvp | null>>(
+        `/event/${eventId}/rsvp`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, { eventId }) => {
+      queryClient.invalidateQueries({ queryKey: ["event-rsvps", eventId] });
+    },
+  });
+}
+
+export function useUpdateEventRsvp() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      eventId,
+      rsvpId,
+      data,
+    }: {
+      eventId: number;
+      rsvpId: number;
+      data: UpdateEventRsvp;
+    }): Promise<ApiResponse<EventRsvp | null>> => {
+      const res = await myFetch.put<ApiResponse<EventRsvp | null>>(
+        `/event/rsvp/${rsvpId}`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, { eventId }) => {
+      queryClient.invalidateQueries({ queryKey: ["event-rsvps", eventId] });
+    },
+  });
+}
+
+function toApiEventPayload(data: CreateEvent | UpdateEvent) {
+  return {
+    ...data,
+    eventType: data.eventType?.trim() || null,
+    hostUserId: data.hostUserId ?? null,
+    trackId: data.trackId ?? null,
+    startAt: data.startAt ? new Date(data.startAt).toISOString() : undefined,
+    endsAt: data.endsAt ? new Date(data.endsAt).toISOString() : undefined,
+  };
+}
