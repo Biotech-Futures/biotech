@@ -19,6 +19,96 @@ import {
 } from "drizzle/schema.js";
 import type { ConfirmMentorAssignmentInput } from "./schema.js";
 
+const demoMentorRecommendations = [
+  {
+    group: {
+      groupId: 9001,
+      groupName: "Sydney Bio Innovators",
+      trackCode: "AUS-NSW",
+      studentInterests: ["biotech", "genetics", "ethics"],
+      studentCount: 4,
+    },
+    recommendedMentor: {
+      mentorId: 301,
+      name: "Dr Helena Park",
+      trackCode: "AUS-NSW",
+      institution: "UNSW",
+      interests: ["genetics", "clinical translation", "biotech"],
+      remainingCapacity: 2,
+    },
+    reason: "Strong interest overlap and a matching local track make onboarding simpler.",
+    score: 94,
+    scoreBreakdown: {
+      baseScore: 70,
+      trackPenalty: 0,
+      interestBonus: 18,
+      timezonePenalty: 0,
+      capacityBonus: 6,
+      objectiveScore: 94,
+    },
+    recommendationId: 7001,
+  },
+  {
+    group: {
+      groupId: 9002,
+      groupName: "Global Health Builders",
+      trackCode: "GLOBAL",
+      studentInterests: ["oncology", "public health", "immunology"],
+      studentCount: 5,
+    },
+    recommendedMentor: {
+      mentorId: 302,
+      name: "Prof Marco Rossi",
+      trackCode: "GLOBAL",
+      institution: "Monash University",
+      interests: ["immunology", "public health", "oncology"],
+      remainingCapacity: 1,
+    },
+    reason: "The mentor matches all priority domains and still has one group slot available.",
+    score: 91,
+    scoreBreakdown: {
+      baseScore: 70,
+      trackPenalty: 0,
+      interestBonus: 17,
+      timezonePenalty: 2,
+      capacityBonus: 6,
+      objectiveScore: 91,
+    },
+    recommendationId: 7002,
+  },
+  {
+    group: {
+      groupId: 9003,
+      groupName: "Data for Diagnostics",
+      trackCode: "AUS-VIC",
+      studentInterests: ["ai", "diagnostics", "data science"],
+      studentCount: 3,
+    },
+    recommendedMentor: null,
+    reason: "No mentor in the current mock pool has enough overlap and spare capacity for this group.",
+    score: 0,
+    scoreBreakdown: {
+      baseScore: 70,
+      trackPenalty: 0,
+      interestBonus: 0,
+      timezonePenalty: 0,
+      capacityBonus: 0,
+      objectiveScore: 0,
+    },
+    recommendationId: null,
+  },
+] as const;
+
+const demoUnmatchedGroups = demoMentorRecommendations.map((item) => ({
+  groupId: item.group.groupId,
+  groupName: item.group.groupName,
+  trackCode: item.group.trackCode,
+}));
+
+function useMentorMatchDemoData() {
+  return process.env.MENTOR_MATCH_USE_DEMO_DATA === "true";
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function groupInterestsByKey<K>(
@@ -39,6 +129,10 @@ function groupInterestsByKey<K>(
 // ─── matchMentor ────────────────────────────────────────────────────────────
 
 export async function matchMentor() {
+  if (useMentorMatchDemoData()) {
+    return demoMentorRecommendations;
+  }
+
   // 1. Find groups that have no accepted mentor recommendation
   const groupsWithMembers = await db
     .select({
@@ -254,6 +348,10 @@ export async function matchMentor() {
 // ─── getUnmatchedGroups ──────────────────────────────────────────────────────
 
 export async function getUnmatchedGroups() {
+  if (useMentorMatchDemoData()) {
+    return demoUnmatchedGroups;
+  }
+
   const unmatchedGroups = await db
     .select({
       groupId: groups.id,
@@ -287,6 +385,10 @@ export async function getUnmatchedGroups() {
 export async function confirmMentorAssignments(
   input: ConfirmMentorAssignmentInput,
 ) {
+  if (useMentorMatchDemoData()) {
+    return { confirmedCount: input.assignments.length };
+  }
+
   const recommendationIds = input.assignments.map((a) => a.recommendationId);
 
   await db
