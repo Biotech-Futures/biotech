@@ -49,7 +49,7 @@ const NAV_ITEMS = [
   },
   {
     title: "Mentor Matching",
-    url: "/mentor-matching",
+    url: "/mentorMatching",
     icon: <Link2Icon />,
   },
 ];

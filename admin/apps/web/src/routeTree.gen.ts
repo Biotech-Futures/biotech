@@ -14,7 +14,7 @@ import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
 import { Route as AuthUserRouteImport } from './routes/_auth/user'
 import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
-import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentor-matching'
+import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentorMatching'
 import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
@@ -46,8 +46,8 @@ const AuthResourceRoute = AuthResourceRouteImport.update({
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthMentorMatchingRoute = AuthMentorMatchingRouteImport.update({
-  id: '/mentor-matching',
-  path: '/mentor-matching',
+  id: '/mentorMatching',
+  path: '/mentorMatching',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthMatchingRoute = AuthMatchingRouteImport.update({
@@ -84,7 +84,7 @@ export interface FileRoutesByFullPath {
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
-  '/mentor-matching': typeof AuthMentorMatchingRoute
+  '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
   '/user': typeof AuthUserRoute
 }
@@ -95,7 +95,7 @@ export interface FileRoutesByTo {
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
-  '/mentor-matching': typeof AuthMentorMatchingRoute
+  '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
   '/user': typeof AuthUserRoute
   '/': typeof AuthIndexRoute
@@ -109,7 +109,7 @@ export interface FileRoutesById {
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
   '/_auth/matching': typeof AuthMatchingRoute
-  '/_auth/mentor-matching': typeof AuthMentorMatchingRoute
+  '/_auth/mentorMatching': typeof AuthMentorMatchingRoute
   '/_auth/resource': typeof AuthResourceRoute
   '/_auth/user': typeof AuthUserRoute
   '/_auth/': typeof AuthIndexRoute
@@ -124,7 +124,7 @@ export interface FileRouteTypes {
     | '/event'
     | '/group'
     | '/matching'
-    | '/mentor-matching'
+    | '/mentorMatching'
     | '/resource'
     | '/user'
   fileRoutesByTo: FileRoutesByTo
@@ -135,7 +135,7 @@ export interface FileRouteTypes {
     | '/event'
     | '/group'
     | '/matching'
-    | '/mentor-matching'
+    | '/mentorMatching'
     | '/resource'
     | '/user'
     | '/'
@@ -148,7 +148,7 @@ export interface FileRouteTypes {
     | '/_auth/event'
     | '/_auth/group'
     | '/_auth/matching'
-    | '/_auth/mentor-matching'
+    | '/_auth/mentorMatching'
     | '/_auth/resource'
     | '/_auth/user'
     | '/_auth/'
@@ -196,10 +196,10 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthResourceRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/mentor-matching': {
-      id: '/_auth/mentor-matching'
-      path: '/mentor-matching'
-      fullPath: '/mentor-matching'
+    '/_auth/mentorMatching': {
+      id: '/_auth/mentorMatching'
+      path: '/mentorMatching'
+      fullPath: '/mentorMatching'
       preLoaderRoute: typeof AuthMentorMatchingRouteImport
       parentRoute: typeof AuthRouteRoute
     }

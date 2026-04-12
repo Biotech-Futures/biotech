@@ -6,11 +6,13 @@ import {
 } from "@/schema/mentorMatch";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-export function useQueryMentorMatchInfo() {
+export type MatchMode = "balanced" | "strict" | "coverage";
+
+export function useQueryMentorMatchInfo(mode: MatchMode = "balanced") {
   return useQuery({
-    queryKey: ["mentorMatchInfo"],
+    queryKey: ["mentorMatchInfo", mode],
     queryFn: async () => {
-      const res = await myFetch.get("mentor-match/recommend");
+      const res = await myFetch.get(`mentor-match/recommend?mode=${mode}`);
       return mentorMatchResponseSchema.parse(res.data);
     },
     enabled: false,

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { MentorGroupRecommendation } from "@/type/mentorMatch";
+import type { MatchMode } from "@/query/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,9 +20,36 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { CheckIcon, InfoIcon } from "lucide-react";
 
+const MATCH_MODES: {
+  value: MatchMode;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "balanced",
+    label: "Balanced",
+    description:
+      "Considers all available mentors for every group. Same-track mentors are preferred, but cross-track mentors can fill in when needed. Best overall coverage.",
+  },
+  {
+    value: "strict",
+    label: "Strict",
+    description:
+      "Only matches groups with mentors from the same track (or GLOBAL mentors). Groups with no compatible mentor in their track will be left unmatched.",
+  },
+  {
+    value: "coverage",
+    label: "Coverage",
+    description:
+      "Two-phase matching: first assigns same-track mentors, then uses remaining mentor capacity to cover still-unmatched groups across other tracks. Maximises the number of matched groups.",
+  },
+];
+
 type MentorMatchingBoardProps = {
   recommendations: MentorGroupRecommendation[];
   unmatchedGroupCount: number;
+  mode: MatchMode;
+  onModeChange: (mode: MatchMode) => void;
   onRunMatch: () => void;
   onConfirmAssignments: (
     assignments: Array<{ groupId: number; mentorUserId: number }>,
@@ -130,6 +158,8 @@ function ScoreBreakdownTooltip({
 export function MentorMatchingBoard({
   recommendations,
   unmatchedGroupCount,
+  mode,
+  onModeChange,
   onRunMatch,
   onConfirmAssignments,
   isRunning,
@@ -221,7 +251,30 @@ export function MentorMatchingBoard({
               Run the algorithm, review recommendations, then confirm selected assignments.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Mode selector */}
+            <div className="flex rounded-md border overflow-hidden">
+              {MATCH_MODES.map((m) => (
+                <Tooltip key={m.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => onModeChange(m.value)}
+                      className={cn(
+                        "px-3 py-1.5 text-sm font-medium transition-colors border-r last:border-r-0",
+                        mode === m.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-background text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[260px] text-xs">
+                    {m.description}
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
             <Button onClick={onRunMatch} disabled={isRunning}>
               {isRunning ? "Matching..." : "Run Match"}
             </Button>
