@@ -4,6 +4,7 @@ import type { CreateResource, UpdateResource } from "@/schema/resource";
 import type {
   Resource,
   ResourceRole,
+  ResourceOrder,
   ResourceType,
   ResourceTypeName,
   PaginatedResponse,
@@ -12,21 +13,24 @@ import type {
 interface QueryResourcesParams {
   page: number;
   search?: string;
+  uploader?: string;
+  order?: ResourceOrder;
   type?: ResourceTypeName;
 }
 
 export function useQueryResources(params: QueryResourcesParams) {
-  const { page, search, type } = params;
+  const { page, search, uploader, order, type } = params;
 
   return useQuery({
-    queryKey: ["resources", page, search, type],
+    queryKey: ["resources", page, search, uploader, order, type],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
       const res = await myFetch.get<PaginatedResponse<Resource>>("/resource", {
         params: {
           page,
           search,
+          uploader,
           type,
-          order: "newest",
+          order: order ?? "newest",
         },
       });
       return res.data;

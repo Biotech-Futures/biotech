@@ -4,6 +4,7 @@ export type ResourceRole = {
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
+export type ResourceOrder = "newest" | "oldest" | "name";
 
 export type ResourceType = {
   id: string;

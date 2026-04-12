@@ -35,11 +35,12 @@ export type Resource = {
 };
 
 const roles: Role[] = [
-  { id: "role-1", role_name: "Student" },
-  { id: "role-2", role_name: "Supervisor" },
-  { id: "role-3", role_name: "Mentor" },
-  { id: "role-4", role_name: "Admin" },
+  { id: "role-student", role_name: "Student" },
+  { id: "role-mentor", role_name: "Mentor" },
+  { id: "role-admin", role_name: "Admin" },
 ];
+
+const ADMIN_ROLE_ID = "role-admin";
 
 const resourceTypes: ResourceType[] = [
   {
@@ -87,6 +88,11 @@ const uploaders: ResourceUploader[] = [
 
 function getRolesByIds(roleIds: string[] = []): Role[] {
   return roles.filter((role) => roleIds.includes(role.id));
+}
+
+function normalizeVisibleRoles(roleIds: string[] = []): Role[] {
+  const uniqueRoleIds = Array.from(new Set([...roleIds, ADMIN_ROLE_ID]));
+  return getRolesByIds(uniqueRoleIds);
 }
 
 function getResourceTypeById(resourceTypeId?: string | null): ResourceType | null {
@@ -145,21 +151,42 @@ function buildDescription(typeName: ResourceType["type_name"], index: number): s
 
 function generateMockResources(): Resource[] {
   const items: Resource[] = [];
+  const studentRoleId = roles.find((role) => role.role_name === "Student")?.id;
+  const mentorRoleId = roles.find((role) => role.role_name === "Mentor")?.id;
+  const visibilitySets: string[][] =
+    studentRoleId && mentorRoleId
+      ? [
+          [studentRoleId, mentorRoleId, ADMIN_ROLE_ID],
+          [studentRoleId, ADMIN_ROLE_ID],
+          [mentorRoleId, ADMIN_ROLE_ID],
+        ]
+      : [[ADMIN_ROLE_ID]];
+
+  const randomInt = (max: number) => Math.floor(Math.random() * max);
+
+  let previousTypeName: ResourceType["type_name"] | null = null;
 
   for (let i = 0; i < 48; i++) {
-    const type = resourceTypes[i % resourceTypes.length];
-    const uploader = uploaders[i % uploaders.length];
-    const created = new Date(2025, (i * 2) % 12, 1 + (i % 27), 9, 30);
-    const visibleRoleIds = [roles[i % roles.length].id, roles[(i + 1) % roles.length].id];
+    let type = resourceTypes[randomInt(resourceTypes.length)];
+    if (previousTypeName === type.type_name && resourceTypes.length > 1) {
+      type = resourceTypes[(resourceTypes.indexOf(type) + 1 + randomInt(resourceTypes.length - 1)) % resourceTypes.length];
+    }
+    previousTypeName = type.type_name;
+
+    const uploader = uploaders[randomInt(uploaders.length)];
+    const daysAgo = randomInt(360);
+    const created = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    created.setHours(8 + randomInt(11), randomInt(60), 0, 0);
+    const visibleRoleIds = visibilitySets[randomInt(visibilitySets.length)];
 
     items.push({
       id: `res-${i + 1}`,
-      resource_name: buildTitle(type.type_name, i),
-      resource_description: buildDescription(type.type_name, i),
+      resource_name: buildTitle(type.type_name, i + randomInt(24)),
+      resource_description: buildDescription(type.type_name, i + randomInt(24)),
       resource_type_detail: type,
       upload_datetime: created.toISOString(),
       uploader,
-      visible_roles: getRolesByIds(visibleRoleIds),
+      visible_roles: normalizeVisibleRoles(visibleRoleIds),
       deleted_flag: false,
       deleted_datetime: null,
     });
@@ -171,7 +198,7 @@ function generateMockResources(): Resource[] {
 let mockResources: Resource[] = generateMockResources();
 
 export function queryResources(params: QueryResourcesInput) {
-  const { page, limit, search, type, role, order } = params;
+  const { page, limit, search, uploader, type, role, order } = params;
   const offset = (page - 1) * limit;
 
   let filtered = mockResources.filter((resource) => !resource.deleted_flag);
@@ -183,6 +210,17 @@ export function queryResources(params: QueryResourcesInput) {
         resource.resource_name.toLowerCase().includes(keyword) ||
         resource.resource_description.toLowerCase().includes(keyword),
     );
+  }
+
+  if (uploader) {
+    const uploaderKeyword = uploader.toLowerCase();
+    filtered = filtered.filter((resource) => {
+      const fullName = `${resource.uploader.first_name} ${resource.uploader.last_name}`.toLowerCase();
+      return (
+        fullName.includes(uploaderKeyword) ||
+        resource.uploader.email.toLowerCase().includes(uploaderKeyword)
+      );
+    });
   }
 
   if (type) {
@@ -254,7 +292,7 @@ export function createResource(payload: CreateResourceInput) {
     resource_type_detail: getResourceTypeById(payload.resource_type_id),
     upload_datetime: new Date().toISOString(),
     uploader: uploaders[0],
-    visible_roles: getRolesByIds(payload.role_ids),
+    visible_roles: normalizeVisibleRoles(payload.role_ids),
     deleted_flag: false,
     deleted_datetime: null,
   };
@@ -287,7 +325,7 @@ export function updateResource(id: string, updates: UpdateResourceInput) {
       updates.resource_type_id === undefined
         ? current.resource_type_detail
         : getResourceTypeById(updates.resource_type_id),
-    visible_roles: updates.role_ids ? getRolesByIds(updates.role_ids) : current.visible_roles,
+    visible_roles: updates.role_ids ? normalizeVisibleRoles(updates.role_ids) : current.visible_roles,
   };
 
   mockResources[index] = updated;
@@ -362,9 +400,20 @@ export function removeRoleFromResource(id: string, roleId: string) {
     };
   }
 
+  if (roleId === ADMIN_ROLE_ID) {
+    return {
+      msg: "Admin visibility is required and cannot be removed",
+      data: mockResources[index],
+    };
+  }
+
   mockResources[index] = {
     ...mockResources[index],
-    visible_roles: mockResources[index].visible_roles.filter((item) => item.id !== roleId),
+    visible_roles: normalizeVisibleRoles(
+      mockResources[index].visible_roles
+        .filter((item) => item.id !== roleId)
+        .map((item) => item.id),
+    ),
   };
 
   return {

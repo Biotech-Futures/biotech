@@ -2,7 +2,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import {
   flexRender,
   getCoreRowModel,
-  getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import {
@@ -14,8 +13,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { Resource } from "@/type/resource";
+import { useEffect, useState } from "react";
 
 interface ResourceTableProps {
   columns: ColumnDef<Resource>[];
@@ -34,11 +35,27 @@ export function ResourceTable({
   onPageChange,
   isPending,
 }: ResourceTableProps) {
+  const [pageInput, setPageInput] = useState(String(page));
+
+  useEffect(() => {
+    setPageInput(String(page));
+  }, [page]);
+
+  const handleJumpPage = () => {
+    const parsed = Number.parseInt(pageInput, 10);
+    if (Number.isNaN(parsed)) {
+      setPageInput(String(page));
+      return;
+    }
+
+    const nextPage = Math.min(totalPages, Math.max(1, parsed));
+    onPageChange(nextPage);
+  };
+
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
@@ -91,6 +108,29 @@ export function ResourceTable({
           Page {page} of {totalPages}
         </p>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <Input
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  handleJumpPage();
+                }
+              }}
+              className="w-18"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              aria-label="Go to page"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleJumpPage}
+              disabled={isPending}
+            >
+              Go
+            </Button>
+          </div>
           <Button
             variant="outline"
             size="sm"

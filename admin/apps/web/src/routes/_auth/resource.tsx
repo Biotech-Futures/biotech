@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResourceFilters,
   ResourceTable,
@@ -7,7 +7,7 @@ import {
   createResourceColumns,
 } from "@/components/resource";
 import { useDeleteResource, useQueryResources } from "@/query/resource";
-import type { Resource, ResourceTypeName } from "@/type/resource";
+import type { Resource, ResourceOrder, ResourceTypeName } from "@/type/resource";
 
 export const Route = createFileRoute("/_auth/resource")({
   component: ResourcePage,
@@ -15,6 +15,8 @@ export const Route = createFileRoute("/_auth/resource")({
 
 function ResourcePage() {
   const [search, setSearch] = useState("");
+  const [uploader, setUploader] = useState("");
+  const [order, setOrder] = useState<ResourceOrder>("newest");
   const [type, setType] = useState<ResourceTypeName | undefined>();
   const [page, setPage] = useState(1);
 
@@ -25,6 +27,8 @@ function ResourcePage() {
   const { data, isPending } = useQueryResources({
     page,
     search,
+    uploader,
+    order,
     type,
   });
 
@@ -32,9 +36,34 @@ function ResourcePage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, type]);
+  }, [search, uploader, order, type]);
 
-  const resources = data?.data.items ?? [];
+  const resources = useMemo(() => {
+    const items = [...(data?.data.items ?? [])];
+    const getSortTimestamp = (resource: Resource) => {
+      const parsed = Date.parse(resource.upload_datetime ?? "");
+      if (!Number.isNaN(parsed)) return parsed;
+
+      const idNumber = Number.parseInt(String(resource.id).replace(/\D/g, ""), 10);
+      if (!Number.isNaN(idNumber)) return idNumber;
+
+      return 0;
+    };
+
+    if (order === "oldest") {
+      return items.sort(
+        (a, b) =>
+          getSortTimestamp(a) - getSortTimestamp(b) ||
+          a.resource_name.localeCompare(b.resource_name),
+      );
+    }
+
+    return items.sort(
+      (a, b) =>
+        getSortTimestamp(b) - getSortTimestamp(a) ||
+        a.resource_name.localeCompare(b.resource_name),
+    );
+  }, [data?.data.items, order]);
   const totalPages = Math.max(1, Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10)));
 
   const handleViewDetail = (resource: Resource) => {
@@ -75,6 +104,10 @@ function ResourcePage() {
       <ResourceFilters
         search={search}
         onSearchChange={setSearch}
+        uploader={uploader}
+        onUploaderChange={setUploader}
+        order={order}
+        onOrderChange={setOrder}
         type={type}
         onTypeChange={setType}
       />

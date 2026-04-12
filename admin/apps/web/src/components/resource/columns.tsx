@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { Resource } from "@/type/resource";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MoreHorizontal, ArrowUpDown, FileText, UserIcon } from "lucide-react";
+import { MoreHorizontal, FileText, UserIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,15 +37,7 @@ export function createResourceColumns({
   return [
     {
       accessorKey: "resource_name",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Resource
-          <ArrowUpDown className="ml-2 size-4" />
-        </Button>
-      ),
+      header: "Resource",
       cell: ({ row }) => {
         const resource = row.original;
         return (
@@ -101,7 +93,11 @@ export function createResourceColumns({
     {
       accessorKey: "upload_datetime",
       header: "Uploaded",
-      cell: ({ row }) => new Date(row.original.upload_datetime).toLocaleDateString(),
+      cell: ({ row }) => {
+        const parsed = Date.parse(row.original.upload_datetime ?? "");
+        if (Number.isNaN(parsed)) return <span className="text-muted-foreground">N/A</span>;
+        return new Date(parsed).toLocaleString();
+      },
     },
     {
       id: "actions",
