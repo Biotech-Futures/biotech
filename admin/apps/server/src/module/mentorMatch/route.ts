@@ -1,9 +1,6 @@
 import { Hono } from "hono";
 import { sValidator } from "@hono/standard-validator";
-import {
-  confirmMentorAssignmentSchema,
-  mentorMatchUidQuerySchema,
-} from "./schema.js";
+import { confirmMentorAssignmentSchema } from "./schema.js";
 import {
   confirmMentorAssignments,
   getUnmatchedGroups,
@@ -12,18 +9,14 @@ import {
 
 export const mentorMatchRoute = new Hono();
 
-mentorMatchRoute.get(
-  "/recommend",
-  sValidator("query", mentorMatchUidQuerySchema),
-  async (c) => {
-    const { id } = c.get("user");
-    const data = await matchMentor(id);
-    return c.json({
-      msg: "Mentor recommendations retrieved successfully",
-      data,
-    });
-  },
-);
+mentorMatchRoute.get("/recommend", async (c) => {
+  const { id } = c.get("user");
+  const rawMode = c.req.query("mode");
+  const mode =
+    rawMode === "strict" || rawMode === "coverage" ? rawMode : "balanced";
+  const data = await matchMentor(id, mode);
+  return c.json({ msg: "Mentor recommendations retrieved successfully", data });
+});
 
 mentorMatchRoute.get("/groups", async (c) => {
   const data = await getUnmatchedGroups();

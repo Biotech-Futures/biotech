@@ -1,6 +1,7 @@
 import {
   matchMentors,
   type GroupSource,
+  type MatchMode,
   type MentorSource,
 } from "@/algorithm/mentor.js";
 import db from "@/lib/db.js";
@@ -37,7 +38,10 @@ function groupInterestsByKey<K>(
 
 // ─── matchMentor ────────────────────────────────────────────────────────────
 
-export async function matchMentor(uid: string) {
+export async function matchMentor(
+  adminUserId: string,
+  mode: MatchMode = "balanced",
+) {
   // 1. Find groups that have no active mentor membership
   const groupsWithoutMentor = await db
     .select({
@@ -187,10 +191,10 @@ export async function matchMentor(uid: string) {
   }));
 
   // 4. Run algorithm
-  const recommendations = matchMentors(groupSources, mentorSources);
+  const recommendations = matchMentors(groupSources, mentorSources, mode);
 
   await db.insert(matchRun).values({
-    adminUserId: uid,
+    adminUserId: adminUserId,
     runType: "mentor-match",
     payload: groupSources,
     result: recommendations,
