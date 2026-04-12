@@ -1,74 +1,28 @@
 import { relations } from "drizzle-orm/relations";
-import { tracks, adminScope, users, userSession, alert, announcements, announcementAudience, roles, adminUser, matchRun, areasOfInterest, mentorInterest, mentorProfile, resources, resourceAudience, events, eventRsvp, groups, groupMembership, mentorAvailability, certificateType, mentorCertificate, messages, studentInterest, studentProfile, account, countryStates, auditLog, countries, session, supervisorProfile, userRoleAssignment } from "./schema";
-
-export const adminScopeRelations = relations(adminScope, ({one}) => ({
-	track: one(tracks, {
-		fields: [adminScope.trackId],
-		references: [tracks.id]
-	}),
-	user: one(users, {
-		fields: [adminScope.userId],
-		references: [users.id]
-	}),
-}));
-
-export const tracksRelations = relations(tracks, ({one, many}) => ({
-	adminScopes: many(adminScope),
-	announcements: many(announcements),
-	announcementAudiences: many(announcementAudience),
-	resourceAudiences: many(resourceAudience),
-	events: many(events),
-	groups: many(groups),
-	countryState: one(countryStates, {
-		fields: [tracks.stateId],
-		references: [countryStates.id]
-	}),
-	resources: many(resources),
-}));
+import { adminUser, users, announcements, announcementAudience, roles, tracks, mentorProfile, mentorAvailability, session, account, userSession, alert, auditLog, countries, countryStates, events, eventRsvp, groups, groupMembership, areasOfInterest, mentorInterest, resources, matchRun, certificateType, mentorCertificate, messages, resourceAudience, studentInterest, studentProfile, supervisorProfile, userRoleAssignment } from "./schema";
 
 export const usersRelations = relations(users, ({one, many}) => ({
-	adminScopes: many(adminScope),
-	announcements: many(announcements),
-	events: many(events),
-	eventRsvps: many(eventRsvp),
-	groupMemberships: many(groupMembership),
-	mentorCertificates: many(mentorCertificate),
-	messages: many(messages),
 	adminUser: one(adminUser, {
 		fields: [users.adminUserId],
 		references: [adminUser.id]
 	}),
-	userSessions: many(userSession),
+	announcements: many(announcements),
 	auditLogs: many(auditLog),
+	events: many(events),
+	eventRsvps: many(eventRsvp),
+	groupMemberships: many(groupMembership),
 	resources: many(resources),
+	mentorCertificates: many(mentorCertificate),
+	messages: many(messages),
+	userSessions: many(userSession),
 	userRoleAssignments: many(userRoleAssignment),
 }));
 
-export const alertRelations = relations(alert, ({one}) => ({
-	userSession: one(userSession, {
-		fields: [alert.sessionId],
-		references: [userSession.id]
-	}),
-}));
-
-export const userSessionRelations = relations(userSession, ({one, many}) => ({
-	alerts: many(alert),
-	user: one(users, {
-		fields: [userSession.userId],
-		references: [users.id]
-	}),
-}));
-
-export const announcementsRelations = relations(announcements, ({one, many}) => ({
-	user: one(users, {
-		fields: [announcements.authorUserId],
-		references: [users.id]
-	}),
-	track: one(tracks, {
-		fields: [announcements.trackId],
-		references: [tracks.id]
-	}),
-	announcementAudiences: many(announcementAudience),
+export const adminUserRelations = relations(adminUser, ({many}) => ({
+	users: many(users),
+	sessions: many(session),
+	accounts: many(account),
+	matchRuns: many(matchRun),
 }));
 
 export const announcementAudienceRelations = relations(announcementAudience, ({one}) => ({
@@ -86,73 +40,96 @@ export const announcementAudienceRelations = relations(announcementAudience, ({o
 	}),
 }));
 
+export const announcementsRelations = relations(announcements, ({one, many}) => ({
+	announcementAudiences: many(announcementAudience),
+	user: one(users, {
+		fields: [announcements.authorUserId],
+		references: [users.id]
+	}),
+	track: one(tracks, {
+		fields: [announcements.trackId],
+		references: [tracks.id]
+	}),
+}));
+
 export const rolesRelations = relations(roles, ({many}) => ({
 	announcementAudiences: many(announcementAudience),
 	resourceAudiences: many(resourceAudience),
 	userRoleAssignments: many(userRoleAssignment),
 }));
 
-export const matchRunRelations = relations(matchRun, ({one}) => ({
-	adminUser: one(adminUser, {
-		fields: [matchRun.adminUserId],
-		references: [adminUser.id]
+export const tracksRelations = relations(tracks, ({one, many}) => ({
+	announcementAudiences: many(announcementAudience),
+	announcements: many(announcements),
+	events: many(events),
+	resources: many(resources),
+	groups: many(groups),
+	resourceAudiences: many(resourceAudience),
+	countryState: one(countryStates, {
+		fields: [tracks.stateId],
+		references: [countryStates.id]
 	}),
 }));
 
-export const adminUserRelations = relations(adminUser, ({many}) => ({
-	matchRuns: many(matchRun),
-	accounts: many(account),
-	users: many(users),
-	sessions: many(session),
-}));
-
-export const mentorInterestRelations = relations(mentorInterest, ({one}) => ({
-	areasOfInterest: one(areasOfInterest, {
-		fields: [mentorInterest.interestId],
-		references: [areasOfInterest.id]
-	}),
+export const mentorAvailabilityRelations = relations(mentorAvailability, ({one}) => ({
 	mentorProfile: one(mentorProfile, {
-		fields: [mentorInterest.mentorUserId],
+		fields: [mentorAvailability.mentorUserId],
 		references: [mentorProfile.userId]
 	}),
 }));
 
-export const areasOfInterestRelations = relations(areasOfInterest, ({many}) => ({
-	mentorInterests: many(mentorInterest),
-	studentInterests: many(studentInterest),
-}));
-
 export const mentorProfileRelations = relations(mentorProfile, ({many}) => ({
-	mentorInterests: many(mentorInterest),
 	mentorAvailabilities: many(mentorAvailability),
+	mentorInterests: many(mentorInterest),
 	mentorCertificates: many(mentorCertificate),
 }));
 
-export const resourceAudienceRelations = relations(resourceAudience, ({one}) => ({
-	resource: one(resources, {
-		fields: [resourceAudience.resourceId],
-		references: [resources.id]
-	}),
-	role: one(roles, {
-		fields: [resourceAudience.roleId],
-		references: [roles.id]
-	}),
-	track: one(tracks, {
-		fields: [resourceAudience.trackId],
-		references: [tracks.id]
+export const sessionRelations = relations(session, ({one}) => ({
+	adminUser: one(adminUser, {
+		fields: [session.userId],
+		references: [adminUser.id]
 	}),
 }));
 
-export const resourcesRelations = relations(resources, ({one, many}) => ({
-	resourceAudiences: many(resourceAudience),
-	track: one(tracks, {
-		fields: [resources.trackId],
-		references: [tracks.id]
+export const accountRelations = relations(account, ({one}) => ({
+	adminUser: one(adminUser, {
+		fields: [account.userId],
+		references: [adminUser.id]
 	}),
+}));
+
+export const alertRelations = relations(alert, ({one}) => ({
+	userSession: one(userSession, {
+		fields: [alert.sessionId],
+		references: [userSession.id]
+	}),
+}));
+
+export const userSessionRelations = relations(userSession, ({one, many}) => ({
+	alerts: many(alert),
 	user: one(users, {
-		fields: [resources.uploaderUserId],
+		fields: [userSession.userId],
 		references: [users.id]
 	}),
+}));
+
+export const auditLogRelations = relations(auditLog, ({one}) => ({
+	user: one(users, {
+		fields: [auditLog.actorUserId],
+		references: [users.id]
+	}),
+}));
+
+export const countryStatesRelations = relations(countryStates, ({one, many}) => ({
+	country: one(countries, {
+		fields: [countryStates.countryId],
+		references: [countries.id]
+	}),
+	tracks: many(tracks),
+}));
+
+export const countriesRelations = relations(countries, ({many}) => ({
+	countryStates: many(countryStates),
 }));
 
 export const eventsRelations = relations(events, ({one, many}) => ({
@@ -178,15 +155,6 @@ export const eventRsvpRelations = relations(eventRsvp, ({one}) => ({
 	}),
 }));
 
-export const groupsRelations = relations(groups, ({one, many}) => ({
-	track: one(tracks, {
-		fields: [groups.trackId],
-		references: [tracks.id]
-	}),
-	groupMemberships: many(groupMembership),
-	messages: many(messages),
-}));
-
 export const groupMembershipRelations = relations(groupMembership, ({one}) => ({
 	group: one(groups, {
 		fields: [groupMembership.groupId],
@@ -198,10 +166,47 @@ export const groupMembershipRelations = relations(groupMembership, ({one}) => ({
 	}),
 }));
 
-export const mentorAvailabilityRelations = relations(mentorAvailability, ({one}) => ({
+export const groupsRelations = relations(groups, ({one, many}) => ({
+	groupMemberships: many(groupMembership),
+	track: one(tracks, {
+		fields: [groups.trackId],
+		references: [tracks.id]
+	}),
+	messages: many(messages),
+}));
+
+export const mentorInterestRelations = relations(mentorInterest, ({one}) => ({
+	areasOfInterest: one(areasOfInterest, {
+		fields: [mentorInterest.interestId],
+		references: [areasOfInterest.id]
+	}),
 	mentorProfile: one(mentorProfile, {
-		fields: [mentorAvailability.mentorUserId],
+		fields: [mentorInterest.mentorUserId],
 		references: [mentorProfile.userId]
+	}),
+}));
+
+export const areasOfInterestRelations = relations(areasOfInterest, ({many}) => ({
+	mentorInterests: many(mentorInterest),
+	studentInterests: many(studentInterest),
+}));
+
+export const resourcesRelations = relations(resources, ({one, many}) => ({
+	track: one(tracks, {
+		fields: [resources.trackId],
+		references: [tracks.id]
+	}),
+	user: one(users, {
+		fields: [resources.uploaderUserId],
+		references: [users.id]
+	}),
+	resourceAudiences: many(resourceAudience),
+}));
+
+export const matchRunRelations = relations(matchRun, ({one}) => ({
+	adminUser: one(adminUser, {
+		fields: [matchRun.adminUserId],
+		references: [adminUser.id]
 	}),
 }));
 
@@ -235,6 +240,21 @@ export const messagesRelations = relations(messages, ({one}) => ({
 	}),
 }));
 
+export const resourceAudienceRelations = relations(resourceAudience, ({one}) => ({
+	resource: one(resources, {
+		fields: [resourceAudience.resourceId],
+		references: [resources.id]
+	}),
+	role: one(roles, {
+		fields: [resourceAudience.roleId],
+		references: [roles.id]
+	}),
+	track: one(tracks, {
+		fields: [resourceAudience.trackId],
+		references: [tracks.id]
+	}),
+}));
+
 export const studentInterestRelations = relations(studentInterest, ({one}) => ({
 	areasOfInterest: one(areasOfInterest, {
 		fields: [studentInterest.interestId],
@@ -251,39 +271,6 @@ export const studentProfileRelations = relations(studentProfile, ({one, many}) =
 	supervisorProfile: one(supervisorProfile, {
 		fields: [studentProfile.supervisorUserId],
 		references: [supervisorProfile.userId]
-	}),
-}));
-
-export const accountRelations = relations(account, ({one}) => ({
-	adminUser: one(adminUser, {
-		fields: [account.userId],
-		references: [adminUser.id]
-	}),
-}));
-
-export const countryStatesRelations = relations(countryStates, ({one, many}) => ({
-	tracks: many(tracks),
-	country: one(countries, {
-		fields: [countryStates.countryId],
-		references: [countries.id]
-	}),
-}));
-
-export const auditLogRelations = relations(auditLog, ({one}) => ({
-	user: one(users, {
-		fields: [auditLog.actorUserId],
-		references: [users.id]
-	}),
-}));
-
-export const countriesRelations = relations(countries, ({many}) => ({
-	countryStates: many(countryStates),
-}));
-
-export const sessionRelations = relations(session, ({one}) => ({
-	adminUser: one(adminUser, {
-		fields: [session.userId],
-		references: [adminUser.id]
 	}),
 }));
 

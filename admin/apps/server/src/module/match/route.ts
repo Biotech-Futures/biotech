@@ -9,15 +9,11 @@ import {
 
 export const matchRoute = new Hono();
 
-matchRoute.get(
-  "/student",
-  sValidator("query", matchUidQuerySchema),
-  async (c) => {
-    const { uid } = c.req.valid("query");
-    const data = await matchStudent(uid);
-    return c.json({ data });
-  },
-);
+matchRoute.get("/student", async (c) => {
+  const { id } = c.get("user");
+  const data = await matchStudent(id);
+  return c.json({ data });
+});
 
 matchRoute.get("/individual", async (c) => {
   const data = await getIndividualStudents();

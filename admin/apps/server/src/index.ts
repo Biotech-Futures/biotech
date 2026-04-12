@@ -9,6 +9,7 @@ import { mentorMatchRoute } from "./module/mentorMatch/route.js";
 import { userRoute } from "./module/user/route.js";
 import { auth } from "./lib/auth.js";
 import { HTTPException } from "hono/http-exception";
+import { authRequirement } from "./middleware/auth.js";
 
 const app = new Hono();
 
@@ -24,6 +25,7 @@ app.on(["POST", "GET"], "/api/auth/*", (c) => {
 
 app
   .basePath("/api/v1")
+  .use(authRequirement)
   .route("match", matchRoute)
   .route("group", groupRoute)
   .route("demo", demoRoute)
