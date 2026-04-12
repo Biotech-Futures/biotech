@@ -5,7 +5,8 @@ export const mentorMatchUidQuerySchema = z.object({
 });
 
 export const confirmMentorAssignmentItemSchema = z.object({
-  recommendationId: z.coerce.number().int().positive(),
+  groupId: z.coerce.number().int().positive(),
+  mentorUserId: z.coerce.number().int().positive(),
 });
 
 export const confirmMentorAssignmentSchema = z.object({

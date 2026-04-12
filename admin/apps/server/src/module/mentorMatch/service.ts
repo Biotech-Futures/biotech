@@ -4,19 +4,18 @@ import {
   type MentorSource,
 } from "@/algorithm/mentor.js";
 import db from "@/lib/db.js";
-import { and, eq, inArray, isNull, notExists } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notExists } from "drizzle-orm";
 import {
   areasOfInterest,
   groupMembership,
   groups,
-  matchRecommendation,
   matchRun,
   mentorInterest,
   mentorProfile,
   studentInterest,
   tracks,
   users,
-} from "drizzle/schema.js";
+} from "@/db/schema/index.js";
 import type { ConfirmMentorAssignmentInput } from "./schema.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -39,8 +38,19 @@ function groupInterestsByKey<K>(
 // ─── matchMentor ────────────────────────────────────────────────────────────
 
 export async function matchMentor(uid: number) {
-  // 1. Find groups that have no accepted mentor recommendation
-  const groupsWithMembers = await db
+  const systemUser = await db
+    .select({ id: users.id, adminUserId: users.adminUserId })
+    .from(users)
+    .where(eq(users.id, uid))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (!systemUser?.adminUserId) {
+    return [];
+  }
+
+  // 1. Find groups that have no active mentor membership
+  const groupsWithoutMentor = await db
     .select({
       groupId: groups.id,
       groupName: groups.groupName,
@@ -53,23 +63,24 @@ export async function matchMentor(uid: number) {
         isNull(groups.deletedAt),
         notExists(
           db
-            .select({ id: matchRecommendation.id })
-            .from(matchRecommendation)
+            .select({ id: groupMembership.id })
+            .from(groupMembership)
             .where(
               and(
-                eq(matchRecommendation.groupId, groups.id),
-                eq(matchRecommendation.accepted, true),
+                eq(groupMembership.groupId, groups.id),
+                eq(groupMembership.membershipRole, "mentor"),
+                isNull(groupMembership.leftAt),
               ),
             ),
         ),
       ),
     );
 
-  if (groupsWithMembers.length === 0) {
+  if (groupsWithoutMentor.length === 0) {
     return [];
   }
 
-  const groupIds = groupsWithMembers.map((g) => g.groupId);
+  const groupIds = groupsWithoutMentor.map((g) => g.groupId);
 
   // 2. Collect student interests per group (union of all members)
   const memberInterestRows = await db
@@ -115,7 +126,7 @@ export async function matchMentor(uid: number) {
     );
   }
 
-  const groupSources: GroupSource[] = groupsWithMembers.map((g) => ({
+  const groupSources: GroupSource[] = groupsWithoutMentor.map((g) => ({
     groupId: g.groupId,
     groupName: g.groupName,
     trackCode: g.groupTrackCode,
@@ -123,11 +134,16 @@ export async function matchMentor(uid: number) {
     studentCount: memberCountByGroupId.get(g.groupId) ?? 0,
   }));
 
-  // 3. Fetch active mentors with capacity
+  // 3. Fetch active mentors — count capacity from groupMembership
   const acceptedCountRows = await db
-    .select({ mentorUserId: matchRecommendation.mentorUserId })
-    .from(matchRecommendation)
-    .where(eq(matchRecommendation.accepted, true));
+    .select({ mentorUserId: groupMembership.userId })
+    .from(groupMembership)
+    .where(
+      and(
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
 
   const acceptedCountByMentor = new Map<number, number>();
   for (const row of acceptedCountRows) {
@@ -184,72 +200,23 @@ export async function matchMentor(uid: number) {
   // 4. Run algorithm
   const recommendations = matchMentors(groupSources, mentorSources);
 
-  // 5. Create matchRun record + insert all recommendations into DB
-  const systemUser = await db
-    .select({ id: users.id, adminUserId: users.adminUserId })
-    .from(users)
-    .where(eq(users.id, uid))
-    .limit(1)
-    .then((rows) => rows[0]);
+  // 5. Save matchRun record
+  const latestMatchRun = await db
+    .select({ id: matchRun.id })
+    .from(matchRun)
+    .orderBy(desc(matchRun.id))
+    .limit(1);
 
-  if (!systemUser?.adminUserId) {
-    return [];
-  }
-
-  const matchRunRows = await db
-    .insert(matchRun)
-    .values({
-      initiatedByUserId: systemUser.id,
-      runType: "mentor-match",
-      createdAt: new Date().toISOString(),
-    })
-    .returning({ id: matchRun.id });
-
-  const matchRunId = matchRunRows[0]!.id;
-
-  // Insert recommendation rows (only for groups that got a mentor recommendation)
-  const toInsert = recommendations
-    .filter((r) => r.recommendedMentor !== null)
-    .map((r) => ({
-      matchRunId,
-      groupId: r.group.groupId,
-      mentorUserId: r.recommendedMentor!.mentorId,
-      score: String(r.score),
-      explanation: {
-        reason: r.reason,
-        scoreBreakdown: r.scoreBreakdown,
-      } as unknown as Parameters<
-        typeof db.insert
-      >[0] extends never ? never : object,
-      accepted: false,
-    }));
-
-  const insertedRows =
-    toInsert.length === 0
-      ? []
-      : await db
-          .insert(matchRecommendation)
-          .values(
-            toInsert.map((item) => ({
-              matchRunId: item.matchRunId,
-              groupId: item.groupId,
-              mentorUserId: item.mentorUserId,
-              score: item.score,
-              explanation: item.explanation,
-              accepted: false,
-            })),
-          )
-          .returning({ id: matchRecommendation.id });
-
-  // Attach DB recommendation id to results
-  let insertedIdx = 0;
-  return recommendations.map((r) => {
-    if (r.recommendedMentor === null) {
-      return { ...r, recommendationId: null };
-    }
-    const dbRow = insertedRows[insertedIdx++];
-    return { ...r, recommendationId: dbRow?.id ?? null };
+  await db.insert(matchRun).values({
+    id: (latestMatchRun[0]?.id ?? 0) + 1,
+    initiatedByUserId: systemUser.id,
+    runType: "mentor-match",
+    payload: groupSources,
+    result: recommendations,
+    createdAt: new Date().toISOString(),
   });
+
+  return recommendations;
 }
 
 // ─── getUnmatchedGroups ──────────────────────────────────────────────────────
@@ -268,12 +235,13 @@ export async function getUnmatchedGroups() {
         isNull(groups.deletedAt),
         notExists(
           db
-            .select({ id: matchRecommendation.id })
-            .from(matchRecommendation)
+            .select({ id: groupMembership.id })
+            .from(groupMembership)
             .where(
               and(
-                eq(matchRecommendation.groupId, groups.id),
-                eq(matchRecommendation.accepted, true),
+                eq(groupMembership.groupId, groups.id),
+                eq(groupMembership.membershipRole, "mentor"),
+                isNull(groupMembership.leftAt),
               ),
             ),
         ),
@@ -288,12 +256,39 @@ export async function getUnmatchedGroups() {
 export async function confirmMentorAssignments(
   input: ConfirmMentorAssignmentInput,
 ) {
-  const recommendationIds = input.assignments.map((a) => a.recommendationId);
+  // Deduplicate: one mentor assignment per group
+  const uniqueByGroup = new Map<number, number>();
+  for (const item of input.assignments) {
+    uniqueByGroup.set(item.groupId, item.mentorUserId);
+  }
 
-  await db
-    .update(matchRecommendation)
-    .set({ accepted: true })
-    .where(inArray(matchRecommendation.id, recommendationIds));
+  const assignments = Array.from(uniqueByGroup.entries()).map(
+    ([groupId, mentorUserId]) => ({ groupId, mentorUserId }),
+  );
 
-  return { confirmedCount: recommendationIds.length };
+  if (assignments.length === 0) {
+    return { confirmedCount: 0 };
+  }
+
+  const now = new Date().toISOString();
+
+  const latestMembership = await db
+    .select({ id: groupMembership.id })
+    .from(groupMembership)
+    .orderBy(desc(groupMembership.id))
+    .limit(1);
+
+  let nextId = (latestMembership[0]?.id ?? 0) + 1;
+  const rows = assignments.map((item) => ({
+    id: nextId++,
+    groupId: item.groupId,
+    userId: item.mentorUserId,
+    membershipRole: "mentor",
+    joinedAt: now,
+    leftAt: null as string | null,
+  }));
+
+  await db.insert(groupMembership).values(rows);
+
+  return { confirmedCount: assignments.length };
 }

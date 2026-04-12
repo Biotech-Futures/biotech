@@ -44,7 +44,6 @@ export const mentorGroupRecommendationSchema = z.object({
   reason: z.string(),
   score: z.number(),
   scoreBreakdown: mentorScoreBreakdownSchema,
-  recommendationId: z.number().nullable(),
 });
 
 export const mentorMatchResponseSchema = z.object({

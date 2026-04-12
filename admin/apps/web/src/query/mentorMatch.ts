@@ -28,7 +28,7 @@ export function useQueryUnmatchedGroups() {
 }
 
 type ConfirmMentorAssignmentPayload = {
-  assignments: Array<{ recommendationId: number }>;
+  assignments: Array<{ groupId: number; mentorUserId: number }>;
 };
 
 export function useMutationConfirmMentorAssignments() {

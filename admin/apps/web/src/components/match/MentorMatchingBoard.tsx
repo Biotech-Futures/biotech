@@ -24,7 +24,7 @@ type MentorMatchingBoardProps = {
   unmatchedGroupCount: number;
   onRunMatch: () => void;
   onConfirmAssignments: (
-    assignments: Array<{ recommendationId: number }>,
+    assignments: Array<{ groupId: number; mentorUserId: number }>,
   ) => void | Promise<void>;
   isRunning: boolean;
   isConfirming: boolean;
@@ -161,8 +161,8 @@ export function MentorMatchingBoard({
   }, [recommendations, trackFilter, search]);
 
   const selectableIds = filtered
-    .map((r) => r.recommendationId)
-    .filter((id): id is number => id !== null);
+    .filter((r) => r.recommendedMentor !== null)
+    .map((r) => r.group.groupId);
 
   const allSelected =
     selectableIds.length > 0 &&
@@ -201,9 +201,11 @@ export function MentorMatchingBoard({
       toast.error("Select at least one assignment to confirm.");
       return;
     }
-    const assignments = Array.from(selectedIds).map((id) => ({
-      recommendationId: id,
-    }));
+    const assignments = Array.from(selectedIds).flatMap((groupId) => {
+      const rec = recommendations.find((r) => r.group.groupId === groupId);
+      if (!rec?.recommendedMentor) return [];
+      return [{ groupId, mentorUserId: rec.recommendedMentor.mentorId }];
+    });
     void onConfirmAssignments(assignments);
     setSelectedIds(new Set());
   }
@@ -327,22 +329,22 @@ export function MentorMatchingBoard({
                 </TableRow>
               ) : (
                 filtered.map((rec) => {
-                  const recId = rec.recommendationId;
-                  const isSelected = recId !== null && selectedIds.has(recId);
+                  const groupId = rec.group.groupId;
+                  const isSelected = selectedIds.has(groupId);
                   const hasMatch = rec.recommendedMentor !== null;
 
                   return (
                     <TableRow
-                      key={`${rec.group.groupId}`}
+                      key={`${groupId}`}
                       className={cn(
                         isSelected && "bg-primary/5",
                         !hasMatch && "opacity-60",
                       )}
                     >
                       <TableCell>
-                        {recId !== null && (
+                        {hasMatch && (
                           <button
-                            onClick={() => toggleRow(recId)}
+                            onClick={() => toggleRow(groupId)}
                             className={cn(
                               "flex h-5 w-5 items-center justify-center rounded border transition",
                               isSelected
