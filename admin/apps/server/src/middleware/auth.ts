@@ -4,12 +4,11 @@ import { HTTPException } from "hono/http-exception";
 
 export const authRequirement = createMiddleware(async (c, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  const user = session?.user ?? null;
-  const sessionData = session?.session ?? null;
-  c.set("user", user);
-  c.set("session", sessionData);
-  if (!user) {
+  if (!session) {
     throw new HTTPException(401, { message: "Unauthorized" });
   }
+  const { user, session: sessionData } = session;
+  c.set("user", user);
+  c.set("session", sessionData);
   await next();
 });
