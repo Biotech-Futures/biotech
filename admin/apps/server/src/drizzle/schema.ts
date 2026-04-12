@@ -16,31 +16,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const adminScope = pgTable(
-  "admin_scope",
-  {
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    id: bigint({ mode: "number" }).primaryKey().notNull(),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    userId: bigint("user_id", { mode: "number" }).notNull(),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    trackId: bigint("track_id", { mode: "number" }),
-    isGlobal: boolean("is_global").notNull(),
-  },
-  (table) => [
-    foreignKey({
-      columns: [table.trackId],
-      foreignColumns: [tracks.id],
-      name: "admin_scope_track_id_fkey",
-    }),
-    foreignKey({
-      columns: [table.userId],
-      foreignColumns: [users.id],
-      name: "admin_scope_user_id_fkey",
-    }),
-  ],
-);
-
 export const alert = pgTable(
   "alert",
   {
