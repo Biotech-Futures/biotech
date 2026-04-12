@@ -35,7 +35,6 @@ INSTALLED_APPS = [
     'apps.workshops',
     'apps.certificates',
     'apps.services',
-    'apps.emailing',
     'matching',
     'drf_spectacular',
     'rest_framework',

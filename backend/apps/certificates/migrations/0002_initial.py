@@ -2,6 +2,7 @@
 
 import django.db.models.deletion
 import django.db.models.functions.datetime
+from django.conf import settings
 from django.db import migrations, models
 
 
@@ -10,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("certificates", "0001_initial"),
-        ("users", "0001_initial"),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
