@@ -1,12 +1,10 @@
 from django.test import TestCase
-from datetime import date, datetime
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from django.apps import apps as dj_apps
-from .models import Groups, GroupMembers, CountryStates, Tracks
+from .models import Groups, GroupMembership, CountryStates, Tracks
 from datetime import timedelta
 
 from .models import Countries
@@ -23,7 +21,7 @@ class GroupsTests(TestCase):
 
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="Track 1", state=self.state)
+        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
         self.group1 = Groups.objects.create(group_name='Group One', track=self.track)
     
         self.create_group_data = {
@@ -32,10 +30,9 @@ class GroupsTests(TestCase):
         }
     
     def make_deleted_group(self, name="Deleted Group"):
-        g = Groups.objects.create(group_name=name, track=self.track)  # creation_datetime set here
-        g.deleted_flag = True
-        g.deleted_datetime = timezone.now() 
-        g.save(update_fields=["deleted_flag", "deleted_datetime"])
+        g = Groups.objects.create(group_name=name, track=self.track)
+        g.deleted_at = timezone.now()
+        g.save(update_fields=["deleted_at"])
         return g
 
     def test_list_groups_with_no_auth(self):
@@ -94,14 +91,12 @@ class GroupsTests(TestCase):
         payload = {
             'group_name': 'team_beta',
             'track': self.track.id,
-            'deleted_flag': True,
-            'deleted_datetime': timezone.now().isoformat(),
+            'deleted_at': timezone.now().isoformat(),
         }
         resp = self.client.post(url, payload, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         obj = Groups.objects.get(group_name='team_beta', track=self.track)
-        self.assertFalse(obj.deleted_flag)
-        self.assertIsNone(obj.deleted_datetime)
+        self.assertIsNone(obj.deleted_at)
 
     def test_duplicate_group_name_per_track_returns_400(self):
         url = reverse('groups-list')
@@ -148,7 +143,7 @@ class GroupsTests(TestCase):
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.group1.refresh_from_db()
-        self.assertFalse(self.group1.deleted_flag)
+        self.assertIsNone(self.group1.deleted_at)
     
     def test_delete_rejects_non_admin(self):
         url = reverse('groups-detail', args=[self.group1.id])
@@ -156,7 +151,7 @@ class GroupsTests(TestCase):
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.group1.refresh_from_db()
-        self.assertFalse(self.group1.deleted_flag)
+        self.assertIsNone(self.group1.deleted_at)
 
     def test_admin_soft_delete_hides_from_list(self):
         # admin can delete
@@ -199,14 +194,12 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         resp = self.client.patch(url, {
             'group_name': 'Still Active',
-            'deleted_flag': True,
-            'deleted_datetime': timezone.now().isoformat(),
+            'deleted_at': timezone.now().isoformat(),
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.group1.refresh_from_db()
         self.assertEqual(self.group1.group_name, 'Still Active')
-        self.assertFalse(self.group1.deleted_flag)
-        self.assertIsNone(self.group1.deleted_datetime)
+        self.assertIsNone(self.group1.deleted_at)
 
 
 class CountriesApiTests(TestCase):
@@ -277,17 +270,16 @@ class GroupMemberApiTests(TestCase):
 
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="Track 1", state=self.state)
+        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
         safe_created_at = timezone.now() - timedelta(days=1) 
         self.group = Groups.objects.create(
             group_name="Test Group", 
             track=self.track,
-            #TODO: does setting creation_datetime to read_only impact this test
-            creation_datetime=safe_created_at)
-        self.member1 = GroupMembers.objects.create(
+            created_at=safe_created_at)
+        self.member1 = GroupMembership.objects.create(
             user=self.normal_user, group=self.group
         )
-        self.member2 = GroupMembers.objects.create(
+        self.member2 = GroupMembership.objects.create(
             user=self.admin_user, group=self.group
         )
         self.list_url = reverse("group-members-list")
@@ -358,7 +350,7 @@ class TrackApiTests(TestCase):
         )
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="Track 1", state=self.state)
+        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
         self.list_url = reverse("tracks-list")
         self.detail_url = reverse("tracks-detail", args=[self.track.id])
 
@@ -386,7 +378,7 @@ class TrackApiTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         response = self.client.post(
             self.list_url,
-            {"track_name": "Track 2", "state": self.state.id}
+            {"track_name": "TRACK-2", "state": self.state.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -394,7 +386,7 @@ class TrackApiTests(TestCase):
         self.client.force_authenticate(user=self.normal_user)
         response = self.client.post(
             self.list_url,
-            {"track_name": "Track 2", "state": self.state.id}
+            {"track_name": "TRACK-2", "state": self.state.id}
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -402,6 +394,6 @@ class TrackApiTests(TestCase):
         self.client.logout()
         response = self.client.post(
             self.list_url,
-            {"track_name": "Track 2", "state": self.state.id}
+            {"track_name": "TRACK-2", "state": self.state.id}
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
