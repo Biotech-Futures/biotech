@@ -6,4 +6,4 @@ export const Route = createFileRoute("/_auth/event")({
 
 function RouteComponent() {
   return <div>Hello "/_auth/event"!</div>;
-
+}
