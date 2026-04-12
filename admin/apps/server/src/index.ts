@@ -10,6 +10,7 @@ import { userRoute } from "./module/user/route.js";
 import { auth } from "./lib/auth.js";
 import { HTTPException } from "hono/http-exception";
 import { authRequirement } from "./middleware/auth.js";
+import { resourceRoute } from "./module/resource/route.js";
 
 const app = new Hono();
 
@@ -30,7 +31,8 @@ app
   .route("group", groupRoute)
   .route("demo", demoRoute)
   .route("mentor-match", mentorMatchRoute)
-  .route("user", userRoute);
+  .route("user", userRoute)
+  .route("resource", resourceRoute);
 
 app.onError((error, c) => {
   console.log("Error occurred:", error);
