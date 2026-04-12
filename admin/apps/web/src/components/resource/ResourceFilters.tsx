@@ -52,7 +52,7 @@ export function ResourceFilters({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 py-4">
-      <div className="lg:col-span-3">
+      <div className="lg:col-span-4">
         <Label htmlFor="resource-search" className="text-sm text-muted-foreground mb-1.5 block">
           Search Resource
         </Label>
@@ -77,7 +77,7 @@ export function ResourceFilters({
         </InputGroup>
       </div>
 
-      <div className="lg:col-span-3">
+      <div className="lg:col-span-4">
         <Label
           htmlFor="resource-uploader"
           className="text-sm text-muted-foreground mb-1.5 block"
