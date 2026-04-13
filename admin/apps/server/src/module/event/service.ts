@@ -1,13 +1,5 @@
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gte,
-  type SQL,
-} from "drizzle-orm";
-import { eventRsvp, events } from "@/db/schema/index.js";
+import { and, asc, count, desc, eq, gte, type SQL } from "drizzle-orm";
+import { eventRsvp, events } from "@/drizzle/schema.js";
 import db from "@/lib/db.js";
 import type {
   CreateEventInput,
@@ -110,7 +102,11 @@ export async function queryEventById(id: string) {
     };
   }
 
-  const rows = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  const rows = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1);
   const event = rows[0] ?? null;
 
   return {
@@ -121,9 +117,9 @@ export async function queryEventById(id: string) {
 
 export async function createEvent(data: CreateEventInput) {
   const rows = await db
-  .insert(events)
-  .values({
-    hostUserId: data.hostUserId ?? null,
+    .insert(events)
+    .values({
+      hostUserId: data.hostUserId ?? null,
       trackId: data.trackId ?? null,
       eventType: data.eventType ?? null,
       startAt: new Date(data.startAt),
@@ -162,12 +158,12 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
   }
 
   if (data.startAt !== undefined) {
-  updates.startAt = new Date(data.startAt);
-}
+    updates.startAt = new Date(data.startAt);
+  }
 
-if (data.endsAt !== undefined) {
-  updates.endsAt = new Date(data.endsAt);
-}
+  if (data.endsAt !== undefined) {
+    updates.endsAt = new Date(data.endsAt);
+  }
 
   if (Object.keys(updates).length === 0) {
     return queryEventById(id);
@@ -254,10 +250,7 @@ export async function queryEventRsvps(id: string) {
   };
 }
 
-export async function createEventRsvp(
-  id: string,
-  data: CreateEventRsvpInput,
-) {
+export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
   const eventId = toEventId(id);
 
   if (!eventId) {
@@ -272,9 +265,9 @@ export async function createEventRsvp(
     .insert(eventRsvp)
     .values({
       eventId,
-    userId: data.userId,
-    rsvpStatus: data.rsvpStatus,
-    respondedAt: new Date(),
+      userId: data.userId,
+      rsvpStatus: data.rsvpStatus,
+      respondedAt: new Date(),
     })
     .returning();
 
