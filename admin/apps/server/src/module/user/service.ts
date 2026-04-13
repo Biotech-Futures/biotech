@@ -1,5 +1,11 @@
 // User service with mock data
-import type { QueryUsersInput, CreateUserInput, BulkCreateUsersInput, UpdateUserInput } from "./schema.js";
+import type {
+  QueryUsersInput,
+  QueryStudentsInput,
+  CreateUserInput,
+  BulkCreateUsersInput,
+  UpdateUserInput,
+} from "./schema.js";
 
 export type Role = "student" | "mentor" | "admin";
 export type Track = "frontend" | "backend" | "fullstack" | "data";
@@ -12,6 +18,8 @@ export type User = {
   track: Track | null;
   groupId: string | null;
   groupName: string | null;
+  age: number | null;
+  interests: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -23,6 +31,16 @@ const groupNames: Record<string, string> = Object.fromEntries(
 
 const tracks: Track[] = ["frontend", "backend", "fullstack", "data"];
 const roles: Role[] = ["student", "mentor", "admin"];
+const interestsPool = [
+  "biology",
+  "genetics",
+  "robotics",
+  "data science",
+  "ai",
+  "healthtech",
+  "chemistry",
+  "sustainability",
+];
 
 const firstNames = ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack"];
 const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Wilson", "Moore"];
@@ -34,7 +52,11 @@ function generateMockUsers(): User[] {
   for (let i = 0; i < 60; i++) {
     const role = i < 40 ? "student" : i < 55 ? "mentor" : "admin";
     const track = role !== "admin" ? tracks[i % 4] : null;
-    const groupId = role === "student" ? `g${(i % 20) + 1}` : null;
+    const groupId = role === "student" && i % 5 !== 0 ? `g${(i % 20) + 1}` : null;
+    const age = role === "student" ? 14 + (i % 5) : null;
+    const interests = role === "student"
+      ? [interestsPool[i % interestsPool.length], interestsPool[(i + 3) % interestsPool.length]]
+      : [];
 
     const firstName = firstNames[i % firstNames.length];
     const lastName = lastNames[Math.floor(i / firstNames.length) % lastNames.length];
@@ -47,6 +69,8 @@ function generateMockUsers(): User[] {
       track,
       groupId,
       groupName: groupId ? groupNames[groupId] : null,
+      age,
+      interests,
       createdAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
       updatedAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
     });
@@ -57,6 +81,40 @@ function generateMockUsers(): User[] {
 
 let mockUsers: User[] = generateMockUsers();
 let nextId = mockUsers.length + 1;
+
+export function queryStudents(params: QueryStudentsInput) {
+  const { page, limit, search, age, track, interest, inGroup } = params;
+  const offset = (page - 1) * limit;
+
+  let filtered = mockUsers.filter((u) => {
+    if (u.role !== "student") return false;
+    if (track && u.track !== track) return false;
+    if (age !== undefined && u.age !== age) return false;
+
+    if (interest) {
+      const target = interest.toLowerCase();
+      if (!u.interests.some((item) => item.toLowerCase().includes(target))) return false;
+    }
+
+    if (inGroup === "yes" && !u.groupId) return false;
+    if (inGroup === "no" && !!u.groupId) return false;
+
+    if (search) {
+      const s = search.toLowerCase();
+      if (!u.name.toLowerCase().includes(s) && !u.email.toLowerCase().includes(s)) return false;
+    }
+
+    return true;
+  });
+
+  const total = filtered.length;
+  const items = filtered.slice(offset, offset + limit);
+
+  return {
+    msg: "Students retrieved successfully",
+    data: { items, total, page, limit, hasMore: offset + items.length < total },
+  };
+}
 
 export function queryUsers(params: QueryUsersInput) {
   const { page, limit, search, role, track } = params;
@@ -100,6 +158,8 @@ export function createUser(input: CreateUserInput) {
     track: input.track ?? null,
     groupId: input.groupId ?? null,
     groupName: input.groupId ? (groupNames[input.groupId] ?? null) : null,
+    age: input.role === "student" ? 16 : null,
+    interests: input.role === "student" ? ["biology"] : [],
     createdAt: now,
     updatedAt: now,
   };
@@ -126,6 +186,8 @@ export function bulkCreateUsers(input: BulkCreateUsersInput) {
       track: u.track ?? null,
       groupId: u.groupId ?? null,
       groupName: u.groupId ? (groupNames[u.groupId] ?? null) : null,
+      age: u.role === "student" ? 16 : null,
+      interests: u.role === "student" ? ["biology"] : [],
       createdAt: now,
       updatedAt: now,
     };

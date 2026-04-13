@@ -1,6 +1,6 @@
 // Group Management Panel
 
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import {
   GroupFilters,
@@ -8,14 +8,20 @@ import {
   GroupDetailDrawer,
   createColumns,
 } from "@/components/group";
-import { useQueryGroups } from "@/query/group";
+import { useQueryGroup, useQueryGroups } from "@/query/group";
 import type { Group, Track } from "@/type/group";
 
 export const Route = createFileRoute("/_auth/group")({
+  validateSearch: (search) => ({
+    groupId: typeof search.groupId === "string" ? search.groupId : undefined,
+  }),
   component: GroupPage,
 });
 
 function GroupPage() {
+  const navigate = useNavigate();
+  const { groupId } = Route.useSearch();
+
   // Filter state - separate search inputs
   const [searchName, setSearchName] = useState("");
   const [searchGroup, setSearchGroup] = useState("");
@@ -37,6 +43,11 @@ function GroupPage() {
     track,
   });
 
+  const {
+    data: groupById,
+    isPending: isGroupByIdPending,
+  } = useQueryGroup(groupId ?? "");
+
   // Reset to page 1 when filters change
   useEffect(() => {
     setPage(1);
@@ -46,6 +57,29 @@ function GroupPage() {
   const totalPages = Math.ceil(
     (data?.data.total ?? 0) / (data?.data.limit ?? 10),
   );
+
+  useEffect(() => {
+    if (!groupId) return;
+    if (!groupById?.data) return;
+
+    setSelectedGroup(groupById.data);
+    setSheetMode("view");
+    setSheetOpen(true);
+  }, [groupId, groupById?.data]);
+
+  const handleDrawerOpenChange = (open: boolean) => {
+    setSheetOpen(open);
+
+    if (!open && groupId) {
+      navigate({
+        to: "/group",
+        search: () => ({}),
+        replace: true,
+      });
+    }
+  };
+
+  const isGroupNotFound = Boolean(groupId) && !isGroupByIdPending && groupById?.data === null;
 
   // Handlers
   const handleViewDetail = (group: Group) => {
@@ -78,6 +112,18 @@ function GroupPage() {
         </div>
       </div>
 
+      {groupId && !isGroupNotFound && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          Group detail opened from student view for group id: <span className="font-medium">{groupId}</span>
+        </div>
+      )}
+
+      {isGroupNotFound && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Group id <span className="font-medium">{groupId}</span> was not found.
+        </div>
+      )}
+
       {/* Filters - separate search for name and group */}
       <GroupFilters
         searchName={searchName}
@@ -102,7 +148,7 @@ function GroupPage() {
       <GroupDetailDrawer
         group={selectedGroup}
         open={sheetOpen}
-        onOpenChange={setSheetOpen}
+        onOpenChange={handleDrawerOpenChange}
         mode={sheetMode}
       />
     </div>
