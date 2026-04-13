@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ROLES = ["student", "mentor", "admin"] as const;
+export const ROLES = ["student", "mentor", "supervisor", "admin"] as const;
 export const TRACKS = ["frontend", "backend", "fullstack", "data"] as const;
 
 export const queryUsersSchema = z.object({
@@ -12,11 +12,11 @@ export const queryUsersSchema = z.object({
 });
 
 export const createUserSchema = z.object({
-  name: z.string().min(1).max(100),
+  firstName: z.string().min(1).max(255),
+  lastName: z.string().min(1).max(255),
   email: z.string().email(),
   role: z.enum(ROLES),
-  track: z.enum(TRACKS).optional(),
-  groupId: z.string().optional(),
+  track: z.enum(TRACKS),
 });
 
 export const bulkCreateUsersSchema = z.object({
@@ -24,14 +24,19 @@ export const bulkCreateUsersSchema = z.object({
 });
 
 export const updateUserSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
+  firstName: z.string().min(1).max(255).optional(),
+  lastName: z.string().min(1).max(255).optional(),
   email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
-  track: z.enum(TRACKS).nullable().optional(),
-  groupId: z.string().nullable().optional(),
+  track: z.enum(TRACKS).optional(),
+});
+
+export const updateStatusSchema = z.object({
+  isActive: z.boolean(),
 });
 
 export type QueryUsersInput = z.infer<typeof queryUsersSchema>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type BulkCreateUsersInput = z.infer<typeof bulkCreateUsersSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
