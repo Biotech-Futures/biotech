@@ -116,10 +116,11 @@ export async function queryEventById(id: string) {
 }
 
 export async function createEvent(data: CreateEventInput) {
+  if (!data.hostUserId) throw new Error("hostUserId is required");
   const rows = await db
     .insert(events)
     .values({
-      hostUserId: data.hostUserId ?? null,
+      hostUserId: data.hostUserId,
       trackId: data.trackId ?? null,
       eventType: data.eventType ?? null,
       startAt: new Date(data.startAt),
@@ -158,11 +159,11 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
   }
 
   if (data.startAt !== undefined) {
-    updates.startAt = new Date(data.startAt);
+    updates.startAt = new Date(data.startAt).toString();
   }
 
   if (data.endsAt !== undefined) {
-    updates.endsAt = new Date(data.endsAt);
+    updates.endsAt = new Date(data.endsAt).toString();
   }
 
   if (Object.keys(updates).length === 0) {

@@ -1,6 +1,6 @@
 # 🧑‍💼 Admin Features
 
-##  User Management
+## User Management
 
 - [ ] Add users manually (form)
 - [ ] Bulk upload users (CSV)
@@ -8,8 +8,7 @@
 - [ ] Assign track (region)
 - [ ] Activate / deactivate accounts
 
-
-##  Matching System (Core Feature)
+## Matching System (Core Feature)
 
 ### 👥 Student Matching
 
@@ -22,13 +21,13 @@
 - [ ] Calculate matching score
 - [ ] Provide summary statistics
 
-###  Mentor Matching
+### Mentor Matching
 
 - [ ] Assign mentors to groups
 - [ ] Display matching scores
 - [ ] Allow manual adjustment before confirmation
 
-###  Advanced Matching Controls
+### Advanced Matching Controls
 
 - [ ] Replace mentor (single group)
 - [ ] Bulk replace inactive mentors
@@ -36,7 +35,7 @@
 
 ---
 
-## 🧠  Group Management & Oversight
+## 🧠 Group Management & Oversight
 
 - [ ] View all groups and members
 - [ ] Reassign users (single)
@@ -48,7 +47,6 @@
 - [ ] Post as personal account
 
 ---
-
 
 ## 📚 Resource Management
 
@@ -62,7 +60,7 @@
 
 ---
 
-## 📅  Event Management
+## 📅 Event Management
 
 - [ ] Create events
 - [ ] Edit events
@@ -73,7 +71,7 @@
 
 ---
 
-## 📢  Announcements System
+## 📢 Announcements System
 
 - [ ] Create announcements (rich text / HTML)
 - [ ] Send email notifications
@@ -82,9 +80,8 @@
 
 ---
 
-## 📧  Communication Tools
+## 📧 Communication Tools
 
 - [ ] Send email to individual users
 - [ ] Send email to filtered groups
 - [ ] Trigger automated emails (reassignment, system actions)
-
