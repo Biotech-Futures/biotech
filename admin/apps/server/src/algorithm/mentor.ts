@@ -403,12 +403,38 @@ export function matchMentors(
     }));
   }
 
-  // ── Balanced: all available mentors ──────────────────────────────────────
+  // ── Balanced: all available mentors, poor-quality matches rejected ────────
   if (mode === "balanced") {
     const scoreMatrix = buildScoreMatrix(groups, availableMentors);
     const { assignment, tentative } = galeShapley(groups, availableMentors, scoreMatrix);
     const eligibleByGroup = new Map(groups.map((g) => [g.groupId, availableMentors]));
-    return buildResults(groups, availableMentors, scoreMatrix, assignment, tentative, eligibleByGroup, mode);
+    const results = buildResults(groups, availableMentors, scoreMatrix, assignment, tentative, eligibleByGroup, mode);
+
+    // Reject assignments that are too poor for auto-confirmation:
+    // no shared interests at all, or timezone gap at maximum penalty.
+    return results.map((rec) => {
+      if (rec.recommendedMentor === null) return rec;
+      const bd = rec.scoreBreakdown;
+      if (bd.interestBonus === 0) {
+        return {
+          ...rec,
+          recommendedMentor: null,
+          reason: "No shared interests between the mentor and group students. Manual assignment recommended.",
+          score: 0,
+          scoreBreakdown: { ...EMPTY_BREAKDOWN },
+        };
+      }
+      if (bd.timezonePenalty >= TIMEZONE_MAX_PENALTY) {
+        return {
+          ...rec,
+          recommendedMentor: null,
+          reason: "Timezone difference too large for a productive mentoring relationship. Manual assignment recommended.",
+          score: 0,
+          scoreBreakdown: { ...EMPTY_BREAKDOWN },
+        };
+      }
+      return rec;
+    });
   }
 
   // ── Strict: same-track / GLOBAL only ─────────────────────────────────────

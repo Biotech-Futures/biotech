@@ -66,7 +66,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
   return (
     <div className="grid gap-3 px-4 py-3 md:grid-cols-3 bg-muted/20 border-t">
       {/* Group & students */}
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Group
         </p>
@@ -117,7 +117,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
       </div>
 
       {/* Score breakdown */}
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Score Breakdown
         </p>
@@ -166,7 +166,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
           </p>
           <div className="space-y-1">
             {(reason || "No reason provided.").split(". ").filter(Boolean).map((sentence, i) => (
-              <p key={i} className="leading-relaxed text-foreground">
+              <p key={i} className="leading-relaxed text-foreground break-words">
                 {sentence.endsWith(".") ? sentence : `${sentence}.`}
               </p>
             ))}
@@ -175,7 +175,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
       </div>
 
       {/* Mentor details */}
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           Mentor
         </p>
