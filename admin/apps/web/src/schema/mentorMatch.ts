@@ -32,6 +32,11 @@ export const recommendedMentorSchema = z.object({
   remainingCapacity: z.number(),
 });
 
+export const groupStudentSchema = z.object({
+  name: z.string(),
+  interests: z.array(z.string()),
+});
+
 export const mentorGroupRecommendationSchema = z.object({
   group: z.object({
     groupId: z.number(),
@@ -39,6 +44,7 @@ export const mentorGroupRecommendationSchema = z.object({
     trackCode: z.string(),
     studentInterests: z.array(z.string()),
     studentCount: z.number(),
+    students: z.array(groupStudentSchema).optional(),
   }),
   recommendedMentor: recommendedMentorSchema.nullable(),
   reason: z.string(),

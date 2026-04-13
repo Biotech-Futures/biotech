@@ -18,6 +18,7 @@ import {
   users,
 } from "@/drizzle/schema.js";
 import type { ConfirmMentorAssignmentInput } from "./schema.js";
+import { demoGroups, demoMentors } from "./demo.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,11 @@ export async function matchMentor(
   adminUserId: string,
   mode: MatchMode = "balanced",
 ) {
+  // Demo mode: skip DB, run algorithm on static demo data
+  if (process.env.MATCH_USE_DEMO_DATA === "true") {
+    return matchMentors(demoGroups, demoMentors, mode);
+  }
+
   // 1. Find groups that have no active mentor membership
   const groupsWithoutMentor = await db
     .select({
@@ -193,7 +199,15 @@ export async function matchMentor(
   // 4. Run algorithm
   const recommendations = matchMentors(groupSources, mentorSources, mode);
 
+  // 5. Save matchRun record
+  const latestMatchRun = await db
+    .select({ id: matchRun.id })
+    .from(matchRun)
+    .orderBy(desc(matchRun.id))
+    .limit(1);
+
   await db.insert(matchRun).values({
+    id: (latestMatchRun[0]?.id ?? 0) + 1,
     adminUserId: adminUserId,
     runType: "mentor-match",
     payload: groupSources,
@@ -207,6 +221,15 @@ export async function matchMentor(
 // ─── getUnmatchedGroups ──────────────────────────────────────────────────────
 
 export async function getUnmatchedGroups() {
+  // Demo mode: return all demo groups (none are matched in DB)
+  if (process.env.MATCH_USE_DEMO_DATA === "true") {
+    return demoGroups.map((g) => ({
+      groupId: g.groupId,
+      groupName: g.groupName,
+      trackCode: g.trackCode,
+    }));
+  }
+
   const unmatchedGroups = await db
     .select({
       groupId: groups.id,

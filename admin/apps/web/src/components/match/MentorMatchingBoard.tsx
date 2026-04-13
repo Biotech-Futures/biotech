@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { CheckIcon, InfoIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
 const MATCH_MODES: {
   value: MatchMode;
@@ -58,102 +58,168 @@ type MentorMatchingBoardProps = {
   isConfirming: boolean;
 };
 
-function ScoreBreakdownTooltip({
-  rec,
-}: {
-  rec: MentorGroupRecommendation;
-}) {
-  const { scoreBreakdown: bd } = rec;
+// ─── Expanded detail panel ───────────────────────────────────────────────────
+
+function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
+  const { group, recommendedMentor, reason, scoreBreakdown: bd } = rec;
+
   return (
-    <TooltipContent
-      side="left"
-      className="w-[320px] max-w-[90vw] flex flex-col gap-2 rounded-lg border bg-card p-3 text-card-foreground shadow-lg"
-    >
-      <div className="rounded-md border bg-muted/20 p-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Reason
+    <div className="grid gap-3 px-4 py-3 md:grid-cols-3 bg-muted/20 border-t">
+      {/* Group & students */}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Group
         </p>
-        <p className="mt-1 text-xs leading-relaxed">
-          {rec.reason || "No reason provided"}
-        </p>
+        <div className="text-xs space-y-1">
+          <p className="font-medium">{group.groupName}</p>
+          <p className="text-muted-foreground">
+            Track: <span className="text-foreground">{group.trackCode}</span>
+          </p>
+          <p className="text-muted-foreground">
+            Students: <span className="text-foreground">{group.studentCount}</span>
+          </p>
+        </div>
+
+        {group.students && group.students.length > 0 ? (
+          <div className="space-y-1.5 pt-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Students
+            </p>
+            {group.students.map((s) => (
+              <div key={s.name} className="rounded border bg-background px-2 py-1">
+                <p className="text-xs font-medium">{s.name}</p>
+                {s.interests.length > 0 && (
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {s.interests.map((i) => (
+                      <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">
+                        {i}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="pt-1 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Student Interests
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {[...new Set(group.studentInterests)].map((i) => (
+                <Badge key={i} variant="outline" className="text-[10px]">
+                  {i}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="rounded-md border bg-muted/20 p-2 text-xs">
-        <div className="mb-2 flex items-center justify-between border-b pb-1.5">
-          <span className="font-medium text-muted-foreground">Match score</span>
-          <span className="text-sm font-semibold">{rec.score.toFixed(2)}</span>
-        </div>
-        <div className="space-y-1.5">
+      {/* Score breakdown */}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Score Breakdown
+        </p>
+        <div className="rounded border bg-background p-2 text-xs space-y-1.5">
+          <div className="flex items-center justify-between border-b pb-1.5 font-medium">
+            <span className="text-muted-foreground">Match score</span>
+            <span className="text-sm font-semibold">{rec.score.toFixed(0)}</span>
+          </div>
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Base</span>
-            <span>{bd.baseScore.toFixed(2)}</span>
+            <span>{bd.baseScore}</span>
           </div>
           {bd.trackPenalty > 0 && (
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Track mismatch</span>
-              <span className="text-red-500">-{bd.trackPenalty.toFixed(2)}</span>
+              <span className="text-red-500">−{bd.trackPenalty}</span>
             </div>
           )}
           {bd.interestBonus > 0 && (
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Interest overlap</span>
-              <span className="text-green-600">+{bd.interestBonus.toFixed(2)}</span>
+              <span className="text-green-600">+{bd.interestBonus}</span>
             </div>
           )}
           {bd.timezonePenalty > 0 && (
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Timezone penalty</span>
-              <span className="text-red-500">-{bd.timezonePenalty.toFixed(2)}</span>
+              <span className="text-red-500">−{bd.timezonePenalty}</span>
             </div>
           )}
           {bd.capacityBonus > 0 && (
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Capacity bonus</span>
-              <span className="text-green-600">+{bd.capacityBonus.toFixed(2)}</span>
+              <span className="text-green-600">+{bd.capacityBonus}</span>
             </div>
           )}
           <div className="flex items-center justify-between border-t pt-1.5 font-semibold">
             <span>Total</span>
-            <span>{bd.objectiveScore.toFixed(2)}</span>
+            <span>{bd.objectiveScore}</span>
+          </div>
+        </div>
+
+        <div className="rounded border bg-background p-2 text-xs">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Reason
+          </p>
+          <div className="space-y-1">
+            {(reason || "No reason provided.").split(". ").filter(Boolean).map((sentence, i) => (
+              <p key={i} className="leading-relaxed text-foreground">
+                {sentence.endsWith(".") ? sentence : `${sentence}.`}
+              </p>
+            ))}
           </div>
         </div>
       </div>
 
-      {rec.recommendedMentor && (
-        <div className="rounded-md border bg-muted/20 p-2 text-xs">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
-            Mentor interests
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {rec.recommendedMentor.interests.length > 0 ? (
-              rec.recommendedMentor.interests.map((interest) => (
-                <Badge key={interest} variant="secondary" className="text-[10px]">
-                  {interest}
-                </Badge>
-              ))
-            ) : (
-              <span className="text-muted-foreground">None listed</span>
+      {/* Mentor details */}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Mentor
+        </p>
+        {recommendedMentor ? (
+          <div className="rounded border bg-background p-2 text-xs space-y-1.5">
+            <p className="font-medium">{recommendedMentor.name}</p>
+            {recommendedMentor.institution && (
+              <p className="text-muted-foreground">{recommendedMentor.institution}</p>
             )}
+            <p className="text-muted-foreground">
+              Track: <span className="text-foreground">{recommendedMentor.trackCode}</span>
+            </p>
+            <p className="text-muted-foreground">
+              Remaining capacity:{" "}
+              <span className="text-foreground">{recommendedMentor.remainingCapacity}</span>
+            </p>
+            <div className="pt-1 space-y-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Mentor Interests
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {recommendedMentor.interests.length > 0 ? (
+                  recommendedMentor.interests.map((i) => (
+                    <Badge key={i} variant="secondary" className="text-[10px]">
+                      {i}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground">None listed</span>
+                )}
+              </div>
+            </div>
           </div>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mt-2 mb-1">
-            Group student interests
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {rec.group.studentInterests.length > 0 ? (
-              [...new Set(rec.group.studentInterests)].map((interest) => (
-                <Badge key={interest} variant="outline" className="text-[10px]">
-                  {interest}
-                </Badge>
-              ))
-            ) : (
-              <span className="text-muted-foreground">None listed</span>
-            )}
+        ) : (
+          <div className="rounded border border-dashed bg-background p-3 text-xs text-muted-foreground">
+            No mentor was found for this group under the current mode.
           </div>
-        </div>
-      )}
-    </TooltipContent>
+        )}
+      </div>
+    </div>
   );
 }
+
+// ─── Main board ───────────────────────────────────────────────────────────────
 
 export function MentorMatchingBoard({
   recommendations,
@@ -166,6 +232,7 @@ export function MentorMatchingBoard({
   isConfirming,
 }: MentorMatchingBoardProps) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [trackFilter, setTrackFilter] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -217,11 +284,17 @@ export function MentorMatchingBoard({
   function toggleRow(id: number) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleExpand(id: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -347,6 +420,7 @@ export function MentorMatchingBoard({
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8" />
                 <TableHead className="w-10">
                   <button
                     onClick={toggleAll}
@@ -374,27 +448,46 @@ export function MentorMatchingBoard({
               {filtered.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No results match current filters.
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((rec) => {
+                filtered.flatMap((rec) => {
                   const groupId = rec.group.groupId;
                   const isSelected = selectedIds.has(groupId);
+                  const isExpanded = expandedIds.has(groupId);
                   const hasMatch = rec.recommendedMentor !== null;
 
-                  return (
+                  return [
                     <TableRow
-                      key={`${groupId}`}
+                      key={`row-${groupId}`}
                       className={cn(
+                        "cursor-pointer",
                         isSelected && "bg-primary/5",
                         !hasMatch && "opacity-60",
                       )}
+                      onClick={() => toggleExpand(groupId)}
                     >
-                      <TableCell>
+                      {/* Expand toggle */}
+                      <TableCell
+                        className="text-muted-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleExpand(groupId);
+                        }}
+                      >
+                        {isExpanded ? (
+                          <ChevronDownIcon className="size-4" />
+                        ) : (
+                          <ChevronRightIcon className="size-4" />
+                        )}
+                      </TableCell>
+
+                      {/* Checkbox */}
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         {hasMatch && (
                           <button
                             onClick={() => toggleRow(groupId)}
@@ -409,6 +502,7 @@ export function MentorMatchingBoard({
                           </button>
                         )}
                       </TableCell>
+
                       <TableCell className="font-medium">
                         {rec.group.groupName}
                       </TableCell>
@@ -437,23 +531,21 @@ export function MentorMatchingBoard({
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
-                        {hasMatch ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-sm font-semibold hover:bg-muted/50">
-                                {rec.score.toFixed(0)}
-                                <InfoIcon className="size-3 text-muted-foreground" />
-                              </button>
-                            </TooltipTrigger>
-                            <ScoreBreakdownTooltip rec={rec} />
-                          </Tooltip>
-                        ) : (
+                      <TableCell className="text-right font-semibold">
+                        {hasMatch ? rec.score.toFixed(0) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                    </TableRow>
-                  );
+                    </TableRow>,
+
+                    isExpanded && (
+                      <TableRow key={`detail-${groupId}`} className="hover:bg-transparent">
+                        <TableCell colSpan={9} className="p-0">
+                          <ExpandedDetail rec={rec} />
+                        </TableCell>
+                      </TableRow>
+                    ),
+                  ].filter(Boolean);
                 })
               )}
             </TableBody>

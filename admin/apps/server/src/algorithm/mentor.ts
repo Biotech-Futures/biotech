@@ -27,12 +27,18 @@ export type MentorSource = {
   currentAcceptedCount: number;
 };
 
+export type GroupStudent = {
+  name: string;
+  interests: string[];
+};
+
 export type GroupSource = {
   groupId: number;
   groupName: string;
   trackCode: string;
   studentInterests: string[]; // union of all member student interests
   studentCount: number;
+  students?: GroupStudent[]; // display-only, not used by the algorithm
 };
 
 export type MentorScoreBreakdown = {
