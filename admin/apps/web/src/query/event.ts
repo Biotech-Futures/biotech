@@ -158,7 +158,7 @@ function toApiEventPayload(data: CreateEvent | UpdateEvent) {
     eventType: data.eventType?.trim() || null,
     hostUserId: data.hostUserId ?? null,
     trackId: data.trackId ?? null,
-    startAt: data.startAt ? new Date(data.startAt).toISOString() : undefined,
-    endsAt: data.endsAt ? new Date(data.endsAt).toISOString() : undefined,
+    startAt: data.startAt ? data.startAt + ":00.000Z" : undefined,
+    endsAt: data.endsAt ? data.endsAt + ":00.000Z" : undefined,
   };
 }
