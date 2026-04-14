@@ -344,14 +344,11 @@ export const events = pgTable(
 export const eventRsvp = pgTable(
   "event_rsvp",
   {
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    id: bigint({ mode: "number" }).primaryKey().notNull(),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    id: bigint({ mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
     eventId: bigint("event_id", { mode: "number" }).notNull(),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     userId: bigint("user_id", { mode: "number" }).notNull(),
     rsvpStatus: varchar("rsvp_status", { length: 50 }).notNull(),
-    respondedAt: timestamp("responded_at", { precision: 6, mode: "string" }),
+    createdAt: timestamp("created_at", { precision: 6, mode: "string" }).defaultNow(),
   },
   (table) => [
     foreignKey({
