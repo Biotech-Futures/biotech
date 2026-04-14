@@ -591,6 +591,7 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "UTC",
   }).format(new Date(value));
 }
 
