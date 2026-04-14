@@ -11,7 +11,7 @@ import type {
 
 type EventUpdate = Partial<Omit<typeof events.$inferInsert, "id">>;
 
-async function getNextEventId() {
+/*async function getNextEventId() {
   const rows = await db
     .select({ id: events.id })
     .from(events)
@@ -31,7 +31,7 @@ async function getNextEventRsvpId() {
   const latestId = Number(rows[0]?.id ?? 0);
 
   return latestId + 1;
-}
+}*/
 
 function toEventId(id: string) {
   const eventId = Number(id);
@@ -61,8 +61,17 @@ export async function queryEvents(params: QueryEventsInput) {
   }
 
   if (upcoming) {
-    conditions.push(gte(events.startAt, new Date()));
-  }
+  const sydneyNow = new Date().toLocaleString("en-AU", { 
+    timeZone: "Australia/Sydney",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false
+  });
+  const [datePart, timePart] = sydneyNow.split(", ");
+  const [day, month, year] = datePart.split("/");
+  const nowSydney = `${year}-${month}-${day} ${timePart}`;
+  conditions.push(gte(events.startAt, nowSydney));
+}
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -117,16 +126,16 @@ export async function queryEventById(id: string) {
 
 export async function createEvent(data: CreateEventInput) {
   if (!data.hostUserId) throw new Error("hostUserId is required");
-  const rows = await db
-    .insert(events)
-    .values({
-      hostUserId: data.hostUserId,
-      trackId: data.trackId ?? null,
-      eventType: data.eventType ?? null,
-      startAt: new Date(data.startAt),
-      endsAt: new Date(data.endsAt),
-    })
-    .returning();
+   const rows = await db
+  .insert(events)
+  .values({
+    hostUserId: data.hostUserId,
+    trackId: data.trackId ?? null,
+    eventType: data.eventType ?? null,
+    startAt: new Date(data.startAt).toISOString(),
+    endsAt: new Date(data.endsAt).toISOString(),
+  } as typeof events.$inferInsert)
+  .returning();
 
   return {
     msg: "Event created successfully",
@@ -159,11 +168,11 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
   }
 
   if (data.startAt !== undefined) {
-    updates.startAt = new Date(data.startAt).toString();
+    updates.startAt = new Date(data.startAt).toISOString();
   }
 
   if (data.endsAt !== undefined) {
-    updates.endsAt = new Date(data.endsAt).toString();
+    updates.endsAt = new Date(data.endsAt).toISOString();
   }
 
   if (Object.keys(updates).length === 0) {
@@ -253,7 +262,6 @@ export async function queryEventRsvps(id: string) {
 
 export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
   const eventId = toEventId(id);
-
   if (!eventId) {
     return {
       msg: "Invalid event id",
@@ -261,22 +269,16 @@ export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
     };
   }
 
-  const rsvpId = await getNextEventRsvpId();
   const rows = await db
-    .insert(eventRsvp)
-    .values({
-      eventId,
-      userId: data.userId,
-      rsvpStatus: data.rsvpStatus,
-      respondedAt: new Date(),
-    })
-    .returning();
-
-  return {
-    msg: "Event RSVP created successfully",
-    data: rows[0] ?? null,
+  .insert(eventRsvp)
+  .values({
+    eventId,
+    userId: data.userId,
+    rsvpStatus: data.rsvpStatus,
+  } as typeof eventRsvp.$inferInsert)
+  .returning();
   };
-}
+
 
 export async function updateEventRsvp(
   rsvpIdParam: string,
@@ -295,7 +297,6 @@ export async function updateEventRsvp(
     .update(eventRsvp)
     .set({
       rsvpStatus: data.rsvpStatus,
-      respondedAt: new Date().toISOString(),
     })
     .where(eq(eventRsvp.id, rsvpId))
     .returning();

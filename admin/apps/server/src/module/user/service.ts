@@ -1,20 +1,10 @@
-import db from "@/lib/db.js";
-import {
-  users,
-  roles,
-  tracks,
-  userRoleAssignment,
-  mentorProfile,
-  supervisorProfile,
-  studentProfile,
-} from "@/drizzle/schema.js";
-import { eq, and, or, isNull, ilike, sql, type SQL } from "drizzle-orm";
+// User service with mock data
 import type {
   QueryUsersInput,
+  QueryStudentsInput,
   CreateUserInput,
   BulkCreateUsersInput,
   UpdateUserInput,
-  UpdateStatusInput,
 } from "./schema.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -24,53 +14,57 @@ export type User = {
   firstName: string;
   lastName: string;
   email: string;
-  role: string | null;
-  track: string | null;
-  isActive: boolean;
-  accountStatus: string;
-  invitedAt: string | null;
-  activatedAt: string | null;
+  role: Role;
+  track: Track | null;
+  groupId: string | null;
+  groupName: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// Mock group name lookup
+const groupNames: Record<string, string> = Object.fromEntries(
+  Array.from({ length: 50 }, (_, i) => [`g${i + 1}`, `Group ${i + 1}`]),
+);
 
-/** Generate a unique bigint ID (timestamp + random suffix). */
-function generateId(): number {
-  return Date.now() * 1000 + Math.floor(Math.random() * 1000);
+const tracks: Track[] = ["frontend", "backend", "fullstack", "data"];
+const roles: Role[] = ["student", "mentor", "admin"];
+
+const firstNames = ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack"];
+const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Wilson", "Moore"];
+
+function generateMockUsers(): User[] {
+  const users: User[] = [];
+  let id = 1;
+
+  for (let i = 0; i < 60; i++) {
+    const role = i < 40 ? "student" : i < 55 ? "mentor" : "admin";
+    const track = role !== "admin" ? tracks[i % 4] : null;
+    const groupId = role === "student" ? `g${(i % 20) + 1}` : null;
+
+    const firstName = firstNames[i % firstNames.length];
+    const lastName = lastNames[Math.floor(i / firstNames.length) % lastNames.length];
+
+    users.push({
+      id: `u${id++}`,
+      name: `${firstName} ${lastName}`,
+      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@example.com`,
+      role,
+      track,
+      groupId,
+      groupName: groupId ? groupNames[groupId] : null,
+      createdAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
+      updatedAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
+    });
+  }
+
+  return users;
 }
 
-/** Build the standard user SELECT with role + track JOINs. */
-const userSelect = {
-  id: users.id,
-  firstName: users.firstName,
-  lastName: users.lastName,
-  email: users.email,
-  isActive: users.isActive,
-  accountStatus: users.accountStatus,
-  invitedAt: users.invitedAt,
-  activatedAt: users.activatedAt,
-  role: roles.slug,
-  track: tracks.trackCode,
-};
+let mockUsers: User[] = generateMockUsers();
+let nextId = mockUsers.length + 1;
 
-async function fetchUserById(id: number): Promise<User | null> {
-  const rows = await db
-    .select(userSelect)
-    .from(users)
-    .leftJoin(
-      userRoleAssignment,
-      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
-    )
-    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
-    .leftJoin(tracks, eq(tracks.id, users.trackId))
-    .where(eq(users.id, id));
-
-  return (rows[0] as User) ?? null;
-}
-
-// ─── Service functions ────────────────────────────────────────────────────────
-
-export async function queryUsers(params: QueryUsersInput) {
+export function queryUsers(params: QueryUsersInput) {
   const { page, limit, search, role, track } = params;
   const offset = (page - 1) * limit;
 
@@ -162,35 +156,16 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   await db.insert(users).values({
     id: userId,
     email: input.email,
-    firstName: input.firstName,
-    lastName: input.lastName,
-    isActive: true,
-    trackId,
-    accountStatus: "pending",
-    invitedAt: now,
-    adminUserId,
-  });
+    role: input.role,
+    track: input.track ?? null,
+    groupId: input.groupId ?? null,
+    groupName: input.groupId ? (groupNames[input.groupId] ?? null) : null,
+    createdAt: now,
+    updatedAt: now,
+  };
 
-  // Insert role assignment (validTo = null means currently active)
-  await db.insert(userRoleAssignment).values({
-    id: roleAssignmentId,
-    userId,
-    roleId,
-    validFrom: now,
-    validTo: null,
-  });
-
-  // Insert role-specific profile
-  if (input.role === "mentor") {
-    await db.insert(mentorProfile).values({ userId, maxGroupCount: 3 });
-  } else if (input.role === "supervisor") {
-    await db.insert(supervisorProfile).values({ userId, schoolName: "" });
-  } else if (input.role === "student") {
-    await db.insert(studentProfile).values({ userId, joinPermissionReceived: false });
-  }
-
-  const created = await fetchUserById(userId);
-  return { msg: "User created successfully", data: created };
+  mockUsers.push(newUser);
+  return { msg: "User created successfully", data: newUser };
 }
 
 export async function bulkCreateUsers(input: BulkCreateUsersInput, adminUserId: string) {
@@ -204,6 +179,19 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput, adminUserId: 
     } else {
       skipped.push(u.email);
     }
+    const newUser: User = {
+      id: `u${nextId++}`,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      track: u.track ?? null,
+      groupId: u.groupId ?? null,
+      groupName: u.groupId ? (groupNames[u.groupId] ?? null) : null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    mockUsers.push(newUser);
+    created.push(newUser);
   }
 
   return {

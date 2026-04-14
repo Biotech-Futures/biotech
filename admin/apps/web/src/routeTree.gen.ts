@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
-import { Route as AuthUserRouteImport } from './routes/_auth/user'
+import { Route as AuthStudentRouteImport } from './routes/_auth/student'
 import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
 import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentorMatching'
 import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
@@ -35,9 +35,9 @@ const AuthIndexRoute = AuthIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthUserRoute = AuthUserRouteImport.update({
-  id: '/user',
-  path: '/user',
+const AuthStudentRoute = AuthStudentRouteImport.update({
+  id: '/student',
+  path: '/student',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthResourceRoute = AuthResourceRouteImport.update({
@@ -86,7 +86,7 @@ export interface FileRoutesByFullPath {
   '/matching': typeof AuthMatchingRoute
   '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
-  '/user': typeof AuthUserRoute
+  '/student': typeof AuthStudentRoute
 }
 export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
@@ -97,7 +97,7 @@ export interface FileRoutesByTo {
   '/matching': typeof AuthMatchingRoute
   '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
-  '/user': typeof AuthUserRoute
+  '/student': typeof AuthStudentRoute
   '/': typeof AuthIndexRoute
 }
 export interface FileRoutesById {
@@ -111,7 +111,7 @@ export interface FileRoutesById {
   '/_auth/matching': typeof AuthMatchingRoute
   '/_auth/mentorMatching': typeof AuthMentorMatchingRoute
   '/_auth/resource': typeof AuthResourceRoute
-  '/_auth/user': typeof AuthUserRoute
+  '/_auth/student': typeof AuthStudentRoute
   '/_auth/': typeof AuthIndexRoute
 }
 export interface FileRouteTypes {
@@ -126,7 +126,7 @@ export interface FileRouteTypes {
     | '/matching'
     | '/mentorMatching'
     | '/resource'
-    | '/user'
+    | '/student'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/signin'
@@ -137,7 +137,7 @@ export interface FileRouteTypes {
     | '/matching'
     | '/mentorMatching'
     | '/resource'
-    | '/user'
+    | '/student'
     | '/'
   id:
     | '__root__'
@@ -150,7 +150,7 @@ export interface FileRouteTypes {
     | '/_auth/matching'
     | '/_auth/mentorMatching'
     | '/_auth/resource'
-    | '/_auth/user'
+    | '/_auth/student'
     | '/_auth/'
   fileRoutesById: FileRoutesById
 }
@@ -182,11 +182,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/user': {
-      id: '/_auth/user'
-      path: '/user'
-      fullPath: '/user'
-      preLoaderRoute: typeof AuthUserRouteImport
+    '/_auth/student': {
+      id: '/_auth/student'
+      path: '/student'
+      fullPath: '/student'
+      preLoaderRoute: typeof AuthStudentRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/resource': {
@@ -249,7 +249,7 @@ interface AuthRouteRouteChildren {
   AuthMatchingRoute: typeof AuthMatchingRoute
   AuthMentorMatchingRoute: typeof AuthMentorMatchingRoute
   AuthResourceRoute: typeof AuthResourceRoute
-  AuthUserRoute: typeof AuthUserRoute
+  AuthStudentRoute: typeof AuthStudentRoute
   AuthIndexRoute: typeof AuthIndexRoute
 }
 
@@ -261,7 +261,7 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthMatchingRoute: AuthMatchingRoute,
   AuthMentorMatchingRoute: AuthMentorMatchingRoute,
   AuthResourceRoute: AuthResourceRoute,
-  AuthUserRoute: AuthUserRoute,
+  AuthStudentRoute: AuthStudentRoute,
   AuthIndexRoute: AuthIndexRoute,
 }
 

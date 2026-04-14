@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { sValidator } from "@hono/standard-validator";
 import {
   queryUsersSchema,
+  queryStudentsSchema,
   createUserSchema,
   bulkCreateUsersSchema,
   updateUserSchema,
@@ -9,6 +10,7 @@ import {
 } from "./schema.js";
 import {
   queryUsers,
+  queryStudents,
   queryUserById,
   createUser,
   bulkCreateUsers,
@@ -23,6 +25,13 @@ export const userRoute = new Hono();
 userRoute.get("/", sValidator("query", queryUsersSchema), async (c) => {
   const params = c.req.valid("query");
   const result = await queryUsers(params);
+  return c.json(result);
+});
+
+// GET /api/v1/user/students - List students with student-specific filters
+userRoute.get("/students", sValidator("query", queryStudentsSchema), (c) => {
+  const params = c.req.valid("query");
+  const result = queryStudents(params);
   return c.json(result);
 });
 

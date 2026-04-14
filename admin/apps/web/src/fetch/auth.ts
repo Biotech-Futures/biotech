@@ -23,11 +23,14 @@ export function useMagicLinkSignIn() {
 export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
-      const { error } = await authClient.signOut();
+      const { error } = await authClient.signOut({});
       if (error) {
         toast.error(error.message);
         throw new Error(error.message);
       }
+    },
+    onSuccess: () => {
+      window.location.href = "/";
     },
   });
 }
