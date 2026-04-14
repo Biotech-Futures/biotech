@@ -588,11 +588,12 @@ function EditNumberField({
 }
 
 function formatDateTime(value: string) {
+  const isoValue = value.replace(" ", "T") + "Z";
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
-  }).format(new Date(value));
+  }).format(new Date(isoValue));
 }
 
 function toDatetimeLocal(value: string) {
