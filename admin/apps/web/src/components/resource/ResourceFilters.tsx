@@ -6,17 +6,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { ArrowUpDown, SearchIcon, UserIcon } from "lucide-react";
+import { ArrowUpDown, SearchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import type { ResourceOrder, ResourceTypeName } from "@/type/resource";
-import { RESOURCE_TYPES } from "@/type/resource";
+import { RESOURCE_TRACKS, RESOURCE_TYPES } from "@/type/resource";
 
 interface ResourceFiltersProps {
   search: string;
   onSearchChange: (value: string) => void;
   uploader: string;
   onUploaderChange: (value: string) => void;
+  trackId: number | undefined;
+  onTrackIdChange: (value: number | undefined) => void;
   order: ResourceOrder;
   onOrderChange: (value: ResourceOrder) => void;
   type: ResourceTypeName | undefined;
@@ -28,6 +30,8 @@ export function ResourceFilters({
   onSearchChange,
   uploader,
   onUploaderChange,
+  trackId,
+  onTrackIdChange,
   order,
   onOrderChange,
   type,
@@ -52,7 +56,7 @@ export function ResourceFilters({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 py-4">
-      <div className="lg:col-span-4">
+      <div className="lg:col-span-3">
         <Label htmlFor="resource-search" className="text-sm text-muted-foreground mb-1.5 block">
           Search Resource
         </Label>
@@ -77,7 +81,7 @@ export function ResourceFilters({
         </InputGroup>
       </div>
 
-      <div className="lg:col-span-4">
+      <div className="lg:col-span-3">
         <Label
           htmlFor="resource-uploader"
           className="text-sm text-muted-foreground mb-1.5 block"
@@ -85,12 +89,9 @@ export function ResourceFilters({
           Search Uploader
         </Label>
         <InputGroup>
-          <InputGroupAddon>
-            <UserIcon />
-          </InputGroupAddon>
           <InputGroupInput
             id="resource-uploader"
-            placeholder="Uploader name or email..."
+            placeholder="Uploader name..."
             value={localUploader}
             onChange={(event) => {
               const value = event.target.value;
@@ -100,23 +101,28 @@ export function ResourceFilters({
                 onUploaderChange(value);
               }, 300);
             }}
-            className="pl-9"
           />
         </InputGroup>
       </div>
 
       <div className="w-full lg:col-span-2">
-        <Label htmlFor="resource-order" className="text-sm text-muted-foreground mb-1.5 block">
-          Sort by Date
+        <Label htmlFor="resource-track" className="text-sm text-muted-foreground mb-1.5 block">
+          Track
         </Label>
-        <Select value={order} onValueChange={(value) => onOrderChange(value as ResourceOrder)}>
-          <SelectTrigger id="resource-order" className="min-w-32">
-            <ArrowUpDown className="size-4" />
-            <SelectValue placeholder="Newest first" />
+        <Select
+          value={trackId === undefined ? "all" : String(trackId)}
+          onValueChange={(value) => onTrackIdChange(value === "all" ? undefined : Number(value))}
+        >
+          <SelectTrigger id="resource-track" className="min-w-32">
+            <SelectValue placeholder="All Tracks" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="newest">Newest First</SelectItem>
-            <SelectItem value="oldest">Oldest First</SelectItem>
+            <SelectItem value="all">All Tracks</SelectItem>
+            {RESOURCE_TRACKS.map((track) => (
+              <SelectItem key={track.id} value={String(track.id)}>
+                {track.code}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -137,10 +143,26 @@ export function ResourceFilters({
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
             {RESOURCE_TYPES.map((resourceType) => (
-              <SelectItem key={resourceType} value={resourceType}>
-                {resourceType.charAt(0).toUpperCase() + resourceType.slice(1)}
+              <SelectItem key={resourceType.value} value={resourceType.value}>
+                {resourceType.label}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="w-full lg:col-span-2">
+        <Label htmlFor="resource-order" className="text-sm text-muted-foreground mb-1.5 block">
+          Sort by Date
+        </Label>
+        <Select value={order} onValueChange={(value) => onOrderChange(value as ResourceOrder)}>
+          <SelectTrigger id="resource-order" className="min-w-32">
+            <ArrowUpDown className="size-4" />
+            <SelectValue placeholder="Newest first" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">Newest First</SelectItem>
+            <SelectItem value="oldest">Oldest First</SelectItem>
           </SelectContent>
         </Select>
       </div>

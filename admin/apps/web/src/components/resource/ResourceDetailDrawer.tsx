@@ -18,10 +18,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { SaveIcon, XIcon, FileTextIcon, UserIcon } from "lucide-react";
+import { SaveIcon, XIcon, FileTextIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { Resource, ResourceTypeName } from "@/type/resource";
-import { RESOURCE_TYPES } from "@/type/resource";
+import {
+  getResourceTrackLabel,
+  getResourceTypeLabel,
+  RESOURCE_TRACKS,
+  RESOURCE_TYPES,
+} from "@/type/resource";
 import { useQueryResourceRoles, useUpdateResource } from "@/query/resource";
 import { updateResourceSchema } from "@/schema/resource";
 
@@ -31,6 +36,7 @@ interface ResourceDetailDrawerProps {
   onOpenChange: (open: boolean) => void;
   mode: "view" | "edit";
   onSwitchToEdit?: () => void;
+  onDownload?: (resource: Resource) => void;
 }
 
 export function ResourceDetailDrawer({
@@ -39,45 +45,53 @@ export function ResourceDetailDrawer({
   onOpenChange,
   mode,
   onSwitchToEdit,
+  onDownload,
 }: ResourceDetailDrawerProps) {
   const { mutate: updateResource, isPending } = useUpdateResource();
   const { data: rolesData } = useQueryResourceRoles();
 
   const allRoles = rolesData?.data ?? [];
+  const nonAdminRoles = allRoles.filter((role) => role.slug !== "admin");
 
   const [editData, setEditData] = useState<{
     resource_name: string;
     resource_description: string;
-    resource_type_id: string | null;
-    role_ids: string[];
+    track_id: number | null;
+    resource_type: ResourceTypeName | null;
+    role_ids: number[];
   }>({
     resource_name: "",
     resource_description: "",
-    resource_type_id: null,
+    track_id: null,
+    resource_type: null,
     role_ids: [],
   });
 
-  const typeIdByName = useMemo(() => {
-    return {
-      document: "type-1",
-      guide: "type-2",
-      video: "type-3",
-      template: "type-4",
-    } as Record<ResourceTypeName, string>;
-  }, []);
+  const visibleRoleSlugs = useMemo(() => {
+    if (!resource) return [] as string[];
+    const slugs = resource.audiences
+      .map((audience) => audience.role?.slug)
+      .filter((slug): slug is string => Boolean(slug) && slug !== "admin");
+    return Array.from(new Set(slugs));
+  }, [resource]);
 
   useEffect(() => {
     if (!resource) return;
 
     setEditData({
       resource_name: resource.resource_name,
-      resource_description: resource.resource_description,
-      resource_type_id: resource.resource_type_detail
-        ? typeIdByName[resource.resource_type_detail.type_name]
-        : null,
-      role_ids: resource.visible_roles.map((role) => role.id),
+      resource_description: resource.resource_description ?? "",
+      track_id: resource.track_id,
+      resource_type: resource.resource_type,
+      role_ids: Array.from(
+        new Set(
+          resource.audiences
+            .map((audience) => audience.role_id)
+            .filter((roleId): roleId is number => roleId !== null && roleId !== 3),
+        ),
+      ),
     });
-  }, [resource, typeIdByName]);
+  }, [resource]);
 
   if (!resource) return null;
 
@@ -85,7 +99,8 @@ export function ResourceDetailDrawer({
     const parsed = updateResourceSchema.safeParse({
       resource_name: editData.resource_name,
       resource_description: editData.resource_description,
-      resource_type_id: editData.resource_type_id,
+      track_id: editData.track_id,
+      resource_type: editData.resource_type,
       role_ids: editData.role_ids,
     });
 
@@ -133,14 +148,31 @@ export function ResourceDetailDrawer({
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Description</Label>
-                  <p>{resource.resource_description}</p>
+                  <p>{resource.resource_description || "-"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Type</Label>
                   <div>
-                    <Badge variant="secondary">
-                      {resource.resource_type_detail?.type_name ?? "uncategorized"}
-                    </Badge>
+                    <Badge variant="secondary">{getResourceTypeLabel(resource.resource_type)}</Badge>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Track</Label>
+                  <p>{getResourceTrackLabel(resource.track_id)}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">File</Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <p>{resource.file_name ?? "No file metadata"}</p>
+                    {resource.file_name ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onDownload?.(resource)}
+                      >
+                        Download
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               </>
@@ -167,13 +199,37 @@ export function ResourceDetailDrawer({
                   />
                 </div>
                 <div>
-                  <Label htmlFor="resource-type">Type</Label>
+                  <Label htmlFor="resource-track">Track</Label>
                   <Select
-                    value={editData.resource_type_id ?? "none"}
+                    value={editData.track_id === null || editData.track_id === undefined ? "none" : String(editData.track_id)}
                     onValueChange={(value) =>
                       setEditData((prev) => ({
                         ...prev,
-                        resource_type_id: value === "none" ? null : value,
+                        track_id: value === "none" ? null : Number(value),
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="resource-track">
+                      <SelectValue placeholder="Select track" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Unassigned</SelectItem>
+                      {RESOURCE_TRACKS.map((track) => (
+                        <SelectItem key={track.id} value={String(track.id)}>
+                          {track.code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="resource-type">Type</Label>
+                  <Select
+                    value={editData.resource_type ?? "none"}
+                    onValueChange={(value) =>
+                      setEditData((prev) => ({
+                        ...prev,
+                        resource_type: value === "none" ? null : (value as ResourceTypeName),
                       }))
                     }
                   >
@@ -182,9 +238,9 @@ export function ResourceDetailDrawer({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Uncategorized</SelectItem>
-                      {RESOURCE_TYPES.map((typeName) => (
-                        <SelectItem key={typeName} value={typeIdByName[typeName]}>
-                          {typeName.charAt(0).toUpperCase() + typeName.slice(1)}
+                      {RESOURCE_TYPES.map((typeOption) => (
+                        <SelectItem key={typeOption.value} value={typeOption.value}>
+                          {typeOption.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -197,12 +253,11 @@ export function ResourceDetailDrawer({
           <Separator />
 
           <div className="space-y-2">
-            <Label className="flex items-center gap-1 text-muted-foreground">
-              <UserIcon className="size-4" />
-              Uploader
-            </Label>
+            <Label className="text-muted-foreground">Uploader</Label>
             <div className="p-3 rounded-md bg-muted/50">
-              <p className="font-medium">{`${resource.uploader.first_name} ${resource.uploader.last_name}`}</p>
+              <p className="font-medium">
+                {`${resource.uploader.first_name} ${resource.uploader.last_name}`.trim()}
+              </p>
               <p className="text-sm text-muted-foreground">{resource.uploader.email}</p>
             </div>
           </div>
@@ -213,19 +268,19 @@ export function ResourceDetailDrawer({
             <Label className="text-muted-foreground">Visible Roles</Label>
             {mode === "view" ? (
               <div className="flex flex-wrap gap-2">
-                {resource.visible_roles.length ? (
-                  resource.visible_roles.map((role) => (
-                    <Badge key={role.id} variant="outline">
-                      {role.role_name}
+                {visibleRoleSlugs.length ? (
+                  visibleRoleSlugs.map((slug) => (
+                    <Badge key={slug} variant="outline">
+                      {slug}
                     </Badge>
                   ))
                 ) : (
-                  <span className="text-sm text-muted-foreground">No role restriction</span>
+                  <span className="text-sm text-muted-foreground">Admin default visibility</span>
                 )}
               </div>
             ) : (
               <div className="space-y-2">
-                {allRoles.map((role) => {
+                {nonAdminRoles.map((role) => {
                   const checked = editData.role_ids.includes(role.id);
                   return (
                     <label key={role.id} className="flex items-center gap-2 text-sm">
@@ -240,7 +295,7 @@ export function ResourceDetailDrawer({
                           setEditData((prev) => ({ ...prev, role_ids: nextRoleIds }));
                         }}
                       />
-                      <span>{role.role_name}</span>
+                      <span>{role.slug}</span>
                     </label>
                   );
                 })}

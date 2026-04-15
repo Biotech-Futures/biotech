@@ -5,7 +5,7 @@ import type {
   Resource,
   ResourceRole,
   ResourceOrder,
-  ResourceType,
+  ResourceTypeOption,
   ResourceTypeName,
   PaginatedResponse,
 } from "@/type/resource";
@@ -14,22 +14,24 @@ interface QueryResourcesParams {
   page: number;
   search?: string;
   uploader?: string;
+  track_id?: number;
   order?: ResourceOrder;
-  type?: ResourceTypeName;
+  resource_type?: ResourceTypeName;
 }
 
 export function useQueryResources(params: QueryResourcesParams) {
-  const { page, search, uploader, order, type } = params;
+  const { page, search, uploader, track_id, order, resource_type } = params;
 
   return useQuery({
-    queryKey: ["resources", page, search, uploader, order, type],
+    queryKey: ["resources", page, search, uploader, track_id, order, resource_type],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
       const res = await myFetch.get<PaginatedResponse<Resource>>("/resource", {
         params: {
           page,
           search,
           uploader,
-          type,
+          track_id,
+          resource_type,
           order: order ?? "newest",
         },
       });
@@ -38,14 +40,14 @@ export function useQueryResources(params: QueryResourcesParams) {
   });
 }
 
-export function useQueryResource(id: string) {
+export function useQueryResource(id: number | null) {
   return useQuery({
     queryKey: ["resource", id],
     queryFn: async () => {
       const res = await myFetch.get<{ msg: string; data: Resource | null }>(`/resource/${id}`);
       return res.data;
     },
-    enabled: !!id,
+    enabled: id !== null,
   });
 }
 
@@ -63,7 +65,7 @@ export function useQueryResourceTypes() {
   return useQuery({
     queryKey: ["resource-types"],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: ResourceType[] }>("/resource/types");
+      const res = await myFetch.get<{ msg: string; data: ResourceTypeOption[] }>("/resource/types");
       return res.data;
     },
   });
@@ -83,11 +85,25 @@ export function useCreateResource() {
   });
 }
 
+export function useUploadResource() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: FormData) => {
+      const res = await myFetch.post<{ msg: string; data: Resource }>("/resource/upload", payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["resources"] });
+    },
+  });
+}
+
 export function useUpdateResource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: { id: string; updates: UpdateResource }) => {
+    mutationFn: async (data: { id: number; updates: UpdateResource }) => {
       const res = await myFetch.put<{ msg: string; data: Resource | null }>(
         `/resource/${data.id}`,
         data.updates,
@@ -105,7 +121,7 @@ export function useDeleteResource() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (id: number) => {
       const res = await myFetch.delete<{ msg: string; data: null }>(`/resource/${id}`);
       return res.data;
     },
@@ -113,4 +129,23 @@ export function useDeleteResource() {
       queryClient.invalidateQueries({ queryKey: ["resources"] });
     },
   });
+}
+
+export async function downloadResourceFile(id: number, fallbackName?: string) {
+  const res = await myFetch.get<Blob>(`/resource/${id}/download`, {
+    responseType: "blob",
+  });
+
+  const disposition = String(res.headers["content-disposition"] ?? "");
+  const fileNameFromHeader = disposition.match(/filename="?([^\"]+)"?/)?.[1];
+  const fileName = decodeURIComponent(fileNameFromHeader || fallbackName || `resource-${id}`);
+
+  const url = window.URL.createObjectURL(res.data);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 }

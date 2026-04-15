@@ -1,13 +1,16 @@
 import { z } from "zod";
 
+const resourceTypeSchema = z.enum(["document", "guide", "video", "template"]);
+
 export const createResourceSchema = z.object({
   resource_name: z.string().min(1, "Resource name is required").max(255),
   resource_description: z
     .string()
     .min(1, "Resource description is required")
-    .max(500),
-  resource_type_id: z.string().optional(),
-  role_ids: z.array(z.string()).optional(),
+    .max(1000),
+  resource_type: resourceTypeSchema.optional(),
+  track_id: z.number().optional(),
+  role_ids: z.array(z.number()).optional(),
 });
 
 export const updateResourceSchema = z.object({
@@ -15,10 +18,11 @@ export const updateResourceSchema = z.object({
   resource_description: z
     .string()
     .min(1, "Resource description is required")
-    .max(500)
+    .max(1000)
     .optional(),
-  resource_type_id: z.string().nullable().optional(),
-  role_ids: z.array(z.string()).optional(),
+  resource_type: resourceTypeSchema.nullable().optional(),
+  track_id: z.number().nullable().optional(),
+  role_ids: z.array(z.number()).optional(),
 });
 
 export type CreateResource = z.infer<typeof createResourceSchema>;
