@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="app-container" :class="themeStore.isDayMode ? 'is-day-mode' : 'is-night-mode'">
     <header
       class="header"
       v-if="!isLoginPage"
@@ -14,12 +14,12 @@
         >
           <defs>
             <linearGradient id="headerRibbonGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="rgba(255,255,255,0)" />
-              <stop offset="18%" stop-color="rgba(182, 240, 214, 0.18)" />
-              <stop offset="36%" stop-color="rgba(162, 204, 255, 0.30)" />
-              <stop offset="52%" stop-color="rgba(235, 241, 255, 0.38)" />
-              <stop offset="70%" stop-color="rgba(163, 225, 199, 0.26)" />
-              <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+              <stop offset="0%" stop-color="transparent" />
+              <stop offset="18%" stop-color="var(--ribbon-stop-a, rgba(182, 240, 214, 0.18))" />
+              <stop offset="36%" stop-color="var(--ribbon-stop-b, rgba(162, 204, 255, 0.30))" />
+              <stop offset="52%" stop-color="var(--ribbon-stop-c, rgba(235, 241, 255, 0.38))" />
+              <stop offset="70%" stop-color="var(--ribbon-stop-d, rgba(163, 225, 199, 0.26))" />
+              <stop offset="100%" stop-color="transparent" />
             </linearGradient>
 
             <filter id="headerRibbonBlur" x="-10%" y="-40%" width="120%" height="180%">
@@ -273,7 +273,11 @@
                 :disabled="!cell.day"
                 @click="openDayDetails(cell.dateKey)"
               >
-                {{ cell.day ?? '' }}
+                <span class="cell-num">{{ cell.day ?? '' }}</span>
+                <span v-if="cell.day && (cell.hasEvent || cell.hasHoliday)" class="cell-dots">
+                  <span v-if="cell.hasEvent" class="cell-dot dot-event"></span>
+                  <span v-if="cell.hasHoliday" class="cell-dot dot-holiday"></span>
+                </span>
               </button>
             </div>
 
@@ -283,12 +287,12 @@
                 Today
               </span>
               <span class="legend-item">
-                <span class="legend-dot legend-holiday"></span>
-                Holiday
-              </span>
-              <span class="legend-item">
                 <span class="legend-dot legend-event"></span>
                 Event
+              </span>
+              <span class="legend-item">
+                <span class="legend-dot legend-holiday"></span>
+                Holiday
               </span>
             </div>
 
@@ -473,11 +477,13 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
 import logo from '@/assets/btf-logo.png'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const themeStore = useThemeStore()
 
 const handleLogout = async () => {
   await auth.logout()
@@ -1423,14 +1429,15 @@ select {
 }
 
 .sidebar {
-  position: sticky;
-  top: 78px;
-  align-self: flex-start;
-  height: calc(100vh - 78px);
+  position: fixed;
+  top: 88px;
+  left: 0;
+  height: calc(100vh - 88px);
   overflow-y: auto;
   flex-shrink: 0;
   width: 272px;
   min-width: 272px;
+  z-index: 20;
   padding: 0.85rem 0.72rem 1rem;
   background:
     linear-gradient(180deg, rgba(244, 247, 245, 0.82) 0%, rgba(237, 242, 239, 0.92) 100%);
@@ -1600,6 +1607,7 @@ select {
   flex: 1;
   min-width: 0;
   padding: 1rem;
+  margin-left: 272px;
 }
 
 .mini-calendar-shell {
@@ -1715,7 +1723,7 @@ select {
 }
 
 .mini-calendar-cell {
-  height: 34px;
+  height: 40px;
   border: none;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.58);
@@ -1723,11 +1731,50 @@ select {
   font-size: 0.76rem;
   font-weight: 700;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 3px 0 2px;
   transition:
     transform 180ms ease,
     box-shadow 180ms ease,
     background 180ms ease,
     color 180ms ease;
+}
+
+.cell-num {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  line-height: 1;
+  transition: background 180ms ease, color 180ms ease, outline-color 180ms ease;
+}
+
+.cell-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 6px;
+}
+
+.cell-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-event {
+  background: #22c55e;
+}
+
+.dot-holiday {
+  background: #ef4444;
 }
 
 .mini-calendar-cell:not(.is-empty):hover {
@@ -1744,17 +1791,11 @@ select {
   background: rgba(255, 255, 255, 0.92);
 }
 
-.mini-calendar-cell.is-today {
-  outline: 2px solid rgba(87, 110, 160, 0.28);
-  outline-offset: -2px;
-}
-
-.mini-calendar-cell.is-holiday {
-  color: #9d4f57;
-}
-
-.mini-calendar-cell.is-event {
-  box-shadow: inset 0 -2px 0 rgba(76, 104, 96, 0.34);
+.mini-calendar-cell.is-today .cell-num {
+  background: rgba(59, 130, 246, 0.15);
+  outline: 2px solid #3b82f6;
+  color: #1d4ed8;
+  font-weight: 800;
 }
 
 .mini-calendar-legend {
@@ -1779,15 +1820,19 @@ select {
 }
 
 .legend-today {
-  background: #7a95c2;
-}
-
-.legend-holiday {
-  background: #d48691;
+  background: #3b82f6;
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+  width: 6px;
+  height: 6px;
 }
 
 .legend-event {
-  background: #5f8c7c;
+  background: #22c55e;
+}
+
+.legend-holiday {
+  background: #ef4444;
 }
 
 .mini-calendar-footer {
@@ -2232,6 +2277,440 @@ select {
   transform: translateY(4px) scale(0.985);
 }
 
+/* ============================================================
+   NIGHT MODE — dark forest green
+   ============================================================ */
+
+.is-night-mode {
+  background: linear-gradient(180deg, #071410 0%, #091e17 55%, #0b2318 100%);
+}
+
+.is-night-mode .header {
+  background:
+    radial-gradient(
+      440px circle at var(--header-glow-x) var(--header-glow-y),
+      rgba(100, 220, 140, 0.08) 0%,
+      rgba(80, 200, 160, 0.05) 18%,
+      transparent 58%
+    ),
+    linear-gradient(180deg, rgba(7, 18, 14, 0.97) 0%, rgba(5, 14, 10, 0.97) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.is-night-mode .logo-text {
+  color: rgba(210, 248, 228, 0.96);
+}
+
+.is-night-mode .logo-subtext {
+  color: rgba(130, 190, 160, 0.72);
+}
+
+.is-night-mode .sidebar {
+  background: linear-gradient(180deg, rgba(8, 20, 15, 0.96) 0%, rgba(5, 15, 11, 0.99) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.04),
+    12px 0 32px rgba(0, 0, 0, 0.24);
+}
+
+.is-night-mode .sidebar-link {
+  color: #c8e8d8;
+  background:
+    radial-gradient(
+      120px circle at var(--link-pointer-x) var(--link-pointer-y),
+      rgba(80, 180, 120, 0.12) 0%,
+      transparent 62%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.02) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.is-night-mode .sidebar-icon {
+  color: #7ac0a0;
+}
+
+.is-night-mode .sidebar-link:hover {
+  color: #ddfaec;
+  border-color: rgba(80, 180, 120, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 18px rgba(0, 0, 0, 0.28);
+}
+
+.is-night-mode .sidebar-link:hover .sidebar-icon {
+  color: #a0d8c0;
+}
+
+.is-night-mode .sidebar-link.active {
+  color: #e8fff4;
+  border-color: rgba(80, 180, 120, 0.22);
+  background:
+    radial-gradient(
+      140px circle at var(--link-pointer-x) var(--link-pointer-y),
+      rgba(80, 180, 120, 0.18) 0%,
+      transparent 64%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.is-night-mode .sidebar-link.active .sidebar-icon {
+  color: #a0d8c0;
+}
+
+.is-night-mode .sidebar-link.active .sidebar-link-indicator {
+  background: linear-gradient(180deg, rgba(60, 180, 100, 0.8) 0%, rgba(80, 200, 140, 0.8) 100%);
+}
+
+.is-night-mode .mini-calendar {
+  background: linear-gradient(180deg, rgba(10, 24, 18, 0.92) 0%, rgba(7, 18, 14, 0.98) 100%);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.is-night-mode .mini-calendar-title {
+  color: #d4ffec;
+}
+
+.is-night-mode .mini-calendar-subtitle {
+  color: #7ac8a8;
+}
+
+.is-night-mode .mini-calendar-weekdays span {
+  color: #5a8872;
+}
+
+.is-night-mode .mini-calendar-cell {
+  background: rgba(255, 255, 255, 0.04);
+  color: #b8e0cc;
+}
+
+.is-night-mode .mini-calendar-cell.is-clickable {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.is-night-mode .mini-calendar-cell:not(.is-empty):hover {
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.36);
+}
+
+.is-night-mode .mini-calendar-cell.is-today .cell-num {
+  background: rgba(48, 180, 100, 0.25);
+  outline-color: #50c878;
+  color: #90e4b4;
+}
+
+.is-night-mode .calendar-nav-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b8e0cc;
+}
+
+.is-night-mode .calendar-nav-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.is-night-mode .calendar-current-button {
+  background: rgba(255, 255, 255, 0.07);
+  color: #b8e0cc;
+}
+
+.is-night-mode .range-hint {
+  color: #5a8872;
+}
+
+.is-night-mode .legend-item {
+  color: #7ac8a8;
+}
+
+.is-night-mode .calendar-edit-button {
+  background: linear-gradient(180deg, #142e22 0%, #0c1e16 100%);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+
+.is-night-mode .calendar-overlay {
+  background: linear-gradient(180deg, rgba(10, 24, 18, 0.96) 0%, rgba(7, 18, 14, 0.99) 100%);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+.is-night-mode .calendar-overlay-header {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.is-night-mode .calendar-overlay-title {
+  color: #d4ffec;
+}
+
+.is-night-mode .calendar-close-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b8e0cc;
+}
+
+.is-night-mode .calendar-close-button:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.is-night-mode .overlay-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.is-night-mode .holiday-card {
+  border-color: rgba(239, 68, 68, 0.22);
+}
+
+.is-night-mode .event-card {
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
+.is-night-mode .overlay-card-type {
+  color: #7ac8a8;
+}
+
+.is-night-mode .overlay-card-title {
+  color: #d4ffec;
+}
+
+.is-night-mode .overlay-empty-state {
+  background: rgba(255, 255, 255, 0.04);
+  color: #7ac8a8;
+}
+
+.is-night-mode .editor-readonly-note {
+  background: rgba(48, 180, 100, 0.12);
+  color: #90c8a8;
+}
+
+.is-night-mode .form-label {
+  color: #b8e0cc;
+}
+
+.is-night-mode .form-input {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: #d4ffec;
+}
+
+.is-night-mode .form-input:focus {
+  border-color: rgba(80, 200, 140, 0.5);
+  box-shadow: 0 0 0 4px rgba(48, 160, 100, 0.14);
+}
+
+.is-night-mode .editor-secondary-button,
+.is-night-mode .mini-action-button {
+  background: rgba(255, 255, 255, 0.07);
+  color: #b8e0cc;
+}
+
+.is-night-mode .mini-action-button.danger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+}
+
+.is-night-mode .editor-list-title {
+  color: #d4ffec;
+}
+
+.is-night-mode .editor-item {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.is-night-mode .editor-item-date {
+  color: #7ac8a8;
+}
+
+.is-night-mode .editor-item-title {
+  color: #d4ffec;
+}
+
+.is-night-mode .notification-panel {
+  background: linear-gradient(180deg, rgba(10, 24, 18, 0.96) 0%, rgba(7, 18, 14, 0.99) 100%);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+.is-night-mode .notification-header {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.is-night-mode .notification-title {
+  color: #d4ffec;
+}
+
+.is-night-mode .account-subtitle {
+  color: #7ac8a8;
+}
+
+.is-night-mode .close-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b8e0cc;
+}
+
+.is-night-mode .close-button:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.is-night-mode .panel-quick-link {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.is-night-mode .panel-quick-link:hover {
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.36);
+}
+
+.is-night-mode .panel-quick-icon {
+  background: rgba(255, 255, 255, 0.07);
+  color: #7ac8a8;
+}
+
+.is-night-mode .panel-quick-copy strong {
+  color: #d4ffec;
+}
+
+.is-night-mode .panel-quick-copy small {
+  color: #7ac8a8;
+}
+
+/* ============================================================
+   DAY MODE — light yellow-green
+   ============================================================ */
+
+.is-day-mode {
+  background:
+    radial-gradient(circle at top left, rgba(120, 180, 60, 0.09), transparent 26%),
+    radial-gradient(circle at right top, rgba(100, 170, 50, 0.07), transparent 22%),
+    linear-gradient(180deg, #d8ecc2 0%, #cde4b4 100%);
+}
+
+.is-day-mode .header {
+  background:
+    radial-gradient(
+      440px circle at var(--header-glow-x) var(--header-glow-y),
+      rgba(140, 200, 80, 0.16) 0%,
+      rgba(100, 180, 100, 0.10) 22%,
+      transparent 58%
+    ),
+    linear-gradient(180deg, rgba(216, 234, 196, 0.99) 0%, rgba(202, 220, 178, 0.99) 100%);
+  border-bottom: 1px solid rgba(100, 150, 50, 0.22);
+  box-shadow:
+    0 12px 32px rgba(60, 110, 20, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+/* Day mode ribbon: olive-green + forest green tones */
+.is-day-mode .header {
+  --ribbon-stop-a: rgba(50, 120, 30, 0.58);
+  --ribbon-stop-b: rgba(80, 150, 40, 0.52);
+  --ribbon-stop-c: rgba(110, 170, 50, 0.48);
+  --ribbon-stop-d: rgba(40, 110, 60, 0.56);
+}
+
+.is-day-mode .ribbon-back {
+  opacity: 0.52;
+}
+
+.is-day-mode .ribbon-front {
+  opacity: 0.96;
+}
+
+.is-day-mode .logo-text {
+  color: #1a3818;
+}
+
+.is-day-mode .logo-subtext {
+  color: #4a6e3a;
+}
+
+.is-day-mode .search-shell {
+  background: linear-gradient(180deg, rgba(196, 220, 158, 0.72) 0%, rgba(180, 206, 140, 0.78) 100%);
+  border-color: rgba(100, 150, 50, 0.22);
+}
+
+.is-day-mode .search-submit-button {
+  background: linear-gradient(180deg, #4a7c3a 0%, #325a28 100%);
+}
+
+.is-day-mode .user-avatar {
+  background: radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.18), transparent 38%),
+              linear-gradient(180deg, #4a7c3a 0%, #325a28 100%);
+  border-color: rgba(100, 150, 50, 0.2);
+}
+
+.is-day-mode .sidebar {
+  background: linear-gradient(180deg, rgba(200, 224, 168, 0.92) 0%, rgba(184, 210, 152, 0.97) 100%);
+  border-right: 1px solid rgba(100, 150, 50, 0.16);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.6),
+    12px 0 32px rgba(60, 110, 20, 0.06);
+}
+
+.is-day-mode .sidebar-link {
+  color: #1a3818;
+}
+
+.is-day-mode .sidebar-icon {
+  color: #3a6028;
+}
+
+.is-day-mode .sidebar-link:hover .sidebar-icon {
+  color: #1e4818;
+}
+
+.is-day-mode .sidebar-link.active {
+  color: #0e2810;
+}
+
+.is-day-mode .sidebar-link.active .sidebar-icon {
+  color: #1e4818;
+}
+
+.is-day-mode .mini-calendar {
+  background: linear-gradient(180deg, rgba(196, 222, 162, 0.95) 0%, rgba(180, 208, 146, 0.99) 100%);
+  border-color: rgba(100, 150, 50, 0.16);
+  box-shadow:
+    0 12px 34px rgba(60, 110, 20, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.is-day-mode .calendar-nav-button {
+  background: rgba(70, 120, 30, 0.06);
+}
+
+.is-day-mode .calendar-nav-button:hover:not(:disabled) {
+  background: rgba(70, 120, 30, 0.12);
+}
+
+.is-day-mode .calendar-current-button {
+  background: rgba(70, 120, 30, 0.07);
+}
+
+.is-day-mode .mini-calendar-cell {
+  background: rgba(140, 186, 100, 0.28);
+}
+
+.is-day-mode .mini-calendar-cell.is-clickable {
+  background: rgba(172, 210, 134, 0.80);
+}
+
+.is-day-mode .notification-panel {
+  background: linear-gradient(180deg, rgba(196, 222, 162, 0.97) 0%, rgba(180, 208, 146, 0.99) 100%);
+  border-color: rgba(100, 150, 50, 0.20);
+}
+
+.is-day-mode .panel-quick-link {
+  background: rgba(172, 210, 134, 0.72);
+}
+
+.is-day-mode .calendar-overlay {
+  background: linear-gradient(180deg, rgba(196, 222, 162, 0.97) 0%, rgba(180, 208, 146, 0.99) 100%);
+  border-color: rgba(100, 150, 50, 0.20);
+}
+
 @keyframes ribbonDriftA {
   0% {
     stroke-dashoffset: 0;
@@ -2285,6 +2764,10 @@ select {
     width: 256px;
     min-width: 256px;
   }
+
+  .main-content {
+    margin-left: 256px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2331,16 +2814,18 @@ select {
   .sidebar {
     position: static;
     top: auto;
-    align-self: auto;
+    left: auto;
     height: auto;
     width: 100%;
     min-width: 100%;
     overflow-y: visible;
     padding: 0.75rem;
+    z-index: auto;
   }
 
   .main-content {
     width: 100%;
+    margin-left: 0;
     padding: 0.85rem;
   }
 
