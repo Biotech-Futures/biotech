@@ -1,7 +1,11 @@
 import { myFetch } from "@/lib/myFetch";
 import {
+  bulkReplaceInactiveResponseSchema,
   confirmMentorAssignmentsResponseSchema,
+  matchedGroupsResponseSchema,
+  mentorListResponseSchema,
   mentorMatchResponseSchema,
+  replaceMentorResponseSchema,
   unmatchedGroupsResponseSchema,
 } from "@/schema/mentorMatch";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -29,6 +33,16 @@ export function useQueryUnmatchedGroups() {
   });
 }
 
+export function useQueryMentorList() {
+  return useQuery({
+    queryKey: ["mentorList"],
+    queryFn: async () => {
+      const res = await myFetch.get("mentor-match/mentors");
+      return mentorListResponseSchema.parse(res.data);
+    },
+  });
+}
+
 type ConfirmMentorAssignmentPayload = {
   assignments: Array<{ groupId: number; mentorUserId: number }>;
 };
@@ -38,6 +52,40 @@ export function useMutationConfirmMentorAssignments() {
     mutationFn: async (payload: ConfirmMentorAssignmentPayload) => {
       const res = await myFetch.post("mentor-match/confirm", payload);
       return confirmMentorAssignmentsResponseSchema.parse(res.data);
+    },
+  });
+}
+
+export function useQueryMatchedGroups() {
+  return useQuery({
+    queryKey: ["matchedGroups"],
+    queryFn: async () => {
+      const res = await myFetch.get("mentor-match/matched-groups");
+      return matchedGroupsResponseSchema.parse(res.data);
+    },
+  });
+}
+
+type ReplaceMentorPayload = {
+  membershipId: number;
+  groupId: number;
+  newMentorUserId: number;
+};
+
+export function useMutationReplaceMentor() {
+  return useMutation({
+    mutationFn: async (payload: ReplaceMentorPayload) => {
+      const res = await myFetch.post("mentor-match/replace", payload);
+      return replaceMentorResponseSchema.parse(res.data);
+    },
+  });
+}
+
+export function useMutationBulkReplaceInactive() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await myFetch.post("mentor-match/bulk-replace-inactive", {});
+      return bulkReplaceInactiveResponseSchema.parse(res.data);
     },
   });
 }

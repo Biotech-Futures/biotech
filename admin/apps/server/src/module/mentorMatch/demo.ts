@@ -1,5 +1,92 @@
 import type { GroupSource, MentorSource } from "@/algorithm/mentor.js";
 
+// ─── Matched groups demo data ────────────────────────────────────────────────
+
+export type DemoMatchedGroup = {
+  membershipId: number;
+  groupId: number;
+  groupName: string;
+  trackCode: string;
+  studentCount: number;
+  students: { name: string; interests: string[] }[];
+  mentor: {
+    mentorId: number;
+    name: string;
+    isActive: boolean;
+    trackCode: string;
+    institution: string | null;
+  };
+};
+
+export const initialDemoMatchedGroups: DemoMatchedGroup[] = [
+  {
+    membershipId: 1001,
+    groupId: 301,
+    groupName: "NSW Bio Lab B",
+    trackCode: "AUS-NSW",
+    studentCount: 3,
+    students: [
+      { name: "Aiden Park", interests: ["genetics", "biology"] },
+      { name: "Sophia Lee", interests: ["biology", "medicine"] },
+      { name: "Ethan Wu", interests: ["genetics"] },
+    ],
+    mentor: { mentorId: 101, name: "Alice Chen", isActive: true, trackCode: "AUS-NSW", institution: "UNSW" },
+  },
+  {
+    membershipId: 1002,
+    groupId: 302,
+    groupName: "Sydney Pharma Group",
+    trackCode: "AUS-NSW",
+    studentCount: 4,
+    students: [
+      { name: "Mia Zhang", interests: ["pharmacology", "chemistry"] },
+      { name: "Lucas Kim", interests: ["chemistry"] },
+      { name: "Ella Brown", interests: ["pharmacology", "biology"] },
+      { name: "Oliver Chen", interests: ["chemistry", "pharmacology"] },
+    ],
+    mentor: { mentorId: 102, name: "Ben Torres", isActive: true, trackCode: "AUS-NSW", institution: "University of Sydney" },
+  },
+  {
+    membershipId: 1003,
+    groupId: 303,
+    groupName: "São Paulo Research Lab",
+    trackCode: "BRA",
+    studentCount: 3,
+    students: [
+      { name: "Ana Oliveira", interests: ["oncology", "immunology"] },
+      { name: "Pedro Santos", interests: ["oncology"] },
+      { name: "Julia Ferreira", interests: ["immunology", "genetics"] },
+    ],
+    mentor: { mentorId: 103, name: "Carla Souza", isActive: true, trackCode: "BRA", institution: "USP São Paulo" },
+  },
+  {
+    membershipId: 1004,
+    groupId: 304,
+    groupName: "Melbourne Data Lab",
+    trackCode: "AUS-VIC",
+    studentCount: 2,
+    students: [
+      { name: "Chloe Davis", interests: ["data science", "AI"] },
+      { name: "Ryan Thompson", interests: ["AI", "bioinformatics"] },
+    ],
+    mentor: { mentorId: 104, name: "David Kim", isActive: false, trackCode: "GLOBAL", institution: "MIT" },
+  },
+  {
+    membershipId: 1005,
+    groupId: 305,
+    groupName: "QLD Biotech Pioneers",
+    trackCode: "AUS-QLD",
+    studentCount: 4,
+    students: [
+      { name: "Noah Wilson", interests: ["genetics", "biology"] },
+      { name: "Isabelle Martin", interests: ["biology"] },
+      { name: "Jack Taylor", interests: ["genetics", "medicine"] },
+      { name: "Grace Anderson", interests: ["biology", "genetics"] },
+    ],
+    mentor: { mentorId: 101, name: "Alice Chen", isActive: true, trackCode: "AUS-NSW", institution: "UNSW" },
+  },
+];
+
 /**
  * Demo data for MATCH_USE_DEMO_DATA=true.
  *

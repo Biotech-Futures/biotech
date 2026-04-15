@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { MentorGroupRecommendation } from "@/type/mentorMatch";
+import type { MentorGroupRecommendation, MentorListItem, UnmatchedGroup } from "@/type/mentorMatch";
 import type { MatchMode } from "@/query/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,8 @@ const MATCH_MODES: {
 
 type MentorMatchingBoardProps = {
   recommendations: MentorGroupRecommendation[];
-  unmatchedGroupCount: number;
+  unmatchedGroups: UnmatchedGroup[];
+  mentors: MentorListItem[];
   mode: MatchMode;
   onModeChange: (mode: MatchMode) => void;
   onRunMatch: () => void;
@@ -223,7 +224,8 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
 
 export function MentorMatchingBoard({
   recommendations,
-  unmatchedGroupCount,
+  unmatchedGroups,
+  mentors,
   mode,
   onModeChange,
   onRunMatch,
@@ -233,6 +235,8 @@ export function MentorMatchingBoard({
 }: MentorMatchingBoardProps) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [expandedPreMatchIds, setExpandedPreMatchIds] = useState<Set<number>>(new Set());
+  const [expandedMentorIds, setExpandedMentorIds] = useState<Set<number>>(new Set());
   const [trackFilter, setTrackFilter] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -292,6 +296,24 @@ export function MentorMatchingBoard({
 
   function toggleExpand(id: number) {
     setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function togglePreMatchExpand(id: number) {
+    setExpandedPreMatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleMentorExpand(id: number) {
+    setExpandedMentorIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -369,7 +391,7 @@ export function MentorMatchingBoard({
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           <div className="rounded-md border bg-muted/30 p-2 text-xs">
             <p className="text-muted-foreground">Unmatched groups</p>
-            <p className="text-sm font-semibold">{unmatchedGroupCount}</p>
+            <p className="text-sm font-semibold">{unmatchedGroups.length}</p>
           </div>
           <div className="rounded-md border bg-muted/30 p-2 text-xs">
             <p className="text-muted-foreground">Recommendations</p>
@@ -388,11 +410,178 @@ export function MentorMatchingBoard({
         </div>
       </div>
 
-      {/* Empty state */}
+      {/* Pre-match panels */}
+      {recommendations.length === 0 && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Unmatched groups */}
+          <div className="rounded-xl border bg-card">
+            <div className="border-b px-4 py-3">
+              <p className="text-sm font-semibold">
+                Unmatched Groups
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  {unmatchedGroups.length}
+                </span>
+              </p>
+            </div>
+            <div className="divide-y max-h-96 overflow-y-auto">
+              {unmatchedGroups.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  All groups have a mentor assigned.
+                </p>
+              ) : (
+                unmatchedGroups.map((g) => {
+                  const isExpanded = expandedPreMatchIds.has(g.groupId);
+                  return (
+                    <div key={g.groupId} className="border-b last:border-b-0">
+                      <button
+                        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/40 transition-colors text-left"
+                        onClick={() => togglePreMatchExpand(g.groupId)}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {isExpanded ? (
+                            <ChevronDownIcon className="size-3.5 text-muted-foreground flex-shrink-0" />
+                          ) : (
+                            <ChevronRightIcon className="size-3.5 text-muted-foreground flex-shrink-0" />
+                          )}
+                          <span className="text-sm truncate">{g.groupName}</span>
+                        </div>
+                        <Badge variant="outline" className="text-xs flex-shrink-0 ml-2">{g.trackCode}</Badge>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-3 pt-1 bg-muted/10 space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Students: <span className="text-foreground">{g.studentCount}</span>
+                          </p>
+                          {g.students && g.students.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {g.students.map((s) => (
+                                <div key={s.name} className="rounded border bg-background px-2 py-1">
+                                  <p className="text-xs font-medium">{s.name}</p>
+                                  {s.interests.length > 0 && (
+                                    <div className="mt-0.5 flex flex-wrap gap-1">
+                                      {s.interests.map((i) => (
+                                        <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">
+                                          {i}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Student Interests
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {[...new Set(g.studentInterests)].map((i) => (
+                                  <Badge key={i} variant="outline" className="text-[10px]">
+                                    {i}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Mentor list */}
+          <div className="rounded-xl border bg-card">
+            <div className="border-b px-4 py-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">
+                Mentors
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  {mentors.length}
+                </span>
+              </p>
+              <div className="flex gap-2 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block size-2 rounded-full bg-green-500" />
+                  Available
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block size-2 rounded-full bg-muted-foreground/40" />
+                  At capacity
+                </span>
+              </div>
+            </div>
+            <div className="divide-y max-h-96 overflow-y-auto">
+              {mentors.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No mentors found.
+                </p>
+              ) : (
+                mentors.map((m) => {
+                  const hasCapacity = m.remainingCapacity > 0;
+                  const isExpanded = expandedMentorIds.has(m.mentorId);
+                  return (
+                    <div key={m.mentorId} className={cn("border-b last:border-b-0", !hasCapacity && "opacity-50")}>
+                      <button
+                        className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/40 transition-colors text-left"
+                        onClick={() => toggleMentorExpand(m.mentorId)}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={cn("inline-block size-2 rounded-full flex-shrink-0", hasCapacity ? "bg-green-500" : "bg-muted-foreground/40")} />
+                          {isExpanded ? (
+                            <ChevronDownIcon className="size-3.5 text-muted-foreground flex-shrink-0" />
+                          ) : (
+                            <ChevronRightIcon className="size-3.5 text-muted-foreground flex-shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{m.name}</p>
+                            {m.institution && (
+                              <p className="text-xs text-muted-foreground truncate">{m.institution}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                          <Badge variant="outline" className="text-xs">{m.trackCode}</Badge>
+                          <span className="text-xs text-muted-foreground">{m.currentAcceptedCount}/{m.maxGroupCount}</span>
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-4 pb-3 pt-1 bg-muted/10 space-y-2">
+                          <p className="text-xs text-muted-foreground">
+                            Remaining capacity:{" "}
+                            <span className="text-foreground font-medium">{m.remainingCapacity}</span>
+                          </p>
+                          {m.interests.length > 0 ? (
+                            <div className="space-y-1">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Interests
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {m.interests.map((i) => (
+                                  <Badge key={i} variant="secondary" className="text-[10px]">
+                                    {i}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">No interests listed.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {recommendations.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-          Click <span className="font-semibold">Run Match</span> to load mentor
-          recommendations.
+        <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          Click <span className="font-semibold">Run Match</span> to generate recommendations.
         </div>
       ) : (
         <div className="rounded-xl border bg-card">

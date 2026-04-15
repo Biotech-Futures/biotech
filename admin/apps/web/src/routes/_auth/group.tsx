@@ -7,8 +7,11 @@ import {
   GroupTable,
   GroupDetailDrawer,
   createColumns,
+  MatchedGroupsPanel,
+  UnmatchedGroupsPanel,
 } from "@/components/group";
 import { useQueryGroup, useQueryGroups } from "@/query/group";
+import { cn } from "@/lib/utils";
 import type { Group, Track } from "@/type/group";
 
 export const Route = createFileRoute("/_auth/group")({
@@ -21,6 +24,9 @@ export const Route = createFileRoute("/_auth/group")({
 function GroupPage() {
   const navigate = useNavigate();
   const { groupId } = Route.useSearch();
+
+  // Tab state
+  const [tab, setTab] = useState<"groups" | "matched" | "unmatched">("groups");
 
   // Filter state - separate search inputs
   const [searchName, setSearchName] = useState("");
@@ -73,7 +79,7 @@ function GroupPage() {
     if (!open && groupId) {
       navigate({
         to: "/group",
-        search: () => ({}),
+        search: () => ({ groupId: undefined }),
         replace: true,
       });
     }
@@ -112,39 +118,83 @@ function GroupPage() {
         </div>
       </div>
 
-      {groupId && !isGroupNotFound && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-          Group detail opened from student view for group id: <span className="font-medium">{groupId}</span>
-        </div>
+      {/* Tab switcher */}
+      <div className="flex gap-1 rounded-lg border bg-muted p-1 w-fit">
+        <button
+          onClick={() => setTab("groups")}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            tab === "groups"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          All Groups
+        </button>
+        <button
+          onClick={() => setTab("matched")}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            tab === "matched"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Matched
+        </button>
+        <button
+          onClick={() => setTab("unmatched")}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            tab === "unmatched"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Unmatched
+        </button>
+      </div>
+
+      {tab === "groups" && (
+        <>
+          {groupId && !isGroupNotFound && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              Group detail opened from student view for group id: <span className="font-medium">{groupId}</span>
+            </div>
+          )}
+
+          {isGroupNotFound && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Group id <span className="font-medium">{groupId}</span> was not found.
+            </div>
+          )}
+
+          {/* Filters */}
+          <GroupFilters
+            searchName={searchName}
+            onSearchNameChange={setSearchName}
+            searchGroup={searchGroup}
+            onSearchGroupChange={setSearchGroup}
+            track={track}
+            onTrackChange={setTrack}
+          />
+
+          {/* Table */}
+          <GroupTable
+            columns={columns}
+            data={groups}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            isPending={isPending}
+          />
+        </>
       )}
 
-      {isGroupNotFound && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Group id <span className="font-medium">{groupId}</span> was not found.
-        </div>
-      )}
+      {tab === "matched" && <MatchedGroupsPanel />}
+      {tab === "unmatched" && <UnmatchedGroupsPanel />}
 
-      {/* Filters - separate search for name and group */}
-      <GroupFilters
-        searchName={searchName}
-        onSearchNameChange={setSearchName}
-        searchGroup={searchGroup}
-        onSearchGroupChange={setSearchGroup}
-        track={track}
-        onTrackChange={setTrack}
-      />
-
-      {/* Table */}
-      <GroupTable
-        columns={columns}
-        data={groups}
-        page={page}
-        totalPages={totalPages}
-        onPageChange={setPage}
-        isPending={isPending}
-      />
-
-      {/* Detail/Edit Drawer */}
+      {/* Detail/Edit Drawer (available on both tabs) */}
       <GroupDetailDrawer
         group={selectedGroup}
         open={sheetOpen}
