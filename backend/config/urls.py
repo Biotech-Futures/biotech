@@ -33,6 +33,9 @@ urlpatterns = [
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
     path("resources/", include("apps.resources.urls")),
+    path("announcements/", include("apps.announcements.urls")),
+    path("audit/", include("apps.audit.urls")),
+    path("matching/", include("apps.matching_runtime.urls")),
     path("integrations/", include("apps.integrations.urls")),
     path("certificates/", include("apps.certificates.urls")),
 

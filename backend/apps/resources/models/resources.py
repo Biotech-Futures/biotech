@@ -4,9 +4,21 @@ from django.db.models import Q, F
 from django.utils import timezone
 
 class Resources(models.Model):
+    class VisibilityScope(models.TextChoices):
+        PUBLIC = "public", "Public"
+        ROLE = "role", "Role"
+        TRACK = "track", "Track"
+        SCOPED = "scoped", "Scoped"
+
     resource_name = models.CharField(max_length=255)
     resource_description = models.CharField(max_length=255)
     resource_type = models.ForeignKey('ResourceType', on_delete=models.PROTECT, related_name='resources', null=True, blank=True)
+    track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
+    visibility_scope = models.CharField(
+        max_length=50,
+        choices=VisibilityScope.choices,
+        default=VisibilityScope.ROLE,
+    )
     upload_datetime = models.DateTimeField(default=timezone.now)
     uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     deleted_flag = models.BooleanField(default=False)
@@ -18,6 +30,8 @@ class Resources(models.Model):
         verbose_name_plural = "Resources"
         indexes = [
             models.Index(fields=['uploader_user_id']),
+            models.Index(fields=['track']),
+            models.Index(fields=['visibility_scope']),
         ]
         constraints = [
             # Ensure deleted_flag is always either True or False
@@ -35,12 +49,15 @@ class Resources(models.Model):
                 condition=~Q(resource_description=''),
                 name='resource_description_not_empty'
             ),
-            # Ensure upload_datetime is not in the future
-            models.CheckConstraint(
-                condition=Q(upload_datetime__lte=models.functions.Now()),
-                name='resource_upload_not_future'
-            ),
         ]
 
     def __str__(self):
         return self.resource_name or f"Resource {self.id}"
+
+    @property
+    def uploaded_at(self):
+        return self.upload_datetime
+
+    @property
+    def deleted_at(self):
+        return self.deleted_datetime

@@ -28,9 +28,12 @@ INSTALLED_APPS = [
     'apps.groups',
     'apps.chat',
     'apps.resources',
+    'apps.announcements',
+    'apps.audit',
     'apps.integrations',
     'apps.events',
     'apps.user_sessions',
+    'apps.matching_runtime',
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
@@ -58,6 +61,7 @@ AUTH_USER_MODEL = 'users.User'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'apps.user_sessions.auth.SessionIdAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -90,6 +94,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.user_sessions.middleware.SessionTrackingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]

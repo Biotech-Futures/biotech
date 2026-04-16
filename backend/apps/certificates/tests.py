@@ -6,11 +6,35 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
-from apps.users.models import Background, MentorProfile  # FK targets
+from apps.users.models import MentorProfile
 from apps.resources.models import Roles, RoleAssignmentHistory
 from .models import CertificateType, MentorCertificate
 
 User = get_user_model()
+
+
+def create_mentor_profile(
+    *,
+    email,
+    password="pass123",
+    first_name="Mentor",
+    last_name="User",
+    institution="School",
+    mentor_reason="Help",
+    max_group_count=3,
+):
+    mentor_user = User.objects.create_user(
+        email=email,
+        password=password,
+        first_name=first_name,
+        last_name=last_name,
+    )
+    return MentorProfile.objects.create(
+        user=mentor_user,
+        institution=institution,
+        mentor_reason=mentor_reason,
+        max_group_count=max_group_count,
+    )
 
 class CertificateDetailTests(APITestCase):
     def setUp(self):
@@ -27,13 +51,14 @@ class CertificateDetailTests(APITestCase):
         )
 
         # Minimal mentor profile prerequisite
-        bg = Background.objects.create(background_desc_unique_field="STEM")
-        mentor_user = User.objects.create_user(
-            email="mentor@example.com", password="m12345",
-            first_name="M", last_name="E"
-        )
-        self.mentor_profile = MentorProfile.objects.create(
-            user=mentor_user, background=bg, institution="School", mentor_reason="Help", max_grp_cnt=3
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@example.com",
+            password="m12345",
+            first_name="M",
+            last_name="E",
+            institution="School",
+            mentor_reason="Help",
+            max_group_count=3,
         )
 
         # Cert type & certificate
@@ -105,12 +130,12 @@ class CertificateCreateTests(APITestCase):
             email="admin@example.com", password="admin123", is_staff=True
         )
 
-        bg = Background.objects.create(background_desc_unique_field="Science")
-        mentor_user = User.objects.create_user(
-            email="mentor@example.com", password="m12345"
-        )
-        self.mentor_profile = MentorProfile.objects.create(
-            user=mentor_user, background=bg, institution="Uni", mentor_reason="Teach", max_grp_cnt=3
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@example.com",
+            password="m12345",
+            institution="Uni",
+            mentor_reason="Teach",
+            max_group_count=3,
         )
         self.cert_type = CertificateType.objects.create(
             certificate_type="WWCC", requires_number=True, requires_expiry=True
@@ -187,18 +212,16 @@ class MentorRBACTests(APITestCase):
         self.mentor_role, _ = Roles.objects.get_or_create(role_name='Mentor')
         
         # Create mentor user with role
-        bg = Background.objects.create(background_desc_unique_field="Engineering")
-        self.mentor_user = User.objects.create_user(
-            email="mentor@test.com", password="pass123",
-            first_name="Test", last_name="Mentor"
-        )
-        self.mentor_profile = MentorProfile.objects.create(
-            user=self.mentor_user,
-            background=bg,
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@test.com",
+            password="pass123",
+            first_name="Test",
+            last_name="Mentor",
             institution="Test Uni",
             mentor_reason="Help",
-            max_grp_cnt=5
+            max_group_count=5,
         )
+        self.mentor_user = self.mentor_profile.user
         
         # Assign mentor role
         RoleAssignmentHistory.objects.create(
@@ -256,14 +279,12 @@ class MentorRBACTests(APITestCase):
         )
         
         # Create another mentor and their certificate
-        other_bg = Background.objects.create(background_desc_unique_field="Math")
-        other_user = User.objects.create_user(email="other@test.com", password="pass")
-        other_profile = MentorProfile.objects.create(
-            user=other_user,
-            background=other_bg,
+        other_profile = create_mentor_profile(
+            email="other@test.com",
+            password="pass",
             institution="Other Uni",
             mentor_reason="Teach",
-            max_grp_cnt=3
+            max_group_count=3,
         )
         MentorCertificate.objects.create(
             certificate_type=self.cert_type,
@@ -360,14 +381,12 @@ class AdminRBACTests(APITestCase):
             is_superuser=True
         )
         
-        bg = Background.objects.create(background_desc_unique_field="Science")
-        mentor_user = User.objects.create_user(email="mentor@test.com", password="pass")
-        self.mentor_profile = MentorProfile.objects.create(
-            user=mentor_user,
-            background=bg,
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@test.com",
+            password="pass",
             institution="Test Uni",
             mentor_reason="Help",
-            max_grp_cnt=3
+            max_group_count=3,
         )
         
         self.cert_type = CertificateType.objects.create(

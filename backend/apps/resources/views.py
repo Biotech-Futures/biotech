@@ -24,7 +24,7 @@
 
 from rest_framework import mixins, viewsets, permissions, status, pagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles
+from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience
 from .serializers import RoleSerializer, RoleAssignmentHistorySerializer, ResourcesSerializer, ResourceListSerializer
 from django.db.models import Q
 from django.utils.dateparse import parse_date
@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
+from apps.audit.services import log_audit_event
 
 class RoleViewSet(mixins.ListModelMixin,
                   mixins.RetrieveModelMixin,
@@ -361,16 +362,20 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Base queryset - only non-deleted resources
         queryset = Resources.objects.filter(
             deleted_flag=False
-        ).select_related('uploader_user_id').prefetch_related('resourceroles__role') # Resources → ResourceRoles → Roles
+        ).select_related('uploader_user_id', 'track').prefetch_related('audiences__role', 'audiences__track')
         
         # Only apply role-based filtering for list actions
         # For retrieve/detail actions, we handle permissions in the retrieve() method
         if self.action == 'list' and not user.is_staff:
             # Regular users can only see resources they uploaded or resources visible to their roles
-            queryset = queryset.filter(
+            access_filter = (
                 Q(uploader_user_id=user) |  # Resources they uploaded
-                Q(resourceroles__role__in=user_roles)  # Resources visible to their roles
-            ).distinct()
+                Q(visibility_scope=Resources.VisibilityScope.PUBLIC)
+                | Q(audiences__role__in=user_roles)
+            )
+            if user.track_id:
+                access_filter |= Q(audiences__track_id=user.track_id)
+            queryset = queryset.filter(access_filter).distinct()
         
         # Apply filters
         queryset = self._apply_filters(queryset)
@@ -399,7 +404,13 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Filter by role (group)
         role = params.get('role')
         if role:
-            queryset = queryset.filter(resource_roles__role__role_name__icontains=role)
+            queryset = queryset.filter(audiences__role__role_name__icontains=role)
+
+        track_id = params.get("track_id")
+        if track_id:
+            queryset = queryset.filter(
+                Q(track_id=track_id) | Q(audiences__track_id=track_id)
+            )
         
         # Search in name and description
         search = params.get('search')
@@ -435,7 +446,27 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def perform_create(self, serializer):
         """Automatically set uploader to the authenticated user - users can only upload as themselves"""
-        serializer.save(uploader_user_id=self.request.user)
+        resource = serializer.save(uploader_user_id=self.request.user)
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="resource",
+            entity_id=resource.id,
+            action="create",
+            after_state=ResourcesSerializer(resource).data,
+        )
+
+    def perform_update(self, serializer):
+        resource = self.get_object()
+        before_state = ResourcesSerializer(resource).data
+        resource = serializer.save()
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="resource",
+            entity_id=resource.id,
+            action="update",
+            before_state=before_state,
+            after_state=ResourcesSerializer(resource).data,
+        )
 
     def retrieve(self, request, *args, **kwargs):
         """Get single resource with visibility check"""
@@ -467,22 +498,24 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Users can access resources they uploaded
         if resource.uploader_user_id == user:
             return True, "Access granted as uploader"
+
+        if resource.visibility_scope == Resources.VisibilityScope.PUBLIC:
+            return True, "Access granted because the resource is public"
         
         # Check if user has any of the required roles
         user_roles = self._get_user_roles(user)
         
         # Get resource roles using the correct field name
-        from apps.resources.models import ResourceRoles
-        resource_role_objects = ResourceRoles.objects.filter(resource=resource).select_related('role')
-        resource_roles = [rr.role for rr in resource_role_objects]
-        resource_role_names = [rr.role_name for rr in resource_roles]
-        
-        # Check if user has any matching role
-        user_role_objects = list(user_roles)
-        has_access = any(role in [rr.id for rr in resource_roles] for role in user_role_objects)
-        
-        if has_access:
-            return True, "Access granted based on user role"
+        audiences = ResourceAudience.objects.filter(resource=resource).select_related("role", "track")
+        resource_role_names = [aud.role.role_name for aud in audiences if aud.role_id]
+        resource_track_names = [aud.track.track_name for aud in audiences if aud.track_id]
+
+        user_role_objects = set(user_roles)
+        role_access = any(aud.role_id in user_role_objects for aud in audiences if aud.role_id)
+        track_access = any(aud.track_id == user.track_id for aud in audiences if aud.track_id and user.track_id)
+
+        if role_access or track_access:
+            return True, "Access granted based on audience scope"
         
         # No access - provide detailed reason
         if not resource_role_names:
@@ -494,11 +527,13 @@ class ResourcesViewSet(mixins.ListModelMixin,
             user_role_names = list(RoleAssignmentHistory.objects.filter(
                 user=user,
                 valid_from__lte=now,
-                valid_to__isnull=True
+            ).filter(
+                Q(valid_to__isnull=True) | Q(valid_to__gte=now)
             ).values_list('role__role_name', flat=True))
             
             reason = (
                 f"This resource is restricted to users with the following role(s): {', '.join(resource_role_names)}. "
+                f"Track scope(s): {', '.join(resource_track_names) if resource_track_names else 'None'}. "
                 f"Your current role(s): {', '.join(user_role_names) if user_role_names else 'None'}."
             )
         
@@ -507,9 +542,18 @@ class ResourcesViewSet(mixins.ListModelMixin,
     def destroy(self, request, *args, **kwargs):
         """Soft delete resource"""
         instance = self.get_object()
+        before_state = ResourcesSerializer(instance).data
         instance.deleted_flag = True
         instance.deleted_datetime = timezone.now()
-        instance.save()
+        instance.save(update_fields=["deleted_flag", "deleted_datetime"])
+        log_audit_event(
+            actor=request.user,
+            entity_type="resource",
+            entity_id=instance.id,
+            action="soft_delete",
+            before_state=before_state,
+            after_state=ResourcesSerializer(instance).data,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
     
     # ================================ ResourceRole Management Actions ==============================================
@@ -529,13 +573,13 @@ class ResourcesViewSet(mixins.ListModelMixin,
             role = Roles.objects.get(id=role_id)
             
             # Check if already assigned
-            if ResourceRoles.objects.filter(resource=resource, role=role).exists():
+            if ResourceAudience.objects.filter(resource=resource, role=role, track__isnull=True).exists():
                 return Response(
                     {"error": "Role is already assigned to this resource"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            ResourceRoles.objects.create(resource=resource, role=role)
+            ResourceAudience.objects.create(resource=resource, role=role)
             
             return Response({
                 "message": f"Role '{role.role_name}' assigned to resource '{resource.resource_name}'",
@@ -563,7 +607,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         
         try:
             role = Roles.objects.get(id=role_id)
-            resource_role = ResourceRoles.objects.get(resource=resource, role=role)
+            resource_role = ResourceAudience.objects.get(resource=resource, role=role, track__isnull=True)
             role_name = role.role_name
             resource_role.delete()
             
@@ -576,9 +620,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 {"error": "Role not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
-        except ResourceRoles.DoesNotExist:
+        except ResourceAudience.DoesNotExist:
             return Response(
                 {"error": "Role is not assigned to this resource"},
                 status=status.HTTP_404_NOT_FOUND
             )
-

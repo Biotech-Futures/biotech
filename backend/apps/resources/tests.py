@@ -31,7 +31,7 @@ class RolesApiTests(TestCase):
     def test_roles_requires_auth(self):
         url = reverse("roles-list")
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_roles_list_ok_and_ordered(self):
         self.client.force_authenticate(self.me)
@@ -74,7 +74,6 @@ class RoleAssignmentsApiTests(TestCase):
             last_name="Tester",
             email="u1@example.com",
             track=track,
-            state=state,
         )
 
         self.u2 = User.objects.create(
@@ -82,7 +81,6 @@ class RoleAssignmentsApiTests(TestCase):
             last_name="Tester",
             email="u2@example.com",
             track=track,
-            state=state,
         )
 
         # Step 3: Create role assignment history (with timezone-aware datetimes)
@@ -260,7 +258,7 @@ class RoleAssignmentPatchApiTests(TestCase):
         state = CountryStates.objects.create(country=country, state_name="NSW")
         track = Tracks.objects.create(track_name="Data Science", state=state)
 
-        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com", track=track, state=state)
+        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com", track=track)
 
         self.r_admin = Roles.objects.create(role_name="admin")
         self.r_view  = Roles.objects.create(role_name="viewer")
@@ -277,9 +275,9 @@ class RoleAssignmentPatchApiTests(TestCase):
         return reverse("role-assignments-detail", args=[pk])
 
     def test_patch_requires_admin(self):
-        # unauthenticated -> 403
+        # unauthenticated -> 401
         resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # non-admin -> 403
         self.client.force_authenticate(self.non_admin)
@@ -330,7 +328,6 @@ class TestRevokeUserRole(TestCase):
             last_name="Doe",
             email="user@test.com",
             track=self.track,
-            state=self.state,
         )
 
         # Create test roles
@@ -1064,7 +1061,7 @@ class CreateRoleAPITests(TestCase):
         data = {"role_name": "new_role"}
 
         response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_role_non_admin_fails(self):
         """Test that non-admin users cannot create roles"""
@@ -1224,8 +1221,7 @@ class CreateRoleIntegrationTests(TestCase):
             first_name="Test",
             last_name="User",
             email="testuser@test.com",
-            track=track,
-            state=state
+            track=track
         )
 
         # Create role via API
@@ -1525,7 +1521,7 @@ class ResourceTypeAPITests(TestCase):
         type_detail = response.data['resource_type_detail']
         self.assertEqual(type_detail['id'], self.template_type.id)
         self.assertEqual(type_detail['type_name'], 'template')
-        self.assertEqual(type_detail['type_description'], 'Templates and boilerplate files')
+        self.assertEqual(type_detail['type_description'], 'Template resources')
 
 
 class ResourceTypeIntegrationTests(TestCase):
