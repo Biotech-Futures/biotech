@@ -7,8 +7,16 @@ import {
   ResourceUploadSheet,
   createResourceColumns,
 } from "@/components/resource";
-import { downloadResourceFile, useDeleteResource, useQueryResources } from "@/query/resource";
-import type { Resource, ResourceOrder, ResourceTypeName } from "@/type/resource";
+import {
+  downloadResourceFile,
+  useDeleteResource,
+  useQueryResources,
+} from "@/query/resource";
+import type {
+  Resource,
+  ResourceOrder,
+  ResourceTypeName,
+} from "@/type/resource";
 import { Button } from "@/components/ui/button";
 import { UploadIcon } from "lucide-react";
 
@@ -21,10 +29,14 @@ function ResourcePage() {
   const [uploader, setUploader] = useState("");
   const [trackId, setTrackId] = useState<number | undefined>();
   const [order, setOrder] = useState<ResourceOrder>("newest");
-  const [resourceType, setResourceType] = useState<ResourceTypeName | undefined>();
+  const [resourceType, setResourceType] = useState<
+    ResourceTypeName | undefined
+  >();
   const [page, setPage] = useState(1);
 
-  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(
+    null,
+  );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -50,7 +62,10 @@ function ResourcePage() {
       const parsed = Date.parse(resource.uploaded_at ?? "");
       if (!Number.isNaN(parsed)) return parsed;
 
-      const idNumber = Number.parseInt(String(resource.id).replace(/\D/g, ""), 10);
+      const idNumber = Number.parseInt(
+        String(resource.id).replace(/\D/g, ""),
+        10,
+      );
       if (!Number.isNaN(idNumber)) return idNumber;
 
       return 0;
@@ -70,7 +85,10 @@ function ResourcePage() {
         a.resource_name.localeCompare(b.resource_name),
     );
   }, [data?.data.items, order]);
-  const totalPages = Math.max(1, Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10)));
+  const totalPages = Math.max(
+    1,
+    Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10)),
+  );
 
   const handleViewDetail = (resource: Resource) => {
     setSelectedResource(resource);
@@ -85,7 +103,9 @@ function ResourcePage() {
   };
 
   const handleDelete = (resource: Resource) => {
-    const shouldDelete = window.confirm(`Delete resource "${resource.resource_name}"?`);
+    const shouldDelete = window.confirm(
+      `Delete resource "${resource.resource_name}"?`,
+    );
     if (!shouldDelete) return;
     deleteResource(resource.id);
   };
@@ -111,19 +131,6 @@ function ResourcePage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Resource Management</h1>
-          <p className="text-muted-foreground">
-            View and maintain resource metadata, type, and role visibility
-          </p>
-        </div>
-        <Button onClick={() => setUploadOpen(true)}>
-          <UploadIcon className="size-4 mr-1" />
-          Upload Resource
-        </Button>
-      </div>
-
       <ResourceFilters
         search={search}
         onSearchChange={setSearch}

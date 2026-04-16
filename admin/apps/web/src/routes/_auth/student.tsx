@@ -48,17 +48,6 @@ function RouteComponent() {
 
   return (
     <div className="p-4 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Students</h1>
-        <p className="text-muted-foreground">
-          Browse all students and filter by age, track, interests, and group
-          status
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Tip: Click a student row or the group name to open group details.
-        </p>
-      </div>
-
       <StudentFilters
         search={search}
         onSearchChange={setSearch}

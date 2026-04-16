@@ -71,12 +71,18 @@ function buildFormRecommendations(
   const studentById = new Map(
     students.map((student) => [String(student.id), student] as const),
   );
-  const groupByStudentId = new Map<string, (typeof groupedResult.groups)[number]>();
+  const groupByStudentId = new Map<
+    string,
+    (typeof groupedResult.groups)[number]
+  >();
 
   for (const group of groupedResult.groups) {
     for (const studentId of group.studentIds) {
       groupByStudentId.set(String(studentId), group);
-      objectiveByStudentId.set(String(studentId), group.scoreBreakdown.objectiveScore);
+      objectiveByStudentId.set(
+        String(studentId),
+        group.scoreBreakdown.objectiveScore,
+      );
     }
   }
 
@@ -126,7 +132,9 @@ function buildFormRecommendations(
           tutor: null,
           groupStudent: matchedGroup.studentIds
             .map((memberId) => studentById.get(String(memberId)))
-            .filter((candidate): candidate is StudentInput => Boolean(candidate))
+            .filter((candidate): candidate is StudentInput =>
+              Boolean(candidate),
+            )
             .map((candidate) => ({
               id: candidate.id,
               name: candidate.name,
@@ -344,7 +352,7 @@ export async function matchStudent(uid: string) {
       yearLevel: student.yearLevel ?? undefined,
       interests:
         typeof student.userId === "number"
-          ? interestsByUserId.get(student.userId) ?? []
+          ? (interestsByUserId.get(student.userId) ?? [])
           : [],
     }));
 
@@ -379,8 +387,12 @@ export async function matchStudent(uid: string) {
 
   const joinCandidates = joinRecommendations
     .filter(
-      (recommendation): recommendation is StudentGroupRecommendation & {
-        recommendGroup: NonNullable<StudentGroupRecommendation["recommendGroup"]>;
+      (
+        recommendation,
+      ): recommendation is StudentGroupRecommendation & {
+        recommendGroup: NonNullable<
+          StudentGroupRecommendation["recommendGroup"]
+        >;
       } => recommendation.recommendGroup !== null,
     )
     .map((recommendation) => {
@@ -431,7 +443,10 @@ export async function matchStudent(uid: string) {
     (student) => !selectedJoinStudentIds.has(String(student.id)),
   );
   const finalForm = buildGroups(formPool);
-  const finalFormRecommendations = buildFormRecommendations(formPool, finalForm);
+  const finalFormRecommendations = buildFormRecommendations(
+    formPool,
+    finalForm,
+  );
 
   const selectedJoinRecommendations = joinCandidates
     .filter((candidate) => selectedJoinStudentIds.has(candidate.studentId))
@@ -497,12 +512,6 @@ export async function getIndividualStudents() {
 export async function confirmStudentAssignments(
   input: ConfirmMatchAssignmentInput,
 ) {
-  if (useMatchDemoData()) {
-    return {
-      assignedCount: input.assignments.length,
-    };
-  }
-
   const uniqueByStudent = new Map<number, number | string>();
   for (const item of input.assignments) {
     uniqueByStudent.set(item.studentId, item.groupId);
@@ -541,7 +550,10 @@ export async function confirmStudentAssignments(
     if (assignments.some((item) => typeof item.groupId === "string")) {
       const syntheticGroups = new Map<string, number[]>();
       for (const item of assignments) {
-        if (typeof item.groupId !== "string" || !item.groupId.startsWith("new-")) {
+        if (
+          typeof item.groupId !== "string" ||
+          !item.groupId.startsWith("new-")
+        ) {
           continue;
         }
 
@@ -622,7 +634,8 @@ export async function confirmStudentAssignments(
           };
         })
         .filter(
-          (item): item is { studentId: number; groupId: number } => item !== null,
+          (item): item is { studentId: number; groupId: number } =>
+            item !== null,
         );
     }
 

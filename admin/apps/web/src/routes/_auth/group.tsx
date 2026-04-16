@@ -49,10 +49,9 @@ function GroupPage() {
     track,
   });
 
-  const {
-    data: groupById,
-    isPending: isGroupByIdPending,
-  } = useQueryGroup(groupId ?? "");
+  const { data: groupById, isPending: isGroupByIdPending } = useQueryGroup(
+    groupId ?? "",
+  );
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -85,7 +84,8 @@ function GroupPage() {
     }
   };
 
-  const isGroupNotFound = Boolean(groupId) && !isGroupByIdPending && groupById?.data === null;
+  const isGroupNotFound =
+    Boolean(groupId) && !isGroupByIdPending && groupById?.data === null;
 
   // Handlers
   const handleViewDetail = (group: Group) => {
@@ -108,16 +108,6 @@ function GroupPage() {
 
   return (
     <div className="p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Group Management</h1>
-          <p className="text-muted-foreground">
-            View all groups, members, and assigned mentors
-          </p>
-        </div>
-      </div>
-
       {/* Tab switcher */}
       <div className="flex gap-1 rounded-lg border bg-muted p-1 w-fit">
         <button
@@ -159,13 +149,15 @@ function GroupPage() {
         <>
           {groupId && !isGroupNotFound && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-              Group detail opened from student view for group id: <span className="font-medium">{groupId}</span>
+              Group detail opened from student view for group id:{" "}
+              <span className="font-medium">{groupId}</span>
             </div>
           )}
 
           {isGroupNotFound && (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              Group id <span className="font-medium">{groupId}</span> was not found.
+              Group id <span className="font-medium">{groupId}</span> was not
+              found.
             </div>
           )}
 
