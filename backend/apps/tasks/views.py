@@ -3,9 +3,10 @@ from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from rest_framework.pagination import PageNumberPagination
 from .models import Tasks, Milestone
-from .serializers import TaskSerializer, MilestoneSerializer, TaskCreateSerializer
+from .serializers import TaskSerializer, MilestoneSerializer, TaskCreateSerializer, DeleteTaskResponseSerializer
 from rest_framework.views import APIView
 from django.db import transaction
+from drf_spectacular.utils import extend_schema
 
 # Create your views here.
 class TaskRetrieveview(generics.RetrieveAPIView):
@@ -76,6 +77,10 @@ class TaskListHTMLView(generics.ListAPIView):
 class DeleteTaskView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        request=None,
+        responses={200: DeleteTaskResponseSerializer},
+    )
     @transaction.atomic
     def delete(self, request, *args, **kwargs):
         task_id = kwargs.get("pk")
