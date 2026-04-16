@@ -7,13 +7,51 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import login, logout
+from rest_framework import serializers
+from drf_spectacular.utils import extend_schema
 from . import auth_service
 from apps.users.models import User
+
+
+class SendLoginCodeRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    redirect_url = serializers.CharField(required=False, allow_blank=True)
+
+
+class VerifyLoginCodeRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField()
+
+
+class AuthMessageSerializer(serializers.Serializer):
+    message = serializers.CharField(required=False)
+    error = serializers.CharField(required=False)
+
+
+class VerifiedUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    email = serializers.EmailField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+
+
+class VerifyLoginCodeResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    user = VerifiedUserSerializer()
 
 
 class SendLoginCodeView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+
+    @extend_schema(
+        request=SendLoginCodeRequestSerializer,
+        responses={
+            200: AuthMessageSerializer,
+            400: AuthMessageSerializer,
+            404: AuthMessageSerializer,
+        },
+    )
     def post(self, request):
         email = request.data.get("email")
         # edbert: Added redirect_url parameter to support frontend callback
@@ -32,6 +70,13 @@ class VerifyLoginCodeView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
+    @extend_schema(
+        request=VerifyLoginCodeRequestSerializer,
+        responses={
+            200: VerifyLoginCodeResponseSerializer,
+            400: AuthMessageSerializer,
+        },
+    )
     def post(self, request):
         email = request.data.get("email")
         code = request.data.get("code")
@@ -88,6 +133,10 @@ class LogoutView(APIView):
     """Logout endpoint - destroys Django session"""
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=None,
+        responses={200: AuthMessageSerializer},
+    )
     def post(self, request):
         logout(request)  # Destroys session
         return Response(

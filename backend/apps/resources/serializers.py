@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from .models import RoleAssignmentHistory, Roles, Resources, ResourceAudience, ResourceType
 from apps.users.models import User
 from datetime import datetime, time, date
@@ -6,7 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 
-class UserSerializer(serializers.ModelSerializer):
+class ResourceUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'first_name', 'last_name', 'email']
@@ -34,7 +35,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
     # Keep nested read-only shape for GETs:
-    user = UserSerializer(read_only=True)
+    user = ResourceUserSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
 
     # Accept role updates via role_id on PATCH:
@@ -51,6 +52,7 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
         model = RoleAssignmentHistory
         fields = ["id", "user", "role", "role_id", "valid_from", "valid_to", "is_active"]
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_active(self, obj):
         return obj.valid_to is None or obj.valid_to >= timezone.now()
 
@@ -110,7 +112,7 @@ class ResourceAudienceWriteSerializer(serializers.Serializer):
         return attrs
 
 class ResourcesSerializer(serializers.ModelSerializer):
-    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    uploader = ResourceUserSerializer(source='uploader_user_id', read_only=True)
     # Resource type field - read as nested object, write as ID
     resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     resource_type_id = serializers.PrimaryKeyRelatedField(
@@ -191,6 +193,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
 
+    @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
@@ -237,7 +240,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
 
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
-    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    uploader = ResourceUserSerializer(source='uploader_user_id', read_only=True)
     resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     visible_roles = serializers.SerializerMethodField()
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
@@ -257,6 +260,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'audiences',
         ]
     
+    @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
