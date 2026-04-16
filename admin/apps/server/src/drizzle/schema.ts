@@ -535,7 +535,6 @@ export const matchRun = pgTable(
       startWith: 1,
       increment: 1,
       minValue: 1,
-      maxValue: 9223372036854775807,
       cache: 1,
     }),
     adminUserId: text("admin_user_id").notNull(),
