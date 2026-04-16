@@ -35,7 +35,7 @@ export const bulkCreateUsersSchema = z.object({
 
 export const updateUserSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  email: z.string().email().optional(),
+  email: z.string().email(),
   role: z.enum(ROLES).optional(),
   track: z.enum(TRACKS).nullable().optional(),
   groupId: z.string().nullable().optional(),

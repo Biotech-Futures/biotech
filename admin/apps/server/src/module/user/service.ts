@@ -1,4 +1,5 @@
 // User service with mock data
+import { auth } from "@/lib/auth.js";
 import type {
   QueryUsersInput,
   QueryStudentsInput,
@@ -42,8 +43,30 @@ const interestsPool = [
   "sustainability",
 ];
 
-const firstNames = ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack"];
-const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Wilson", "Moore"];
+const firstNames = [
+  "Alice",
+  "Bob",
+  "Carol",
+  "David",
+  "Emma",
+  "Frank",
+  "Grace",
+  "Henry",
+  "Iris",
+  "Jack",
+];
+const lastNames = [
+  "Smith",
+  "Johnson",
+  "Williams",
+  "Brown",
+  "Jones",
+  "Garcia",
+  "Miller",
+  "Davis",
+  "Wilson",
+  "Moore",
+];
 
 function generateMockUsers(): User[] {
   const users: User[] = [];
@@ -52,14 +75,20 @@ function generateMockUsers(): User[] {
   for (let i = 0; i < 60; i++) {
     const role = i < 40 ? "student" : i < 55 ? "mentor" : "admin";
     const track = role !== "admin" ? tracks[i % 4] : null;
-    const groupId = role === "student" && i % 5 !== 0 ? `g${(i % 20) + 1}` : null;
+    const groupId =
+      role === "student" && i % 5 !== 0 ? `g${(i % 20) + 1}` : null;
     const age = role === "student" ? 14 + (i % 5) : null;
-    const interests = role === "student"
-      ? [interestsPool[i % interestsPool.length], interestsPool[(i + 3) % interestsPool.length]]
-      : [];
+    const interests =
+      role === "student"
+        ? [
+            interestsPool[i % interestsPool.length],
+            interestsPool[(i + 3) % interestsPool.length],
+          ]
+        : [];
 
     const firstName = firstNames[i % firstNames.length];
-    const lastName = lastNames[Math.floor(i / firstNames.length) % lastNames.length];
+    const lastName =
+      lastNames[Math.floor(i / firstNames.length) % lastNames.length];
 
     users.push({
       id: `u${id++}`,
@@ -93,7 +122,8 @@ export function queryStudents(params: QueryStudentsInput) {
 
     if (interest) {
       const target = interest.toLowerCase();
-      if (!u.interests.some((item) => item.toLowerCase().includes(target))) return false;
+      if (!u.interests.some((item) => item.toLowerCase().includes(target)))
+        return false;
     }
 
     if (inGroup === "yes" && !u.groupId) return false;
@@ -101,7 +131,11 @@ export function queryStudents(params: QueryStudentsInput) {
 
     if (search) {
       const s = search.toLowerCase();
-      if (!u.name.toLowerCase().includes(s) && !u.email.toLowerCase().includes(s)) return false;
+      if (
+        !u.name.toLowerCase().includes(s) &&
+        !u.email.toLowerCase().includes(s)
+      )
+        return false;
     }
 
     return true;
@@ -125,7 +159,11 @@ export function queryUsers(params: QueryUsersInput) {
     if (track && u.track !== track) return false;
     if (search) {
       const s = search.toLowerCase();
-      if (!u.name.toLowerCase().includes(s) && !u.email.toLowerCase().includes(s)) return false;
+      if (
+        !u.name.toLowerCase().includes(s) &&
+        !u.email.toLowerCase().includes(s)
+      )
+        return false;
     }
     return true;
   });
@@ -150,6 +188,7 @@ export function createUser(input: CreateUserInput) {
   if (existing) return { msg: "Email already exists", data: null };
 
   const now = new Date().toISOString();
+
   const newUser: User = {
     id: `u${nextId++}`,
     name: input.name,
@@ -168,12 +207,14 @@ export function createUser(input: CreateUserInput) {
   return { msg: "User created successfully", data: newUser };
 }
 
-export function bulkCreateUsers(input: BulkCreateUsersInput) {
+export async function bulkCreateUsers(input: BulkCreateUsersInput) {
   const created: User[] = [];
   const skipped: string[] = [];
   const now = new Date().toISOString();
 
-  for (const u of input.users) {
+  const { others } = await bulkCreateAdminUsers(input.users);
+
+  for (const u of others) {
     if (mockUsers.find((existing) => existing.email === u.email)) {
       skipped.push(u.email);
       continue;
@@ -191,6 +232,7 @@ export function bulkCreateUsers(input: BulkCreateUsersInput) {
       createdAt: now,
       updatedAt: now,
     };
+
     mockUsers.push(newUser);
     created.push(newUser);
   }
@@ -205,7 +247,8 @@ export function updateUser(id: string, input: UpdateUserInput) {
   const index = mockUsers.findIndex((u) => u.id === id);
   if (index === -1) return { msg: "User not found", data: null };
 
-  const groupId = input.groupId !== undefined ? input.groupId : mockUsers[index].groupId;
+  const groupId =
+    input.groupId !== undefined ? input.groupId : mockUsers[index].groupId;
 
   mockUsers[index] = {
     ...mockUsers[index],
@@ -224,4 +267,37 @@ export function deleteUser(id: string) {
 
   mockUsers.splice(index, 1);
   return { msg: "User deleted successfully", data: null };
+}
+
+async function bulkCreateAdminUsers(users: CreateUserInput[]) {
+  const success = [];
+  const failed = [];
+  const others = [];
+  for (const user of users) {
+    if (user.role === "admin") {
+      try {
+        const newUser = await auth.api.createUser({
+          body: {
+            email: user.email,
+            name: user.name,
+          },
+        });
+        if (newUser) {
+          success.push(user);
+        } else {
+          failed.push(user);
+        }
+      } catch (error) {
+        failed.push(user);
+      }
+    } else {
+      others.push(user);
+    }
+  }
+
+  return {
+    success,
+    failed,
+    others,
+  };
 }

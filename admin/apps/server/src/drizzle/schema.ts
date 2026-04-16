@@ -137,6 +137,7 @@ export const session = pgTable(
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
     userId: text("user_id").notNull(),
+    impersonatedBy: text("impersonated_by"),
   },
   (table) => [
     index("session_userId_idx").using(
@@ -348,7 +349,10 @@ export const eventRsvp = pgTable(
     eventId: bigint("event_id", { mode: "number" }).notNull(),
     userId: bigint("user_id", { mode: "number" }).notNull(),
     rsvpStatus: varchar("rsvp_status", { length: 50 }).notNull(),
-    createdAt: timestamp("created_at", { precision: 6, mode: "string" }).defaultNow(),
+    createdAt: timestamp("created_at", {
+      precision: 6,
+      mode: "string",
+    }).defaultNow(),
   },
   (table) => [
     foreignKey({
@@ -408,6 +412,10 @@ export const adminUser = pgTable(
     updatedAt: timestamp("updated_at", { precision: 6, mode: "string" })
       .defaultNow()
       .notNull(),
+    role: text("role"),
+    banned: boolean("banned").default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires"),
   },
   (table) => [unique("user_email_key").on(table.email)],
 );
@@ -522,16 +530,14 @@ export const matchRun = pgTable(
   "match_run",
   {
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    id: bigint({ mode: "number" })
-      .primaryKey()
-      .generatedByDefaultAsIdentity({
-        name: "match_run_id_seq",
-        startWith: 1,
-        increment: 1,
-        minValue: 1,
-        maxValue: 9223372036854775807,
-        cache: 1,
-      }),
+    id: bigint({ mode: "number" }).primaryKey().generatedByDefaultAsIdentity({
+      name: "match_run_id_seq",
+      startWith: 1,
+      increment: 1,
+      minValue: 1,
+      maxValue: 9223372036854775807,
+      cache: 1,
+    }),
     adminUserId: text("admin_user_id").notNull(),
     runType: varchar("run_type", { length: 100 }).notNull(),
     payload: jsonb().notNull(),
