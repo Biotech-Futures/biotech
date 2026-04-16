@@ -13,8 +13,7 @@ export const Route = createFileRoute("/_auth/matching")({
 });
 
 function RouteComponent() {
-  const { data: individualStudentsData, isPending } =
-    useQueryIndividualStudents();
+  const { isPending } = useQueryIndividualStudents();
   const {
     data: matchInfoData,
     isFetching: isMatching,
@@ -24,7 +23,7 @@ function RouteComponent() {
   const recommendations = matchInfoData?.data ?? [];
 
   async function onConfirmAssignments(
-    assignments: Array<{ studentId: number; groupId: number }>,
+    assignments: Array<{ studentId: number; groupId: number | string }>,
   ) {
     try {
       const res = await confirmAssignments.mutateAsync({ assignments });

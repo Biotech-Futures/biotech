@@ -34,7 +34,7 @@ type MatchingBoardProps = {
   recommendations: MatchRecommendation[];
   onRunMatch: () => void;
   onConfirmAssignments: (
-    assignments: Array<{ studentId: number; groupId: number }>,
+    assignments: Array<{ studentId: number; groupId: number | string }>,
   ) => void | Promise<void>;
   isRunning: boolean;
   isConfirming: boolean;
@@ -602,7 +602,7 @@ export function MatchingBoard({
   const waitingStudentCount = effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0;
 
   function buildAssignmentsPayload() {
-    const payload: Array<{ studentId: number; groupId: number }> = [];
+    const payload: Array<{ studentId: number; groupId: number | string }> = [];
 
     for (const [containerId, studentIds] of Object.entries(effectiveContainers)) {
       if (containerId === WAITING_CONTAINER_ID) {
@@ -614,10 +614,8 @@ export function MatchingBoard({
         continue;
       }
 
-      const groupId = Number(group.id);
-      if (!Number.isFinite(groupId)) {
-        continue;
-      }
+      const numericGroupId = Number(group.id);
+      const groupId = Number.isFinite(numericGroupId) ? numericGroupId : group.id;
 
       for (const studentId of studentIds) {
         const parsedStudentId = Number(studentId);
