@@ -345,6 +345,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
     permission_classes = [IsAuthenticated]
     pagination_class = ResourcesPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    queryset = Resources.objects.select_related('uploader_user_id', 'track').prefetch_related('audiences__role', 'audiences__track').all()
 
     def get_serializer_class(self):
         """Use different serializers for list vs detail(ResourceListSerializer for list, ResourcesSerializer for detail)"""
@@ -355,6 +356,9 @@ class ResourcesViewSet(mixins.ListModelMixin,
     def get_queryset(self):
         """Filter resources based on user permissions and query params"""
         user = self.request.user
+
+        if not user or not user.is_authenticated:
+            return Resources.objects.none()
         
         # Get user's current roles
         user_roles = self._get_user_roles(user)
