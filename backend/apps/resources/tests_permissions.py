@@ -37,7 +37,6 @@ class PermissionClassesTests(TestCase):
             password="pw",
             first_name="Reg",
             last_name="User",
-            state=state,
             track=track
         )
         self.admin = User.objects.create_user(
@@ -45,7 +44,6 @@ class PermissionClassesTests(TestCase):
             password="pw",
             first_name="Adm",
             last_name="User",
-            state=state,
             track=track,
             is_staff=True  # Make admin a staff user for IsAdminUser permission
         )
@@ -85,7 +83,7 @@ class PermissionClassesTests(TestCase):
         """Regular user can list roles, but only admin can create/modify."""
         # unauthenticated - denied
         resp = self.client.get(reverse("roles-list"))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # authenticated regular user - can list roles
         self.client.force_authenticate(self.regular)
@@ -113,7 +111,7 @@ class PermissionClassesTests(TestCase):
 
         # unauthenticated
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # unrelated user (no role assignment)
         stranger = get_user_model().objects.create_user(email="strangigga@example.com", password="pw")

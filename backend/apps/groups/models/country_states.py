@@ -1,10 +1,7 @@
-from django.conf import settings
 from django.db import models
-from django.db.models import Q, F
-from django.utils import timezone
 
 class CountryStates(models.Model):
-    country = models.ForeignKey('Countries', on_delete=models.PROTECT) # Protect to prevent deletion if referenced by country
+    country = models.ForeignKey('Countries', on_delete=models.PROTECT)
     state_name = models.CharField(max_length=255)
 
     class Meta:

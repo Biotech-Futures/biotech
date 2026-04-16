@@ -8,7 +8,6 @@ class StudentProfile(models.Model):
     pg_last_name = models.CharField(max_length=255)
     parent_guardian_flag = models.BooleanField(default=False) 
     supervisor = models.ForeignKey('SupervisorProfile', on_delete=models.SET_NULL, blank=True, null=True)
-    interest = models.ForeignKey('AreasOfInterest', on_delete=models.SET_NULL, blank=True, null=True)
     school_name = models.CharField(max_length=255)
     year_lvl = models.CharField(max_length=255)
     has_join_permission = models.BooleanField(default=False)
@@ -20,7 +19,6 @@ class StudentProfile(models.Model):
         verbose_name_plural = "Student Profiles"
         indexes = [
             models.Index(fields=['supervisor']),
-            models.Index(fields=['interest']),
         ]
         constraints = [
         models.CheckConstraint(

@@ -1,6 +1,8 @@
 # apps/user_sessions/auth.py -> Issue 38
 from rest_framework.authentication import BaseAuthentication
-from .models import Sessions
+from django.utils import timezone
+
+from .models import UserSession
 
 class SessionIdAuthentication(BaseAuthentication):
     header = "X-Session-Id"
@@ -10,7 +12,14 @@ class SessionIdAuthentication(BaseAuthentication):
         if not sid:
             return None
         try:
-            s = Sessions.objects.select_related("user").get(sid=sid, isloggedin=True)
-        except Sessions.DoesNotExist:
+            session = UserSession.objects.select_related("user").get(
+                sid=sid,
+                ended_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+            )
+        except UserSession.DoesNotExist:
             return None
-        return (s.user, None)
+        session.last_activity_at = timezone.now()
+        session.save(update_fields=["last_activity_at"])
+        return (session.user, None)

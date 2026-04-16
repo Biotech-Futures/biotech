@@ -1,19 +1,15 @@
 from django.utils import timezone
-from django.db import transaction
-from django.contrib.auth import get_user_model
 from rest_framework import viewsets, filters, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
-from .models import Groups, Countries, GroupMembers, Tracks, CountryStates
-from .serializers import CountrySerializer, GroupMemberSerializer, TrackSerializer, GroupSerializer
+from .models import Groups, Countries, GroupMembership, Tracks
+from .serializers import CountrySerializer, GroupMembershipSerializer, TrackSerializer, GroupSerializer
 
 # Create your views here.
 
-User = get_user_model()
-
 class CountryViewSet(viewsets.ModelViewSet):
-  queryset = Countries.objects.all()
+  queryset = Countries.objects.order_by("country_name")
   serializer_class = CountrySerializer
   
   def get_permissions(self):
@@ -23,8 +19,14 @@ class CountryViewSet(viewsets.ModelViewSet):
     return [IsAdminUser()] # to check if the user has .is_staff flag
 
 class GroupMemberViewSet(viewsets.ModelViewSet):
-    queryset = GroupMembers.objects.all()
-    serializer_class = GroupMemberSerializer
+    serializer_class = GroupMembershipSerializer
+
+    def get_queryset(self):
+        queryset = GroupMembership.objects.select_related("group", "user").order_by("id")
+        raw = (self.request.query_params.get("include_inactive") or "").lower().strip()
+        if raw == "true" and self.request.user.is_staff:
+            return queryset
+        return queryset.filter(left_at__isnull=True)
 
     def get_permissions(self):
         if self.action in ["list", "retrieve", "by_group"]:
@@ -34,14 +36,20 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='by-group/(?P<group_id>[^/.]+)')
     def by_group(self, request, group_id=None):
         """Custom action to get members by group ID"""
-        members = self.queryset.filter(group_id=group_id)
+        members = self.get_queryset().filter(group_id=group_id)
         serializer = self.get_serializer(members, many=True)
         return Response(serializer.data)
-    
-    #TODO: expand by addung endpoints to implement logic of adding and removing members
+
+    def destroy(self, request, *args, **kwargs):
+        membership = self.get_object()
+        if membership.left_at is not None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        membership.left_at = timezone.now()
+        membership.save(update_fields=["left_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
     
 class TrackViewSet(viewsets.ModelViewSet):
-    queryset = Tracks.objects.all()
+    queryset = Tracks.objects.order_by("track_name", "id")
     serializer_class = TrackSerializer
     http_method_names = ['get', 'post', 'put', 'patch'] # disable delete 
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
@@ -60,8 +68,8 @@ class GroupViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         raw = (self.request.query_params.get('include_deleted') or '').lower().strip()
         if raw == 'true' and self.request.user.is_staff:
-            return Groups.objects.all()
-        return Groups.objects.filter(deleted_flag=False)
+            return Groups.objects.order_by("group_name", "id")
+        return Groups.objects.filter(deleted_at__isnull=True).order_by("group_name", "id")
     
     # read for authenticated and write for authorised
     def get_permissions(self):
@@ -71,12 +79,11 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         group = self.get_object()
-        if group.deleted_flag:
+        if group.deleted_at is not None:
             # means group is alr deleted but no errors
             return Response(status=status.HTTP_204_NO_CONTENT)
-        group.deleted_flag = True
-        group.deleted_datetime = timezone.now()
-        group.save(update_fields=['deleted_flag', 'deleted_datetime'])
+        group.deleted_at = timezone.now()
+        group.save(update_fields=['deleted_at'])
         return Response(status=status.HTTP_204_NO_CONTENT)
     
 
@@ -93,5 +100,5 @@ maybe look into these custom actions
 GET /groups/{id}/members - list members in a group?
 POST /groups/{id}/add-members/ - bulk add using user_id
 POST /groups/{id}/remove-members/ - bulk remove members using user id
-and optional soft delete: DELETE /groups/{id} - to set deleted_flag=True
+and optional soft delete: DELETE /groups/{id} - to set deleted_at
 """
