@@ -59,8 +59,30 @@ export const matchRecommendationSchema = z.object({
   scoreBreakdown: recommendationScoreBreakdownSchema,
 });
 
+const notFullGroupSchema = recommendationGroupSchema.extend({
+  studentCount: z.number().int().nonnegative(),
+  availableSeats: z.number().int().nonnegative(),
+});
+
 export const matchRecommendationsResponseSchema = z.object({
-  data: z.array(matchRecommendationSchema),
+  data: z
+    .union([
+      z.array(matchRecommendationSchema),
+      z.object({
+        recommendations: z.array(matchRecommendationSchema),
+        notFullGroups: z.array(notFullGroupSchema),
+      }),
+    ])
+    .transform((value) => {
+      if (Array.isArray(value)) {
+        return {
+          recommendations: value,
+          notFullGroups: [],
+        };
+      }
+
+      return value;
+    }),
 });
 
 export const confirmAssignmentsResponseSchema = z.object({

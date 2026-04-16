@@ -30,6 +30,34 @@ import {
 } from "./demo.js";
 import type { ConfirmMatchAssignmentInput } from "./schema.js";
 
+const DEFAULT_GROUP_MAX_SIZE = 5;
+
+type MatchGroupSummary = {
+  id: string | number;
+  groupName: string;
+  trackId: string | number;
+  maxSize: number;
+  tutor: {
+    id: string | number;
+    name: string;
+  } | null;
+  groupStudent: Array<{
+    id: string | number;
+    name: string;
+    trackId?: string | number;
+    country?: string;
+    yearLevel?: number;
+    interests?: string[];
+  }>;
+  studentCount: number;
+  availableSeats: number;
+};
+
+type MatchStudentResult = {
+  recommendations: StudentGroupRecommendation[];
+  notFullGroups: MatchGroupSummary[];
+};
+
 type InterestRow = {
   userId: number;
   interestDesc: string;
@@ -168,7 +196,50 @@ function buildFormRecommendations(
 
 export async function matchStudent(uid: string) {
   if (useMatchDemoData()) {
-    return demoMatchRecommendations;
+    const demoGroupsById = new Map<string, MatchGroupSummary>();
+
+    for (const recommendation of demoMatchRecommendations) {
+      const group = recommendation.recommendGroup;
+      if (!group) {
+        continue;
+      }
+
+      const groupKey = String(group.id);
+      if (demoGroupsById.has(groupKey)) {
+        continue;
+      }
+
+      const maxSize = group.maxSize ?? DEFAULT_GROUP_MAX_SIZE;
+      const studentCount = group.groupStudent.length;
+      const availableSeats = Math.max(0, maxSize - studentCount);
+
+      if (availableSeats <= 0) {
+        continue;
+      }
+
+      demoGroupsById.set(groupKey, {
+        id: group.id,
+        groupName: group.groupName,
+        trackId: group.trackId,
+        maxSize,
+        tutor: group.tutor ?? null,
+        groupStudent: group.groupStudent.map((student) => ({
+          id: student.id,
+          name: student.name ?? "Unknown student",
+          trackId: student.trackId,
+          country: student.country,
+          yearLevel: student.yearLevel ?? student.yearlevel,
+          interests: student.interests,
+        })),
+        studentCount,
+        availableSeats,
+      });
+    }
+
+    return {
+      recommendations: demoMatchRecommendations,
+      notFullGroups: [...demoGroupsById.values()],
+    } satisfies MatchStudentResult;
   }
 
   const activeMembershipSubquery = db
@@ -474,7 +545,144 @@ export async function matchStudent(uid: string) {
     createdAt: new Date().toISOString(),
   });
 
-  return recommendations;
+  const allGroups = await db
+    .select({
+      groupId: groups.id,
+      groupName: groups.groupName,
+      trackId: groups.trackId,
+      trackCode: tracks.trackCode,
+    })
+    .from(groups)
+    .innerJoin(tracks, eq(tracks.id, groups.trackId))
+    .where(isNull(groups.deletedAt));
+
+  const allGroupIds = allGroups.map((group) => group.groupId);
+
+  const activeStudentRows =
+    allGroupIds.length === 0
+      ? []
+      : await db
+          .select({
+            groupId: groupMembership.groupId,
+            userId: users.id,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            trackCode: tracks.trackCode,
+            yearLevel: studentProfile.yearLevel,
+            countryName: countries.countryName,
+          })
+          .from(groupMembership)
+          .innerJoin(users, eq(users.id, groupMembership.userId))
+          .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
+          .innerJoin(tracks, eq(tracks.id, users.trackId))
+          .innerJoin(countryStates, eq(countryStates.id, tracks.stateId))
+          .innerJoin(countries, eq(countries.id, countryStates.countryId))
+          .where(
+            and(
+              inArray(groupMembership.groupId, allGroupIds),
+              isNull(groupMembership.leftAt),
+            ),
+          );
+
+  const allStudentIds = [
+    ...new Set(activeStudentRows.map((student) => student.userId)),
+  ];
+
+  const activeStudentInterestRows =
+    allStudentIds.length === 0
+      ? []
+      : await db
+          .select({
+            userId: studentInterest.studentUserId,
+            interestDesc: areasOfInterest.interestDesc,
+          })
+          .from(studentInterest)
+          .innerJoin(
+            areasOfInterest,
+            eq(areasOfInterest.id, studentInterest.interestId),
+          )
+          .where(inArray(studentInterest.studentUserId, allStudentIds));
+
+  const studentInterestsByUserId = mapInterestsByUserId(activeStudentInterestRows);
+
+  const activeTutorRows =
+    allGroupIds.length === 0
+      ? []
+      : await db
+          .select({
+            groupId: groups.id,
+            tutorUserId: users.id,
+            tutorFirstName: users.firstName,
+            tutorLastName: users.lastName,
+          })
+          .from(groupMembership)
+          .innerJoin(groups, eq(groups.id, groupMembership.groupId))
+          .innerJoin(
+            mentorProfile,
+            eq(mentorProfile.userId, groupMembership.userId),
+          )
+          .innerJoin(users, eq(users.id, mentorProfile.userId))
+          .where(
+            and(inArray(groups.id, allGroupIds), isNull(groupMembership.leftAt)),
+          );
+
+  const allTutorByGroupId = new Map<
+    number,
+    {
+      id: number;
+      name: string;
+    }
+  >();
+
+  for (const row of activeTutorRows) {
+    if (allTutorByGroupId.has(row.groupId)) {
+      continue;
+    }
+
+    allTutorByGroupId.set(row.groupId, {
+      id: row.tutorUserId,
+      name: `${row.tutorFirstName} ${row.tutorLastName}`.trim(),
+    });
+  }
+
+  const studentsByGroupId = new Map<number, MatchGroupSummary["groupStudent"]>();
+  for (const row of activeStudentRows) {
+    const existing = studentsByGroupId.get(row.groupId) ?? [];
+    existing.push({
+      id: row.userId,
+      name: `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim(),
+      trackId: row.trackCode,
+      country: row.countryName ?? undefined,
+      yearLevel: row.yearLevel ?? undefined,
+      interests: studentInterestsByUserId.get(row.userId) ?? [],
+    });
+    studentsByGroupId.set(row.groupId, existing);
+  }
+
+  const notFullGroups: MatchGroupSummary[] = allGroups
+    .map((group) => {
+      const groupStudents = studentsByGroupId.get(group.groupId) ?? [];
+      const studentCount = groupStudents.length;
+      const availableSeats = Math.max(0, DEFAULT_GROUP_MAX_SIZE - studentCount);
+
+      return {
+        id: group.groupId,
+        groupName: group.groupName,
+        trackId: group.trackCode ?? group.trackId,
+        maxSize: DEFAULT_GROUP_MAX_SIZE,
+        tutor: allTutorByGroupId.get(group.groupId) ?? null,
+        groupStudent: groupStudents,
+        studentCount,
+        availableSeats,
+      };
+    })
+    .filter((group) => group.availableSeats > 0)
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  return {
+    recommendations,
+    notFullGroups,
+  } satisfies MatchStudentResult;
 }
 
 export async function getIndividualStudents() {

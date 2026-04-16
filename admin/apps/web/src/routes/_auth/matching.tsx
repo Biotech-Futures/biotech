@@ -20,7 +20,7 @@ function RouteComponent() {
     refetch: runMatch,
   } = useQueryMatchInfo();
   const confirmAssignments = useMutationConfirmAssignments();
-  const recommendations = matchInfoData?.data ?? [];
+  const recommendations = matchInfoData?.data.recommendations ?? [];
 
   async function onConfirmAssignments(
     assignments: Array<{ studentId: number; groupId: number | string }>,
