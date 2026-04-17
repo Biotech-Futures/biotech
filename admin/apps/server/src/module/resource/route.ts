@@ -28,14 +28,14 @@ function parseId(value: string) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-resourceRoute.get("/", sValidator("query", queryResourcesSchema), (c) => {
+resourceRoute.get("/", sValidator("query", queryResourcesSchema), async (c) => {
   const params = c.req.valid("query");
-  const result = queryResources(params);
+  const result = await queryResources(params);
   return c.json(result);
 });
 
-resourceRoute.get("/roles", (c) => {
-  const result = listResourceRoles();
+resourceRoute.get("/roles", async (c) => {
+  const result = await listResourceRoles();
   return c.json(result);
 });
 
@@ -44,13 +44,13 @@ resourceRoute.get("/types", (c) => {
   return c.json(result);
 });
 
-resourceRoute.get("/:id/download", (c) => {
+resourceRoute.get("/:id/download", async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) {
     return c.json({ msg: "Invalid resource id", data: null }, 400);
   }
 
-  const result = downloadResource(id);
+  const result = await downloadResource(id);
 
   if (!result.data) {
     return c.json(result, 404);
@@ -64,20 +64,20 @@ resourceRoute.get("/:id/download", (c) => {
   });
 });
 
-resourceRoute.get("/:id", (c) => {
+resourceRoute.get("/:id", async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) {
     return c.json({ msg: "Invalid resource id", data: null }, 400);
   }
 
-  const result = queryResourceById(id);
+  const result = await queryResourceById(id);
   return c.json(result);
 });
 
-resourceRoute.post("/", sValidator("json", createResourceSchema), (c) => {
+resourceRoute.post("/", sValidator("json", createResourceSchema), async (c) => {
   const payload = c.req.valid("json");
   const user = c.get("user") as AuthUploader | undefined;
-  const result = createResource(payload, user);
+  const result = await createResource(payload, user);
   return c.json(result);
 });
 
@@ -115,7 +115,7 @@ resourceRoute.post("/upload", async (c) => {
     return c.json({ msg: "resource_description is required", data: null }, 400);
   }
 
-  const result = uploadResource({
+  const result = await uploadResource({
     resource_name: resourceName,
     resource_description: resourceDescription,
     resource_type: resourceType as
@@ -136,56 +136,56 @@ resourceRoute.post("/upload", async (c) => {
   return c.json(result);
 });
 
-resourceRoute.patch("/:id", sValidator("json", updateResourceSchema), (c) => {
+resourceRoute.patch("/:id", sValidator("json", updateResourceSchema), async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) {
     return c.json({ msg: "Invalid resource id", data: null }, 400);
   }
 
   const updates = c.req.valid("json");
-  const result = updateResource(id, updates);
+  const result = await updateResource(id, updates);
   return c.json(result);
 });
 
-resourceRoute.put("/:id", sValidator("json", updateResourceSchema), (c) => {
+resourceRoute.put("/:id", sValidator("json", updateResourceSchema), async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) {
     return c.json({ msg: "Invalid resource id", data: null }, 400);
   }
 
   const updates = c.req.valid("json");
-  const result = updateResource(id, updates);
+  const result = await updateResource(id, updates);
   return c.json(result);
 });
 
-resourceRoute.delete("/:id", (c) => {
+resourceRoute.delete("/:id", async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) {
     return c.json({ msg: "Invalid resource id", data: null }, 400);
   }
 
-  const result = deleteResource(id);
+  const result = await deleteResource(id);
   return c.json(result);
 });
 
-resourceRoute.post("/:id/assign-role", sValidator("json", updateResourceRoleSchema), (c) => {
-  const id = parseId(c.req.param("id"));
-  if (id === null) {
-    return c.json({ msg: "Invalid resource id", data: null }, 400);
-  }
-
-  const payload = c.req.valid("json");
-  const result = assignRoleToResource(id, payload.role_id);
-  return c.json(result);
-});
-
-resourceRoute.delete("/:id/remove-role", sValidator("json", updateResourceRoleSchema), (c) => {
+resourceRoute.post("/:id/assign-role", sValidator("json", updateResourceRoleSchema), async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === null) {
     return c.json({ msg: "Invalid resource id", data: null }, 400);
   }
 
   const payload = c.req.valid("json");
-  const result = removeRoleFromResource(id, payload.role_id);
+  const result = await assignRoleToResource(id, payload.role_id);
+  return c.json(result);
+});
+
+resourceRoute.delete("/:id/remove-role", sValidator("json", updateResourceRoleSchema), async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === null) {
+    return c.json({ msg: "Invalid resource id", data: null }, 400);
+  }
+
+  const payload = c.req.valid("json");
+  const result = await removeRoleFromResource(id, payload.role_id);
   return c.json(result);
 });

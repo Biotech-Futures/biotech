@@ -37,6 +37,9 @@ function ResourcePage() {
   const [page, setPage] = useState(1);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [showBatchVisibilityEditor, setShowBatchVisibilityEditor] =
+    useState(false);
+  const [batchRoleIds, setBatchRoleIds] = useState<number[]>([]);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
@@ -65,6 +68,8 @@ function ResourcePage() {
   useEffect(() => {
     if (!bulkMode) {
       setSelectedIds([]);
+      setShowBatchVisibilityEditor(false);
+      setBatchRoleIds([]);
     }
   }, [bulkMode]);
 
@@ -155,49 +160,17 @@ function ResourcePage() {
 
   const handleBatchUpdateVisibility = async () => {
     if (!selectedIds.length) return;
-    if (!availableRoles.length) {
-      window.alert("No roles available.");
-      return;
-    }
-
-    const roleHint = availableRoles.map((role) => role.slug).join(", ");
-    const input = window.prompt(
-      `Set visible roles for ${selectedIds.length} resources.\nEnter role slugs separated by commas.\nAvailable: ${roleHint}\nLeave empty for admin-only visibility.`,
-      "",
-    );
-
-    if (input === null) return;
-
-    const tokens = input
-      .split(",")
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-
-    const matchedRoleIds = Array.from(
-      new Set(
-        tokens
-          .map((slug) => availableRoles.find((role) => role.slug.toLowerCase() === slug)?.id)
-          .filter((id): id is number => id !== undefined),
-      ),
-    );
-
-    const unknown = tokens.filter(
-      (slug) => !availableRoles.some((role) => role.slug.toLowerCase() === slug),
-    );
-    if (unknown.length) {
-      window.alert(`Unknown roles: ${unknown.join(", ")}`);
-      return;
-    }
-
     await Promise.all(
       selectedIds.map((id) =>
         updateResourceAsync({
           id,
-          updates: { role_ids: matchedRoleIds },
+          updates: { role_ids: batchRoleIds },
         }),
       ),
     );
     setSelectedIds([]);
+    setShowBatchVisibilityEditor(false);
+    setBatchRoleIds([]);
   };
 
   return (
@@ -235,7 +208,17 @@ function ResourcePage() {
             {selectedIds.length} selected
           </p>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleBatchUpdateVisibility}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!availableRoles.length) {
+                  window.alert("No roles available.");
+                  return;
+                }
+                setShowBatchVisibilityEditor((prev) => !prev);
+              }}
+            >
               Batch Set Visibility
             </Button>
             <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
@@ -243,6 +226,50 @@ function ResourcePage() {
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
               Clear Selection
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {bulkMode && selectedIds.length && showBatchVisibilityEditor ? (
+        <div className="rounded-md border bg-background px-3 py-3 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Set visibility roles for {selectedIds.length} selected resources
+          </p>
+          <div className="flex flex-wrap items-center gap-4">
+            {availableRoles.map((role) => {
+              const checked = batchRoleIds.includes(role.id);
+              return (
+                <label key={role.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      const isChecked = event.target.checked;
+                      setBatchRoleIds((prev) =>
+                        isChecked
+                          ? [...prev, role.id]
+                          : prev.filter((id) => id !== role.id),
+                      );
+                    }}
+                  />
+                  <span>{role.slug}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleBatchUpdateVisibility}>
+              Apply Visibility
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setShowBatchVisibilityEditor(false);
+                setBatchRoleIds([]);
+              }}
+            >
+              Cancel
             </Button>
           </div>
         </div>
