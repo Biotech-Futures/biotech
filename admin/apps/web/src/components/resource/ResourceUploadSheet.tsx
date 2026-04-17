@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -87,9 +86,6 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
       <SheetContent side="right" className="w-full sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Upload Resource</SheetTitle>
-          <SheetDescription>
-            Upload a new resource and define who can view it.
-          </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-4 px-4">

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { Resource } from "@/type/resource";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface ResourceTableProps {
   columns: ColumnDef<Resource>[];
@@ -24,6 +24,9 @@ interface ResourceTableProps {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  bulkMode: boolean;
+  selectedIds: number[];
+  onSelectedIdsChange: (ids: number[]) => void;
   isPending?: boolean;
 }
 
@@ -33,9 +36,13 @@ export function ResourceTable({
   page,
   totalPages,
   onPageChange,
+  bulkMode,
+  selectedIds,
+  onSelectedIdsChange,
   isPending,
 }: ResourceTableProps) {
   const [pageInput, setPageInput] = useState(String(page));
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setPageInput(String(page));
@@ -58,6 +65,39 @@ export function ResourceTable({
     getCoreRowModel: getCoreRowModel(),
   });
 
+  const pageIds = useMemo(() => data.map((item) => item.id), [data]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedCountInPage = useMemo(
+    () => pageIds.filter((id) => selectedSet.has(id)).length,
+    [pageIds, selectedSet],
+  );
+  const isAllSelectedInPage = pageIds.length > 0 && selectedCountInPage === pageIds.length;
+  const isSomeSelectedInPage = selectedCountInPage > 0 && !isAllSelectedInPage;
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = isSomeSelectedInPage;
+  }, [isSomeSelectedInPage]);
+
+  const toggleAllInPage = (checked: boolean) => {
+    if (checked) {
+      const merged = Array.from(new Set([...selectedIds, ...pageIds]));
+      onSelectedIdsChange(merged);
+      return;
+    }
+    onSelectedIdsChange(selectedIds.filter((id) => !pageIds.includes(id)));
+  };
+
+  const toggleOne = (id: number, checked: boolean) => {
+    if (checked) {
+      onSelectedIdsChange(Array.from(new Set([...selectedIds, id])));
+      return;
+    }
+    onSelectedIdsChange(selectedIds.filter((item) => item !== id));
+  };
+
+  const selectionColumnCount = bulkMode ? 1 : 0;
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
@@ -65,6 +105,17 @@ export function ResourceTable({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
+                {bulkMode ? (
+                  <TableHead className="w-10">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={isAllSelectedInPage}
+                      onChange={(event) => toggleAllInPage(event.target.checked)}
+                      aria-label="Select all rows on current page"
+                    />
+                  </TableHead>
+                ) : null}
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
                     {header.isPlaceholder
@@ -78,13 +129,23 @@ export function ResourceTable({
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={columns.length + selectionColumnCount} className="h-24 text-center">
                   Loading...
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
+                  {bulkMode ? (
+                    <TableCell className="w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedSet.has(row.original.id)}
+                        onChange={(event) => toggleOne(row.original.id, event.target.checked)}
+                        aria-label={`Select resource ${row.original.resource_name}`}
+                      />
+                    </TableCell>
+                  ) : null}
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -94,7 +155,7 @@ export function ResourceTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={columns.length + selectionColumnCount} className="h-24 text-center">
                   No resources found.
                 </TableCell>
               </TableRow>

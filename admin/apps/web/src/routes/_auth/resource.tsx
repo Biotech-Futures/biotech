@@ -10,7 +10,9 @@ import {
 import {
   downloadResourceFile,
   useDeleteResource,
+  useQueryResourceRoles,
   useQueryResources,
+  useUpdateResource,
 } from "@/query/resource";
 import type {
   Resource,
@@ -33,6 +35,8 @@ function ResourcePage() {
     ResourceTypeName | undefined
   >();
   const [page, setPage] = useState(1);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
@@ -50,11 +54,21 @@ function ResourcePage() {
     resource_type: resourceType,
   });
 
-  const { mutate: deleteResource } = useDeleteResource();
+  const { mutate: deleteResource, mutateAsync: deleteResourceAsync } = useDeleteResource();
+  const { mutateAsync: updateResourceAsync } = useUpdateResource();
+  const { data: rolesData } = useQueryResourceRoles();
 
   useEffect(() => {
     setPage(1);
   }, [search, uploader, trackId, order, resourceType]);
+
+  useEffect(() => {
+    if (!bulkMode) {
+      setSelectedIds([]);
+    }
+  }, [bulkMode]);
+
+  const availableRoles = rolesData?.data.filter((role) => role.slug !== "admin") ?? [];
 
   const resources = useMemo(() => {
     const items = [...(data?.data.items ?? [])];
@@ -108,6 +122,7 @@ function ResourcePage() {
     );
     if (!shouldDelete) return;
     deleteResource(resource.id);
+    setSelectedIds((prev) => prev.filter((id) => id !== resource.id));
   };
 
   const handleDownload = async (resource: Resource) => {
@@ -129,6 +144,62 @@ function ResourcePage() {
     onDownload: handleDownload,
   });
 
+  const handleBatchDelete = async () => {
+    if (!selectedIds.length) return;
+    const shouldDelete = window.confirm(`Delete ${selectedIds.length} selected resources?`);
+    if (!shouldDelete) return;
+
+    await Promise.all(selectedIds.map((id) => deleteResourceAsync(id)));
+    setSelectedIds([]);
+  };
+
+  const handleBatchUpdateVisibility = async () => {
+    if (!selectedIds.length) return;
+    if (!availableRoles.length) {
+      window.alert("No roles available.");
+      return;
+    }
+
+    const roleHint = availableRoles.map((role) => role.slug).join(", ");
+    const input = window.prompt(
+      `Set visible roles for ${selectedIds.length} resources.\nEnter role slugs separated by commas.\nAvailable: ${roleHint}\nLeave empty for admin-only visibility.`,
+      "",
+    );
+
+    if (input === null) return;
+
+    const tokens = input
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+
+    const matchedRoleIds = Array.from(
+      new Set(
+        tokens
+          .map((slug) => availableRoles.find((role) => role.slug.toLowerCase() === slug)?.id)
+          .filter((id): id is number => id !== undefined),
+      ),
+    );
+
+    const unknown = tokens.filter(
+      (slug) => !availableRoles.some((role) => role.slug.toLowerCase() === slug),
+    );
+    if (unknown.length) {
+      window.alert(`Unknown roles: ${unknown.join(", ")}`);
+      return;
+    }
+
+    await Promise.all(
+      selectedIds.map((id) =>
+        updateResourceAsync({
+          id,
+          updates: { role_ids: matchedRoleIds },
+        }),
+      ),
+    );
+    setSelectedIds([]);
+  };
+
   return (
     <div className="p-4 space-y-4">
       <ResourceFilters
@@ -142,7 +213,40 @@ function ResourcePage() {
         onOrderChange={setOrder}
         type={resourceType}
         onTypeChange={setResourceType}
+        actionSlot={
+          <div className="flex items-center gap-2">
+            <Button
+              variant={bulkMode ? "default" : "outline"}
+              onClick={() => setBulkMode((prev) => !prev)}
+            >
+              {bulkMode ? "Exit Batch Mode" : "Batch Mode"}
+            </Button>
+            <Button onClick={() => setUploadOpen(true)}>
+              <UploadIcon className="size-4 mr-1" />
+              Upload Resource
+            </Button>
+          </div>
+        }
       />
+
+      {bulkMode && selectedIds.length ? (
+        <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+          <p className="text-sm text-muted-foreground">
+            {selectedIds.length} selected
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleBatchUpdateVisibility}>
+              Batch Set Visibility
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
+              Batch Delete
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
+              Clear Selection
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <ResourceTable
         columns={columns}
@@ -150,6 +254,9 @@ function ResourcePage() {
         page={page}
         totalPages={totalPages}
         onPageChange={setPage}
+        bulkMode={bulkMode}
+        selectedIds={selectedIds}
+        onSelectedIdsChange={setSelectedIds}
         isPending={isPending}
       />
 
