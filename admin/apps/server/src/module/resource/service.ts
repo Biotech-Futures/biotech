@@ -91,8 +91,10 @@ const FALLBACK_UPLOADERS: ResourceUploader[] = demoUploaders.map((item) => ({ ..
 
 let demoRows: DemoResourceRow[] = demoResources.map((item) => ({ ...item }));
 let demoAudienceRows: DemoResourceAudienceRow[] = demoResourceAudience.map((item) => ({ ...item }));
+let demoUploadersState: ResourceUploader[] = FALLBACK_UPLOADERS.map((item) => ({ ...item }));
 let nextDemoResourceId = Math.max(0, ...demoRows.map((item) => item.id)) + 1;
 let nextDemoAudienceId = Math.max(0, ...demoAudienceRows.map((item) => item.id)) + 1;
+let nextDemoUploaderId = Math.max(100, ...demoUploadersState.map((item) => item.id)) + 1;
 
 const uploadedFiles = new Map<
   string,
@@ -144,7 +146,8 @@ function buildStorageKey(resourceId: number, fileName?: string | null) {
 
 function buildResourceFromDemoRow(resourceRow: DemoResourceRow): Resource {
   const uploader =
-    FALLBACK_UPLOADERS.find((item) => item.id === resourceRow.uploader_user_id) ??
+    demoUploadersState.find((item) => item.id === resourceRow.uploader_user_id) ??
+    demoUploadersState[0] ??
     FALLBACK_UPLOADERS[0];
 
   const audiences: ResourceAudience[] = demoAudienceRows
@@ -188,6 +191,23 @@ function parseName(name?: string | null) {
 }
 
 async function resolveUploaderForDb(authUploader?: AuthUploader): Promise<ResourceUploader> {
+  if (authUploader?.id) {
+    const byAdminUserId = await db
+      .select({
+        id: users.id,
+        first_name: users.firstName,
+        last_name: users.lastName,
+        email: users.email,
+      })
+      .from(users)
+      .where(eq(users.adminUserId, authUploader.id))
+      .limit(1);
+
+    if (byAdminUserId[0]) {
+      return byAdminUserId[0];
+    }
+  }
+
   if (authUploader?.email) {
     const matched = await db
       .select({
@@ -227,6 +247,29 @@ async function resolveUploaderForDb(authUploader?: AuthUploader): Promise<Resour
     last_name: parsed.last,
     email: authUploader?.email || "admin@example.com",
   };
+}
+
+function resolveUploaderForDemo(authUploader?: AuthUploader): ResourceUploader {
+  if (!authUploader) {
+    return demoUploadersState[0] ?? FALLBACK_UPLOADERS[0];
+  }
+
+  if (authUploader.email) {
+    const byEmail = demoUploadersState.find(
+      (item) => item.email.toLowerCase() === authUploader.email?.toLowerCase(),
+    );
+    if (byEmail) return byEmail;
+  }
+
+  const parsed = parseName(authUploader.name);
+  const created: ResourceUploader = {
+    id: nextDemoUploaderId++,
+    first_name: parsed.first,
+    last_name: parsed.last,
+    email: authUploader.email || `admin-${Date.now()}@example.com`,
+  };
+  demoUploadersState = [created, ...demoUploadersState];
+  return created;
 }
 
 async function nextResourceIdFromDb() {
@@ -393,6 +436,26 @@ export async function queryResources(params: QueryResourcesInput) {
     );
   }
 
+  const getTimestamp = (resource: Resource) => {
+    const parsed = Date.parse(resource.uploaded_at ?? "");
+    if (!Number.isNaN(parsed)) return parsed;
+    return 0;
+  };
+
+  resourcesList.sort((a, b) => {
+    if (params.order === "oldest") {
+      return (
+        getTimestamp(a) - getTimestamp(b) ||
+        a.resource_name.localeCompare(b.resource_name)
+      );
+    }
+
+    return (
+      getTimestamp(b) - getTimestamp(a) ||
+      a.resource_name.localeCompare(b.resource_name)
+    );
+  });
+
   const total = resourcesList.length;
   const items = resourcesList.slice(offset, offset + limit);
 
@@ -443,7 +506,7 @@ export async function queryResourceById(id: number) {
 export async function createResource(payload: CreateResourceInput, uploader?: AuthUploader) {
   if (useResourceDemoData()) {
     const roleIds = normalizeRoleIds(payload.role_ids, FALLBACK_ROLES);
-    const authUploader = FALLBACK_UPLOADERS[0];
+    const authUploader = resolveUploaderForDemo(uploader);
     const id = nextDemoResourceId++;
 
     const row: DemoResourceRow = {
