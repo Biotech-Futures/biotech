@@ -1,34 +1,53 @@
 export type ResourceRole = {
-  id: string;
-  role_name: string;
+  id: number;
+  slug: string;
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
-export type ResourceOrder = "newest" | "oldest" | "name";
+export type ResourceOrder = "newest" | "oldest";
 
-export type ResourceType = {
-  id: string;
-  type_name: ResourceTypeName;
-  type_description: string;
+export type ResourceTypeOption = {
+  value: ResourceTypeName;
+  label: string;
 };
 
 export type ResourceUploader = {
-  id: string;
+  id: number;
   first_name: string;
   last_name: string;
   email: string;
 };
 
+export type ResourceAudience = {
+  id: number;
+  resource_id: number;
+  role_id: number | null;
+  track_id: number | null;
+  role: ResourceRole | null;
+};
+
+export type ResourceTrackOption = {
+  id: number;
+  code: string;
+  label: string;
+};
+
 export type Resource = {
-  id: string;
+  id: number;
+  uploader_user_id: number;
+  track_id: number | null;
+  visibility_scope: string;
+  uploaded_at: string;
+  deleted_at: string | null;
   resource_name: string;
-  resource_description: string;
-  resource_type_detail: ResourceType | null;
-  upload_datetime: string;
+  resource_description: string | null;
+  resource_type: ResourceTypeName | null;
+  file_name: string | null;
+  file_mime_type: string | null;
+  file_size: number | null;
+  storage_key: string;
   uploader: ResourceUploader;
-  visible_roles: ResourceRole[];
-  deleted_flag: boolean;
-  deleted_datetime: string | null;
+  audiences: ResourceAudience[];
 };
 
 export type PaginatedResponse<T> = {
@@ -42,9 +61,28 @@ export type PaginatedResponse<T> = {
   };
 };
 
-export const RESOURCE_TYPES: ResourceTypeName[] = [
-  "document",
-  "guide",
-  "video",
-  "template",
+export const RESOURCE_TYPES: ResourceTypeOption[] = [
+  { value: "document", label: "Document" },
+  { value: "guide", label: "Guide" },
+  { value: "video", label: "Video" },
+  { value: "template", label: "Template" },
 ];
+
+export const RESOURCE_TRACKS: ResourceTrackOption[] = [
+  { id: 1, code: "AUS-NSW", label: "AUS-NSW (New South Wales)" },
+  { id: 2, code: "AUS-QLD", label: "AUS-QLD (Queensland)" },
+  { id: 3, code: "AUS-VIC", label: "AUS-VIC (Victoria)" },
+  { id: 4, code: "AUS-WA", label: "AUS-WA (Western Australia)" },
+  { id: 5, code: "Brazil", label: "Brazil" },
+  { id: 6, code: "Global", label: "Global" },
+];
+
+export function getResourceTrackLabel(trackId: number | null | undefined): string {
+  if (trackId === null || trackId === undefined) return "Unassigned";
+  return RESOURCE_TRACKS.find((item) => item.id === trackId)?.code ?? `Track ${trackId}`;
+}
+
+export function getResourceTypeLabel(typeName: ResourceTypeName | null | undefined): string {
+  if (!typeName) return "Uncategorized";
+  return RESOURCE_TYPES.find((item) => item.value === typeName)?.label ?? "Uncategorized";
+}

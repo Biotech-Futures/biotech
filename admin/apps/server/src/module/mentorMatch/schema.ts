@@ -13,6 +13,12 @@ export const confirmMentorAssignmentSchema = z.object({
   assignments: z.array(confirmMentorAssignmentItemSchema).min(1),
 });
 
+export const replaceMentorSchema = z.object({
+  membershipId: z.coerce.number().int().positive(),
+  groupId: z.coerce.number().int().positive(),
+  newMentorUserId: z.coerce.number().int().positive(),
+});
+
 export type ConfirmMentorAssignmentInput = z.infer<
   typeof confirmMentorAssignmentSchema
 >;
@@ -20,3 +26,5 @@ export type ConfirmMentorAssignmentInput = z.infer<
 export type MentorMatchUidQueryInput = z.infer<
   typeof mentorMatchUidQuerySchema
 >;
+
+export type ReplaceMentorInput = z.infer<typeof replaceMentorSchema>;

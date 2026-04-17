@@ -5,254 +5,320 @@ import type {
 } from "./schema.js";
 
 export type Role = {
-  id: string;
-  role_name: string;
+  id: number;
+  slug: string;
 };
 
-export type ResourceType = {
-  id: string;
-  type_name: "document" | "guide" | "video" | "template";
-  type_description: string;
+export type ResourceTypeName = "document" | "guide" | "video" | "template";
+
+export type ResourceTypeOption = {
+  value: ResourceTypeName;
+  label: string;
 };
 
 export type ResourceUploader = {
-  id: string;
+  id: number;
   first_name: string;
   last_name: string;
   email: string;
 };
 
-export type Resource = {
+export type AuthUploader = {
   id: string;
+  name?: string | null;
+  email?: string | null;
+};
+
+export type ResourceRow = {
+  id: number;
+  uploader_user_id: number;
+  track_id: number | null;
+  visibility_scope: string;
+  uploaded_at: string;
+  deleted_at: string | null;
   resource_name: string;
-  resource_description: string;
-  resource_type_detail: ResourceType | null;
-  upload_datetime: string;
+  resource_description: string | null;
+  resource_type: ResourceTypeName | null;
+  file_name: string | null;
+  file_mime_type: string | null;
+  file_size: number | null;
+  storage_key: string;
+};
+
+export type ResourceAudience = {
+  id: number;
+  resource_id: number;
+  role_id: number | null;
+  track_id: number | null;
+  role: Role | null;
+};
+
+export type Resource = ResourceRow & {
   uploader: ResourceUploader;
-  visible_roles: Role[];
-  deleted_flag: boolean;
-  deleted_datetime: string | null;
+  audiences: ResourceAudience[];
 };
 
 const roles: Role[] = [
-  { id: "role-student", role_name: "Student" },
-  { id: "role-mentor", role_name: "Mentor" },
-  { id: "role-admin", role_name: "Admin" },
+  { id: 1, slug: "student" },
+  { id: 2, slug: "mentor" },
+  { id: 3, slug: "admin" },
 ];
 
-const ADMIN_ROLE_ID = "role-admin";
+const ADMIN_ROLE_ID = 3;
 
-const resourceTypes: ResourceType[] = [
-  {
-    id: "type-1",
-    type_name: "document",
-    type_description: "Document resources such as PDFs and written materials",
-  },
-  {
-    id: "type-2",
-    type_name: "guide",
-    type_description: "Step-by-step guides and tutorials",
-  },
-  {
-    id: "type-3",
-    type_name: "video",
-    type_description: "Video recordings and presentations",
-  },
-  {
-    id: "type-4",
-    type_name: "template",
-    type_description: "Templates and boilerplate files",
-  },
+const resourceTypeOptions: ResourceTypeOption[] = [
+  { value: "document", label: "Document" },
+  { value: "guide", label: "Guide" },
+  { value: "video", label: "Video" },
+  { value: "template", label: "Template" },
 ];
 
-const uploaders: ResourceUploader[] = [
-  {
-    id: "u-1",
-    first_name: "Amy",
-    last_name: "Wong",
-    email: "amy.wong@example.com",
-  },
-  {
-    id: "u-2",
-    first_name: "Lucas",
-    last_name: "Chan",
-    email: "lucas.chan@example.com",
-  },
-  {
-    id: "u-3",
-    first_name: "Priya",
-    last_name: "Shah",
-    email: "priya.shah@example.com",
-  },
+const trackOptions = [
+  { id: 1, code: "AUS-NSW" },
+  { id: 2, code: "AUS-QLD" },
+  { id: 3, code: "AUS-VIC" },
+  { id: 4, code: "AUS-WA" },
+  { id: 5, code: "Brazil" },
+  { id: 6, code: "Global" },
 ];
 
-function getRolesByIds(roleIds: string[] = []): Role[] {
-  return roles.filter((role) => roleIds.includes(role.id));
+const mockUsers: ResourceUploader[] = [
+  { id: 101, first_name: "Amy", last_name: "Wong", email: "amy.wong@example.com" },
+  { id: 102, first_name: "Lucas", last_name: "Chan", email: "lucas.chan@example.com" },
+  { id: 103, first_name: "Priya", last_name: "Shah", email: "priya.shah@example.com" },
+];
+
+function toTitleWord(input: string): string {
+  if (!input) return "";
+  return input.charAt(0).toUpperCase() + input.slice(1).toLowerCase();
 }
 
-function normalizeVisibleRoles(roleIds: string[] = []): Role[] {
-  const uniqueRoleIds = Array.from(new Set([...roleIds, ADMIN_ROLE_ID]));
-  return getRolesByIds(uniqueRoleIds);
+function parseNameParts(name?: string | null) {
+  const full = (name || "").trim();
+  if (!full) {
+    return { first_name: "Admin", last_name: "User" };
+  }
+
+  const parts = full.split(/\s+/);
+  return {
+    first_name: parts[0] || "Admin",
+    last_name: parts.slice(1).join(" ") || "User",
+  };
 }
 
-function getResourceTypeById(resourceTypeId?: string | null): ResourceType | null {
-  if (!resourceTypeId) return null;
-  return resourceTypes.find((type) => type.id === resourceTypeId) ?? null;
+let nextUserId = 1000;
+
+function ensureUploaderFromAuth(authUploader?: AuthUploader): ResourceUploader {
+  if (!authUploader) return mockUsers[0];
+
+  if (authUploader.email) {
+    const byEmail = mockUsers.find((item) => item.email.toLowerCase() === authUploader.email?.toLowerCase());
+    if (byEmail) return byEmail;
+  }
+
+  const nameParts = parseNameParts(authUploader.name);
+  const created: ResourceUploader = {
+    id: nextUserId++,
+    first_name: nameParts.first_name,
+    last_name: nameParts.last_name,
+    email: authUploader.email || `${nameParts.first_name.toLowerCase()}.${nameParts.last_name.toLowerCase()}@example.com`,
+  };
+  mockUsers.push(created);
+  return created;
 }
 
-const typeSpecificTitles: Record<ResourceType["type_name"], string[]> = {
-  document: [
-    "Research Summary",
-    "Policy Brief",
-    "Assessment Rubric",
-    "Program Handbook",
-    "Reference Notes",
-  ],
-  guide: [
-    "Peer Review Guide",
-    "Onboarding Guide",
-    "Submission Guide",
-    "Mentor Communication Guide",
-    "Workshop Preparation Guide",
-  ],
-  video: [
-    "Workshop Recording",
-    "Demo Walkthrough",
-    "Q&A Session Recording",
-    "Orientation Video",
-    "Case Study Presentation",
-  ],
-  template: [
-    "Project Proposal Template",
-    "Weekly Report Template",
-    "Retrospective Template",
-    "Presentation Deck Template",
-    "Mentor Feedback Template",
-  ],
+function getRoleById(roleId: number | null): Role | null {
+  if (roleId === null) return null;
+  return roles.find((item) => item.id === roleId) ?? null;
+}
+
+function normalizeRoleIds(roleIds: number[] = []): number[] {
+  const filtered = roleIds.filter((roleId) => roles.some((item) => item.id === roleId));
+  return Array.from(new Set([...filtered, ADMIN_ROLE_ID]));
+}
+
+function buildStorageKey(resourceId: number, fileName?: string | null) {
+  const stamp = Date.now();
+  const safeName = (fileName || "resource.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `resources/${stamp}-${resourceId}-${safeName}`;
+}
+
+const titleByType: Record<ResourceTypeName, string[]> = {
+  document: ["Research Summary", "Policy Brief", "Assessment Rubric", "Program Handbook"],
+  guide: ["Peer Review Guide", "Onboarding Guide", "Submission Guide", "Mentor Handbook"],
+  video: ["Workshop Recording", "Demo Walkthrough", "Q&A Recording", "Orientation Video"],
+  template: ["Project Proposal Template", "Weekly Report Template", "Slides Template", "Feedback Template"],
 };
 
-function buildTitle(typeName: ResourceType["type_name"], index: number): string {
-  const labels = typeSpecificTitles[typeName];
+function buildTitle(typeName: ResourceTypeName, index: number): string {
+  const labels = titleByType[typeName];
   return `${labels[index % labels.length]} ${index + 1}`;
 }
 
-function buildDescription(typeName: ResourceType["type_name"], index: number): string {
-  if (typeName === "guide") {
-    return `Step-by-step guidance content (${index + 1}).`;
-  }
-  if (typeName === "document") {
-    return `Reference document for program operations (${index + 1}).`;
-  }
-  if (typeName === "video") {
-    return `Recorded session or walkthrough material (${index + 1}).`;
-  }
-  return `Reusable template for recurring tasks (${index + 1}).`;
+function buildDescription(typeName: ResourceTypeName, index: number): string {
+  return `${toTitleWord(typeName)} resource content (${index + 1}).`;
 }
 
-function generateMockResources(): Resource[] {
-  const items: Resource[] = [];
-  const studentRoleId = roles.find((role) => role.role_name === "Student")?.id;
-  const mentorRoleId = roles.find((role) => role.role_name === "Mentor")?.id;
-  const visibilitySets: string[][] =
-    studentRoleId && mentorRoleId
-      ? [
-          [studentRoleId, mentorRoleId, ADMIN_ROLE_ID],
-          [studentRoleId, ADMIN_ROLE_ID],
-          [mentorRoleId, ADMIN_ROLE_ID],
-        ]
-      : [[ADMIN_ROLE_ID]];
+type ResourceAudienceRow = {
+  id: number;
+  resource_id: number;
+  role_id: number | null;
+  track_id: number | null;
+};
+
+let nextResourceId = 1;
+let nextAudienceId = 1;
+
+function createAudienceRows(resourceId: number, roleIds: number[] | undefined, trackId: number | null) {
+  const normalized = normalizeRoleIds(roleIds);
+  const rows: ResourceAudienceRow[] = normalized.map((roleId) => ({
+    id: nextAudienceId++,
+    resource_id: resourceId,
+    role_id: roleId,
+    track_id: trackId,
+  }));
+  return rows;
+}
+
+function generateMockResources() {
+  const rows: ResourceRow[] = [];
+  const audienceRows: ResourceAudienceRow[] = [];
+
+  const studentRoleId = roles.find((role) => role.slug === "student")?.id ?? 1;
+  const mentorRoleId = roles.find((role) => role.slug === "mentor")?.id ?? 2;
+
+  const visibilitySets: number[][] = [
+    [studentRoleId, mentorRoleId, ADMIN_ROLE_ID],
+    [studentRoleId, ADMIN_ROLE_ID],
+    [mentorRoleId, ADMIN_ROLE_ID],
+    [ADMIN_ROLE_ID],
+  ];
 
   const randomInt = (max: number) => Math.floor(Math.random() * max);
-
-  let previousTypeName: ResourceType["type_name"] | null = null;
+  const typeValues = resourceTypeOptions.map((item) => item.value);
 
   for (let i = 0; i < 48; i++) {
-    let type = resourceTypes[randomInt(resourceTypes.length)];
-    if (previousTypeName === type.type_name && resourceTypes.length > 1) {
-      type = resourceTypes[(resourceTypes.indexOf(type) + 1 + randomInt(resourceTypes.length - 1)) % resourceTypes.length];
-    }
-    previousTypeName = type.type_name;
-
-    const uploader = uploaders[randomInt(uploaders.length)];
+    const typeName = typeValues[randomInt(typeValues.length)] as ResourceTypeName;
+    const uploader = mockUsers[randomInt(mockUsers.length)];
+    const track = trackOptions[randomInt(trackOptions.length)];
     const daysAgo = randomInt(360);
     const created = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
     created.setHours(8 + randomInt(11), randomInt(60), 0, 0);
-    const visibleRoleIds = visibilitySets[randomInt(visibilitySets.length)];
 
-    items.push({
-      id: `res-${i + 1}`,
-      resource_name: buildTitle(type.type_name, i + randomInt(24)),
-      resource_description: buildDescription(type.type_name, i + randomInt(24)),
-      resource_type_detail: type,
-      upload_datetime: created.toISOString(),
-      uploader,
-      visible_roles: normalizeVisibleRoles(visibleRoleIds),
-      deleted_flag: false,
-      deleted_datetime: null,
-    });
+    const id = nextResourceId++;
+    const fileName = `${typeName}-${id}.pdf`;
+    const storageKey = buildStorageKey(id, fileName);
+
+    const row: ResourceRow = {
+      id,
+      uploader_user_id: uploader.id,
+      track_id: track.id,
+      visibility_scope: "role_based",
+      uploaded_at: created.toISOString(),
+      deleted_at: null,
+      resource_name: buildTitle(typeName, i + randomInt(16)),
+      resource_description: buildDescription(typeName, i + randomInt(16)),
+      resource_type: typeName,
+      file_name: fileName,
+      file_mime_type: "application/pdf",
+      file_size: 80_000 + randomInt(1_500_000),
+      storage_key: storageKey,
+    };
+
+    rows.push(row);
+    audienceRows.push(...createAudienceRows(id, visibilitySets[randomInt(visibilitySets.length)], track.id));
   }
 
-  return items;
+  return { rows, audienceRows };
 }
 
-let mockResources: Resource[] = generateMockResources();
+const initial = generateMockResources();
+let mockResources: ResourceRow[] = initial.rows;
+let mockResourceAudience: ResourceAudienceRow[] = initial.audienceRows;
+
+const uploadedFiles = new Map<
+  string,
+  {
+    file_name: string;
+    mime_type: string;
+    bytes: ArrayBuffer;
+  }
+>();
+
+function buildResource(resourceRow: ResourceRow): Resource {
+  const uploader = mockUsers.find((item) => item.id === resourceRow.uploader_user_id) ?? mockUsers[0];
+  const audiences: ResourceAudience[] = mockResourceAudience
+    .filter((item) => item.resource_id === resourceRow.id)
+    .map((item) => ({
+      id: item.id,
+      resource_id: item.resource_id,
+      role_id: item.role_id,
+      track_id: item.track_id,
+      role: getRoleById(item.role_id),
+    }));
+
+  return {
+    ...resourceRow,
+    uploader,
+    audiences,
+  };
+}
 
 export function queryResources(params: QueryResourcesInput) {
-  const { page, limit, search, uploader, type, role, order } = params;
+  const { page, limit, search, uploader, uploader_user_id, track_id, resource_type, role_slug, order } = params;
   const offset = (page - 1) * limit;
 
-  let filtered = mockResources.filter((resource) => !resource.deleted_flag);
+  let filteredRows = mockResources.filter((resource) => !resource.deleted_at);
 
   if (search) {
     const keyword = search.toLowerCase();
-    filtered = filtered.filter(
-      (resource) =>
-        resource.resource_name.toLowerCase().includes(keyword) ||
-        resource.resource_description.toLowerCase().includes(keyword),
+    filteredRows = filteredRows.filter((resource) =>
+      resource.resource_name.toLowerCase().includes(keyword) ||
+      (resource.resource_description || "").toLowerCase().includes(keyword),
     );
   }
 
   if (uploader) {
     const uploaderKeyword = uploader.toLowerCase();
-    filtered = filtered.filter((resource) => {
-      const fullName = `${resource.uploader.first_name} ${resource.uploader.last_name}`.toLowerCase();
-      return (
-        fullName.includes(uploaderKeyword) ||
-        resource.uploader.email.toLowerCase().includes(uploaderKeyword)
-      );
+    filteredRows = filteredRows.filter((resource) => {
+      const person = mockUsers.find((item) => item.id === resource.uploader_user_id);
+      if (!person) return false;
+      const fullName = `${person.first_name} ${person.last_name}`.trim().toLowerCase();
+      return fullName.includes(uploaderKeyword);
     });
   }
 
-  if (type) {
-    const typeKeyword = type.toLowerCase();
-    filtered = filtered.filter(
-      (resource) => resource.resource_type_detail?.type_name.toLowerCase() === typeKeyword,
-    );
+  if (uploader_user_id !== undefined) {
+    filteredRows = filteredRows.filter((resource) => resource.uploader_user_id === uploader_user_id);
   }
 
-  if (role) {
-    const roleKeyword = role.toLowerCase();
-    filtered = filtered.filter((resource) =>
-      resource.visible_roles.some((resourceRole) =>
-        resourceRole.role_name.toLowerCase().includes(roleKeyword),
-      ),
-    );
+  if (track_id !== undefined) {
+    filteredRows = filteredRows.filter((resource) => resource.track_id === track_id);
   }
 
-  if (order === "oldest") {
-    filtered = filtered.sort(
-      (a, b) => new Date(a.upload_datetime).getTime() - new Date(b.upload_datetime).getTime(),
-    );
-  } else if (order === "name") {
-    filtered = filtered.sort((a, b) => a.resource_name.localeCompare(b.resource_name));
-  } else {
-    filtered = filtered.sort(
-      (a, b) => new Date(b.upload_datetime).getTime() - new Date(a.upload_datetime).getTime(),
-    );
+  if (resource_type) {
+    filteredRows = filteredRows.filter((resource) => resource.resource_type === resource_type);
   }
 
-  const total = filtered.length;
-  const items = filtered.slice(offset, offset + limit);
+  if (role_slug) {
+    const keyword = role_slug.toLowerCase();
+    filteredRows = filteredRows.filter((resource) => {
+      const audiences = mockResourceAudience.filter((item) => item.resource_id === resource.id);
+      return audiences.some((audience) => {
+        const role = getRoleById(audience.role_id);
+        return role ? role.slug.includes(keyword) : false;
+      });
+    });
+  }
+
+  filteredRows = filteredRows.sort((a, b) => {
+    const at = new Date(a.uploaded_at).getTime();
+    const bt = new Date(b.uploaded_at).getTime();
+    return order === "oldest" ? at - bt : bt - at;
+  });
+
+  const total = filteredRows.length;
+  const items = filteredRows.slice(offset, offset + limit).map(buildResource);
 
   return {
     msg: "Resources retrieved successfully",
@@ -266,10 +332,9 @@ export function queryResources(params: QueryResourcesInput) {
   };
 }
 
-export function queryResourceById(id: string) {
-  const resource = mockResources.find((item) => item.id === id && !item.deleted_flag) ?? null;
-
-  if (!resource) {
+export function queryResourceById(id: number) {
+  const row = mockResources.find((item) => item.id === id && !item.deleted_at) ?? null;
+  if (!row) {
     return {
       msg: "Resource not found",
       data: null,
@@ -278,36 +343,117 @@ export function queryResourceById(id: string) {
 
   return {
     msg: "Resource retrieved successfully",
-    data: resource,
+    data: buildResource(row),
   };
 }
 
-export function createResource(payload: CreateResourceInput) {
-  const nextId = `res-${mockResources.length + 1}`;
+export function createResource(payload: CreateResourceInput, authUploader?: AuthUploader) {
+  const uploader = ensureUploaderFromAuth(authUploader);
+  const id = nextResourceId++;
 
-  const newResource: Resource = {
-    id: nextId,
+  const row: ResourceRow = {
+    id,
+    uploader_user_id: uploader.id,
+    track_id: payload.track_id ?? trackOptions[0]?.id ?? null,
+    visibility_scope: "role_based",
+    uploaded_at: new Date().toISOString(),
+    deleted_at: null,
     resource_name: payload.resource_name,
     resource_description: payload.resource_description,
-    resource_type_detail: getResourceTypeById(payload.resource_type_id),
-    upload_datetime: new Date().toISOString(),
-    uploader: uploaders[0],
-    visible_roles: normalizeVisibleRoles(payload.role_ids),
-    deleted_flag: false,
-    deleted_datetime: null,
+    resource_type: payload.resource_type ?? null,
+    file_name: null,
+    file_mime_type: null,
+    file_size: null,
+    storage_key: buildStorageKey(id),
   };
 
-  mockResources = [newResource, ...mockResources];
+  mockResources = [row, ...mockResources];
+  mockResourceAudience = [
+    ...createAudienceRows(id, payload.role_ids, row.track_id),
+    ...mockResourceAudience,
+  ];
 
   return {
     msg: "Resource created successfully",
-    data: newResource,
+    data: buildResource(row),
   };
 }
 
-export function updateResource(id: string, updates: UpdateResourceInput) {
-  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_flag);
+export function uploadResource(payload: {
+  resource_name: string;
+  resource_description: string;
+  resource_type?: ResourceTypeName;
+  track_id?: number;
+  role_ids?: number[];
+  file_name: string;
+  file_size: number;
+  file_mime_type?: string;
+  file_bytes: ArrayBuffer;
+  uploader?: AuthUploader;
+}) {
+  const uploader = ensureUploaderFromAuth(payload.uploader);
+  const id = nextResourceId++;
+  const storageKey = buildStorageKey(id, payload.file_name);
 
+  const row: ResourceRow = {
+    id,
+    uploader_user_id: uploader.id,
+    track_id: payload.track_id ?? trackOptions[0]?.id ?? null,
+    visibility_scope: "role_based",
+    uploaded_at: new Date().toISOString(),
+    deleted_at: null,
+    resource_name: payload.resource_name,
+    resource_description: payload.resource_description,
+    resource_type: payload.resource_type ?? null,
+    file_name: payload.file_name,
+    file_mime_type: payload.file_mime_type || "application/octet-stream",
+    file_size: payload.file_size,
+    storage_key: storageKey,
+  };
+
+  mockResources = [row, ...mockResources];
+  mockResourceAudience = [
+    ...createAudienceRows(id, payload.role_ids, row.track_id),
+    ...mockResourceAudience,
+  ];
+
+  uploadedFiles.set(storageKey, {
+    file_name: payload.file_name,
+    mime_type: payload.file_mime_type || "application/octet-stream",
+    bytes: payload.file_bytes,
+  });
+
+  return {
+    msg: "Resource uploaded successfully",
+    data: buildResource(row),
+  };
+}
+
+export function downloadResource(id: number) {
+  const row = mockResources.find((item) => item.id === id && !item.deleted_at);
+  if (!row) {
+    return {
+      msg: "Resource not found",
+      data: null,
+    } as const;
+  }
+
+  const file = uploadedFiles.get(row.storage_key);
+  if (!file) {
+    return {
+      msg: "This resource has no uploaded file",
+      data: null,
+    } as const;
+  }
+
+  return {
+    msg: "Resource download prepared",
+    data: file,
+  } as const;
+}
+
+export function updateResource(id: number, updates: UpdateResourceInput) {
+  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_at);
   if (index === -1) {
     return {
       msg: "Resource not found",
@@ -316,29 +462,29 @@ export function updateResource(id: string, updates: UpdateResourceInput) {
   }
 
   const current = mockResources[index];
-
-  const updated: Resource = {
+  const updated: ResourceRow = {
     ...current,
     resource_name: updates.resource_name ?? current.resource_name,
     resource_description: updates.resource_description ?? current.resource_description,
-    resource_type_detail:
-      updates.resource_type_id === undefined
-        ? current.resource_type_detail
-        : getResourceTypeById(updates.resource_type_id),
-    visible_roles: updates.role_ids ? normalizeVisibleRoles(updates.role_ids) : current.visible_roles,
+    resource_type: updates.resource_type === undefined ? current.resource_type : updates.resource_type,
+    track_id: updates.track_id === undefined ? current.track_id : updates.track_id,
   };
 
   mockResources[index] = updated;
 
+  if (updates.role_ids) {
+    mockResourceAudience = mockResourceAudience.filter((item) => item.resource_id !== id);
+    mockResourceAudience.push(...createAudienceRows(id, updates.role_ids, updated.track_id));
+  }
+
   return {
     msg: "Resource updated successfully",
-    data: updated,
+    data: buildResource(updated),
   };
 }
 
-export function deleteResource(id: string) {
-  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_flag);
-
+export function deleteResource(id: number) {
+  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_at);
   if (index === -1) {
     return {
       msg: "Resource not found",
@@ -348,8 +494,7 @@ export function deleteResource(id: string) {
 
   mockResources[index] = {
     ...mockResources[index],
-    deleted_flag: true,
-    deleted_datetime: new Date().toISOString(),
+    deleted_at: new Date().toISOString(),
   };
 
   return {
@@ -358,42 +503,44 @@ export function deleteResource(id: string) {
   };
 }
 
-export function assignRoleToResource(id: string, roleId: string) {
-  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_flag);
-
-  if (index === -1) {
+export function assignRoleToResource(id: number, roleId: number) {
+  const resource = mockResources.find((item) => item.id === id && !item.deleted_at);
+  if (!resource) {
     return {
       msg: "Resource not found",
       data: null,
     };
   }
 
-  const role = roles.find((item) => item.id === roleId);
-  if (!role) {
+  if (!roles.some((item) => item.id === roleId)) {
     return {
       msg: "Role not found",
       data: null,
     };
   }
 
-  const hasRole = mockResources[index].visible_roles.some((item) => item.id === roleId);
-  if (!hasRole) {
-    mockResources[index] = {
-      ...mockResources[index],
-      visible_roles: [...mockResources[index].visible_roles, role],
-    };
+  const exists = mockResourceAudience.some(
+    (item) => item.resource_id === id && item.role_id === roleId,
+  );
+
+  if (!exists) {
+    mockResourceAudience.push({
+      id: nextAudienceId++,
+      resource_id: id,
+      role_id: roleId,
+      track_id: resource.track_id,
+    });
   }
 
   return {
     msg: "Role assigned successfully",
-    data: mockResources[index],
+    data: buildResource(resource),
   };
 }
 
-export function removeRoleFromResource(id: string, roleId: string) {
-  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_flag);
-
-  if (index === -1) {
+export function removeRoleFromResource(id: number, roleId: number) {
+  const resource = mockResources.find((item) => item.id === id && !item.deleted_at);
+  if (!resource) {
     return {
       msg: "Resource not found",
       data: null,
@@ -403,22 +550,17 @@ export function removeRoleFromResource(id: string, roleId: string) {
   if (roleId === ADMIN_ROLE_ID) {
     return {
       msg: "Admin visibility is required and cannot be removed",
-      data: mockResources[index],
+      data: buildResource(resource),
     };
   }
 
-  mockResources[index] = {
-    ...mockResources[index],
-    visible_roles: normalizeVisibleRoles(
-      mockResources[index].visible_roles
-        .filter((item) => item.id !== roleId)
-        .map((item) => item.id),
-    ),
-  };
+  mockResourceAudience = mockResourceAudience.filter(
+    (item) => !(item.resource_id === id && item.role_id === roleId),
+  );
 
   return {
     msg: "Role removed successfully",
-    data: mockResources[index],
+    data: buildResource(resource),
   };
 }
 
@@ -432,6 +574,6 @@ export function listResourceRoles() {
 export function listResourceTypes() {
   return {
     msg: "Resource types retrieved successfully",
-    data: resourceTypes,
+    data: resourceTypeOptions,
   };
 }

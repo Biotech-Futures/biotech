@@ -1,38 +1,37 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import type { Resource } from "@/type/resource";
-import { Badge } from "@/components/ui/badge";
+import { getResourceTrackLabel, getResourceTypeLabel, type Resource } from "@/type/resource";
 import { Button } from "@/components/ui/button";
-import { MoreHorizontal, FileText, UserIcon } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { ResourceTypeName } from "@/type/resource";
 
 interface ResourceColumnsOptions {
   onViewDetail?: (resource: Resource) => void;
   onEdit?: (resource: Resource) => void;
   onDelete?: (resource: Resource) => void;
+  onDownload?: (resource: Resource) => void;
 }
 
-function formatType(typeName?: string) {
-  if (!typeName) return "Uncategorized";
-  return typeName.charAt(0).toUpperCase() + typeName.slice(1);
+function formatUploaderName(resource: Resource) {
+  return `${resource.uploader.first_name} ${resource.uploader.last_name}`.trim();
 }
 
-const typeColors: Record<ResourceTypeName, string> = {
-  document: "bg-blue-100 text-blue-800",
-  guide: "bg-emerald-100 text-emerald-800",
-  video: "bg-amber-100 text-amber-800",
-  template: "bg-violet-100 text-violet-800",
-};
+function getVisibleRoleSlugs(resource: Resource) {
+  const slugs = resource.audiences
+    .map((audience) => audience.role?.slug)
+    .filter((slug): slug is string => Boolean(slug) && slug !== "admin");
+  return Array.from(new Set(slugs));
+}
 
 export function createResourceColumns({
   onViewDetail,
   onEdit,
   onDelete,
+  onDownload,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
   return [
     {
@@ -51,50 +50,40 @@ export function createResourceColumns({
       },
     },
     {
-      id: "resource_type_detail",
+      id: "resource_type",
       header: "Type",
       cell: ({ row }) => {
-        const type = row.original.resource_type_detail?.type_name;
-        if (!type) {
-          return <Badge variant="secondary">Uncategorized</Badge>;
-        }
-        return <Badge className={typeColors[type]}>{formatType(type)}</Badge>;
+        return <span>{getResourceTypeLabel(row.original.resource_type)}</span>;
       },
     },
     {
-      id: "visible_roles",
-      header: () => (
-        <div className="flex items-center gap-1">
-          <FileText className="size-4" />
-          Visibility
-        </div>
-      ),
+      id: "visibility",
+      header: "Visibility",
       cell: ({ row }) => {
-        const roles = row.original.visible_roles;
-        if (!roles.length) {
-          return <span className="text-muted-foreground text-sm">No role restriction</span>;
+        const roleSlugs = getVisibleRoleSlugs(row.original);
+        if (!roleSlugs.length) {
+          return <span className="text-muted-foreground text-sm">Admin default visibility</span>;
         }
-        return <span>{roles.map((role) => role.role_name).join(", ")}</span>;
+        return <span>{roleSlugs.join(", ")}</span>;
       },
+    },
+    {
+      id: "track_id",
+      header: "Track",
+      cell: ({ row }) => <span>{getResourceTrackLabel(row.original.track_id)}</span>,
     },
     {
       id: "uploader",
-      header: () => (
-        <div className="flex items-center gap-1">
-          <UserIcon className="size-4" />
-          Uploader
-        </div>
-      ),
+      header: "Uploader",
       cell: ({ row }) => {
-        const uploader = row.original.uploader;
-        return <span>{`${uploader.first_name} ${uploader.last_name}`}</span>;
+        return <span>{formatUploaderName(row.original)}</span>;
       },
     },
     {
-      accessorKey: "upload_datetime",
+      accessorKey: "uploaded_at",
       header: "Uploaded",
       cell: ({ row }) => {
-        const parsed = Date.parse(row.original.upload_datetime ?? "");
+        const parsed = Date.parse(row.original.uploaded_at ?? "");
         if (Number.isNaN(parsed)) return <span className="text-muted-foreground">N/A</span>;
         return new Date(parsed).toLocaleString();
       },
@@ -118,6 +107,11 @@ export function createResourceColumns({
               <DropdownMenuItem onClick={() => onEdit?.(resource)}>
                 Edit Resource
               </DropdownMenuItem>
+              {resource.file_name ? (
+                <DropdownMenuItem onClick={() => onDownload?.(resource)}>
+                  Download File
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 className="text-red-600"
                 onClick={() => onDelete?.(resource)}

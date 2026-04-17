@@ -30,7 +30,7 @@ export function useQueryIndividualStudents() {
 type ConfirmAssignmentPayload = {
   assignments: Array<{
     studentId: number;
-    groupId: number;
+    groupId: number | string;
   }>;
 };
 

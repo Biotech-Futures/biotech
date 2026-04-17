@@ -36,7 +36,13 @@ import {
 import type { Event, EventRsvp } from "@/type/event";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
-import { CalendarIcon, Trash2Icon, PencilIcon, UsersIcon, XIcon } from "lucide-react";
+import {
+  CalendarIcon,
+  Trash2Icon,
+  PencilIcon,
+  UsersIcon,
+  XIcon,
+} from "lucide-react";
 import { Controller, type Control, useForm } from "react-hook-form";
 import { useEffect, useState } from "react";
 
@@ -66,8 +72,10 @@ function EventPage() {
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
-  const { data: rsvpData, isPending: isRsvpLoading } = useQueryEventRsvps(rsvpEventId);
-  const { mutate: createRsvp, isPending: isCreatingRsvp } = useCreateEventRsvp();
+  const { data: rsvpData, isPending: isRsvpLoading } =
+    useQueryEventRsvps(rsvpEventId);
+  const { mutate: createRsvp, isPending: isCreatingRsvp } =
+    useCreateEventRsvp();
 
   // Create form
   const {
@@ -148,7 +156,7 @@ function EventPage() {
           setEditingEvent(null);
           resetEdit();
         },
-      }
+      },
     );
   };
 
@@ -160,7 +168,7 @@ function EventPage() {
         onSuccess: () => {
           resetRsvp();
         },
-      }
+      },
     );
   };
 
@@ -172,15 +180,6 @@ function EventPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Event Management</h1>
-          <p className="text-muted-foreground">
-            Create events, review schedules, and maintain event records
-          </p>
-        </div>
-      </div>
-
       {/* Create Event Form */}
       <Card>
         <CardHeader>
@@ -194,8 +193,18 @@ function EventPage() {
             className="grid gap-4 lg:grid-cols-5"
             onSubmit={handleSubmit(onSubmit)}
           >
-            <NumberField control={control} name="hostUserId" label="Host User ID" placeholder="Optional" />
-            <NumberField control={control} name="trackId" label="Track ID" placeholder="Optional" />
+            <NumberField
+              control={control}
+              name="hostUserId"
+              label="Host User ID"
+              placeholder="Optional"
+            />
+            <NumberField
+              control={control}
+              name="trackId"
+              label="Track ID"
+              placeholder="Optional"
+            />
             <Controller
               control={control}
               name="eventType"
@@ -208,7 +217,11 @@ function EventPage() {
                     value={field.value ?? ""}
                     onChange={(e) => field.onChange(e.target.value || null)}
                   />
-                  {errors.eventType && <p className="text-sm text-destructive">{errors.eventType.message}</p>}
+                  {errors.eventType && (
+                    <p className="text-sm text-destructive">
+                      {errors.eventType.message}
+                    </p>
+                  )}
                 </div>
               )}
             />
@@ -219,7 +232,11 @@ function EventPage() {
                 <div className="space-y-1.5">
                   <Label htmlFor="start-at">Start</Label>
                   <Input id="start-at" type="datetime-local" {...field} />
-                  {errors.startAt && <p className="text-sm text-destructive">{errors.startAt.message}</p>}
+                  {errors.startAt && (
+                    <p className="text-sm text-destructive">
+                      {errors.startAt.message}
+                    </p>
+                  )}
                 </div>
               )}
             />
@@ -230,7 +247,11 @@ function EventPage() {
                 <div className="space-y-1.5">
                   <Label htmlFor="ends-at">End</Label>
                   <Input id="ends-at" type="datetime-local" {...field} />
-                  {errors.endsAt && <p className="text-sm text-destructive">{errors.endsAt.message}</p>}
+                  {errors.endsAt && (
+                    <p className="text-sm text-destructive">
+                      {errors.endsAt.message}
+                    </p>
+                  )}
                 </div>
               )}
             />
@@ -253,7 +274,12 @@ function EventPage() {
                 <CardTitle>Edit Event #{editingEvent.id}</CardTitle>
                 <CardDescription>Update the event details</CardDescription>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setEditingEvent(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditingEvent(null)}
+              >
                 <XIcon className="size-4" />
               </Button>
             </div>
@@ -263,8 +289,18 @@ function EventPage() {
               className="grid gap-4 lg:grid-cols-5"
               onSubmit={handleEditSubmit(onEditSubmit)}
             >
-              <EditNumberField control={editControl} name="hostUserId" label="Host User ID" placeholder="Optional" />
-              <EditNumberField control={editControl} name="trackId" label="Track ID" placeholder="Optional" />
+              <EditNumberField
+                control={editControl}
+                name="hostUserId"
+                label="Host User ID"
+                placeholder="Optional"
+              />
+              <EditNumberField
+                control={editControl}
+                name="trackId"
+                label="Track ID"
+                placeholder="Optional"
+              />
               <Controller
                 control={editControl}
                 name="eventType"
@@ -276,7 +312,11 @@ function EventPage() {
                       value={field.value ?? ""}
                       onChange={(e) => field.onChange(e.target.value || null)}
                     />
-                    {editErrors.eventType && <p className="text-sm text-destructive">{editErrors.eventType.message}</p>}
+                    {editErrors.eventType && (
+                      <p className="text-sm text-destructive">
+                        {editErrors.eventType.message}
+                      </p>
+                    )}
                   </div>
                 )}
               />
@@ -286,8 +326,16 @@ function EventPage() {
                 render={({ field }) => (
                   <div className="space-y-1.5">
                     <Label>Start</Label>
-                    <Input type="datetime-local" {...field} value={field.value ?? ""} />
-                    {editErrors.startAt && <p className="text-sm text-destructive">{editErrors.startAt.message}</p>}
+                    <Input
+                      type="datetime-local"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                    {editErrors.startAt && (
+                      <p className="text-sm text-destructive">
+                        {editErrors.startAt.message}
+                      </p>
+                    )}
                   </div>
                 )}
               />
@@ -297,8 +345,16 @@ function EventPage() {
                 render={({ field }) => (
                   <div className="space-y-1.5">
                     <Label>End</Label>
-                    <Input type="datetime-local" {...field} value={field.value ?? ""} />
-                    {editErrors.endsAt && <p className="text-sm text-destructive">{editErrors.endsAt.message}</p>}
+                    <Input
+                      type="datetime-local"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                    {editErrors.endsAt && (
+                      <p className="text-sm text-destructive">
+                        {editErrors.endsAt.message}
+                      </p>
+                    )}
                   </div>
                 )}
               />
@@ -306,7 +362,11 @@ function EventPage() {
                 <Button type="submit" disabled={isUpdating}>
                   {isUpdating ? "Saving..." : "Save Changes"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setEditingEvent(null)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingEvent(null)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -322,25 +382,51 @@ function EventPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>RSVP List — Event #{rsvpEventId}</CardTitle>
-                <CardDescription>View and add RSVPs for this event</CardDescription>
+                <CardDescription>
+                  View and add RSVPs for this event
+                </CardDescription>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setRsvpEventId(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setRsvpEventId(null)}
+              >
                 <XIcon className="size-4" />
               </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Add RSVP form */}
-            <form className="flex gap-3 items-end" onSubmit={handleRsvpSubmit(onRsvpSubmit)}>
+            <form
+              className="flex gap-3 items-end"
+              onSubmit={handleRsvpSubmit(onRsvpSubmit)}
+            >
               <div className="space-y-1.5">
                 <Label>User ID</Label>
-                <Input type="number" min={1} placeholder="User ID" {...registerRsvp("userId", { valueAsNumber: true })} />
-                {rsvpErrors.userId && <p className="text-sm text-destructive">{rsvpErrors.userId.message}</p>}
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="User ID"
+                  {...registerRsvp("userId", { valueAsNumber: true })}
+                />
+                {rsvpErrors.userId && (
+                  <p className="text-sm text-destructive">
+                    {rsvpErrors.userId.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>RSVP Status</Label>
-                <Input placeholder="attending / declined" {...registerRsvp("rsvpStatus")} />
-                {rsvpErrors.rsvpStatus && <p className="text-sm text-destructive">{rsvpErrors.rsvpStatus.message}</p>}
+                <Input
+                  placeholder="attending / declined"
+                  {...registerRsvp("rsvpStatus")}
+                />
+                {rsvpErrors.rsvpStatus && (
+                  <p className="text-sm text-destructive">
+                    {rsvpErrors.rsvpStatus.message}
+                  </p>
+                )}
               </div>
               <Button type="submit" disabled={isCreatingRsvp}>
                 {isCreatingRsvp ? "Adding..." : "Add RSVP"}
@@ -359,7 +445,9 @@ function EventPage() {
               <TableBody>
                 {isRsvpLoading ? (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center">Loading...</TableCell>
+                    <TableCell colSpan={3} className="text-center">
+                      Loading...
+                    </TableCell>
                   </TableRow>
                 ) : rsvps.length > 0 ? (
                   rsvps.map((rsvp) => (
@@ -373,7 +461,9 @@ function EventPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center">No RSVPs yet.</TableCell>
+                    <TableCell colSpan={3} className="text-center">
+                      No RSVPs yet.
+                    </TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -430,14 +520,18 @@ function EventPage() {
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">Loading events...</TableCell>
+                <TableCell colSpan={7} className="h-24 text-center">
+                  Loading events...
+                </TableCell>
               </TableRow>
             ) : events.length > 0 ? (
               events.map((event) => (
                 <TableRow key={event.id}>
                   <TableCell>{event.id}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{event.eventType ?? "General"}</Badge>
+                    <Badge variant="outline">
+                      {event.eventType ?? "General"}
+                    </Badge>
                   </TableCell>
                   <TableCell>{event.trackId ?? "Any"}</TableCell>
                   <TableCell>{event.hostUserId ?? "Unassigned"}</TableCell>
@@ -449,7 +543,11 @@ function EventPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setRsvpEventId(rsvpEventId === event.id ? null : event.id)}
+                        onClick={() =>
+                          setRsvpEventId(
+                            rsvpEventId === event.id ? null : event.id,
+                          )
+                        }
                       >
                         <UsersIcon className="size-4" />
                         RSVP
@@ -458,7 +556,11 @@ function EventPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setEditingEvent(editingEvent?.id === event.id ? null : event)}
+                        onClick={() =>
+                          setEditingEvent(
+                            editingEvent?.id === event.id ? null : event,
+                          )
+                        }
                       >
                         <PencilIcon className="size-4" />
                         Edit
@@ -479,7 +581,9 @@ function EventPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">No events found.</TableCell>
+                <TableCell colSpan={7} className="h-24 text-center">
+                  No events found.
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -545,7 +649,11 @@ function NumberField({
               field.onChange(value ? Number(value) : null);
             }}
           />
-          {fieldState.error && <p className="text-sm text-destructive">{fieldState.error.message}</p>}
+          {fieldState.error && (
+            <p className="text-sm text-destructive">
+              {fieldState.error.message}
+            </p>
+          )}
         </div>
       )}
     />
@@ -580,7 +688,11 @@ function EditNumberField({
               field.onChange(value ? Number(value) : null);
             }}
           />
-          {fieldState.error && <p className="text-sm text-destructive">{fieldState.error.message}</p>}
+          {fieldState.error && (
+            <p className="text-sm text-destructive">
+              {fieldState.error.message}
+            </p>
+          )}
         </div>
       )}
     />
@@ -588,11 +700,12 @@ function EditNumberField({
 }
 
 function formatDateTime(value: string) {
+  const isoValue = value.replace(" ", "T") + "Z";
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
-  }).format(new Date(value));
+  }).format(new Date(isoValue));
 }
 
 function toDatetimeLocal(value: string) {

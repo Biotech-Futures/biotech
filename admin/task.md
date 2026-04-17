@@ -12,14 +12,14 @@
 
 ### 👥 Student Matching
 
-- [ ] Auto-group students (2–5 per group)
-- [ ] Match based on interests
-- [ ] Match based on background
-- [ ] Match based on region (Track)
-- [ ] Match based on year level
-- [ ] Generate suggested groups
-- [ ] Calculate matching score
-- [ ] Provide summary statistics
+- [x] Auto-group students (2–5 per group)
+- [x] Match based on interests
+- [x] Match based on background
+- [x] Match based on region (Track)
+- [x] Match based on year level
+- [x] Generate suggested groups
+- [x] Calculate matching score
+- [x] Provide summary statistics
 
 ### Mentor Matching
 

@@ -1,5 +1,6 @@
 import {
   useMutationConfirmMentorAssignments,
+  useQueryMentorList,
   useQueryMentorMatchInfo,
   useQueryUnmatchedGroups,
   type MatchMode,
@@ -19,6 +20,8 @@ function RouteComponent() {
 
   const { data: unmatchedGroupsData, isPending: isLoadingGroups } =
     useQueryUnmatchedGroups();
+  const { data: mentorListData, isPending: isLoadingMentors } =
+    useQueryMentorList();
   const {
     data: matchInfoData,
     isFetching: isMatching,
@@ -50,17 +53,16 @@ function RouteComponent() {
 
   return (
     <div className="space-y-4 p-4">
-      {isLoadingGroups ? (
-        <p className="text-sm text-muted-foreground">Loading groups...</p>
+      {isLoadingGroups || isLoadingMentors ? (
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
         <MentorMatchingBoard
           recommendations={recommendations}
-          unmatchedGroupCount={unmatchedGroupsData?.data.length ?? 0}
+          unmatchedGroups={unmatchedGroupsData?.data ?? []}
+          mentors={mentorListData?.data ?? []}
           mode={mode}
           onModeChange={setMode}
-          onRunMatch={() => {
-            void runMatch();
-          }}
+          onRunMatch={() => { void runMatch(); }}
           onConfirmAssignments={onConfirmAssignments}
           isRunning={isMatching}
           isConfirming={confirmAssignments.isPending}

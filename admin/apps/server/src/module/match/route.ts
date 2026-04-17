@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { sValidator } from "@hono/standard-validator";
-import { confirmMatchAssignmentSchema, matchUidQuerySchema } from "./schema.js";
+import { confirmMatchAssignmentSchema } from "./schema.js";
 import {
   confirmStudentAssignments,
   getIndividualStudents,

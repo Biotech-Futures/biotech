@@ -6,7 +6,7 @@ export const matchUidQuerySchema = z.object({
 
 export const confirmMatchAssignmentItemSchema = z.object({
   studentId: z.coerce.number().int().positive(),
-  groupId: z.coerce.number().int().positive(),
+  groupId: z.union([z.coerce.number().int().positive(), z.string().min(1)]),
 });
 
 export const confirmMatchAssignmentSchema = z.object({

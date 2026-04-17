@@ -353,3 +353,36 @@ export async function deleteUser(id: string) {
 
   return { msg: "User deleted successfully", data: null };
 }
+
+async function bulkCreateAdminUsers(users: CreateUserInput[]) {
+  const success = [];
+  const failed = [];
+  const others = [];
+  for (const user of users) {
+    if (user.role === "admin") {
+      try {
+        const newUser = await auth.api.createUser({
+          body: {
+            email: user.email,
+            name: user.name,
+          },
+        });
+        if (newUser) {
+          success.push(user);
+        } else {
+          failed.push(user);
+        }
+      } catch (error) {
+        failed.push(user);
+      }
+    } else {
+      others.push(user);
+    }
+  }
+
+  return {
+    success,
+    failed,
+    others,
+  };
+}
