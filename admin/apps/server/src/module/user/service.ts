@@ -1,9 +1,23 @@
-// User service with mock data
+import db from "@/lib/db.js";
+import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import {
+  areasOfInterest,
+  groupMembership,
+  mentorProfile,
+  roles,
+  studentInterest,
+  studentProfile,
+  supervisorProfile,
+  tracks,
+  userRoleAssignment,
+  users,
+} from "@/drizzle/schema.js";
 import type {
-  QueryUsersInput,
-  QueryStudentsInput,
-  CreateUserInput,
   BulkCreateUsersInput,
+  CreateUserInput,
+  QueryStudentsInput,
+  QueryUsersInput,
+  UpdateStatusInput,
   UpdateUserInput,
 } from "./schema.js";
 
@@ -14,76 +28,34 @@ export type User = {
   firstName: string;
   lastName: string;
   email: string;
-  role: Role;
-  track: Track | null;
-  groupId: string | null;
-  groupName: string | null;
-  createdAt: string;
-  updatedAt: string;
+  role: string | null;
+  track: string | null;
+  isActive: boolean;
+  accountStatus: string;
+  invitedAt: string | null;
+  activatedAt: string | null;
 };
 
-// Mock group name lookup
-const groupNames: Record<string, string> = Object.fromEntries(
-  Array.from({ length: 50 }, (_, i) => [`g${i + 1}`, `Group ${i + 1}`]),
-);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const tracks: Track[] = ["frontend", "backend", "fullstack", "data"];
-const roles: Role[] = ["student", "mentor", "admin"];
+// Use high-resolution timestamp to generate unique bigint IDs for admin-scale writes
+const generateId = () => Date.now() * 1000 + Math.floor(Math.random() * 999);
 
-const firstNames = ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack"];
-const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Wilson", "Moore"];
+const userSelect = {
+  id: users.id,
+  firstName: users.firstName,
+  lastName: users.lastName,
+  email: users.email,
+  role: roles.slug,
+  track: tracks.trackCode,
+  isActive: users.isActive,
+  accountStatus: users.accountStatus,
+  invitedAt: users.invitedAt,
+  activatedAt: users.activatedAt,
+};
 
-function generateMockUsers(): User[] {
-  const users: User[] = [];
-  let id = 1;
-
-  for (let i = 0; i < 60; i++) {
-    const role = i < 40 ? "student" : i < 55 ? "mentor" : "admin";
-    const track = role !== "admin" ? tracks[i % 4] : null;
-    const groupId = role === "student" ? `g${(i % 20) + 1}` : null;
-
-    const firstName = firstNames[i % firstNames.length];
-    const lastName = lastNames[Math.floor(i / firstNames.length) % lastNames.length];
-
-    users.push({
-      id: `u${id++}`,
-      name: `${firstName} ${lastName}`,
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@example.com`,
-      role,
-      track,
-      groupId,
-      groupName: groupId ? groupNames[groupId] : null,
-      createdAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
-      updatedAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
-    });
-  }
-
-  return users;
-}
-
-let mockUsers: User[] = generateMockUsers();
-let nextId = mockUsers.length + 1;
-
-export function queryUsers(params: QueryUsersInput) {
-  const { page, limit, search, role, track } = params;
-  const offset = (page - 1) * limit;
-
-  const conditions: SQL[] = [];
-  if (search) {
-    conditions.push(
-      or(
-        ilike(users.firstName, `%${search}%`),
-        ilike(users.lastName, `%${search}%`),
-        ilike(users.email, `%${search}%`),
-      ) as SQL,
-    );
-  }
-  if (role) conditions.push(eq(roles.slug, role));
-  if (track) conditions.push(eq(tracks.trackCode, track));
-
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-  const baseFrom = db
+function baseUserQuery() {
+  return db
     .select(userSelect)
     .from(users)
     .leftJoin(
@@ -92,8 +64,35 @@ export function queryUsers(params: QueryUsersInput) {
     )
     .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
     .leftJoin(tracks, eq(tracks.id, users.trackId));
+}
 
-  const countFrom = db
+async function fetchUserById(id: number): Promise<User | null> {
+  const rows = await baseUserQuery().where(eq(users.id, id));
+  return (rows[0] as User) ?? null;
+}
+
+// ─── Queries ─────────────────────────────────────────────────────────────────
+
+export async function queryUsers(params: QueryUsersInput) {
+  const { page, limit, search, role, track } = params;
+  const offset = (page - 1) * limit;
+
+  const conditions = [];
+  if (search) {
+    conditions.push(
+      or(
+        ilike(users.firstName, `%${search}%`),
+        ilike(users.lastName, `%${search}%`),
+        ilike(users.email, `%${search}%`),
+      ),
+    );
+  }
+  if (role) conditions.push(eq(roles.slug, role));
+  if (track) conditions.push(eq(tracks.trackCode, track));
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const countQuery = db
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(users)
     .leftJoin(
@@ -105,13 +104,12 @@ export function queryUsers(params: QueryUsersInput) {
 
   const [items, countResult] = await Promise.all([
     where
-      ? baseFrom.where(where).limit(limit).offset(offset)
-      : baseFrom.limit(limit).offset(offset),
-    where ? countFrom.where(where) : countFrom,
+      ? baseUserQuery().where(where).limit(limit).offset(offset)
+      : baseUserQuery().limit(limit).offset(offset),
+    where ? countQuery.where(where) : countQuery,
   ]);
 
-  const total = Number(countResult[0]?.count ?? 0);
-
+  const total = countResult[0]?.count ?? 0;
   return {
     msg: "Users retrieved successfully",
     data: { items: items as User[], total, page, limit, hasMore: offset + items.length < total },
@@ -124,48 +122,133 @@ export async function queryUserById(id: string) {
   return { msg: "User retrieved successfully", data: user };
 }
 
+export async function queryStudents(params: QueryStudentsInput) {
+  const { page, limit, search, track, interest, inGroup } = params;
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(roles.slug, "student")];
+
+  if (search) {
+    conditions.push(
+      or(
+        ilike(users.firstName, `%${search}%`),
+        ilike(users.lastName, `%${search}%`),
+        ilike(users.email, `%${search}%`),
+      ) as ReturnType<typeof eq>,
+    );
+  }
+  if (track) conditions.push(eq(tracks.trackCode, track));
+
+  const where = and(...conditions);
+
+  let query = db
+    .select(userSelect)
+    .from(users)
+    .leftJoin(
+      userRoleAssignment,
+      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+    )
+    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(tracks, eq(tracks.id, users.trackId))
+    .leftJoin(studentProfile, eq(studentProfile.userId, users.id));
+
+  if (interest) {
+    query = (query as any)
+      .innerJoin(studentInterest, eq(studentInterest.studentUserId, users.id))
+      .innerJoin(
+        areasOfInterest,
+        and(
+          eq(areasOfInterest.id, studentInterest.interestId),
+          ilike(areasOfInterest.interestDesc, `%${interest}%`),
+        ),
+      );
+  }
+
+  if (inGroup === "yes") {
+    query = (query as any).innerJoin(
+      groupMembership,
+      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
+    );
+  } else if (inGroup === "no") {
+    const activeMembership = db
+      .select({ userId: groupMembership.userId })
+      .from(groupMembership)
+      .where(and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)));
+
+    conditions.push(
+      sql`NOT EXISTS (${activeMembership})` as unknown as ReturnType<typeof eq>,
+    );
+  }
+
+  const countQuery = db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(users)
+    .leftJoin(
+      userRoleAssignment,
+      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+    )
+    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(tracks, eq(tracks.id, users.trackId))
+    .where(where);
+
+  const [items, countResult] = await Promise.all([
+    (query as any).where(where).limit(limit).offset(offset),
+    countQuery,
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+  return {
+    msg: "Students retrieved successfully",
+    data: { items: items as User[], total, page, limit, hasMore: offset + items.length < total },
+  };
+}
+
+// ─── Mutations ───────────────────────────────────────────────────────────────
+
 export async function createUser(input: CreateUserInput, adminUserId: string) {
-  // Check duplicate email
   const existing = await db
     .select({ id: users.id })
     .from(users)
     .where(eq(users.email, input.email));
   if (existing.length > 0) return { msg: "Email already exists", data: null };
 
-  // Resolve trackId
   const trackRow = await db
     .select({ id: tracks.id })
     .from(tracks)
     .where(eq(tracks.trackCode, input.track));
-  if (trackRow.length === 0) return { msg: `Track "${input.track}" not found in database`, data: null };
-  const trackId = trackRow[0].id;
+  if (trackRow.length === 0) return { msg: `Track "${input.track}" not found`, data: null };
 
-  // Resolve roleId
   const roleRow = await db
     .select({ id: roles.id })
     .from(roles)
     .where(eq(roles.slug, input.role));
-  if (roleRow.length === 0) return { msg: `Role "${input.role}" not found in database`, data: null };
-  const roleId = roleRow[0].id;
+  if (roleRow.length === 0) return { msg: `Role "${input.role}" not found`, data: null };
 
   const now = new Date().toISOString();
   const userId = generateId();
-  const roleAssignmentId = generateId();
 
-  // Insert user
   await db.insert(users).values({
     id: userId,
     email: input.email,
-    role: input.role,
-    track: input.track ?? null,
-    groupId: input.groupId ?? null,
-    groupName: input.groupId ? (groupNames[input.groupId] ?? null) : null,
-    createdAt: now,
-    updatedAt: now,
-  };
+    firstName: input.firstName,
+    lastName: input.lastName,
+    isActive: true,
+    trackId: trackRow[0].id,
+    accountStatus: "active",
+    invitedAt: now,
+    adminUserId,
+  });
 
-  mockUsers.push(newUser);
-  return { msg: "User created successfully", data: newUser };
+  await db.insert(userRoleAssignment).values({
+    id: generateId(),
+    userId,
+    roleId: roleRow[0].id,
+    validFrom: now,
+    validTo: null,
+  });
+
+  const created = await fetchUserById(userId);
+  return { msg: "User created successfully", data: created };
 }
 
 export async function bulkCreateUsers(input: BulkCreateUsersInput, adminUserId: string) {
@@ -179,19 +262,6 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput, adminUserId: 
     } else {
       skipped.push(u.email);
     }
-    const newUser: User = {
-      id: `u${nextId++}`,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      track: u.track ?? null,
-      groupId: u.groupId ?? null,
-      groupName: u.groupId ? (groupNames[u.groupId] ?? null) : null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    mockUsers.push(newUser);
-    created.push(newUser);
   }
 
   return {
@@ -206,9 +276,8 @@ export async function updateUser(id: string, input: UpdateUserInput) {
   if (!existing) return { msg: "User not found", data: null };
 
   const now = new Date().toISOString();
-
-  // Build users-table update
   const userUpdates: Partial<typeof users.$inferInsert> = {};
+
   if (input.firstName !== undefined) userUpdates.firstName = input.firstName;
   if (input.lastName !== undefined) userUpdates.lastName = input.lastName;
   if (input.email !== undefined) userUpdates.email = input.email;
@@ -218,7 +287,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       .select({ id: tracks.id })
       .from(tracks)
       .where(eq(tracks.trackCode, input.track));
-    if (trackRow.length === 0) return { msg: `Track "${input.track}" not found in database`, data: null };
+    if (trackRow.length === 0) return { msg: `Track "${input.track}" not found`, data: null };
     userUpdates.trackId = trackRow[0].id;
   }
 
@@ -226,22 +295,18 @@ export async function updateUser(id: string, input: UpdateUserInput) {
     await db.update(users).set(userUpdates).where(eq(users.id, userId));
   }
 
-  // Handle role change: close old assignment, open new one
   if (input.role !== undefined && input.role !== existing.role) {
     const roleRow = await db
       .select({ id: roles.id })
       .from(roles)
       .where(eq(roles.slug, input.role));
-    if (roleRow.length === 0) return { msg: `Role "${input.role}" not found in database`, data: null };
+    if (roleRow.length === 0) return { msg: `Role "${input.role}" not found`, data: null };
 
     await db
       .update(userRoleAssignment)
       .set({ validTo: now })
       .where(
-        and(
-          eq(userRoleAssignment.userId, userId),
-          isNull(userRoleAssignment.validTo),
-        ),
+        and(eq(userRoleAssignment.userId, userId), isNull(userRoleAssignment.validTo)),
       );
 
     await db.insert(userRoleAssignment).values({
@@ -280,7 +345,6 @@ export async function deleteUser(id: string) {
   const existing = await fetchUserById(userId);
   if (!existing) return { msg: "User not found", data: null };
 
-  // Remove FK-dependent rows first
   await db.delete(userRoleAssignment).where(eq(userRoleAssignment.userId, userId));
   await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
   await db.delete(supervisorProfile).where(eq(supervisorProfile.userId, userId));
