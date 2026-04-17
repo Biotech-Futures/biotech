@@ -8,7 +8,7 @@ import type {
   UpdateUserInput,
 } from "./schema.js";
 
-export type Role = "student" | "mentor" | "admin";
+export type Role = "student" | "mentor" | "supervisor" | "admin";
 export type Track = "frontend" | "backend" | "fullstack" | "data";
 
 export type User = {
@@ -21,6 +21,7 @@ export type User = {
   groupName: string | null;
   age: number | null;
   interests: string[];
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -31,7 +32,7 @@ const groupNames: Record<string, string> = Object.fromEntries(
 );
 
 const tracks: Track[] = ["frontend", "backend", "fullstack", "data"];
-const roles: Role[] = ["student", "mentor", "admin"];
+const roles: Role[] = ["student", "mentor", "supervisor", "admin"];
 const interestsPool = [
   "biology",
   "genetics",
@@ -73,7 +74,8 @@ function generateMockUsers(): User[] {
   let id = 1;
 
   for (let i = 0; i < 60; i++) {
-    const role = i < 40 ? "student" : i < 55 ? "mentor" : "admin";
+    const role =
+      i < 35 ? "student" : i < 50 ? "mentor" : i < 55 ? "supervisor" : "admin";
     const track = role !== "admin" ? tracks[i % 4] : null;
     const groupId =
       role === "student" && i % 5 !== 0 ? `g${(i % 20) + 1}` : null;
@@ -100,6 +102,7 @@ function generateMockUsers(): User[] {
       groupName: groupId ? groupNames[groupId] : null,
       age,
       interests,
+      active: i % 9 !== 0,
       createdAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
       updatedAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
     });
@@ -112,13 +115,14 @@ let mockUsers: User[] = generateMockUsers();
 let nextId = mockUsers.length + 1;
 
 export function queryStudents(params: QueryStudentsInput) {
-  const { page, limit, search, age, track, interest, inGroup } = params;
+  const { page, limit, search, age, track, interest, inGroup, active } = params;
   const offset = (page - 1) * limit;
 
   let filtered = mockUsers.filter((u) => {
     if (u.role !== "student") return false;
     if (track && u.track !== track) return false;
     if (age !== undefined && u.age !== age) return false;
+    if (active !== undefined && u.active !== active) return false;
 
     if (interest) {
       const target = interest.toLowerCase();
@@ -151,12 +155,13 @@ export function queryStudents(params: QueryStudentsInput) {
 }
 
 export function queryUsers(params: QueryUsersInput) {
-  const { page, limit, search, role, track } = params;
+  const { page, limit, search, role, track, active } = params;
   const offset = (page - 1) * limit;
 
   let filtered = mockUsers.filter((u) => {
     if (role && u.role !== role) return false;
     if (track && u.track !== track) return false;
+    if (active !== undefined && u.active !== active) return false;
     if (search) {
       const s = search.toLowerCase();
       if (
@@ -199,6 +204,7 @@ export function createUser(input: CreateUserInput) {
     groupName: input.groupId ? (groupNames[input.groupId] ?? null) : null,
     age: input.role === "student" ? 16 : null,
     interests: input.role === "student" ? ["biology"] : [],
+    active: input.active ?? true,
     createdAt: now,
     updatedAt: now,
   };
@@ -229,6 +235,7 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput) {
       groupName: u.groupId ? (groupNames[u.groupId] ?? null) : null,
       age: u.role === "student" ? 16 : null,
       interests: u.role === "student" ? ["biology"] : [],
+      active: u.active ?? true,
       createdAt: now,
       updatedAt: now,
     };

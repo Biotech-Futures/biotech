@@ -32,7 +32,7 @@ const NAV_ITEMS = [
     icon: <CalendarIcon />,
   },
   {
-    title: "Students",
+    title: "User",
     url: "/student",
     icon: <UserIcon />,
   },

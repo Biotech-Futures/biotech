@@ -1,23 +1,31 @@
-export type StudentTrack = "frontend" | "backend" | "fullstack" | "data";
+export type UserTrack = "frontend" | "backend" | "fullstack" | "data";
+export type UserRole = "student" | "mentor" | "supervisor" | "admin";
+export type ServerUserRole = UserRole;
+export type UserStatus = "active" | "inactive";
+export type UserSource = "server" | "local";
 
-export type StudentUser = {
+export type UserAccount = {
   id: string;
   name: string;
   email: string;
-  role: "student";
-  track: StudentTrack | null;
+  role: UserRole;
+  track: UserTrack | null;
   groupId: string | null;
   groupName: string | null;
   age: number | null;
   interests: string[];
   createdAt: string;
   updatedAt: string;
+  active: boolean;
+  source: UserSource;
 };
 
-export type StudentPaginatedResponse = {
+export type ServerUser = Omit<UserAccount, "source">;
+
+export type UserPaginatedResponse = {
   msg: string;
   data: {
-    items: StudentUser[];
+    items: Omit<UserAccount, "source">[];
     total: number;
     page: number;
     limit: number;
@@ -25,4 +33,51 @@ export type StudentPaginatedResponse = {
   };
 };
 
-export const STUDENT_TRACKS: StudentTrack[] = ["frontend", "backend", "fullstack", "data"];
+export type UserFormValues = {
+  name: string;
+  email: string;
+  role: UserRole;
+  track: UserTrack | null;
+  active: boolean;
+};
+
+export type CsvUserRow = UserFormValues & {
+  id: string;
+};
+
+export type UserOverride = Partial<
+  Pick<UserAccount, "name" | "email" | "role" | "track" | "active" | "updatedAt">
+>;
+
+export const USER_TRACKS: UserTrack[] = [
+  "frontend",
+  "backend",
+  "fullstack",
+  "data",
+];
+
+export const USER_ROLES: UserRole[] = [
+  "student",
+  "mentor",
+  "supervisor",
+  "admin",
+];
+
+export const SERVER_USER_ROLES: ServerUserRole[] = [
+  "student",
+  "mentor",
+  "supervisor",
+  "admin",
+];
+
+export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
+  return user.active ? "active" : "inactive";
+}
+
+export function labelizeUserRole(role: UserRole) {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+export function labelizeTrack(track: UserTrack | null) {
+  return track ?? "Unassigned";
+}

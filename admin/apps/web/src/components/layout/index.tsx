@@ -16,6 +16,14 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { AppSidebar } from "./app-sidebar";
 
 function formatCrumbLabel(segment: string) {
+  const labelMap: Record<string, string> = {
+    student: "User",
+  };
+
+  if (labelMap[segment]) {
+    return labelMap[segment];
+  }
+
   return decodeURIComponent(segment)
     .replace(/[-_]+/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
