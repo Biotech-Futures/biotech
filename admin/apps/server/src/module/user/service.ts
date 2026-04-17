@@ -1,247 +1,267 @@
-// User service with mock data
-import { auth } from "@/lib/auth.js";
+import db from "@/lib/db.js";
+import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import {
+  areasOfInterest,
+  groupMembership,
+  mentorProfile,
+  roles,
+  studentInterest,
+  studentProfile,
+  supervisorProfile,
+  tracks,
+  userRoleAssignment,
+  users,
+} from "@/drizzle/schema.js";
 import type {
-  QueryUsersInput,
-  QueryStudentsInput,
-  CreateUserInput,
   BulkCreateUsersInput,
+  CreateUserInput,
+  QueryStudentsInput,
+  QueryUsersInput,
+  UpdateStatusInput,
   UpdateUserInput,
 } from "./schema.js";
 
-export type Role = "student" | "mentor" | "supervisor" | "admin";
-export type Track = "frontend" | "backend" | "fullstack" | "data";
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 export type User = {
-  id: string;
-  name: string;
+  id: number;
+  firstName: string;
+  lastName: string;
   email: string;
-  role: Role;
-  track: Track | null;
-  groupId: string | null;
-  groupName: string | null;
-  age: number | null;
-  interests: string[];
-  active: boolean;
-  createdAt: string;
-  updatedAt: string;
+  role: string | null;
+  track: string | null;
+  isActive: boolean;
+  accountStatus: string;
+  invitedAt: string | null;
+  activatedAt: string | null;
 };
 
-// Mock group name lookup
-const groupNames: Record<string, string> = Object.fromEntries(
-  Array.from({ length: 50 }, (_, i) => [`g${i + 1}`, `Group ${i + 1}`]),
-);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const tracks: Track[] = ["frontend", "backend", "fullstack", "data"];
-const roles: Role[] = ["student", "mentor", "supervisor", "admin"];
-const interestsPool = [
-  "biology",
-  "genetics",
-  "robotics",
-  "data science",
-  "ai",
-  "healthtech",
-  "chemistry",
-  "sustainability",
-];
+// Use high-resolution timestamp to generate unique bigint IDs for admin-scale writes
+const generateId = () => Date.now() * 1000 + Math.floor(Math.random() * 999);
 
-const firstNames = [
-  "Alice",
-  "Bob",
-  "Carol",
-  "David",
-  "Emma",
-  "Frank",
-  "Grace",
-  "Henry",
-  "Iris",
-  "Jack",
-];
-const lastNames = [
-  "Smith",
-  "Johnson",
-  "Williams",
-  "Brown",
-  "Jones",
-  "Garcia",
-  "Miller",
-  "Davis",
-  "Wilson",
-  "Moore",
-];
+const userSelect = {
+  id: users.id,
+  firstName: users.firstName,
+  lastName: users.lastName,
+  email: users.email,
+  role: roles.slug,
+  track: tracks.trackCode,
+  isActive: users.isActive,
+  accountStatus: users.accountStatus,
+  invitedAt: users.invitedAt,
+  activatedAt: users.activatedAt,
+};
 
-function generateMockUsers(): User[] {
-  const users: User[] = [];
-  let id = 1;
+function baseUserQuery() {
+  return db
+    .select(userSelect)
+    .from(users)
+    .leftJoin(
+      userRoleAssignment,
+      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+    )
+    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(tracks, eq(tracks.id, users.trackId));
+}
 
-  for (let i = 0; i < 60; i++) {
-    const role =
-      i < 35 ? "student" : i < 50 ? "mentor" : i < 55 ? "supervisor" : "admin";
-    const track = role !== "admin" ? tracks[i % 4] : null;
-    const groupId =
-      role === "student" && i % 5 !== 0 ? `g${(i % 20) + 1}` : null;
-    const age = role === "student" ? 14 + (i % 5) : null;
-    const interests =
-      role === "student"
-        ? [
-            interestsPool[i % interestsPool.length],
-            interestsPool[(i + 3) % interestsPool.length],
-          ]
-        : [];
+async function fetchUserById(id: number): Promise<User | null> {
+  const rows = await baseUserQuery().where(eq(users.id, id));
+  return (rows[0] as User) ?? null;
+}
 
-    const firstName = firstNames[i % firstNames.length];
-    const lastName =
-      lastNames[Math.floor(i / firstNames.length) % lastNames.length];
+// ─── Queries ─────────────────────────────────────────────────────────────────
 
-    users.push({
-      id: `u${id++}`,
-      name: `${firstName} ${lastName}`,
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${i}@example.com`,
-      role,
-      track,
-      groupId,
-      groupName: groupId ? groupNames[groupId] : null,
-      age,
-      interests,
-      active: i % 9 !== 0,
-      createdAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
-      updatedAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
-    });
+export async function queryUsers(params: QueryUsersInput) {
+  const { page, limit, search, role, track } = params;
+  const offset = (page - 1) * limit;
+
+  const conditions = [];
+  if (search) {
+    conditions.push(
+      or(
+        ilike(users.firstName, `%${search}%`),
+        ilike(users.lastName, `%${search}%`),
+        ilike(users.email, `%${search}%`),
+      ),
+    );
   }
+  if (role) conditions.push(eq(roles.slug, role));
+  if (track) conditions.push(eq(tracks.trackCode, track));
 
-  return users;
-}
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-let mockUsers: User[] = generateMockUsers();
-let nextId = mockUsers.length + 1;
+  const countQuery = db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(users)
+    .leftJoin(
+      userRoleAssignment,
+      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+    )
+    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(tracks, eq(tracks.id, users.trackId));
 
-export function queryStudents(params: QueryStudentsInput) {
-  const { page, limit, search, age, track, interest, inGroup, active } = params;
-  const offset = (page - 1) * limit;
+  const [items, countResult] = await Promise.all([
+    where
+      ? baseUserQuery().where(where).limit(limit).offset(offset)
+      : baseUserQuery().limit(limit).offset(offset),
+    where ? countQuery.where(where) : countQuery,
+  ]);
 
-  let filtered = mockUsers.filter((u) => {
-    if (u.role !== "student") return false;
-    if (track && u.track !== track) return false;
-    if (age !== undefined && u.age !== age) return false;
-    if (active !== undefined && u.active !== active) return false;
-
-    if (interest) {
-      const target = interest.toLowerCase();
-      if (!u.interests.some((item) => item.toLowerCase().includes(target)))
-        return false;
-    }
-
-    if (inGroup === "yes" && !u.groupId) return false;
-    if (inGroup === "no" && !!u.groupId) return false;
-
-    if (search) {
-      const s = search.toLowerCase();
-      if (
-        !u.name.toLowerCase().includes(s) &&
-        !u.email.toLowerCase().includes(s)
-      )
-        return false;
-    }
-
-    return true;
-  });
-
-  const total = filtered.length;
-  const items = filtered.slice(offset, offset + limit);
-
-  return {
-    msg: "Students retrieved successfully",
-    data: { items, total, page, limit, hasMore: offset + items.length < total },
-  };
-}
-
-export function queryUsers(params: QueryUsersInput) {
-  const { page, limit, search, role, track, active } = params;
-  const offset = (page - 1) * limit;
-
-  let filtered = mockUsers.filter((u) => {
-    if (role && u.role !== role) return false;
-    if (track && u.track !== track) return false;
-    if (active !== undefined && u.active !== active) return false;
-    if (search) {
-      const s = search.toLowerCase();
-      if (
-        !u.name.toLowerCase().includes(s) &&
-        !u.email.toLowerCase().includes(s)
-      )
-        return false;
-    }
-    return true;
-  });
-
-  const total = filtered.length;
-  const items = filtered.slice(offset, offset + limit);
-
+  const total = countResult[0]?.count ?? 0;
   return {
     msg: "Users retrieved successfully",
-    data: { items, total, page, limit, hasMore: offset + items.length < total },
+    data: { items: items as User[], total, page, limit, hasMore: offset + items.length < total },
   };
 }
 
-export function queryUserById(id: string) {
-  const u = mockUsers.find((u) => u.id === id);
-  if (!u) return { msg: "User not found", data: null };
-  return { msg: "User retrieved successfully", data: u };
+export async function queryUserById(id: string) {
+  const user = await fetchUserById(Number(id));
+  if (!user) return { msg: "User not found", data: null };
+  return { msg: "User retrieved successfully", data: user };
 }
 
-export function createUser(input: CreateUserInput) {
-  const existing = mockUsers.find((u) => u.email === input.email);
-  if (existing) return { msg: "Email already exists", data: null };
+export async function queryStudents(params: QueryStudentsInput) {
+  const { page, limit, search, track, interest, inGroup } = params;
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(roles.slug, "student")];
+
+  if (search) {
+    conditions.push(
+      or(
+        ilike(users.firstName, `%${search}%`),
+        ilike(users.lastName, `%${search}%`),
+        ilike(users.email, `%${search}%`),
+      ) as ReturnType<typeof eq>,
+    );
+  }
+  if (track) conditions.push(eq(tracks.trackCode, track));
+
+  const where = and(...conditions);
+
+  let query = db
+    .select(userSelect)
+    .from(users)
+    .leftJoin(
+      userRoleAssignment,
+      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+    )
+    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(tracks, eq(tracks.id, users.trackId))
+    .leftJoin(studentProfile, eq(studentProfile.userId, users.id));
+
+  if (interest) {
+    query = (query as any)
+      .innerJoin(studentInterest, eq(studentInterest.studentUserId, users.id))
+      .innerJoin(
+        areasOfInterest,
+        and(
+          eq(areasOfInterest.id, studentInterest.interestId),
+          ilike(areasOfInterest.interestDesc, `%${interest}%`),
+        ),
+      );
+  }
+
+  if (inGroup === "yes") {
+    query = (query as any).innerJoin(
+      groupMembership,
+      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
+    );
+  } else if (inGroup === "no") {
+    const activeMembership = db
+      .select({ userId: groupMembership.userId })
+      .from(groupMembership)
+      .where(and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)));
+
+    conditions.push(
+      sql`NOT EXISTS (${activeMembership})` as unknown as ReturnType<typeof eq>,
+    );
+  }
+
+  const countQuery = db
+    .select({ count: sql<number>`cast(count(*) as int)` })
+    .from(users)
+    .leftJoin(
+      userRoleAssignment,
+      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+    )
+    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(tracks, eq(tracks.id, users.trackId))
+    .where(where);
+
+  const [items, countResult] = await Promise.all([
+    (query as any).where(where).limit(limit).offset(offset),
+    countQuery,
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+  return {
+    msg: "Students retrieved successfully",
+    data: { items: items as User[], total, page, limit, hasMore: offset + items.length < total },
+  };
+}
+
+// ─── Mutations ───────────────────────────────────────────────────────────────
+
+export async function createUser(input: CreateUserInput, adminUserId: string) {
+  const existing = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, input.email));
+  if (existing.length > 0) return { msg: "Email already exists", data: null };
+
+  const trackRow = await db
+    .select({ id: tracks.id })
+    .from(tracks)
+    .where(eq(tracks.trackCode, input.track));
+  if (trackRow.length === 0) return { msg: `Track "${input.track}" not found`, data: null };
+
+  const roleRow = await db
+    .select({ id: roles.id })
+    .from(roles)
+    .where(eq(roles.slug, input.role));
+  if (roleRow.length === 0) return { msg: `Role "${input.role}" not found`, data: null };
 
   const now = new Date().toISOString();
+  const userId = generateId();
 
-  const newUser: User = {
-    id: `u${nextId++}`,
-    name: input.name,
+  await db.insert(users).values({
+    id: userId,
     email: input.email,
-    role: input.role,
-    track: input.track ?? null,
-    groupId: input.groupId ?? null,
-    groupName: input.groupId ? (groupNames[input.groupId] ?? null) : null,
-    age: input.role === "student" ? 16 : null,
-    interests: input.role === "student" ? ["biology"] : [],
-    active: input.active ?? true,
-    createdAt: now,
-    updatedAt: now,
-  };
+    firstName: input.firstName,
+    lastName: input.lastName,
+    isActive: true,
+    trackId: trackRow[0].id,
+    accountStatus: "active",
+    invitedAt: now,
+    adminUserId,
+  });
 
-  mockUsers.push(newUser);
-  return { msg: "User created successfully", data: newUser };
+  await db.insert(userRoleAssignment).values({
+    id: generateId(),
+    userId,
+    roleId: roleRow[0].id,
+    validFrom: now,
+    validTo: null,
+  });
+
+  const created = await fetchUserById(userId);
+  return { msg: "User created successfully", data: created };
 }
 
-export async function bulkCreateUsers(input: BulkCreateUsersInput) {
+export async function bulkCreateUsers(input: BulkCreateUsersInput, adminUserId: string) {
   const created: User[] = [];
   const skipped: string[] = [];
-  const now = new Date().toISOString();
 
-  const { others } = await bulkCreateAdminUsers(input.users);
-
-  for (const u of others) {
-    if (mockUsers.find((existing) => existing.email === u.email)) {
+  for (const u of input.users) {
+    const result = await createUser(u, adminUserId);
+    if (result.data) {
+      created.push(result.data as User);
+    } else {
       skipped.push(u.email);
-      continue;
     }
-    const newUser: User = {
-      id: `u${nextId++}`,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      track: u.track ?? null,
-      groupId: u.groupId ?? null,
-      groupName: u.groupId ? (groupNames[u.groupId] ?? null) : null,
-      age: u.role === "student" ? 16 : null,
-      interests: u.role === "student" ? ["biology"] : [],
-      active: u.active ?? true,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    mockUsers.push(newUser);
-    created.push(newUser);
   }
 
   return {
@@ -250,29 +270,87 @@ export async function bulkCreateUsers(input: BulkCreateUsersInput) {
   };
 }
 
-export function updateUser(id: string, input: UpdateUserInput) {
-  const index = mockUsers.findIndex((u) => u.id === id);
-  if (index === -1) return { msg: "User not found", data: null };
+export async function updateUser(id: string, input: UpdateUserInput) {
+  const userId = Number(id);
+  const existing = await fetchUserById(userId);
+  if (!existing) return { msg: "User not found", data: null };
 
-  const groupId =
-    input.groupId !== undefined ? input.groupId : mockUsers[index].groupId;
+  const now = new Date().toISOString();
+  const userUpdates: Partial<typeof users.$inferInsert> = {};
 
-  mockUsers[index] = {
-    ...mockUsers[index],
-    ...input,
-    groupId,
-    groupName: groupId ? (groupNames[groupId] ?? null) : null,
-    updatedAt: new Date().toISOString(),
-  };
+  if (input.firstName !== undefined) userUpdates.firstName = input.firstName;
+  if (input.lastName !== undefined) userUpdates.lastName = input.lastName;
+  if (input.email !== undefined) userUpdates.email = input.email;
 
-  return { msg: "User updated successfully", data: mockUsers[index] };
+  if (input.track !== undefined) {
+    const trackRow = await db
+      .select({ id: tracks.id })
+      .from(tracks)
+      .where(eq(tracks.trackCode, input.track));
+    if (trackRow.length === 0) return { msg: `Track "${input.track}" not found`, data: null };
+    userUpdates.trackId = trackRow[0].id;
+  }
+
+  if (Object.keys(userUpdates).length > 0) {
+    await db.update(users).set(userUpdates).where(eq(users.id, userId));
+  }
+
+  if (input.role !== undefined && input.role !== existing.role) {
+    const roleRow = await db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.slug, input.role));
+    if (roleRow.length === 0) return { msg: `Role "${input.role}" not found`, data: null };
+
+    await db
+      .update(userRoleAssignment)
+      .set({ validTo: now })
+      .where(
+        and(eq(userRoleAssignment.userId, userId), isNull(userRoleAssignment.validTo)),
+      );
+
+    await db.insert(userRoleAssignment).values({
+      id: generateId(),
+      userId,
+      roleId: roleRow[0].id,
+      validFrom: now,
+      validTo: null,
+    });
+  }
+
+  const updated = await fetchUserById(userId);
+  return { msg: "User updated successfully", data: updated };
 }
 
-export function deleteUser(id: string) {
-  const index = mockUsers.findIndex((u) => u.id === id);
-  if (index === -1) return { msg: "User not found", data: null };
+export async function updateStatus(id: string, input: UpdateStatusInput) {
+  const userId = Number(id);
+  const existing = await fetchUserById(userId);
+  if (!existing) return { msg: "User not found", data: null };
 
-  mockUsers.splice(index, 1);
+  const accountStatus = input.isActive ? "active" : "deactivated";
+  await db
+    .update(users)
+    .set({ isActive: input.isActive, accountStatus })
+    .where(eq(users.id, userId));
+
+  const updated = await fetchUserById(userId);
+  return {
+    msg: `User ${input.isActive ? "activated" : "deactivated"} successfully`,
+    data: updated,
+  };
+}
+
+export async function deleteUser(id: string) {
+  const userId = Number(id);
+  const existing = await fetchUserById(userId);
+  if (!existing) return { msg: "User not found", data: null };
+
+  await db.delete(userRoleAssignment).where(eq(userRoleAssignment.userId, userId));
+  await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
+  await db.delete(supervisorProfile).where(eq(supervisorProfile.userId, userId));
+  await db.delete(studentProfile).where(eq(studentProfile.userId, userId));
+  await db.delete(users).where(eq(users.id, userId));
+
   return { msg: "User deleted successfully", data: null };
 }
 

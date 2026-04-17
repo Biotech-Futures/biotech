@@ -24,7 +24,8 @@ export const queryStudentsSchema = z.object({
 });
 
 export const createUserSchema = z.object({
-  name: z.string().min(1).max(100),
+  firstName: z.string().min(1).max(255),
+  lastName: z.string().min(1).max(255),
   email: z.string().email(),
   role: z.enum(ROLES),
   track: z.enum(TRACKS).optional(),
@@ -37,12 +38,17 @@ export const bulkCreateUsersSchema = z.object({
 });
 
 export const updateUserSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  email: z.string().email(),
+  firstName: z.string().min(1).max(255).optional(),
+  lastName: z.string().min(1).max(255).optional(),
+  email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
   track: z.enum(TRACKS).nullable().optional(),
   groupId: z.string().nullable().optional(),
   active: z.coerce.boolean().optional(),
+});
+
+export const updateStatusSchema = z.object({
+  isActive: z.boolean(),
 });
 
 export type QueryUsersInput = z.infer<typeof queryUsersSchema>;
@@ -50,3 +56,4 @@ export type QueryStudentsInput = z.infer<typeof queryStudentsSchema>;
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type BulkCreateUsersInput = z.infer<typeof bulkCreateUsersSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
