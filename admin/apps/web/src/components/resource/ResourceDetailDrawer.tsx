@@ -131,11 +131,6 @@ export function ResourceDetailDrawer({
             <FileTextIcon className="size-5" />
             {mode === "view" ? resource.resource_name : "Edit Resource"}
           </DrawerTitle>
-          <DrawerDescription>
-            {mode === "view"
-              ? "View resource details and role visibility"
-              : "Update resource metadata and role visibility"}
-          </DrawerDescription>
         </DrawerHeader>
 
         <div className="mt-6 space-y-6 p-4">

@@ -1,8 +1,34 @@
+import db from "@/lib/db.js";
+import {
+  resources,
+  resourceAudience,
+  roles,
+  users,
+} from "@/drizzle/schema.js";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type {
   QueryResourcesInput,
   CreateResourceInput,
   UpdateResourceInput,
 } from "./schema.js";
+import {
+  demoResourceAudience,
+  demoResources,
+  demoResourceTypes,
+  demoRoles,
+  demoUploaders,
+  useResourceDemoData,
+  type DemoResourceAudienceRow,
+  type DemoResourceRow,
+} from "./demo.js";
 
 export type Role = {
   id: number;
@@ -58,183 +84,17 @@ export type Resource = ResourceRow & {
   audiences: ResourceAudience[];
 };
 
-const roles: Role[] = [
-  { id: 1, slug: "student" },
-  { id: 2, slug: "mentor" },
-  { id: 3, slug: "admin" },
-];
+const ADMIN_ROLE_SLUG = "admin";
+const FALLBACK_ROLES: Role[] = demoRoles.map((item) => ({ ...item }));
+const FALLBACK_TYPES: ResourceTypeOption[] = demoResourceTypes.map((item) => ({ ...item }));
+const FALLBACK_UPLOADERS: ResourceUploader[] = demoUploaders.map((item) => ({ ...item }));
 
-const ADMIN_ROLE_ID = 3;
-
-const resourceTypeOptions: ResourceTypeOption[] = [
-  { value: "document", label: "Document" },
-  { value: "guide", label: "Guide" },
-  { value: "video", label: "Video" },
-  { value: "template", label: "Template" },
-];
-
-const trackOptions = [
-  { id: 1, code: "AUS-NSW" },
-  { id: 2, code: "AUS-QLD" },
-  { id: 3, code: "AUS-VIC" },
-  { id: 4, code: "AUS-WA" },
-  { id: 5, code: "Brazil" },
-  { id: 6, code: "Global" },
-];
-
-const mockUsers: ResourceUploader[] = [
-  { id: 101, first_name: "Amy", last_name: "Wong", email: "amy.wong@example.com" },
-  { id: 102, first_name: "Lucas", last_name: "Chan", email: "lucas.chan@example.com" },
-  { id: 103, first_name: "Priya", last_name: "Shah", email: "priya.shah@example.com" },
-];
-
-function toTitleWord(input: string): string {
-  if (!input) return "";
-  return input.charAt(0).toUpperCase() + input.slice(1).toLowerCase();
-}
-
-function parseNameParts(name?: string | null) {
-  const full = (name || "").trim();
-  if (!full) {
-    return { first_name: "Admin", last_name: "User" };
-  }
-
-  const parts = full.split(/\s+/);
-  return {
-    first_name: parts[0] || "Admin",
-    last_name: parts.slice(1).join(" ") || "User",
-  };
-}
-
-let nextUserId = 1000;
-
-function ensureUploaderFromAuth(authUploader?: AuthUploader): ResourceUploader {
-  if (!authUploader) return mockUsers[0];
-
-  if (authUploader.email) {
-    const byEmail = mockUsers.find((item) => item.email.toLowerCase() === authUploader.email?.toLowerCase());
-    if (byEmail) return byEmail;
-  }
-
-  const nameParts = parseNameParts(authUploader.name);
-  const created: ResourceUploader = {
-    id: nextUserId++,
-    first_name: nameParts.first_name,
-    last_name: nameParts.last_name,
-    email: authUploader.email || `${nameParts.first_name.toLowerCase()}.${nameParts.last_name.toLowerCase()}@example.com`,
-  };
-  mockUsers.push(created);
-  return created;
-}
-
-function getRoleById(roleId: number | null): Role | null {
-  if (roleId === null) return null;
-  return roles.find((item) => item.id === roleId) ?? null;
-}
-
-function normalizeRoleIds(roleIds: number[] = []): number[] {
-  const filtered = roleIds.filter((roleId) => roles.some((item) => item.id === roleId));
-  return Array.from(new Set([...filtered, ADMIN_ROLE_ID]));
-}
-
-function buildStorageKey(resourceId: number, fileName?: string | null) {
-  const stamp = Date.now();
-  const safeName = (fileName || "resource.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
-  return `resources/${stamp}-${resourceId}-${safeName}`;
-}
-
-const titleByType: Record<ResourceTypeName, string[]> = {
-  document: ["Research Summary", "Policy Brief", "Assessment Rubric", "Program Handbook"],
-  guide: ["Peer Review Guide", "Onboarding Guide", "Submission Guide", "Mentor Handbook"],
-  video: ["Workshop Recording", "Demo Walkthrough", "Q&A Recording", "Orientation Video"],
-  template: ["Project Proposal Template", "Weekly Report Template", "Slides Template", "Feedback Template"],
-};
-
-function buildTitle(typeName: ResourceTypeName, index: number): string {
-  const labels = titleByType[typeName];
-  return `${labels[index % labels.length]} ${index + 1}`;
-}
-
-function buildDescription(typeName: ResourceTypeName, index: number): string {
-  return `${toTitleWord(typeName)} resource content (${index + 1}).`;
-}
-
-type ResourceAudienceRow = {
-  id: number;
-  resource_id: number;
-  role_id: number | null;
-  track_id: number | null;
-};
-
-let nextResourceId = 1;
-let nextAudienceId = 1;
-
-function createAudienceRows(resourceId: number, roleIds: number[] | undefined, trackId: number | null) {
-  const normalized = normalizeRoleIds(roleIds);
-  const rows: ResourceAudienceRow[] = normalized.map((roleId) => ({
-    id: nextAudienceId++,
-    resource_id: resourceId,
-    role_id: roleId,
-    track_id: trackId,
-  }));
-  return rows;
-}
-
-function generateMockResources() {
-  const rows: ResourceRow[] = [];
-  const audienceRows: ResourceAudienceRow[] = [];
-
-  const studentRoleId = roles.find((role) => role.slug === "student")?.id ?? 1;
-  const mentorRoleId = roles.find((role) => role.slug === "mentor")?.id ?? 2;
-
-  const visibilitySets: number[][] = [
-    [studentRoleId, mentorRoleId, ADMIN_ROLE_ID],
-    [studentRoleId, ADMIN_ROLE_ID],
-    [mentorRoleId, ADMIN_ROLE_ID],
-    [ADMIN_ROLE_ID],
-  ];
-
-  const randomInt = (max: number) => Math.floor(Math.random() * max);
-  const typeValues = resourceTypeOptions.map((item) => item.value);
-
-  for (let i = 0; i < 48; i++) {
-    const typeName = typeValues[randomInt(typeValues.length)] as ResourceTypeName;
-    const uploader = mockUsers[randomInt(mockUsers.length)];
-    const track = trackOptions[randomInt(trackOptions.length)];
-    const daysAgo = randomInt(360);
-    const created = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-    created.setHours(8 + randomInt(11), randomInt(60), 0, 0);
-
-    const id = nextResourceId++;
-    const fileName = `${typeName}-${id}.pdf`;
-    const storageKey = buildStorageKey(id, fileName);
-
-    const row: ResourceRow = {
-      id,
-      uploader_user_id: uploader.id,
-      track_id: track.id,
-      visibility_scope: "role_based",
-      uploaded_at: created.toISOString(),
-      deleted_at: null,
-      resource_name: buildTitle(typeName, i + randomInt(16)),
-      resource_description: buildDescription(typeName, i + randomInt(16)),
-      resource_type: typeName,
-      file_name: fileName,
-      file_mime_type: "application/pdf",
-      file_size: 80_000 + randomInt(1_500_000),
-      storage_key: storageKey,
-    };
-
-    rows.push(row);
-    audienceRows.push(...createAudienceRows(id, visibilitySets[randomInt(visibilitySets.length)], track.id));
-  }
-
-  return { rows, audienceRows };
-}
-
-const initial = generateMockResources();
-let mockResources: ResourceRow[] = initial.rows;
-let mockResourceAudience: ResourceAudienceRow[] = initial.audienceRows;
+let demoRows: DemoResourceRow[] = demoResources.map((item) => ({ ...item }));
+let demoAudienceRows: DemoResourceAudienceRow[] = demoResourceAudience.map((item) => ({ ...item }));
+let demoUploadersState: ResourceUploader[] = FALLBACK_UPLOADERS.map((item) => ({ ...item }));
+let nextDemoResourceId = Math.max(0, ...demoRows.map((item) => item.id)) + 1;
+let nextDemoAudienceId = Math.max(0, ...demoAudienceRows.map((item) => item.id)) + 1;
+let nextDemoUploaderId = Math.max(100, ...demoUploadersState.map((item) => item.id)) + 1;
 
 const uploadedFiles = new Map<
   string,
@@ -245,17 +105,63 @@ const uploadedFiles = new Map<
   }
 >();
 
-function buildResource(resourceRow: ResourceRow): Resource {
-  const uploader = mockUsers.find((item) => item.id === resourceRow.uploader_user_id) ?? mockUsers[0];
-  const audiences: ResourceAudience[] = mockResourceAudience
+type DbResourceExtra = {
+  resource_name: string;
+  resource_description: string | null;
+  resource_type: ResourceTypeName | null;
+  file_name: string | null;
+  file_mime_type: string | null;
+  file_size: number | null;
+  storage_key: string;
+};
+
+const dbResourceExtras = new Map<number, DbResourceExtra>();
+
+function getDbResourceExtra(id: number): DbResourceExtra {
+  return (
+    dbResourceExtras.get(id) ?? {
+      resource_name: `Resource ${id}`,
+      resource_description: null,
+      resource_type: null,
+      file_name: null,
+      file_mime_type: null,
+      file_size: null,
+      storage_key: buildStorageKey(id),
+    }
+  );
+}
+
+function normalizeRoleIds(roleIds: number[] = [], availableRoles: Role[]): number[] {
+  const adminRole = availableRoles.find((item) => item.slug === ADMIN_ROLE_SLUG);
+  const validIds = roleIds.filter((roleId) => availableRoles.some((item) => item.id === roleId));
+  const withAdmin = adminRole ? [...validIds, adminRole.id] : validIds;
+  return Array.from(new Set(withAdmin));
+}
+
+function buildStorageKey(resourceId: number, fileName?: string | null) {
+  const stamp = Date.now();
+  const safeName = (fileName || "resource.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `resources/${stamp}-${resourceId}-${safeName}`;
+}
+
+function buildResourceFromDemoRow(resourceRow: DemoResourceRow): Resource {
+  const uploader =
+    demoUploadersState.find((item) => item.id === resourceRow.uploader_user_id) ??
+    demoUploadersState[0] ??
+    FALLBACK_UPLOADERS[0];
+
+  const audiences: ResourceAudience[] = demoAudienceRows
     .filter((item) => item.resource_id === resourceRow.id)
-    .map((item) => ({
-      id: item.id,
-      resource_id: item.resource_id,
-      role_id: item.role_id,
-      track_id: item.track_id,
-      role: getRoleById(item.role_id),
-    }));
+    .map((item) => {
+      const role = FALLBACK_ROLES.find((r) => r.id === item.role_id) ?? null;
+      return {
+        id: item.id,
+        resource_id: item.resource_id,
+        role_id: item.role_id,
+        track_id: item.track_id,
+        role,
+      };
+    });
 
   return {
     ...resourceRow,
@@ -264,61 +170,294 @@ function buildResource(resourceRow: ResourceRow): Resource {
   };
 }
 
-export function queryResources(params: QueryResourcesInput) {
-  const { page, limit, search, uploader, uploader_user_id, track_id, resource_type, role_slug, order } = params;
+async function getRolesFromDb(): Promise<Role[]> {
+  const rows = await db
+    .select({ id: roles.id, slug: roles.slug })
+    .from(roles)
+    .orderBy(asc(roles.id));
+
+  if (!rows.length) return FALLBACK_ROLES;
+  return rows.map((item) => ({ id: item.id, slug: item.slug }));
+}
+
+function parseName(name?: string | null) {
+  const full = (name || "").trim();
+  if (!full) return { first: "Admin", last: "User" };
+  const parts = full.split(/\s+/);
+  return {
+    first: parts[0] || "Admin",
+    last: parts.slice(1).join(" ") || "User",
+  };
+}
+
+async function resolveUploaderForDb(authUploader?: AuthUploader): Promise<ResourceUploader> {
+  if (authUploader?.id) {
+    const byAdminUserId = await db
+      .select({
+        id: users.id,
+        first_name: users.firstName,
+        last_name: users.lastName,
+        email: users.email,
+      })
+      .from(users)
+      .where(eq(users.adminUserId, authUploader.id))
+      .limit(1);
+
+    if (byAdminUserId[0]) {
+      return byAdminUserId[0];
+    }
+  }
+
+  if (authUploader?.email) {
+    const matched = await db
+      .select({
+        id: users.id,
+        first_name: users.firstName,
+        last_name: users.lastName,
+        email: users.email,
+      })
+      .from(users)
+      .where(eq(users.email, authUploader.email))
+      .limit(1);
+
+    if (matched[0]) {
+      return matched[0];
+    }
+  }
+
+  const firstUser = await db
+    .select({
+      id: users.id,
+      first_name: users.firstName,
+      last_name: users.lastName,
+      email: users.email,
+    })
+    .from(users)
+    .orderBy(asc(users.id))
+    .limit(1);
+
+  if (firstUser[0]) {
+    return firstUser[0];
+  }
+
+  const parsed = parseName(authUploader?.name);
+  return {
+    id: FALLBACK_UPLOADERS[0]?.id ?? 1,
+    first_name: parsed.first,
+    last_name: parsed.last,
+    email: authUploader?.email || "admin@example.com",
+  };
+}
+
+function resolveUploaderForDemo(authUploader?: AuthUploader): ResourceUploader {
+  if (!authUploader) {
+    return demoUploadersState[0] ?? FALLBACK_UPLOADERS[0];
+  }
+
+  if (authUploader.email) {
+    const byEmail = demoUploadersState.find(
+      (item) => item.email.toLowerCase() === authUploader.email?.toLowerCase(),
+    );
+    if (byEmail) return byEmail;
+  }
+
+  const parsed = parseName(authUploader.name);
+  const created: ResourceUploader = {
+    id: nextDemoUploaderId++,
+    first_name: parsed.first,
+    last_name: parsed.last,
+    email: authUploader.email || `admin-${Date.now()}@example.com`,
+  };
+  demoUploadersState = [created, ...demoUploadersState];
+  return created;
+}
+
+async function nextResourceIdFromDb() {
+  const row = await db
+    .select({ maxId: sql<number>`coalesce(max(${resources.id}), 0)` })
+    .from(resources);
+  return (row[0]?.maxId ?? 0) + 1;
+}
+
+async function nextAudienceIdFromDb() {
+  const row = await db
+    .select({ maxId: sql<number>`coalesce(max(${resourceAudience.id}), 0)` })
+    .from(resourceAudience);
+  return (row[0]?.maxId ?? 0) + 1;
+}
+
+async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
+  const conditions = [isNull(resources.deletedAt)];
+
+  if (params.uploader_user_id !== undefined) {
+    conditions.push(eq(resources.uploaderUserId, params.uploader_user_id));
+  }
+
+  if (params.track_id !== undefined) {
+    conditions.push(eq(resources.trackId, params.track_id));
+  }
+
+  const rows = await db
+    .select({
+      id: resources.id,
+      uploader_user_id: resources.uploaderUserId,
+      track_id: resources.trackId,
+      visibility_scope: resources.visibilityScope,
+      uploaded_at: resources.uploadedAt,
+      deleted_at: resources.deletedAt,
+    })
+    .from(resources)
+    .where(and(...conditions))
+    .orderBy(params.order === "oldest" ? asc(resources.uploadedAt) : desc(resources.uploadedAt));
+
+  return rows.map((row) => {
+    const extra = getDbResourceExtra(row.id);
+    return {
+      ...row,
+      ...extra,
+    };
+  }) as ResourceRow[];
+}
+
+async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> {
+  const row = await db
+    .select({
+      id: resources.id,
+      uploader_user_id: resources.uploaderUserId,
+      track_id: resources.trackId,
+      visibility_scope: resources.visibilityScope,
+      uploaded_at: resources.uploadedAt,
+      deleted_at: resources.deletedAt,
+    })
+    .from(resources)
+    .where(and(eq(resources.id, id), isNull(resources.deletedAt)))
+    .limit(1);
+
+  if (!row[0]) return null;
+  const extra = getDbResourceExtra(row[0].id);
+  return { ...row[0], ...extra } as ResourceRow;
+}
+
+async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource[]> {
+  if (!resourceRows.length) return [];
+
+  const uploaderIds = Array.from(new Set(resourceRows.map((item) => item.uploader_user_id)));
+  const uploaderRows = await db
+    .select({
+      id: users.id,
+      first_name: users.firstName,
+      last_name: users.lastName,
+      email: users.email,
+    })
+    .from(users)
+    .where(inArray(users.id, uploaderIds));
+
+  const uploaderMap = new Map(uploaderRows.map((item) => [item.id, item] as const));
+  const resourceIds = resourceRows.map((item) => item.id);
+
+  const audienceRows = await db
+    .select({
+      id: resourceAudience.id,
+      resource_id: resourceAudience.resourceId,
+      role_id: resourceAudience.roleId,
+      track_id: resourceAudience.trackId,
+      role_slug: roles.slug,
+    })
+    .from(resourceAudience)
+    .leftJoin(roles, eq(resourceAudience.roleId, roles.id))
+    .where(inArray(resourceAudience.resourceId, resourceIds));
+
+  const audienceMap = new Map<number, ResourceAudience[]>();
+  for (const row of audienceRows) {
+    const existing = audienceMap.get(row.resource_id) ?? [];
+    existing.push({
+      id: row.id,
+      resource_id: row.resource_id,
+      role_id: row.role_id,
+      track_id: row.track_id,
+      role: row.role_id && row.role_slug ? { id: row.role_id, slug: row.role_slug } : null,
+    });
+    audienceMap.set(row.resource_id, existing);
+  }
+
+  return resourceRows.map((row) => ({
+    ...row,
+    uploader:
+      uploaderMap.get(row.uploader_user_id) ?? {
+        id: row.uploader_user_id,
+        first_name: "Unknown",
+        last_name: "User",
+        email: "unknown@example.com",
+      },
+    audiences: audienceMap.get(row.id) ?? [],
+  }));
+}
+
+export async function queryResources(params: QueryResourcesInput) {
+  const { page, limit, uploader, role_slug } = params;
   const offset = (page - 1) * limit;
 
-  let filteredRows = mockResources.filter((resource) => !resource.deleted_at);
+  let resourcesList: Resource[];
 
-  if (search) {
-    const keyword = search.toLowerCase();
-    filteredRows = filteredRows.filter((resource) =>
-      resource.resource_name.toLowerCase().includes(keyword) ||
-      (resource.resource_description || "").toLowerCase().includes(keyword),
+  if (useResourceDemoData()) {
+    resourcesList = demoRows
+      .filter((item) => !item.deleted_at)
+      .map((item) => buildResourceFromDemoRow(item));
+  } else {
+    const rows = await fetchResourcesFromDbRows(params);
+    resourcesList = await hydrateDbResources(rows);
+  }
+
+  if (params.search) {
+    const keyword = params.search.toLowerCase();
+    resourcesList = resourcesList.filter((item) =>
+      `${item.resource_name} ${item.resource_description ?? ""}`
+        .toLowerCase()
+        .includes(keyword),
     );
   }
 
+  if (params.resource_type) {
+    resourcesList = resourcesList.filter((item) => item.resource_type === params.resource_type);
+  }
+
   if (uploader) {
-    const uploaderKeyword = uploader.toLowerCase();
-    filteredRows = filteredRows.filter((resource) => {
-      const person = mockUsers.find((item) => item.id === resource.uploader_user_id);
-      if (!person) return false;
-      const fullName = `${person.first_name} ${person.last_name}`.trim().toLowerCase();
-      return fullName.includes(uploaderKeyword);
+    const keyword = uploader.toLowerCase();
+    resourcesList = resourcesList.filter((item) => {
+      const full = `${item.uploader.first_name} ${item.uploader.last_name}`.toLowerCase();
+      return full.includes(keyword);
     });
-  }
-
-  if (uploader_user_id !== undefined) {
-    filteredRows = filteredRows.filter((resource) => resource.uploader_user_id === uploader_user_id);
-  }
-
-  if (track_id !== undefined) {
-    filteredRows = filteredRows.filter((resource) => resource.track_id === track_id);
-  }
-
-  if (resource_type) {
-    filteredRows = filteredRows.filter((resource) => resource.resource_type === resource_type);
   }
 
   if (role_slug) {
     const keyword = role_slug.toLowerCase();
-    filteredRows = filteredRows.filter((resource) => {
-      const audiences = mockResourceAudience.filter((item) => item.resource_id === resource.id);
-      return audiences.some((audience) => {
-        const role = getRoleById(audience.role_id);
-        return role ? role.slug.includes(keyword) : false;
-      });
-    });
+    resourcesList = resourcesList.filter((item) =>
+      item.audiences.some((audience) => audience.role?.slug.toLowerCase().includes(keyword)),
+    );
   }
 
-  filteredRows = filteredRows.sort((a, b) => {
-    const at = new Date(a.uploaded_at).getTime();
-    const bt = new Date(b.uploaded_at).getTime();
-    return order === "oldest" ? at - bt : bt - at;
+  const getTimestamp = (resource: Resource) => {
+    const parsed = Date.parse(resource.uploaded_at ?? "");
+    if (!Number.isNaN(parsed)) return parsed;
+    return 0;
+  };
+
+  resourcesList.sort((a, b) => {
+    if (params.order === "oldest") {
+      return (
+        getTimestamp(a) - getTimestamp(b) ||
+        a.resource_name.localeCompare(b.resource_name)
+      );
+    }
+
+    return (
+      getTimestamp(b) - getTimestamp(a) ||
+      a.resource_name.localeCompare(b.resource_name)
+    );
   });
 
-  const total = filteredRows.length;
-  const items = filteredRows.slice(offset, offset + limit).map(buildResource);
+  const total = resourcesList.length;
+  const items = resourcesList.slice(offset, offset + limit);
 
   return {
     msg: "Resources retrieved successfully",
@@ -332,54 +471,120 @@ export function queryResources(params: QueryResourcesInput) {
   };
 }
 
-export function queryResourceById(id: number) {
-  const row = mockResources.find((item) => item.id === id && !item.deleted_at) ?? null;
-  if (!row) {
+export async function queryResourceById(id: number) {
+  if (useResourceDemoData()) {
+    const row = demoRows.find((item) => item.id === id && !item.deleted_at) ?? null;
+    if (!row) {
+      return {
+        msg: "Resource not found",
+        data: null,
+      };
+    }
+
+    return {
+      msg: "Resource retrieved successfully",
+      data: buildResourceFromDemoRow(row),
+    };
+  }
+
+  const matched = await fetchResourceByIdFromDb(id);
+
+  if (!matched) {
     return {
       msg: "Resource not found",
       data: null,
     };
   }
 
+  const hydrated = await hydrateDbResources([matched]);
   return {
     msg: "Resource retrieved successfully",
-    data: buildResource(row),
+    data: hydrated[0] ?? null,
   };
 }
 
-export function createResource(payload: CreateResourceInput, authUploader?: AuthUploader) {
-  const uploader = ensureUploaderFromAuth(authUploader);
-  const id = nextResourceId++;
+export async function createResource(payload: CreateResourceInput, uploader?: AuthUploader) {
+  if (useResourceDemoData()) {
+    const roleIds = normalizeRoleIds(payload.role_ids, FALLBACK_ROLES);
+    const authUploader = resolveUploaderForDemo(uploader);
+    const id = nextDemoResourceId++;
 
-  const row: ResourceRow = {
+    const row: DemoResourceRow = {
+      id,
+      uploader_user_id: authUploader.id,
+      track_id: payload.track_id ?? null,
+      visibility_scope: "role_based",
+      uploaded_at: new Date().toISOString(),
+      deleted_at: null,
+      resource_name: payload.resource_name,
+      resource_description: payload.resource_description,
+      resource_type: payload.resource_type ?? null,
+      file_name: null,
+      file_mime_type: null,
+      file_size: null,
+      storage_key: buildStorageKey(id),
+    };
+
+    demoRows = [row, ...demoRows];
+    demoAudienceRows = [
+      ...roleIds.map((roleId) => ({
+        id: nextDemoAudienceId++,
+        resource_id: id,
+        role_id: roleId,
+        track_id: row.track_id,
+      })),
+      ...demoAudienceRows,
+    ];
+
+    return {
+      msg: "Resource created successfully",
+      data: buildResourceFromDemoRow(row),
+    };
+  }
+
+  const uploaderProfile = await resolveUploaderForDb(uploader);
+  const availableRoles = await getRolesFromDb();
+  const roleIds = normalizeRoleIds(payload.role_ids, availableRoles);
+  const id = await nextResourceIdFromDb();
+  const storageKey = buildStorageKey(id);
+
+  await db.insert(resources).values({
     id,
-    uploader_user_id: uploader.id,
-    track_id: payload.track_id ?? trackOptions[0]?.id ?? null,
-    visibility_scope: "role_based",
-    uploaded_at: new Date().toISOString(),
-    deleted_at: null,
+    uploaderUserId: uploaderProfile.id,
+    trackId: payload.track_id ?? null,
+    visibilityScope: "role_based",
+    uploadedAt: new Date().toISOString(),
+    deletedAt: null,
+  });
+  dbResourceExtras.set(id, {
     resource_name: payload.resource_name,
     resource_description: payload.resource_description,
     resource_type: payload.resource_type ?? null,
     file_name: null,
     file_mime_type: null,
     file_size: null,
-    storage_key: buildStorageKey(id),
-  };
+    storage_key: storageKey,
+  });
 
-  mockResources = [row, ...mockResources];
-  mockResourceAudience = [
-    ...createAudienceRows(id, payload.role_ids, row.track_id),
-    ...mockResourceAudience,
-  ];
+  let nextAudienceId = await nextAudienceIdFromDb();
+  if (roleIds.length) {
+    await db.insert(resourceAudience).values(
+      roleIds.map((roleId) => ({
+        id: nextAudienceId++,
+        resourceId: id,
+        roleId,
+        trackId: payload.track_id ?? null,
+      })),
+    );
+  }
 
-  return {
+  return queryResourceById(id).then((result) => ({
     msg: "Resource created successfully",
-    data: buildResource(row),
-  };
+    data: result.data,
+  }));
 }
 
-export function uploadResource(payload: {
+export async function uploadResource(payload: {
   resource_name: string;
   resource_description: string;
   resource_type?: ResourceTypeName;
@@ -391,17 +596,74 @@ export function uploadResource(payload: {
   file_bytes: ArrayBuffer;
   uploader?: AuthUploader;
 }) {
-  const uploader = ensureUploaderFromAuth(payload.uploader);
-  const id = nextResourceId++;
+  if (useResourceDemoData()) {
+    const created = await createResource(
+      {
+        resource_name: payload.resource_name,
+        resource_description: payload.resource_description,
+        resource_type: payload.resource_type,
+        track_id: payload.track_id,
+        role_ids: payload.role_ids,
+      },
+      payload.uploader,
+    );
+
+    if (!created.data) {
+      return {
+        msg: "Resource upload failed",
+        data: null,
+      };
+    }
+
+    const updated = {
+      ...created.data,
+      file_name: payload.file_name,
+      file_mime_type: payload.file_mime_type || "application/octet-stream",
+      file_size: payload.file_size,
+      storage_key: buildStorageKey(created.data.id, payload.file_name),
+    };
+
+    demoRows = demoRows.map((item) =>
+      item.id === updated.id
+        ? {
+            ...item,
+            file_name: updated.file_name,
+            file_mime_type: updated.file_mime_type,
+            file_size: updated.file_size,
+            storage_key: updated.storage_key,
+          }
+        : item,
+    );
+
+    uploadedFiles.set(updated.storage_key, {
+      file_name: payload.file_name,
+      mime_type: payload.file_mime_type || "application/octet-stream",
+      bytes: payload.file_bytes,
+    });
+
+    return {
+      msg: "Resource uploaded successfully",
+      data: buildResourceFromDemoRow(
+        demoRows.find((item) => item.id === updated.id) as DemoResourceRow,
+      ),
+    };
+  }
+
+  const uploaderProfile = await resolveUploaderForDb(payload.uploader);
+  const availableRoles = await getRolesFromDb();
+  const roleIds = normalizeRoleIds(payload.role_ids, availableRoles);
+  const id = await nextResourceIdFromDb();
   const storageKey = buildStorageKey(id, payload.file_name);
 
-  const row: ResourceRow = {
+  await db.insert(resources).values({
     id,
-    uploader_user_id: uploader.id,
-    track_id: payload.track_id ?? trackOptions[0]?.id ?? null,
-    visibility_scope: "role_based",
-    uploaded_at: new Date().toISOString(),
-    deleted_at: null,
+    uploaderUserId: uploaderProfile.id,
+    trackId: payload.track_id ?? null,
+    visibilityScope: "role_based",
+    uploadedAt: new Date().toISOString(),
+    deletedAt: null,
+  });
+  dbResourceExtras.set(id, {
     resource_name: payload.resource_name,
     resource_description: payload.resource_description,
     resource_type: payload.resource_type ?? null,
@@ -409,13 +671,19 @@ export function uploadResource(payload: {
     file_mime_type: payload.file_mime_type || "application/octet-stream",
     file_size: payload.file_size,
     storage_key: storageKey,
-  };
+  });
 
-  mockResources = [row, ...mockResources];
-  mockResourceAudience = [
-    ...createAudienceRows(id, payload.role_ids, row.track_id),
-    ...mockResourceAudience,
-  ];
+  let nextAudienceId = await nextAudienceIdFromDb();
+  if (roleIds.length) {
+    await db.insert(resourceAudience).values(
+      roleIds.map((roleId) => ({
+        id: nextAudienceId++,
+        resourceId: id,
+        roleId,
+        trackId: payload.track_id ?? null,
+      })),
+    );
+  }
 
   uploadedFiles.set(storageKey, {
     file_name: payload.file_name,
@@ -423,22 +691,22 @@ export function uploadResource(payload: {
     bytes: payload.file_bytes,
   });
 
-  return {
+  return queryResourceById(id).then((result) => ({
     msg: "Resource uploaded successfully",
-    data: buildResource(row),
-  };
+    data: result.data,
+  }));
 }
 
-export function downloadResource(id: number) {
-  const row = mockResources.find((item) => item.id === id && !item.deleted_at);
-  if (!row) {
+export async function downloadResource(id: number) {
+  const resourceResult = await queryResourceById(id);
+  if (!resourceResult.data) {
     return {
       msg: "Resource not found",
       data: null,
     } as const;
   }
 
-  const file = uploadedFiles.get(row.storage_key);
+  const file = uploadedFiles.get(resourceResult.data.storage_key);
   if (!file) {
     return {
       msg: "This resource has no uploaded file",
@@ -452,50 +720,117 @@ export function downloadResource(id: number) {
   } as const;
 }
 
-export function updateResource(id: number, updates: UpdateResourceInput) {
-  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_at);
-  if (index === -1) {
+export async function updateResource(id: number, updates: UpdateResourceInput) {
+  if (useResourceDemoData()) {
+    const index = demoRows.findIndex((item) => item.id === id && !item.deleted_at);
+    if (index === -1) {
+      return { msg: "Resource not found", data: null };
+    }
+
+    const current = demoRows[index];
+    const updated: DemoResourceRow = {
+      ...current,
+      resource_name: updates.resource_name ?? current.resource_name,
+      resource_description: updates.resource_description ?? current.resource_description,
+      resource_type:
+        updates.resource_type === undefined ? current.resource_type : updates.resource_type,
+      track_id: updates.track_id === undefined ? current.track_id : updates.track_id,
+    };
+    demoRows[index] = updated;
+
+    if (updates.role_ids) {
+      const roleIds = normalizeRoleIds(updates.role_ids, FALLBACK_ROLES);
+      demoAudienceRows = demoAudienceRows.filter((item) => item.resource_id !== id);
+      demoAudienceRows.push(
+        ...roleIds.map((roleId) => ({
+          id: nextDemoAudienceId++,
+          resource_id: id,
+          role_id: roleId,
+          track_id: updated.track_id,
+        })),
+      );
+    }
+
     return {
-      msg: "Resource not found",
-      data: null,
+      msg: "Resource updated successfully",
+      data: buildResourceFromDemoRow(updated),
     };
   }
 
-  const current = mockResources[index];
-  const updated: ResourceRow = {
-    ...current,
+  const existing = await queryResourceById(id);
+  if (!existing.data) {
+    return { msg: "Resource not found", data: null };
+  }
+
+  const current = existing.data;
+  await db
+    .update(resources)
+    .set({
+      trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+    })
+    .where(eq(resources.id, id));
+
+  dbResourceExtras.set(id, {
     resource_name: updates.resource_name ?? current.resource_name,
     resource_description: updates.resource_description ?? current.resource_description,
-    resource_type: updates.resource_type === undefined ? current.resource_type : updates.resource_type,
-    track_id: updates.track_id === undefined ? current.track_id : updates.track_id,
-  };
-
-  mockResources[index] = updated;
+    resource_type:
+      updates.resource_type === undefined ? current.resource_type : updates.resource_type,
+    file_name: current.file_name,
+    file_mime_type: current.file_mime_type,
+    file_size: current.file_size,
+    storage_key: current.storage_key,
+  });
 
   if (updates.role_ids) {
-    mockResourceAudience = mockResourceAudience.filter((item) => item.resource_id !== id);
-    mockResourceAudience.push(...createAudienceRows(id, updates.role_ids, updated.track_id));
+    const availableRoles = await getRolesFromDb();
+    const roleIds = normalizeRoleIds(updates.role_ids, availableRoles);
+    await db.delete(resourceAudience).where(eq(resourceAudience.resourceId, id));
+
+    let nextAudienceId = await nextAudienceIdFromDb();
+    if (roleIds.length) {
+      await db.insert(resourceAudience).values(
+        roleIds.map((roleId) => ({
+          id: nextAudienceId++,
+          resourceId: id,
+          roleId,
+          trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+        })),
+      );
+    }
   }
 
-  return {
+  return queryResourceById(id).then((result) => ({
     msg: "Resource updated successfully",
-    data: buildResource(updated),
-  };
+    data: result.data,
+  }));
 }
 
-export function deleteResource(id: number) {
-  const index = mockResources.findIndex((item) => item.id === id && !item.deleted_at);
-  if (index === -1) {
-    return {
-      msg: "Resource not found",
-      data: null,
+export async function deleteResource(id: number) {
+  if (useResourceDemoData()) {
+    const index = demoRows.findIndex((item) => item.id === id && !item.deleted_at);
+    if (index === -1) {
+      return { msg: "Resource not found", data: null };
+    }
+
+    demoRows[index] = {
+      ...demoRows[index],
+      deleted_at: new Date().toISOString(),
     };
+    return { msg: "Resource deleted successfully", data: null };
   }
 
-  mockResources[index] = {
-    ...mockResources[index],
-    deleted_at: new Date().toISOString(),
-  };
+  const existing = await queryResourceById(id);
+  if (!existing.data) {
+    return { msg: "Resource not found", data: null };
+  }
+
+  await db
+    .update(resources)
+    .set({ deletedAt: new Date().toISOString() })
+    .where(eq(resources.id, id));
+
+  dbResourceExtras.delete(id);
+  uploadedFiles.delete(existing.data.storage_key);
 
   return {
     msg: "Resource deleted successfully",
@@ -503,77 +838,119 @@ export function deleteResource(id: number) {
   };
 }
 
-export function assignRoleToResource(id: number, roleId: number) {
-  const resource = mockResources.find((item) => item.id === id && !item.deleted_at);
-  if (!resource) {
+export async function assignRoleToResource(id: number, roleId: number) {
+  if (useResourceDemoData()) {
+    const row = demoRows.find((item) => item.id === id && !item.deleted_at);
+    if (!row) return { msg: "Resource not found", data: null };
+
+    if (!FALLBACK_ROLES.some((item) => item.id === roleId)) {
+      return { msg: "Role not found", data: null };
+    }
+
+    const exists = demoAudienceRows.some(
+      (item) => item.resource_id === id && item.role_id === roleId,
+    );
+    if (!exists) {
+      demoAudienceRows.push({
+        id: nextDemoAudienceId++,
+        resource_id: id,
+        role_id: roleId,
+        track_id: row.track_id,
+      });
+    }
+
     return {
-      msg: "Resource not found",
-      data: null,
+      msg: "Role assigned successfully",
+      data: buildResourceFromDemoRow(row),
     };
   }
 
-  if (!roles.some((item) => item.id === roleId)) {
-    return {
-      msg: "Role not found",
-      data: null,
-    };
+  const roleRows = await getRolesFromDb();
+  if (!roleRows.some((item) => item.id === roleId)) {
+    return { msg: "Role not found", data: null };
   }
 
-  const exists = mockResourceAudience.some(
-    (item) => item.resource_id === id && item.role_id === roleId,
-  );
+  const existing = await queryResourceById(id);
+  if (!existing.data) {
+    return { msg: "Resource not found", data: null };
+  }
 
-  if (!exists) {
-    mockResourceAudience.push({
-      id: nextAudienceId++,
-      resource_id: id,
-      role_id: roleId,
-      track_id: resource.track_id,
+  const hasRole = existing.data.audiences.some((item) => item.role_id === roleId);
+  if (!hasRole) {
+    const nextId = await nextAudienceIdFromDb();
+    await db.insert(resourceAudience).values({
+      id: nextId,
+      resourceId: id,
+      roleId,
+      trackId: existing.data.track_id,
     });
   }
 
-  return {
+  return queryResourceById(id).then((result) => ({
     msg: "Role assigned successfully",
-    data: buildResource(resource),
-  };
+    data: result.data,
+  }));
 }
 
-export function removeRoleFromResource(id: number, roleId: number) {
-  const resource = mockResources.find((item) => item.id === id && !item.deleted_at);
-  if (!resource) {
-    return {
-      msg: "Resource not found",
-      data: null,
-    };
-  }
+export async function removeRoleFromResource(id: number, roleId: number) {
+  const availableRoles = useResourceDemoData() ? FALLBACK_ROLES : await getRolesFromDb();
+  const adminRole = availableRoles.find((item) => item.slug === ADMIN_ROLE_SLUG);
 
-  if (roleId === ADMIN_ROLE_ID) {
+  if (adminRole && roleId === adminRole.id) {
+    const current = await queryResourceById(id);
     return {
       msg: "Admin visibility is required and cannot be removed",
-      data: buildResource(resource),
+      data: current.data,
     };
   }
 
-  mockResourceAudience = mockResourceAudience.filter(
-    (item) => !(item.resource_id === id && item.role_id === roleId),
-  );
+  if (useResourceDemoData()) {
+    const row = demoRows.find((item) => item.id === id && !item.deleted_at);
+    if (!row) return { msg: "Resource not found", data: null };
 
-  return {
+    demoAudienceRows = demoAudienceRows.filter(
+      (item) => !(item.resource_id === id && item.role_id === roleId),
+    );
+
+    return {
+      msg: "Role removed successfully",
+      data: buildResourceFromDemoRow(row),
+    };
+  }
+
+  const existing = await queryResourceById(id);
+  if (!existing.data) {
+    return { msg: "Resource not found", data: null };
+  }
+
+  await db
+    .delete(resourceAudience)
+    .where(and(eq(resourceAudience.resourceId, id), eq(resourceAudience.roleId, roleId)));
+
+  return queryResourceById(id).then((result) => ({
     msg: "Role removed successfully",
-    data: buildResource(resource),
-  };
+    data: result.data,
+  }));
 }
 
-export function listResourceRoles() {
+export async function listResourceRoles() {
+  if (useResourceDemoData()) {
+    return {
+      msg: "Roles retrieved successfully",
+      data: FALLBACK_ROLES,
+    };
+  }
+
+  const dbRoles = await getRolesFromDb();
   return {
     msg: "Roles retrieved successfully",
-    data: roles,
+    data: dbRoles,
   };
 }
 
 export function listResourceTypes() {
   return {
     msg: "Resource types retrieved successfully",
-    data: resourceTypeOptions,
+    data: FALLBACK_TYPES,
   };
 }

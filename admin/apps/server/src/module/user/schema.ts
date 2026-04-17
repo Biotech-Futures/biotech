@@ -9,6 +9,7 @@ export const queryUsersSchema = z.object({
   search: z.string().optional(),
   role: z.enum(ROLES).optional(),
   track: z.enum(TRACKS).optional(),
+  active: z.coerce.boolean().optional(),
 });
 
 export const queryStudentsSchema = z.object({
@@ -19,6 +20,7 @@ export const queryStudentsSchema = z.object({
   track: z.enum(TRACKS).optional(),
   interest: z.string().optional(),
   inGroup: z.enum(["yes", "no"]).optional(),
+  active: z.coerce.boolean().optional(),
 });
 
 export const createUserSchema = z.object({
@@ -26,7 +28,9 @@ export const createUserSchema = z.object({
   lastName: z.string().min(1).max(255),
   email: z.string().email(),
   role: z.enum(ROLES),
-  track: z.enum(TRACKS),
+  track: z.enum(TRACKS).optional(),
+  groupId: z.string().optional(),
+  active: z.coerce.boolean().optional(),
 });
 
 export const bulkCreateUsersSchema = z.object({
@@ -40,11 +44,9 @@ export const updateUserSchema = z.object({
   lastName: z.string().min(1).max(255).optional(),
   email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
-  track: z.enum(TRACKS).optional(),
-});
-
-export const updateStatusSchema = z.object({
-  isActive: z.boolean(),
+  track: z.enum(TRACKS).nullable().optional(),
+  groupId: z.string().nullable().optional(),
+  active: z.coerce.boolean().optional(),
 });
 
 export type QueryUsersInput = z.infer<typeof queryUsersSchema>;
