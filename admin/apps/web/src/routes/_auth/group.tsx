@@ -11,17 +11,23 @@ import {
   UnmatchedGroupsPanel,
 } from "@/components/group";
 import { useQueryGroup, useQueryGroups } from "@/query/group";
+import { useQueryTracks } from "@/query/student";
 import { cn } from "@/lib/utils";
 import type { Group, Track } from "@/type/group";
 
 export const Route = createFileRoute("/_auth/group")({
-  validateSearch: (search) => ({
-    groupId: typeof search.groupId === "string" ? search.groupId : undefined,
-    tab:
-      search.tab === "matched" || search.tab === "unmatched"
-        ? (search.tab as "matched" | "unmatched")
-        : undefined,
-  }),
+  validateSearch: (
+    search,
+  ): { groupId?: string; tab?: "matched" | "unmatched" } => {
+    const params: { groupId?: string; tab?: "matched" | "unmatched" } = {};
+
+    if (typeof search.groupId === "string") params.groupId = search.groupId;
+    if (search.tab === "matched" || search.tab === "unmatched") {
+      params.tab = search.tab;
+    }
+
+    return params;
+  },
   component: GroupPage,
 });
 
@@ -54,6 +60,7 @@ function GroupPage() {
     searchGroup,
     track,
   });
+  const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
 
   const { data: groupById, isPending: isGroupByIdPending } = useQueryGroup(
     groupId ?? "",
@@ -84,7 +91,7 @@ function GroupPage() {
     if (!open && groupId) {
       navigate({
         to: "/group",
-        search: (prev) => ({ ...prev, groupId: undefined }),
+        search: (prev) => ({ groupId: undefined, tab: prev.tab }),
         replace: true,
       });
     }
@@ -175,6 +182,8 @@ function GroupPage() {
             onSearchGroupChange={setSearchGroup}
             track={track}
             onTrackChange={setTrack}
+            tracks={tracksData?.data ?? []}
+            isLoadingTracks={isLoadingTracks}
           />
 
           {/* Table */}
@@ -198,6 +207,8 @@ function GroupPage() {
         open={sheetOpen}
         onOpenChange={handleDrawerOpenChange}
         mode={sheetMode}
+        tracks={tracksData?.data ?? []}
+        isLoadingTracks={isLoadingTracks}
       />
     </div>
   );

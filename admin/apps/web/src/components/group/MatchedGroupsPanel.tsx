@@ -7,7 +7,6 @@ import {
   useMutationUnassignMentors,
 } from "@/query/mentorMatch";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import type { MatchedGroup } from "@/type/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +38,6 @@ import { AxiosError } from "axios";
 
 export function MatchedGroupsPanel() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const { data: matchedData, isPending: isLoadingMatched, refetch } = useQueryMatchedGroups();
   const { data: mentorListData, isPending: isLoadingMentors } = useQueryMentorList();
   const replaceMentor = useMutationReplaceMentor();

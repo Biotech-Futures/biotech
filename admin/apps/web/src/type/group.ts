@@ -1,6 +1,6 @@
 // Group type definitions
 
-export type Track = "frontend" | "backend" | "fullstack" | "data";
+export type Track = string;
 
 export type GroupMember = {
   id: string;
@@ -29,5 +29,3 @@ export type PaginatedResponse<T> = {
     hasMore: boolean;
   };
 };
-
-export const TRACKS: Track[] = ["frontend", "backend", "fullstack", "data"];

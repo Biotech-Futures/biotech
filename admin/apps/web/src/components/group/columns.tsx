@@ -12,12 +12,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const trackColors: Record<Track, string> = {
-  frontend: "bg-blue-100 text-blue-800",
-  backend: "bg-green-100 text-green-800",
-  fullstack: "bg-purple-100 text-purple-800",
-  data: "bg-orange-100 text-orange-800",
-};
+function getTrackColor(track: Track) {
+  switch (track.toLowerCase()) {
+    case "frontend":
+      return "bg-blue-100 text-blue-800";
+    case "backend":
+      return "bg-green-100 text-green-800";
+    case "fullstack":
+      return "bg-purple-100 text-purple-800";
+    case "data":
+      return "bg-orange-100 text-orange-800";
+    default:
+      return "bg-slate-100 text-slate-800";
+  }
+}
 
 interface ColumnsOptions {
   onViewDetail?: (group: Group) => void;
@@ -56,7 +64,7 @@ export function createColumns({ onViewDetail, onEdit }: ColumnsOptions = {}): Co
       header: "Track",
       cell: ({ row }) => {
         const track = row.getValue("track") as Track;
-        return <Badge className={trackColors[track]}>{track}</Badge>;
+        return <Badge className={getTrackColor(track)}>{track}</Badge>;
       },
       filterFn: (row, id, value) => {
         return value.includes(row.getValue(id));

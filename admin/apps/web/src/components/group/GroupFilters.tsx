@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import type { Track } from "@/type/group";
-import { TRACKS } from "@/type/group";
+import type { TrackOption } from "@/type/user";
 import { SearchIcon, UserIcon } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -25,6 +25,8 @@ interface GroupFiltersProps {
   onSearchGroupChange: (value: string) => void;
   track: Track | undefined;
   onTrackChange: (value: Track | undefined) => void;
+  tracks?: TrackOption[];
+  isLoadingTracks?: boolean;
 }
 
 export function GroupFilters({
@@ -34,6 +36,8 @@ export function GroupFilters({
   onSearchGroupChange,
   track,
   onTrackChange,
+  tracks = [],
+  isLoadingTracks = false,
 }: GroupFiltersProps) {
   const [localSearchName, setLocalSearchName] = useState(searchName);
   const [localSearchGroup, setLocalSearchGroup] = useState(searchGroup);
@@ -143,7 +147,7 @@ export function GroupFilters({
         <Select
           value={track ?? "all"}
           onValueChange={(value) => {
-            onTrackChange(value === "all" ? undefined : (value as Track));
+            onTrackChange(value === "all" ? undefined : value);
           }}
         >
           <SelectTrigger id="track-filter" className="min-w-32">
@@ -151,9 +155,14 @@ export function GroupFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Tracks</SelectItem>
-            {TRACKS.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+            {isLoadingTracks && tracks.length === 0 && (
+              <SelectItem value="loading" disabled>
+                Loading tracks...
+              </SelectItem>
+            )}
+            {tracks.map((item) => (
+              <SelectItem key={item.id} value={item.trackCode}>
+                {item.trackCode}
               </SelectItem>
             ))}
           </SelectContent>
