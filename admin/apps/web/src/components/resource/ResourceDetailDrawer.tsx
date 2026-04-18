@@ -1,7 +1,6 @@
 import {
   Drawer,
   DrawerContent,
-  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
@@ -20,7 +19,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SaveIcon, XIcon, FileTextIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { Resource, ResourceTypeName } from "@/type/resource";
+import type { Resource, ResourceKind, ResourceTypeName } from "@/type/resource";
 import {
   getResourceTrackLabel,
   getResourceTypeLabel,
@@ -56,16 +55,23 @@ export function ResourceDetailDrawer({
   const [editData, setEditData] = useState<{
     resource_name: string;
     resource_description: string;
+    resource_kind: ResourceKind;
     track_id: number | null;
     resource_type: ResourceTypeName | null;
+    content_html: string;
     role_ids: number[];
   }>({
     resource_name: "",
     resource_description: "",
+    resource_kind: "file",
     track_id: null,
     resource_type: null,
+    content_html: "",
     role_ids: [],
   });
+  const [htmlFileName, setHtmlFileName] = useState("");
+  const [showHtmlEditor, setShowHtmlEditor] = useState(true);
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const visibleRoleSlugs = useMemo(() => {
     if (!resource) return [] as string[];
@@ -81,8 +87,10 @@ export function ResourceDetailDrawer({
     setEditData({
       resource_name: resource.resource_name,
       resource_description: resource.resource_description ?? "",
+      resource_kind: resource.resource_kind,
       track_id: resource.track_id,
       resource_type: resource.resource_type,
+      content_html: resource.content_html ?? "",
       role_ids: Array.from(
         new Set(
           resource.audiences
@@ -91,6 +99,9 @@ export function ResourceDetailDrawer({
         ),
       ),
     });
+    setHtmlFileName("");
+    setShowHtmlEditor(true);
+    setShowHtmlPreview(false);
   }, [resource]);
 
   if (!resource) return null;
@@ -99,8 +110,10 @@ export function ResourceDetailDrawer({
     const parsed = updateResourceSchema.safeParse({
       resource_name: editData.resource_name,
       resource_description: editData.resource_description,
+      resource_kind: editData.resource_kind,
       track_id: editData.track_id,
       resource_type: editData.resource_type,
+      content_html: editData.content_html || null,
       role_ids: editData.role_ids,
     });
 
@@ -123,17 +136,67 @@ export function ResourceDetailDrawer({
     );
   };
 
+  const handleChooseHtmlFile = async (selectedFile: File | null) => {
+    if (!selectedFile) {
+      setHtmlFileName("");
+      return;
+    }
+
+    try {
+      const htmlText = await selectedFile.text();
+      setHtmlFileName(selectedFile.name);
+      setEditData((prev) => ({
+        ...prev,
+        content_html: htmlText,
+      }));
+    } catch {
+      window.alert("Failed to read the HTML file.");
+    }
+  };
+
+  const openHtmlPreviewPage = (html: string) => {
+    const documentHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resource Preview</title>
+    <style>
+      body { margin: 0; padding: 24px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #111827; background: #f8fafc; }
+      .wrap { max-width: 960px; margin: 0 auto; background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      ${html || "<p>No content yet.</p>"}
+    </div>
+  </body>
+</html>`;
+
+    const blob = new Blob([documentHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      window.alert("Preview tab was blocked. Please allow pop-ups for this site.");
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange} direction="right">
-      <DrawerContent className="w-full sm:max-w-lg">
-        <DrawerHeader>
+      <DrawerContent className="w-full sm:max-w-lg h-dvh max-h-dvh min-h-0 overflow-hidden">
+        <DrawerHeader className="shrink-0 border-b">
           <DrawerTitle className="flex items-center gap-2">
             <FileTextIcon className="size-5" />
             {mode === "view" ? resource.resource_name : "Edit Resource"}
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="mt-6 space-y-6 p-4">
+        <div
+          data-vaul-no-drag
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-6 p-4 pb-24"
+        >
           <div className="space-y-4">
             {mode === "view" ? (
               <>
@@ -152,24 +215,45 @@ export function ResourceDetailDrawer({
                   </div>
                 </div>
                 <div>
+                  <Label className="text-muted-foreground">Kind</Label>
+                  <p>{resource.resource_kind === "page" ? "HTML Page" : "File"}</p>
+                </div>
+                <div>
                   <Label className="text-muted-foreground">Track</Label>
                   <p>{getResourceTrackLabel(resource.track_id)}</p>
                 </div>
-                <div>
-                  <Label className="text-muted-foreground">File</Label>
-                  <div className="flex items-center justify-between gap-2">
-                    <p>{resource.file_name ?? "No file metadata"}</p>
-                    {resource.file_name ? (
+                {resource.resource_kind === "page" ? (
+                  <div>
+                    <Label className="text-muted-foreground">Page Preview</Label>
+                    <div className="mt-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onDownload?.(resource)}
+                        onClick={() =>
+                          openHtmlPreviewPage(resource.content_html || "<p>No content yet.</p>")
+                        }
                       >
-                        Download
+                        Open Preview Page
                       </Button>
-                    ) : null}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <Label className="text-muted-foreground">File</Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <p>{resource.file_name ?? "No file metadata"}</p>
+                      {resource.file_name ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onDownload?.(resource)}
+                        >
+                          Download
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -192,6 +276,26 @@ export function ResourceDetailDrawer({
                       setEditData((prev) => ({ ...prev, resource_description: event.target.value }))
                     }
                   />
+                </div>
+                <div>
+                  <Label htmlFor="resource-kind">Kind</Label>
+                  <Select
+                    value={editData.resource_kind}
+                    onValueChange={(value) =>
+                      setEditData((prev) => ({
+                        ...prev,
+                        resource_kind: value as ResourceKind,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="resource-kind">
+                      <SelectValue placeholder="Select kind" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="file">File</SelectItem>
+                      <SelectItem value="page">HTML Page</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor="resource-track">Track</Label>
@@ -241,6 +345,93 @@ export function ResourceDetailDrawer({
                     </SelectContent>
                   </Select>
                 </div>
+                {editData.resource_kind === "page" ? (
+                  <div>
+                    <div className="space-y-2">
+                      <Label htmlFor="resource-content-html">HTML Content</Label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          onClick={() => openHtmlPreviewPage(editData.content_html)}
+                        >
+                          Open Preview Page
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setEditData((prev) => ({ ...prev, content_html: "" }))
+                          }
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowHtmlEditor((prev) => !prev)}
+                        >
+                          {showHtmlEditor ? "Hide Editor" : "Show Editor"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowHtmlPreview((prev) => !prev)}
+                        >
+                          {showHtmlPreview ? "Hide Preview" : "Show Preview"}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-1.5">
+                      <Label htmlFor="edit-resource-html-file">HTML File</Label>
+                      <Input
+                        id="edit-resource-html-file"
+                        type="file"
+                        accept=".html,.htm,text/html"
+                        onChange={(event) =>
+                          handleChooseHtmlFile(event.target.files?.[0] ?? null)
+                        }
+                      />
+                      {htmlFileName ? (
+                        <p className="text-xs text-muted-foreground">{htmlFileName}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Upload an HTML file or edit content manually below.
+                        </p>
+                      )}
+                    </div>
+                    {showHtmlEditor ? (
+                      <Textarea
+                        id="resource-content-html"
+                        className="min-h-44 font-mono text-xs"
+                        value={editData.content_html}
+                        onChange={(event) =>
+                          setEditData((prev) => ({
+                            ...prev,
+                            content_html: event.target.value,
+                          }))
+                        }
+                      />
+                    ) : null}
+                    {showHtmlPreview ? (
+                      <div className="mt-3 space-y-2">
+                        <Label className="text-muted-foreground">Live Preview</Label>
+                        <div
+                          className="prose prose-sm max-w-none rounded-md border bg-muted/20 p-3"
+                          dangerouslySetInnerHTML={{
+                            __html: editData.content_html || "<p>No content yet.</p>",
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </>
             )}
           </div>

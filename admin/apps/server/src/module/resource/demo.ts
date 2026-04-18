@@ -24,9 +24,11 @@ export type DemoResourceRow = {
   visibility_scope: string;
   uploaded_at: string;
   deleted_at: string | null;
+  resource_kind: "file" | "page";
   resource_name: string;
   resource_description: string | null;
   resource_type: DemoResourceTypeName | null;
+  content_html: string | null;
   file_name: string | null;
   file_mime_type: string | null;
   file_size: number | null;
@@ -44,6 +46,7 @@ export const demoRoles: DemoRole[] = [
   { id: 1, slug: "student" },
   { id: 2, slug: "mentor" },
   { id: 3, slug: "admin" },
+  { id: 4, slug: "supervisor" },
 ];
 
 export const demoResourceTypes: DemoResourceTypeOption[] = [
@@ -114,6 +117,7 @@ const demoExtByType: Record<DemoResourceTypeName, string> = {
 export const demoResources: DemoResourceRow[] = demoTitles.map((title, index) => {
   const id = index + 1;
   const resourceType = demoTypeCycle[index % demoTypeCycle.length];
+  const resourceKind: "file" | "page" = index % 5 === 0 ? "page" : "file";
   const trackId = demoTrackIds[index % demoTrackIds.length];
   const uploader = demoUploaders[index % demoUploaders.length];
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -128,13 +132,26 @@ export const demoResources: DemoResourceRow[] = demoTitles.map((title, index) =>
     visibility_scope: "role_based",
     uploaded_at: uploadedAt,
     deleted_at: null,
+    resource_kind: resourceKind,
     resource_name: title,
     resource_description: `${title} for track-based mentoring and student support.`,
     resource_type: resourceType,
-    file_name: `${slug}.${ext}`,
-    file_mime_type: demoMimeByType[resourceType],
-    file_size: resourceType === "video" ? 25000000 + id * 10000 : 70000 + id * 900,
-    storage_key: `resources/${slug}.${ext}`,
+    content_html:
+      resourceKind === "page"
+        ? `<h2>${title}</h2><p>This is a rich content page for track-based guidance.</p><p><strong>Track:</strong> ${trackId}</p>`
+        : null,
+    file_name: resourceKind === "page" ? null : `${slug}.${ext}`,
+    file_mime_type: resourceKind === "page" ? null : demoMimeByType[resourceType],
+    file_size:
+      resourceKind === "page"
+        ? null
+        : resourceType === "video"
+          ? 25000000 + id * 10000
+          : 70000 + id * 900,
+    storage_key:
+      resourceKind === "page"
+        ? `resources/pages/${slug}.html`
+        : `resources/${slug}.${ext}`,
   };
 });
 
@@ -143,11 +160,19 @@ export const demoResourceAudience: DemoResourceAudienceRow[] = (() => {
 
   return demoResources.flatMap((resource, index) => {
     const roleSet =
-      index % 3 === 0
+      index % 7 === 0
         ? [1, 3]
-        : index % 3 === 1
+        : index % 7 === 1
           ? [2, 3]
-          : [1, 2, 3];
+          : index % 7 === 2
+            ? [4, 3]
+            : index % 7 === 3
+              ? [1, 2, 3]
+              : index % 7 === 4
+                ? [1, 4, 3]
+                : index % 7 === 5
+                  ? [2, 4, 3]
+                  : [1, 2, 4, 3];
 
     return roleSet.map((roleId) => ({
       id: audienceId++,
