@@ -46,7 +46,10 @@ export type CsvUserRow = UserFormValues & {
 };
 
 export type UserOverride = Partial<
-  Pick<UserAccount, "name" | "email" | "role" | "track" | "active" | "updatedAt">
+  Pick<
+    UserAccount,
+    "name" | "email" | "role" | "track" | "active" | "updatedAt"
+  >
 >;
 
 export const USER_TRACKS: UserTrack[] = [
@@ -75,7 +78,7 @@ export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
 }
 
 export function labelizeUserRole(role: UserRole) {
-  return role.charAt(0).toUpperCase() + role.slice(1);
+  return role?.charAt(0).toUpperCase() + role?.slice(1);
 }
 
 export function labelizeTrack(track: UserTrack | null) {

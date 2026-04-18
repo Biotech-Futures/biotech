@@ -87,8 +87,8 @@ function UserManagementPage() {
     return mergedUsers
       .filter((user) => {
         if (query) {
-          const matches = [user.name, user.email, user.groupName ?? ""].some((value) =>
-            value.toLowerCase().includes(query),
+          const matches = [user.name, user.email, user.groupName ?? ""].some(
+            (value) => value.toLowerCase().includes(query),
           );
           if (!matches) return false;
         }
@@ -103,19 +103,23 @@ function UserManagementPage() {
         if (left.active !== right.active) {
           return left.active ? -1 : 1;
         }
-        return left.name.localeCompare(right.name);
+        return left.name?.localeCompare(right.name);
       });
   }, [mergedUsers, role, search, status, track]);
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
-  const pageItems = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageItems = filteredUsers.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
 
   const summary = useMemo(
     () => ({
       total: mergedUsers.length,
       active: mergedUsers.filter((user) => user.active).length,
       inactive: mergedUsers.filter((user) => !user.active).length,
-      supervisors: mergedUsers.filter((user) => user.role === "supervisor").length,
+      supervisors: mergedUsers.filter((user) => user.role === "supervisor")
+        .length,
     }),
     [mergedUsers],
   );
@@ -260,7 +264,8 @@ function UserManagementPage() {
         <div>
           <h1 className="text-2xl font-semibold">User Management</h1>
           <p className="text-sm text-muted-foreground">
-            Add users, bulk import CSV data, assign roles and tracks, and toggle account status.
+            Add users, bulk import CSV data, assign roles and tracks, and toggle
+            account status.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -276,9 +281,21 @@ function UserManagementPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="Total Users" value={summary.total} helper="Across the user management module" />
-        <SummaryCard title="Active Accounts" value={summary.active} helper="Ready to sign in" />
-        <SummaryCard title="Inactive Accounts" value={summary.inactive} helper="Disabled from this page" />
+        <SummaryCard
+          title="Total Users"
+          value={summary.total}
+          helper="Across the user management module"
+        />
+        <SummaryCard
+          title="Active Accounts"
+          value={summary.active}
+          helper="Ready to sign in"
+        />
+        <SummaryCard
+          title="Inactive Accounts"
+          value={summary.inactive}
+          helper="Disabled from this page"
+        />
         <SummaryCard
           title="Supervisors"
           value={summary.supervisors}
@@ -306,7 +323,9 @@ function UserManagementPage() {
           />
 
           <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">{filteredUsers.length} matched users</Badge>
+            <Badge variant="outline">
+              {filteredUsers.length} matched users
+            </Badge>
             <Badge variant="outline">
               {summary.supervisors} supervisor records
             </Badge>
@@ -321,7 +340,8 @@ function UserManagementPage() {
         <CardHeader>
           <CardTitle>User Directory</CardTitle>
           <CardDescription>
-            The table below uses only the user module APIs and does not modify other admin pages.
+            The table below uses only the user module APIs and does not modify
+            other admin pages.
           </CardDescription>
         </CardHeader>
         <CardContent>
