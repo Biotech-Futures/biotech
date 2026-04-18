@@ -1,4 +1,4 @@
-export type UserTrack = "frontend" | "backend" | "fullstack" | "data";
+export type UserTrack = string;
 export type UserRole = "student" | "mentor" | "supervisor" | "admin";
 export type ServerUserRole = UserRole;
 export type UserStatus = "active" | "inactive";

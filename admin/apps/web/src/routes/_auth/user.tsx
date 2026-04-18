@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -16,10 +15,13 @@ import {
   mergeUsers,
   saveLocalUsers,
   saveUserOverrides,
+  splitName,
+  useQueryTracks,
   useBulkCreateUsers,
   useCreateUser,
   useQueryUsers,
   useUpdateUser,
+  useUpdateUserStatus,
 } from "@/query/user";
 import {
   getUserStatus,
@@ -55,8 +57,10 @@ function UserManagementPage() {
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
 
   const { data, isPending } = useQueryUsers();
+  const { data: tracksData } = useQueryTracks();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
+  const updateUserStatus = useUpdateUserStatus();
   const bulkCreateUsers = useBulkCreateUsers();
 
   useEffect(() => {
@@ -77,8 +81,8 @@ function UserManagementPage() {
   }, [search, role, track, status]);
 
   const mergedUsers = useMemo(
-    () => mergeUsers(data?.data.items, localUsers, overrides),
-    [data?.data.items, localUsers, overrides],
+    () => mergeUsers(data?.data?.items, localUsers, overrides),
+    [data?.data?.items, localUsers, overrides],
   );
 
   const filteredUsers = useMemo(() => {
@@ -87,7 +91,7 @@ function UserManagementPage() {
     return mergedUsers
       .filter((user) => {
         if (query) {
-          const matches = [user.name, user.email, user.groupName ?? ""].some((value) =>
+          const matches = [user.name ?? "", user.email ?? "", user.groupName ?? ""].some((value) =>
             value.toLowerCase().includes(query),
           );
           if (!matches) return false;
@@ -103,7 +107,7 @@ function UserManagementPage() {
         if (left.active !== right.active) {
           return left.active ? -1 : 1;
         }
-        return left?.name?.localeCompare(right.name);
+        return (left.name ?? "").localeCompare(right.name ?? "");
       });
   }, [mergedUsers, role, search, status, track]);
 
@@ -135,8 +139,10 @@ function UserManagementPage() {
   const handleSaveUser = async (values: UserFormValues) => {
     if (editorMode === "create") {
       try {
+        const { firstName, lastName } = splitName(values.name);
         const response = await createUser.mutateAsync({
-          name: values.name,
+          firstName,
+          lastName,
           email: values.email,
           role: values.role,
           track: values.track ?? undefined,
@@ -174,20 +180,33 @@ function UserManagementPage() {
     }
 
     try {
+      const { firstName, lastName } = splitName(values.name);
       const response = await updateUser.mutateAsync({
         id: selectedUser.id,
         updates: {
-          name: values.name,
+          firstName,
+          lastName,
           email: values.email,
           role: values.role,
           track: values.track,
-          active: values.active,
         },
       });
 
       if (!response.data) {
         window.alert(response.msg || "Unable to update user.");
         return;
+      }
+
+      if (selectedUser.active !== values.active) {
+        const statusResponse = await updateUserStatus.mutateAsync({
+          id: selectedUser.id,
+          updates: { isActive: values.active },
+        });
+
+        if (!statusResponse.data) {
+          window.alert(statusResponse.msg || "Unable to update the account status.");
+          return;
+        }
       }
 
       setEditorOpen(false);
@@ -213,15 +232,9 @@ function UserManagementPage() {
     }
 
     try {
-      const response = await updateUser.mutateAsync({
+      const response = await updateUserStatus.mutateAsync({
         id: user.id,
-        updates: {
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          track: user.track,
-          active: !user.active,
-        },
+        updates: { isActive: !user.active },
       });
 
       if (!response.data) {
@@ -236,7 +249,7 @@ function UserManagementPage() {
     try {
       await bulkCreateUsers.mutateAsync({
         users: rows.map((row) => ({
-          name: row.name,
+          ...splitName(row.name),
           email: row.email,
           role: row.role,
           track: row.track ?? undefined,
@@ -252,12 +265,6 @@ function UserManagementPage() {
   return (
     <div className="p-4 space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">User Management</h1>
-          <p className="text-sm text-muted-foreground">
-            Add users, bulk import CSV data, assign roles and tracks, and toggle account status.
-          </p>
-        </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setBulkOpen(true)}>
             <UploadIcon />
@@ -271,18 +278,15 @@ function UserManagementPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="Total Users" value={summary.total} helper="Across the user management module" />
-        <SummaryCard title="Active Accounts" value={summary.active} helper="Ready to sign in" />
-        <SummaryCard title="Inactive Accounts" value={summary.inactive} helper="Disabled from this page" />
-        <SummaryCard title="Supervisors" value={summary.supervisors} helper="Stored in the user module backend" />
+        <SummaryCard title="Total Users" value={summary.total} />
+        <SummaryCard title="Active Accounts" value={summary.active} />
+        <SummaryCard title="Inactive Accounts" value={summary.inactive} />
+        <SummaryCard title="Supervisors" value={summary.supervisors} />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>
-            Narrow the user list by search, role, track, or account status.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <UserFilters
@@ -292,6 +296,7 @@ function UserManagementPage() {
             onRoleChange={setRole}
             track={track}
             onTrackChange={setTrack}
+            tracks={tracksData?.data ?? []}
             status={status}
             onStatusChange={setStatus}
           />
@@ -307,9 +312,6 @@ function UserManagementPage() {
       <Card>
         <CardHeader>
           <CardTitle>User Directory</CardTitle>
-          <CardDescription>
-            The table below uses only the user module APIs and does not modify other admin pages.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <UserTable
@@ -323,6 +325,7 @@ function UserManagementPage() {
               isPending ||
               createUser.isPending ||
               updateUser.isPending ||
+              updateUserStatus.isPending ||
               bulkCreateUsers.isPending
             }
           />
@@ -334,8 +337,9 @@ function UserManagementPage() {
         onOpenChange={setEditorOpen}
         mode={editorMode}
         user={selectedUser}
+        tracks={tracksData?.data ?? []}
         onSubmit={handleSaveUser}
-        isPending={createUser.isPending || updateUser.isPending}
+        isPending={createUser.isPending || updateUser.isPending || updateUserStatus.isPending}
       />
 
       <UserBulkUploadSheet
@@ -351,21 +355,17 @@ function UserManagementPage() {
 function SummaryCard({
   title,
   value,
-  helper,
 }: {
   title: string;
   value: number;
-  helper: string;
 }) {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardDescription>{title}</CardDescription>
+        <p className="text-sm text-muted-foreground">{title}</p>
         <CardTitle>{value}</CardTitle>
       </CardHeader>
-      <CardContent className="pt-0 text-xs text-muted-foreground">
-        {helper}
-      </CardContent>
+      <CardContent className="pt-0" />
     </Card>
   );
 }

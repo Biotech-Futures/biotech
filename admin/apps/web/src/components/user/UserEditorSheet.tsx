@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   USER_ROLES,
-  USER_TRACKS,
+  type TrackOption,
   type UserAccount,
   type UserFormValues,
   type UserRole,
@@ -31,6 +31,7 @@ interface UserEditorSheetProps {
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
   user: UserAccount | null;
+  tracks?: TrackOption[];
   onSubmit: (values: UserFormValues) => Promise<void> | void;
   isPending?: boolean;
 }
@@ -39,7 +40,7 @@ const initialValues: UserFormValues = {
   name: "",
   email: "",
   role: "student",
-  track: "frontend",
+  track: null,
   active: true,
 };
 
@@ -52,10 +53,17 @@ export function UserEditorSheet({
   onOpenChange,
   mode,
   user,
+  tracks,
   onSubmit,
   isPending,
 }: UserEditorSheetProps) {
   const [values, setValues] = useState<UserFormValues>(initialValues);
+  const availableTracks = Array.from(
+    new Set([
+      ...(tracks ?? []).map((item) => item.trackCode),
+      ...(user?.track ? [user.track] : []),
+    ]),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -164,11 +172,11 @@ export function UserEditorSheet({
               }
             >
               <SelectTrigger id="user-track-select">
-                <SelectValue placeholder="Select a track" />
+              <SelectValue placeholder="Select a track" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Unassigned</SelectItem>
-                {USER_TRACKS.map((track) => (
+                {availableTracks.map((track) => (
                   <SelectItem key={track} value={track}>
                     {track}
                   </SelectItem>
