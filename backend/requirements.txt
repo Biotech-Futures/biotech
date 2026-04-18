@@ -27,8 +27,8 @@ psycopg==3.2.9
 psycopg-binary==3.2.9
 psycopg2-binary==2.9.10
 PyJWT==2.10.1
-python-decouple==3.8
 python-dateutil==2.9.0.post0
+python-decouple==3.8
 pytz==2025.2
 PyYAML==6.0.2
 referencing==0.36.2
