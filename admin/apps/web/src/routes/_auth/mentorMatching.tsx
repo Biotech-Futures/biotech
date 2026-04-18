@@ -70,7 +70,7 @@ function RouteComponent() {
 
   function goToGroups() {
     setConfirmDialogOpen(false);
-    void navigate({ to: "/group" });
+    void navigate({ to: "/group", search: { page: 1 } });
   }
 
   return (
