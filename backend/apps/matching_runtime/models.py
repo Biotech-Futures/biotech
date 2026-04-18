@@ -8,7 +8,12 @@ class MatchRun(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
     )
-    track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
+    track = models.ForeignKey(
+        "groups.Tracks",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     run_type = models.CharField(max_length=100)
     rules_snapshot = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -28,7 +33,11 @@ class MatchRun(models.Model):
 
 
 class MatchRecommendation(models.Model):
-    match_run = models.ForeignKey(MatchRun, on_delete=models.CASCADE, related_name="recommendations")
+    match_run = models.ForeignKey(
+        MatchRun,
+        on_delete=models.CASCADE,
+        related_name="recommendations",
+    )
     group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE)
     mentor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -55,4 +64,3 @@ class MatchRecommendation(models.Model):
 
     def __str__(self):
         return f"Run {self.match_run_id} -> group {self.group_id} / mentor {self.mentor_user_id}"
-

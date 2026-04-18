@@ -1,19 +1,21 @@
-# Align groups, tracks, group membership, and group_interest with target PostgreSQL DDL.
+# Align groups schema with target PostgreSQL DDL (sql_ddl.pdf).
 
 import django.db.models.deletion
 import django.utils.timezone
 from django.conf import settings
 from django.db import migrations, models
+from django.utils import timezone as dj_tz
 
 
-def forwards_copy_group_soft_delete(apps, schema_editor):
+def forwards_fill_group_deleted_at(apps, schema_editor):
     Groups = apps.get_model("groups", "Groups")
-    for row in Groups.objects.all():
-        if getattr(row, "deleted_flag", False):
-            row.deleted_at = row.deleted_datetime or django.utils.timezone.now()
-        else:
-            row.deleted_at = None
-        row.save(update_fields=["deleted_at"])
+    for g in Groups.objects.all():
+        if g.deleted_flag:
+            Groups.objects.filter(pk=g.pk).update(
+                deleted_at=g.deleted_datetime or dj_tz.now()
+            )
+        elif g.deleted_datetime:
+            Groups.objects.filter(pk=g.pk).update(deleted_at=g.deleted_datetime)
 
 
 def noop_reverse(apps, schema_editor):
@@ -29,6 +31,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RenameField(
+            model_name="tracks",
+            old_name="track_name",
+            new_name="track_code",
+        ),
+        migrations.AddField(
+            model_name="groups",
+            name="deleted_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.RunPython(forwards_fill_group_deleted_at, noop_reverse),
         migrations.RemoveConstraint(
             model_name="groups",
             name="unique_active_group_name_per_track",
@@ -44,6 +57,19 @@ class Migration(migrations.Migration):
         migrations.RemoveIndex(
             model_name="groups",
             name="groups_creatio_f6499a_idx",
+        ),
+        migrations.RemoveField(
+            model_name="groups",
+            name="deleted_flag",
+        ),
+        migrations.RenameField(
+            model_name="groups",
+            old_name="creation_datetime",
+            new_name="created_at",
+        ),
+        migrations.RemoveField(
+            model_name="groups",
+            name="deleted_datetime",
         ),
         migrations.AddField(
             model_name="groups",
@@ -69,26 +95,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="groups",
             name="max_members",
-            field=models.PositiveIntegerField(default=8),
-        ),
-        migrations.AddField(
-            model_name="groups",
-            name="deleted_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
-        migrations.RunPython(forwards_copy_group_soft_delete, noop_reverse),
-        migrations.RemoveField(
-            model_name="groups",
-            name="deleted_flag",
-        ),
-        migrations.RemoveField(
-            model_name="groups",
-            name="deleted_datetime",
-        ),
-        migrations.RenameField(
-            model_name="groups",
-            old_name="creation_datetime",
-            new_name="created_at",
+            field=models.PositiveSmallIntegerField(blank=True, default=8, null=True),
         ),
         migrations.AddIndex(
             model_name="groups",
@@ -114,20 +121,6 @@ class Migration(migrations.Migration):
                 name="group_deleted_after_created",
             ),
         ),
-        migrations.SeparateDatabaseAndState(
-            database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER TABLE "group_members" RENAME TO "group_membership";',
-                    reverse_sql='ALTER TABLE "group_membership" RENAME TO "group_members";',
-                ),
-            ],
-            state_operations=[
-                migrations.AlterModelTable(
-                    name="groupmembership",
-                    table="group_membership",
-                ),
-            ],
-        ),
         migrations.RemoveConstraint(
             model_name="groupmembership",
             name="unique_group_membership",
@@ -147,9 +140,9 @@ class Migration(migrations.Migration):
             name="membership_role",
             field=models.CharField(blank=True, default="", max_length=50),
         ),
-        migrations.AddIndex(
-            model_name="groupmembership",
-            index=models.Index(fields=["left_at"], name="group_membe_left_at_idx"),
+        migrations.AlterModelTable(
+            name="groupmembership",
+            table="group_membership",
         ),
         migrations.AddConstraint(
             model_name="groupmembership",
@@ -162,24 +155,32 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="groupmembership",
             constraint=models.CheckConstraint(
-                condition=models.Q(("left_at__gte", models.F("joined_at")), ("left_at__isnull", True), _connector="OR"),
+                condition=models.Q(("left_at__isnull", True))
+                | models.Q(("left_at__gte", models.F("joined_at"))),
                 name="group_membership_left_after_joined",
             ),
         ),
-        migrations.RenameField(
-            model_name="tracks",
-            old_name="track_name",
-            new_name="track_code",
+        migrations.AddIndex(
+            model_name="groupmembership",
+            index=models.Index(fields=["left_at"], name="group_membe_left_at_idx"),
         ),
         migrations.CreateModel(
             name="GroupInterest",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 (
                     "group",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="group_interests",
+                        related_name="interests",
                         to="groups.groups",
                     ),
                 ),
@@ -198,14 +199,17 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="groupinterest",
-            constraint=models.UniqueConstraint(fields=("group", "interest"), name="unique_group_interest"),
+            constraint=models.UniqueConstraint(
+                fields=("group", "interest"),
+                name="unique_group_interest",
+            ),
         ),
         migrations.AddIndex(
             model_name="groupinterest",
-            index=models.Index(fields=["group"], name="group_interest_group_idx"),
+            index=models.Index(fields=["group"], name="group_inter_group_id_idx"),
         ),
         migrations.AddIndex(
             model_name="groupinterest",
-            index=models.Index(fields=["interest"], name="group_interest_interest_idx"),
+            index=models.Index(fields=["interest"], name="group_inter_interest_id_idx"),
         ),
     ]

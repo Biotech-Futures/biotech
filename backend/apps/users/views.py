@@ -6,7 +6,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
+from .models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates
 from .serializers import (
@@ -120,36 +120,32 @@ class UserRegisterView(APIView):
         data = request.data
         databody = data["body"]
 
-        country, created = Countries.objects.get_or_create(country_name=databody["Country"])
+        country, _ = Countries.objects.get_or_create(country_name=databody["Country"])
 
         if databody["Country"] == "Australia":
-            user_country, s_created = CountryStates.objects.get_or_create(
-                country=country, state_name=databody["Region"]
-            )
+            user_country, _ = CountryStates.objects.get_or_create(country=country, state_name=databody["Region"])
             if databody["Region"] == "NSW":
-                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-NSW", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="AUS-NSW", state=user_country)
             elif databody["Region"] == "QLD":
-                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-QLD", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="AUS-QLD", state=user_country)
             elif databody["Region"] == "VIC":
-                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-VIC", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="AUS-VIC", state=user_country)
             elif databody["Region"] == "WA":
-                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-WA", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="AUS-WA", state=user_country)
             else:
-                user_track, t_created = Tracks.objects.get_or_create(track_code="Global", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="Global", state=user_country)
         else:
-            user_country, s_created = CountryStates.objects.get_or_create(
-                country=country, state_name=databody["Country"]
-            )
+            user_country, _ = CountryStates.objects.get_or_create(country=country, state_name=databody["Country"])
             if databody["Country"] == "Brazil":
-                user_track, t_created = Tracks.objects.get_or_create(track_code="Brazil", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="Brazil", state=user_country)
             else:
-                user_track, t_created = Tracks.objects.get_or_create(track_code="Global", state=user_country)
+                user_track, _ = Tracks.objects.get_or_create(track_code="Global", state=user_country)
 
         user = User.objects.create_user(
             email=databody["Title"],
+            track=user_track,
             first_name=databody["FirstName"],
             last_name=databody["Surname"],
-            track=user_track,
         )
 
         #roleassignmenthistory creation
@@ -158,10 +154,19 @@ class UserRegisterView(APIView):
         rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
         #supervisorprofile check
-        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
-        sup.first_name = databody["SupervisorFirstName"]
-        sup.last_name = databody["SupervisorSurname"]
-        sup.save()
+        sup, sup_created = User.objects.get_or_create(
+            email=databody["SupervisorEmail"],
+            defaults={
+                "track": user_track,
+                "first_name": databody["SupervisorFirstName"],
+                "last_name": databody["SupervisorSurname"],
+            },
+        )
+        if not sup_created:
+            sup.track = user_track
+            sup.first_name = databody["SupervisorFirstName"]
+            sup.last_name = databody["SupervisorSurname"]
+            sup.save(update_fields=["track", "first_name", "last_name"])
         sup_role = get_object_or_404(Roles, pk=2)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
         
@@ -191,9 +196,9 @@ class UserRegisterView(APIView):
         )
 
         #interest
-        si = StudentInterest.objects.create(
+        StudentInterest.objects.create(
             interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
-            user=user
+            student_profile=sp,
         )
         return Response(data["body"])
     
@@ -213,8 +218,8 @@ class ReceiveJoinPermissionView(APIView):
         
         sp = get_object_or_404(StudentProfile, user=user)
 
-        sp.has_join_permission = True
-        sp.joinperm_responseID = databody["ResponseID"]
+        sp.join_permission_received = True
+        sp.join_permission_response_id = databody["ResponseID"]
         sp.save()
 
         return Response(data["body"])

@@ -29,7 +29,7 @@ class IsMentor(permissions.BasePermission):
         if request.user.is_staff or request.user.is_superuser:
             return True
         role = get_active_role(request.user)
-        return role is not None and role.slug.lower() == "mentor"
+        return role is not None and role.slug.lower() == 'mentor'
 
 
 class IsAdministrator(permissions.BasePermission):
@@ -39,7 +39,7 @@ class IsAdministrator(permissions.BasePermission):
         if request.user.is_staff or request.user.is_superuser:
             return True
         role = get_active_role(request.user)
-        return role is not None and role.slug.lower() == "administrator"
+        return role is not None and role.slug.lower() == 'administrator'
 
 
 class IsMentorOrAdministrator(permissions.BasePermission):
@@ -51,7 +51,7 @@ class IsMentorOrAdministrator(permissions.BasePermission):
         role = get_active_role(request.user)
         if not role:
             return False
-        return role.slug.lower() in ("mentor", "administrator")
+        return role.slug.lower() in ('mentor', 'administrator')
 
 
 class AnnouncementCreateView(generics.CreateAPIView):
@@ -60,7 +60,7 @@ class AnnouncementCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         role = get_active_role(self.request.user)
-        role_name = role.slug.lower() if role else ""
+        role_name = role.slug.lower() if role else ''
 
         # Mentors must target a group
         if role_name == 'mentor' and not serializer.validated_data.get('group'):

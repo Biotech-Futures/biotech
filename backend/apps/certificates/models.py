@@ -1,13 +1,12 @@
 # CERTIFICATES MODELS
 
 from django.conf import settings
-from django.db import models
+from django.db import connection, models
+from django.db.models import Q
 
 
 class CertificateType(models.Model):
-    name = models.CharField(max_length=255, unique=True)
-    requires_number = models.BooleanField(default=False)
-    requires_expiry = models.BooleanField(default=False)
+    name = models.CharField(unique=True, max_length=255)
 
     class Meta:
         db_table = "certificate_type"
@@ -34,7 +33,7 @@ class MentorCertificate(models.Model):
     expires_at = models.DateField(blank=True, null=True)
     file_url = models.URLField(max_length=500, blank=True, null=True)
     verified_at = models.DateTimeField(blank=True, null=True)
-    verified_by = models.ForeignKey(
+    verified_by_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
@@ -55,6 +54,16 @@ class MentorCertificate(models.Model):
                 name="unique_certificate_per_mentor",
             ),
         ]
+
+        if connection.vendor != "sqlite":
+            constraints += [
+                models.CheckConstraint(
+                    condition=Q(expires_at__isnull=True)
+                    | Q(expires_at__gte=models.functions.Now())
+                    | Q(verified_at__isnull=True),
+                    name="cannot_verify_expired_certificate",
+                ),
+            ]
 
     def __str__(self):
         return f"{self.mentor_profile} - {self.certificate_type}"

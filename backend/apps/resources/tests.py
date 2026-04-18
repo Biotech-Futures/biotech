@@ -20,9 +20,19 @@ class RolesApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()           
         User = get_user_model()
+        Countries = dj_apps.get_model("groups", "Countries")
+        CountryStates = dj_apps.get_model("groups", "CountryStates")
+        Tracks = dj_apps.get_model("groups", "Tracks")
+        country = Countries.objects.create(country_name="Testland")
+        state = CountryStates.objects.create(country=country, state_name="TestState")
+        track = Tracks.objects.create(track_code="TEST-TRACK", state=state)
 
         # Auth user to hit endpoints guarded by IsAuthenticated
-        self.me = User.objects.create_user(password="pw12345", email = "test_email@gmail.com")
+        self.me = User.objects.create_user(
+            password="pw12345",
+            email="test_email@gmail.com",
+            track=track,
+        )
 
         # Some roles (unordered on purpose to check ordering in response)
         self.viewer = Roles.objects.create(slug="viewer")
@@ -50,11 +60,6 @@ class RoleAssignmentsApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-        # Auth user (whatever your AUTH_USER_MODEL is)
-        AuthUser = get_user_model()
-        self.me = AuthUser.objects.create_user(password="pw12345", email = "test_email@gmail.com")
-        self.client.force_authenticate(self.me)
-
         User = dj_apps.get_model('users', 'User')
         Countries = dj_apps.get_model('groups', 'Countries')
         CountryStates = dj_apps.get_model('groups', 'CountryStates')
@@ -64,6 +69,14 @@ class RoleAssignmentsApiTests(TestCase):
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
         track = Tracks.objects.create(track_code="Data Science", state=state)
+
+        AuthUser = get_user_model()
+        self.me = AuthUser.objects.create_user(
+            password="pw12345",
+            email="test_email@gmail.com",
+            track=track,
+        )
+        self.client.force_authenticate(self.me)
 
         self.r_admin = Roles.objects.create(slug="admin")
         self.r_view  = Roles.objects.create(slug="viewer")
@@ -432,16 +445,16 @@ class GrantRoleComprehensiveTests(TestCase):
         
         # Create test roles
         self.supervisor_role = Roles.objects.create(
-            slug="Supervisor",
+            slug='Supervisor',
         )
         self.student_role = Roles.objects.create(
-            slug="Student",
+            slug='Student',
         )
         self.teacher_role = Roles.objects.create(
-            slug="Teacher",
+            slug='Teacher',
         )
         self.basic_user_role = Roles.objects.create(
-            slug="basic_user",
+            slug='basic_user',
         )
         
         # Authenticate as admin
@@ -543,10 +556,10 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         
         # Create test roles
         self.supervisor_role = Roles.objects.create(
-            slug="Supervisor",
+            slug='Supervisor',
         )
         self.student_role = Roles.objects.create(
-            slug="Student",
+            slug='Student',
         )
         
         # Authenticate as admin
@@ -834,13 +847,13 @@ class ResourceRolesComprehensiveTests(TestCase):
         
         # Create test roles
         self.supervisor_role = Roles.objects.create(
-            slug="Supervisor",
+            slug='Supervisor',
         )
         self.student_role = Roles.objects.create(
-            slug="Student",
+            slug='Student',
         )
         self.teacher_role = Roles.objects.create(
-            slug="Teacher",
+            slug='Teacher',
         )
         
         # Create test resource

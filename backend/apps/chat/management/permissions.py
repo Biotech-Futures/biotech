@@ -9,10 +9,7 @@ ROLE_MENTOR = "mentor"
 
 def _has_active_role_name(user, allowed_names):
     rah = get_active_assignment(user)
-    if not (rah and rah.role):
-        return False
-    slug = rah.role.slug.lower()
-    return slug in {n.lower() for n in allowed_names}
+    return bool(rah and rah.role and rah.role.slug in allowed_names)
 
 
 class IsGroupMemberOrAdmin(BasePermission):

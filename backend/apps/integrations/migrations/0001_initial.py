@@ -1,3 +1,5 @@
+# Admin auth / session tables from target DDL (NextAuth-style).
+
 import django.db.models.deletion
 from django.db import migrations, models
 
@@ -25,11 +27,19 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="AdminAccount",
+            name="AdminOAuthAccount",
             fields=[
                 ("id", models.TextField(primary_key=True, serialize=False)),
                 ("account_id", models.TextField()),
                 ("provider_id", models.TextField()),
+                (
+                    "user",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="oauth_accounts",
+                        to="integrations.adminuser",
+                    ),
+                ),
                 ("access_token", models.TextField(blank=True, null=True)),
                 ("refresh_token", models.TextField(blank=True, null=True)),
                 ("access_token_expires_at", models.DateTimeField(blank=True, null=True)),
@@ -38,21 +48,13 @@ class Migration(migrations.Migration):
                 ("password", models.TextField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "user",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="accounts",
-                        to="integrations.adminuser",
-                    ),
-                ),
             ],
             options={
                 "db_table": "account",
             },
         ),
         migrations.CreateModel(
-            name="AdminSession",
+            name="AdminAuthSession",
             fields=[
                 ("id", models.TextField(primary_key=True, serialize=False)),
                 ("expires_at", models.DateTimeField()),
@@ -65,7 +67,7 @@ class Migration(migrations.Migration):
                     "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="sessions",
+                        related_name="auth_sessions",
                         to="integrations.adminuser",
                     ),
                 ),
@@ -77,7 +79,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="AdminMatchRun",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("run_type", models.CharField(max_length=100)),
                 ("payload", models.JSONField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -86,7 +96,7 @@ class Migration(migrations.Migration):
                     "admin_user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.PROTECT,
-                        related_name="admin_match_runs",
+                        related_name="match_runs",
                         to="integrations.adminuser",
                     ),
                 ),
@@ -94,5 +104,13 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "admin_match_run",
             },
+        ),
+        migrations.AddIndex(
+            model_name="adminmatchrun",
+            index=models.Index(fields=["admin_user"], name="admin_match_admin_u_idx"),
+        ),
+        migrations.AddIndex(
+            model_name="adminmatchrun",
+            index=models.Index(fields=["created_at"], name="admin_match_created_idx"),
         ),
     ]

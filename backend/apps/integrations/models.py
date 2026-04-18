@@ -2,6 +2,8 @@ from django.db import models
 
 
 class AdminUser(models.Model):
+    """NextAuth-style admin user (TEXT id per target DDL)."""
+
     id = models.TextField(primary_key=True)
     name = models.TextField(blank=True, null=True)
     email = models.TextField(blank=True, null=True)
@@ -13,12 +15,19 @@ class AdminUser(models.Model):
     class Meta:
         db_table = "admin_user"
 
+    def __str__(self):
+        return self.email or self.id
 
-class AdminAccount(models.Model):
+
+class AdminOAuthAccount(models.Model):
     id = models.TextField(primary_key=True)
     account_id = models.TextField()
     provider_id = models.TextField()
-    user = models.ForeignKey(AdminUser, on_delete=models.CASCADE, related_name="accounts")
+    user = models.ForeignKey(
+        AdminUser,
+        on_delete=models.CASCADE,
+        related_name="oauth_accounts",
+    )
     access_token = models.TextField(blank=True, null=True)
     refresh_token = models.TextField(blank=True, null=True)
     access_token_expires_at = models.DateTimeField(blank=True, null=True)
@@ -32,7 +41,7 @@ class AdminAccount(models.Model):
         db_table = "account"
 
 
-class AdminSession(models.Model):
+class AdminAuthSession(models.Model):
     id = models.TextField(primary_key=True)
     expires_at = models.DateTimeField()
     token = models.TextField(blank=True, null=True)
@@ -40,7 +49,11 @@ class AdminSession(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     ip_address = models.TextField(blank=True, null=True)
     user_agent = models.TextField(blank=True, null=True)
-    user = models.ForeignKey(AdminUser, on_delete=models.CASCADE, related_name="sessions")
+    user = models.ForeignKey(
+        AdminUser,
+        on_delete=models.CASCADE,
+        related_name="auth_sessions",
+    )
 
     class Meta:
         db_table = "session"
@@ -50,7 +63,7 @@ class AdminMatchRun(models.Model):
     admin_user = models.ForeignKey(
         AdminUser,
         on_delete=models.PROTECT,
-        related_name="admin_match_runs",
+        related_name="match_runs",
     )
     run_type = models.CharField(max_length=100)
     payload = models.JSONField(blank=True, null=True)
@@ -59,3 +72,7 @@ class AdminMatchRun(models.Model):
 
     class Meta:
         db_table = "admin_match_run"
+        indexes = [
+            models.Index(fields=["admin_user"]),
+            models.Index(fields=["created_at"]),
+        ]

@@ -13,12 +13,12 @@ class Groups(models.Model):
     year_max = models.PositiveSmallIntegerField(blank=True, null=True)
     lead_mentor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
         related_name="led_groups",
     )
-    max_members = models.PositiveIntegerField(default=8)
+    max_members = models.PositiveSmallIntegerField(default=8, blank=True, null=True)
 
     class Meta:
         db_table = "groups"

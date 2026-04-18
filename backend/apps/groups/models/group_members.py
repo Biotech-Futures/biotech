@@ -20,7 +20,7 @@ class GroupMembership(models.Model):
                 name="unique_active_group_membership",
             ),
             models.CheckConstraint(
-                condition=Q(left_at__gte=F("joined_at")) | Q(left_at__isnull=True),
+                condition=Q(left_at__isnull=True) | Q(left_at__gte=F("joined_at")),
                 name="group_membership_left_after_joined",
             ),
         ]

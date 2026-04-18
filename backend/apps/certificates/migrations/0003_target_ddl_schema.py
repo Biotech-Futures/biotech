@@ -1,15 +1,15 @@
+# Align certificate tables with target PostgreSQL DDL (sql_ddl.pdf).
+
 import django.db.models.deletion
+import django.db.models.functions.datetime
 from django.conf import settings
 from django.db import migrations, models
-from django.utils import timezone
+from django.utils import timezone as dj_tz
 
 
 def forwards_verified_to_timestamps(apps, schema_editor):
     MentorCertificate = apps.get_model("certificates", "MentorCertificate")
-    for row in MentorCertificate.objects.all():
-        if getattr(row, "verified", False) and getattr(row, "verified_at", None) is None:
-            row.verified_at = timezone.now()
-            row.save(update_fields=["verified_at"])
+    MentorCertificate.objects.filter(verified=True).update(verified_at=dj_tz.now())
 
 
 def noop_reverse(apps, schema_editor):
@@ -28,14 +28,14 @@ class Migration(migrations.Migration):
             model_name="mentorcertificate",
             name="cannot_verify_expired_certificate",
         ),
-        migrations.RemoveIndex(
-            model_name="certificatetype",
-            name="certificate_certifi_187256_idx",
-        ),
         migrations.RenameField(
             model_name="certificatetype",
             old_name="certificate_type",
             new_name="name",
+        ),
+        migrations.RemoveIndex(
+            model_name="certificatetype",
+            name="certificate_certifi_187256_idx",
         ),
         migrations.AddIndex(
             model_name="certificatetype",
@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="mentorcertificate",
-            name="verified_by",
+            name="verified_by_user",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
@@ -61,5 +61,14 @@ class Migration(migrations.Migration):
         migrations.RemoveField(
             model_name="mentorcertificate",
             name="verified",
+        ),
+        migrations.AddConstraint(
+            model_name="mentorcertificate",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("expires_at__isnull", True))
+                | models.Q(("expires_at__gte", django.db.models.functions.datetime.Now()))
+                | models.Q(("verified_at__isnull", True)),
+                name="cannot_verify_expired_certificate",
+            ),
         ),
     ]

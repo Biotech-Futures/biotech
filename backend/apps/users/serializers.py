@@ -126,7 +126,7 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_join_perm(self, obj):
         sp = self._student_profile(obj)
-        return None if sp is None else sp.has_join_permission
+        return None if sp is None else sp.join_permission_received
     
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_ment_inst(self, obj):

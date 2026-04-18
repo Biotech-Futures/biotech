@@ -34,7 +34,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
     Admins:
         - Full CRUD access to all certificates
         - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
-        - Can set verification timestamps (verified_at / verified_by)
+        - Can set 'verified' flag
         
     Supervisors:
         - GET /certificates/v1/ -> list certificates of mentors they oversee
@@ -129,10 +129,10 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             return MentorCertificateCreateSerializer
         
         if self.action in ['update', 'partial_update']:
-            # Admins can update all fields including verification
+            # Admins can update all fields including 'verified'
             if self.request.user.is_staff or self.request.user.is_superuser:
                 return AdminCertificateUpdateSerializer
-            # Mentors can only update their certificate details, not verification fields
+            # Mentors can only update their certificate details, not 'verified'
             return MentorCertificateUpdateSerializer
         
         return MentorCertificateSerializer
@@ -141,7 +141,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         """
         When creating a certificate:
         - If user is a mentor (not admin), auto-set mentor_profile to current user
-        - Certificate starts unverified (verified_at is null by default)
+        - Certificate starts as unverified (verified=False by default)
         """
         user = self.request.user
         
@@ -177,8 +177,8 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         
         certificate = self.get_object()
         certificate.verified_at = timezone.now()
-        certificate.verified_by = request.user
-        certificate.save(update_fields=["verified_at", "verified_by"])
+        certificate.verified_by_user = request.user
+        certificate.save(update_fields=["verified_at", "verified_by_user"])
         
         serializer = self.get_serializer(certificate)
         return Response(serializer.data)
@@ -197,8 +197,8 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         
         certificate = self.get_object()
         certificate.verified_at = None
-        certificate.verified_by = None
-        certificate.save(update_fields=["verified_at", "verified_by"])
+        certificate.verified_by_user = None
+        certificate.save(update_fields=["verified_at", "verified_by_user"])
         
         serializer = self.get_serializer(certificate)
         return Response(serializer.data)

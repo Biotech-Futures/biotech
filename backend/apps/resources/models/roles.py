@@ -3,7 +3,7 @@ from django.db.models import Q
 
 
 class Roles(models.Model):
-    slug = models.CharField(max_length=100, unique=True)
+    slug = models.CharField(unique=True, max_length=100)
 
     class Meta:
         db_table = "roles"
@@ -12,7 +12,7 @@ class Roles(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=~Q(slug=""),
-                name="roles_slug_not_empty",
+                name="role_slug_not_empty",
             ),
         ]
 

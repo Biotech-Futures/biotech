@@ -36,17 +36,18 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         membership = self.get_object()
-        membership.delete()
+        membership.left_at = timezone.now()
+        membership.save(update_fields=["left_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TrackViewSet(viewsets.ModelViewSet):
     queryset = Tracks.objects.order_by("track_code", "id")
     serializer_class = TrackSerializer
-    http_method_names = ["get", "post", "put", "patch"]
+    http_method_names = ['get', 'post', 'put', 'patch']
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    ordering_fields = ["track_code", "id"]
-    search_fields = ["track_code"]
+    ordering_fields = ['track_code', 'id']
+    search_fields = ['track_code']
 
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:

@@ -18,21 +18,27 @@ class ResourceTypeSerializer(serializers.ModelSerializer):
         fields = ['id', 'type_name', 'type_description']
 
 class RoleSerializer(serializers.ModelSerializer):
-    role_name = serializers.CharField(source="slug", max_length=100)
+    role_name = serializers.CharField(source="slug", read_only=True)
 
     class Meta:
         model = Roles
-        fields = ["id", "role_name"]
+        fields = ["id", "slug", "role_name"]
+        extra_kwargs = {"slug": {"required": False, "allow_blank": True}}
 
-    def validate_role_name(self, value: str) -> str:
+    def to_internal_value(self, data):
+        if isinstance(data, dict) and "role_name" in data and "slug" not in data:
+            data = {**data, "slug": data["role_name"]}
+        return super().to_internal_value(data)
+
+    def validate_slug(self, value: str) -> str:
         name = (value or "").strip()
         if not name:
-            raise serializers.ValidationError("role_name cannot be blank.")
+            raise serializers.ValidationError("slug cannot be blank.")
         qs = Roles.objects.filter(slug__iexact=name)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
-            raise serializers.ValidationError("A role with this name already exists.")
+            raise serializers.ValidationError("A role with this slug already exists.")
         return name
 
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):

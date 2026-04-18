@@ -21,7 +21,7 @@ class MentorCertificateSerializer(serializers.ModelSerializer):
             "expires_at",
             "file_url",
             "verified_at",
-            "verified_by",
+            "verified_by_user",
         ]
         read_only_fields = fields
 
@@ -60,7 +60,7 @@ class MentorCertificateCreateSerializer(serializers.ModelSerializer):
                     {
                         "certificate_number": (
                             f'Certificate type "{certificate_type.name}" requires a certificate number.'
-                        )
+                        ),
                     }
                 )
 
@@ -92,5 +92,5 @@ class AdminCertificateUpdateSerializer(serializers.ModelSerializer):
             "expires_at",
             "file_url",
             "verified_at",
-            "verified_by",
+            "verified_by_user",
         ]

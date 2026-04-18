@@ -71,7 +71,8 @@ class RoleViewSet(mixins.ListModelMixin,
 
         try:
             # Use service layer to create role (handles both Role and Group creation)
-            role = create_role(serializer.validated_data["slug"])
+            raw = serializer.validated_data.get("slug") or serializer.validated_data.get("role_name")
+            role = create_role(raw)
 
             # Return serialized response
             response_serializer = self.get_serializer(role)
@@ -533,7 +534,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 valid_from__lte=now,
             ).filter(
                 Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-            ).values_list("role__slug", flat=True))
+            ).values_list('role__slug', flat=True))
             
             reason = (
                 f"This resource is restricted to users with the following role(s): {', '.join(resource_role_names)}. "

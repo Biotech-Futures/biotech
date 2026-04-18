@@ -1,12 +1,25 @@
+# Align roles / user role assignment tables with target PostgreSQL DDL (sql_ddl.pdf).
+
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+
+
+def forwards_clear_null_assignments(apps, schema_editor):
+    RoleAssignmentHistory = apps.get_model("resources", "RoleAssignmentHistory")
+    RoleAssignmentHistory.objects.filter(user_id__isnull=True).delete()
+    RoleAssignmentHistory.objects.filter(role_id__isnull=True).delete()
+
+
+def noop_reverse(apps, schema_editor):
+    pass
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
         ("resources", "0002_initial"),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
@@ -28,20 +41,15 @@ class Migration(migrations.Migration):
             model_name="roles",
             constraint=models.CheckConstraint(
                 condition=models.Q(("slug", ""), _negated=True),
-                name="roles_slug_not_empty",
+                name="role_slug_not_empty",
             ),
         ),
-        migrations.AlterModelTable(
-            name="roleassignmenthistory",
-            table="user_role_assignment",
-        ),
+        migrations.RunPython(forwards_clear_null_assignments, noop_reverse),
         migrations.AlterField(
             model_name="roleassignmenthistory",
             name="user",
             field=models.ForeignKey(
-                null=True,
                 on_delete=django.db.models.deletion.CASCADE,
-                related_name="user_role_assignments",
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
@@ -49,10 +57,12 @@ class Migration(migrations.Migration):
             model_name="roleassignmenthistory",
             name="role",
             field=models.ForeignKey(
-                null=True,
                 on_delete=django.db.models.deletion.PROTECT,
-                related_name="role_assignments",
                 to="resources.roles",
             ),
+        ),
+        migrations.AlterModelTable(
+            name="roleassignmenthistory",
+            table="user_role_assignment",
         ),
     ]

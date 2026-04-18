@@ -1,4 +1,3 @@
-from django.apps import apps as django_apps
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 
@@ -6,18 +5,15 @@ from django.db import models
 class UserManager(BaseUserManager):
     use_in_migrations = True
 
-    def _default_track(self):
-        Tracks = django_apps.get_model("groups", "Tracks")
-        return Tracks.objects.order_by("id").first()
-
     def create_user(self, *, email: str, password: str = None, **extra):
         if not email:
             raise ValueError("Email is required")
         email = self.normalize_email(email).lower()
-        if "track" not in extra and "track_id" not in extra:
-            t = self._default_track()
-            if t is not None:
-                extra["track"] = t
+        if extra.get("track") is None:
+            Tracks = self.model._meta.apps.get_model("groups", "Tracks")
+            default_track = Tracks.objects.order_by("pk").first()
+            if default_track is not None:
+                extra["track"] = default_track
         if password:
             extra.setdefault("account_status", User.AccountStatus.ACTIVE)
         else:
@@ -25,7 +21,7 @@ class UserManager(BaseUserManager):
         extra.setdefault("is_active", extra["account_status"] == User.AccountStatus.ACTIVE)
         user = self.model(
             email=email,
-            **extra
+            **extra,
         )
         if password:
             user.set_password(password)
@@ -33,7 +29,7 @@ class UserManager(BaseUserManager):
             user.set_unusable_password()
         user.save(using=self._db)
         return user
-    
+
     def create_superuser(self, email, password, **extra):
         if not password:
             raise ValueError("Superusers must have a password")
@@ -44,6 +40,7 @@ class UserManager(BaseUserManager):
         extra.setdefault("account_status", User.AccountStatus.ACTIVE)
         extra.setdefault("is_active", True)
         return self.create_user(email=email, password=password, **extra)
+
 
 class User(AbstractUser):
     class AccountStatus(models.TextChoices):
@@ -56,7 +53,7 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=255, blank=False)
-    last_name  = models.CharField(max_length=255, blank=False)
+    last_name = models.CharField(max_length=255, blank=False)
     track = models.ForeignKey(
         "groups.Tracks",
         on_delete=models.PROTECT,

@@ -73,7 +73,7 @@ class CertificateDetailTests(APITestCase):
             issued_at=timezone.now().date(),
             expires_at=(timezone.now() + timezone.timedelta(days=365)).date(),
             file_url="https://example.com/cert.pdf",
-            
+            verified_at=None,
         )
 
         self.url = f"/certificates/v1/{self.cert.id}/"
@@ -264,7 +264,7 @@ class MentorRBACTests(APITestCase):
         # Verify mentor_profile was auto-set
         cert = MentorCertificate.objects.get(certificate_number="MENTOR123")
         self.assertEqual(cert.mentor_profile, self.mentor_profile)
-        self.assertIsNone(cert.verified_at)  # Should be unverified by default
+        self.assertIsNone(cert.verified_at)
     
     def test_mentor_can_list_own_certificates(self):
         """Mentor can only see their own certificates"""
@@ -341,7 +341,7 @@ class MentorRBACTests(APITestCase):
             issued_by="NSW Gov",
             issued_at=timezone.now().date(),
             expires_at=(timezone.now() + timezone.timedelta(days=365)).date(),
-            
+            verified_at=None
         )
         
         self.client.force_authenticate(user=self.mentor_user)
@@ -401,7 +401,7 @@ class AdminRBACTests(APITestCase):
             issued_by="NSW Gov",
             issued_at=timezone.now().date(),
             expires_at=(timezone.now() + timezone.timedelta(days=30)).date(),
-            
+            verified_at=None
         )
         
         self.url = "/certificates/v1/"
@@ -411,7 +411,7 @@ class AdminRBACTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post(f"{self.url}{self.cert.id}/verify/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(resp.data["verified_at"])
+        self.assertIsNotNone(resp.data.get("verified_at"))
         
         self.cert.refresh_from_db()
         self.assertIsNotNone(self.cert.verified_at)
@@ -424,7 +424,7 @@ class AdminRBACTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post(f"{self.url}{self.cert.id}/unverify/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIsNone(resp.data["verified_at"])
+        self.assertIsNone(resp.data.get("verified_at"))
     
     def test_admin_audit_filter_expiring_soon(self):
         """Admin can filter certificates by expiry date"""

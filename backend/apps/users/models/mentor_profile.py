@@ -9,8 +9,8 @@ class MentorProfile(models.Model):
         on_delete=models.CASCADE,
         primary_key=True,
     )
-    institution = models.CharField(max_length=255, blank=True, null=True)
-    mentor_reason = models.CharField(max_length=255, blank=True, default="")
+    institution = models.CharField(db_column="Institution", max_length=255, blank=True, null=True)
+    mentor_reason = models.CharField(max_length=255, blank=True, null=True)
     max_group_count = models.PositiveIntegerField(default=3)
     country = models.ForeignKey(
         "groups.Countries",
@@ -26,8 +26,8 @@ class MentorProfile(models.Model):
         blank=True,
         related_name="mentor_profiles",
     )
-    background = models.CharField(max_length=120, blank=True, default="")
-    region = models.CharField(max_length=80, blank=True, default="")
+    background = models.CharField(max_length=120, blank=True, null=True)
+    region = models.CharField(max_length=80, blank=True, null=True)
 
     class Meta:
         db_table = "mentor_profile"

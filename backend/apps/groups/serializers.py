@@ -11,8 +11,8 @@ class CountrySerializer(serializers.ModelSerializer):
 class GroupMembershipSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupMembership
-        fields = ["id", "group", "user", "membership_role", "joined_at", "left_at"]
-        read_only_fields = ["id", "joined_at"]
+        fields = ['id', 'group', 'user', 'membership_role', 'joined_at', 'left_at']
+        read_only_fields = ['id', 'joined_at']
         validators = []
 
     def validate(self, attrs):
@@ -20,7 +20,7 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
         user = attrs.get('user', getattr(self.instance, 'user', None))
 
         if group is not None and user is not None:
-            qs = GroupMembership.objects.filter(group=group, user=user)
+            qs = GroupMembership.objects.filter(group=group, user=user, left_at__isnull=True)
             if self.instance is not None:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
@@ -31,52 +31,31 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 
 
 class TrackSerializer(serializers.ModelSerializer):
-    track_name = serializers.CharField(source="track_code", max_length=100)
-
     class Meta:
         model = Tracks
-        fields = ["id", "track_name", "state"]
+        fields = ['id', 'track_code', 'state']
 
 
 class GroupSerializer(serializers.ModelSerializer):
-    creation_datetime = serializers.DateTimeField(source="created_at", read_only=True)
-    deleted_flag = serializers.SerializerMethodField()
-    deleted_datetime = serializers.DateTimeField(source="deleted_at", read_only=True)
-
     class Meta:
         model = Groups
-        fields = [
-            "id",
-            "group_name",
-            "track",
-            "creation_datetime",
-            "deleted_flag",
-            "deleted_datetime",
-        ]
-        read_only_fields = ["id", "creation_datetime", "deleted_flag", "deleted_datetime"]
+        fields = ['id', 'group_name', 'track', 'created_at', 'deleted_at', 'year_min', 'year_max', 'lead_mentor', 'max_members']
+        read_only_fields = ['id', 'created_at', 'deleted_at']
         validators = []
 
-    def get_deleted_flag(self, obj):
-        return obj.deleted_at is not None
-
     def validate(self, attrs):
-        track = attrs.get("track", getattr(self.instance, "track", None))
-        group_name = attrs.get("group_name", getattr(self.instance, "group_name", None))
-        deleted_at = getattr(self.instance, "deleted_at", None) if self.instance else None
-        is_active = deleted_at is None
+        track = attrs.get('track', getattr(self.instance, 'track', None))
+        group_name = attrs.get('group_name', getattr(self.instance, 'group_name', None))
+        deleted_at = attrs.get('deleted_at', getattr(self.instance, 'deleted_at', None))
 
-        if track is not None and group_name and is_active:
+        if track is not None and group_name and deleted_at is None:
             qs = Groups.objects.filter(track=track, group_name=group_name, deleted_at__isnull=True)
             if self.instance is not None:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
-                raise serializers.ValidationError(
-                    {
-                        "non_field_errors": [
-                            "An active group with this name already exists in this track."
-                        ]
-                    }
-                )
+                raise serializers.ValidationError({
+                    'non_field_errors': ['An active group with this name already exists in this track.']
+                })
         return attrs
 
 

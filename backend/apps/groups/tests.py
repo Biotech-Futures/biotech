@@ -87,7 +87,7 @@ class GroupsTests(TestCase):
         payload = {
             'group_name': 'team_beta',
             'track': self.track.id,
-            'deleted_flag': True,
+            'deleted_at': timezone.now().isoformat(),
         }
         resp = self.client.post(url, payload, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
@@ -181,7 +181,7 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         resp = self.client.patch(url, {
             'group_name': 'Still Active',
-            'deleted_flag': True,
+            'deleted_at': timezone.now().isoformat(),
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.group1.refresh_from_db()
@@ -357,7 +357,7 @@ class TrackApiTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         response = self.client.post(
             self.list_url,
-            {"track_name": "TRACK-2", "state": self.state.id}
+            {"track_code": "TRACK-2", "state": self.state.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -365,7 +365,7 @@ class TrackApiTests(TestCase):
         self.client.force_authenticate(user=self.normal_user)
         response = self.client.post(
             self.list_url,
-            {"track_name": "TRACK-2", "state": self.state.id}
+            {"track_code": "TRACK-2", "state": self.state.id}
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -373,6 +373,6 @@ class TrackApiTests(TestCase):
         self.client.logout()
         response = self.client.post(
             self.list_url,
-            {"track_name": "TRACK-2", "state": self.state.id}
+            {"track_code": "TRACK-2", "state": self.state.id}
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

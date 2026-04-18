@@ -1,19 +1,29 @@
-from django.conf import settings
 from django.db import models
 
 
 class MentorInterest(models.Model):
-    mentor_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    interest = models.ForeignKey('AreasOfInterest', on_delete=models.CASCADE)
+    mentor_profile = models.ForeignKey(
+        "MentorProfile",
+        on_delete=models.CASCADE,
+        db_column="mentor_user_id",
+        related_name="interest_entries",
+    )
+    interest = models.ForeignKey("AreasOfInterest", on_delete=models.CASCADE)
 
     class Meta:
-        db_table = 'mentor_interest'
+        db_table = "mentor_interest"
         verbose_name = "Mentor Interest"
         verbose_name_plural = "Mentor Interests"
         constraints = [
-            models.UniqueConstraint(fields=['mentor_user', 'interest'], name='unique_mentor_interest')
+            models.UniqueConstraint(
+                fields=["mentor_profile", "interest"],
+                name="unique_mentor_interest",
+            ),
         ]
         indexes = [
-            models.Index(fields=['mentor_user']),
-            models.Index(fields=['interest']),
+            models.Index(fields=["mentor_profile"]),
+            models.Index(fields=["interest"]),
         ]
+
+    def __str__(self):
+        return f"{self.mentor_profile.user} interested in {self.interest}"

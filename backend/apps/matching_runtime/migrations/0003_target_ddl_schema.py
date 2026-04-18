@@ -1,3 +1,5 @@
+# Align match_run / match_recommendation FK on_delete with target DDL (RESTRICT).
+
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
