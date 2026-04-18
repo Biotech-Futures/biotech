@@ -19,7 +19,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { MatchRecommendation } from "@/schema/match";
+import type { MatchRecommendation, NotFullGroup } from "@/schema/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +32,7 @@ import { toast } from "sonner";
 
 type MatchingBoardProps = {
   recommendations: MatchRecommendation[];
+  notFullGroups: NotFullGroup[];
   onRunMatch: () => void;
   onConfirmAssignments: (
     assignments: Array<{ studentId: number; groupId: number | string }>,
@@ -45,7 +46,7 @@ type MovableStudent = {
   name: string;
   track: string;
   yearLevel: string;
-  country: string;
+  interests: string[];
   score: number;
   reason: string;
   recommendedGroupId: string | null;
@@ -64,7 +65,7 @@ type GroupMember = {
   id: string;
   name: string;
   yearLevel: string;
-  country: string;
+  interests: string[];
 };
 
 type MatchingGroup = {
@@ -111,16 +112,96 @@ function formatYearLevel(yearLevel?: number): string {
   return String(yearLevel);
 }
 
+function formatInterests(interests?: string[]): string[] {
+  return (interests ?? []).map((interest) => interest.trim()).filter(Boolean);
+}
+
+function getSharedInterests(
+  students: Array<{ id: string; interests: string[] }>,
+): string[] {
+  const interestCounts = new Map<
+    string,
+    {
+      label: string;
+      count: number;
+    }
+  >();
+  const seenStudentIds = new Set<string>();
+
+  for (const student of students) {
+    if (seenStudentIds.has(student.id)) {
+      continue;
+    }
+    seenStudentIds.add(student.id);
+
+    const uniqueStudentInterests = new Set(
+      student.interests.map((interest) => interest.trim()).filter(Boolean),
+    );
+
+    for (const interest of uniqueStudentInterests) {
+      const key = interest.toLowerCase();
+      const existing = interestCounts.get(key);
+      interestCounts.set(key, {
+        label: existing?.label ?? interest,
+        count: (existing?.count ?? 0) + 1,
+      });
+    }
+  }
+
+  return [...interestCounts.values()]
+    .filter((interest) => interest.count > 1)
+    .map((interest) => interest.label)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 function toContainerId(groupId: string): string {
   return `group-${groupId}`;
 }
 
-function buildBoardData(recommendations: MatchRecommendation[]): BoardData {
+function toMatchingGroup(
+  group: MatchRecommendation["recommendGroup"] | NotFullGroup,
+): MatchingGroup | null {
+  if (!group) {
+    return null;
+  }
+
+  return {
+    id: toStringId(group.id),
+    name: group.groupName,
+    track: toStringId(group.trackId),
+    tutor: group.tutor?.name || "Unassigned",
+    maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
+    existingStudents: group.groupStudent.map((groupStudent) => ({
+      id: toStringId(groupStudent.id),
+      name:
+        groupStudent.name?.trim() || `Student #${toStringId(groupStudent.id)}`,
+      yearLevel: formatYearLevel(
+        groupStudent.yearLevel ?? groupStudent.yearlevel,
+      ),
+      interests: formatInterests(groupStudent.interests),
+    })),
+  };
+}
+
+function buildBoardData(
+  recommendations: MatchRecommendation[],
+  notFullGroups: NotFullGroup[],
+): BoardData {
   const studentsById: Record<string, MovableStudent> = {};
   const groupsByContainerId: Record<string, MatchingGroup> = {};
   const containers: Record<string, string[]> = {
     [WAITING_CONTAINER_ID]: [],
   };
+
+  for (const group of notFullGroups) {
+    const containerId = toContainerId(toStringId(group.id));
+    const matchingGroup = toMatchingGroup(group);
+
+    if (matchingGroup) {
+      groupsByContainerId[containerId] = matchingGroup;
+      containers[containerId] = [];
+    }
+  }
 
   for (const recommendation of recommendations) {
     const studentId = toStringId(recommendation.student.id);
@@ -135,7 +216,7 @@ function buildBoardData(recommendations: MatchRecommendation[]): BoardData {
       yearLevel: formatYearLevel(
         recommendation.student.yearLevel ?? recommendation.student.yearlevel,
       ),
-      country: recommendation.student.country ?? "N/A",
+      interests: formatInterests(recommendation.student.interests),
       score: recommendation.score,
       reason: recommendation.reason,
       recommendedGroupId: recommendGroupId,
@@ -147,23 +228,10 @@ function buildBoardData(recommendations: MatchRecommendation[]): BoardData {
       const containerId = toContainerId(toStringId(group.id));
 
       if (!groupsByContainerId[containerId]) {
-        groupsByContainerId[containerId] = {
-          id: toStringId(group.id),
-          name: group.groupName,
-          track: toStringId(group.trackId),
-          tutor: group.tutor?.name || "Unassigned",
-          maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
-          existingStudents: group.groupStudent.map((groupStudent) => ({
-            id: toStringId(groupStudent.id),
-            name:
-              groupStudent.name?.trim() ||
-              `Student #${toStringId(groupStudent.id)}`,
-            yearLevel: formatYearLevel(
-              groupStudent.yearLevel ?? groupStudent.yearlevel,
-            ),
-            country: groupStudent.country ?? "N/A",
-          })),
-        };
+        const matchingGroup = toMatchingGroup(group);
+        if (matchingGroup) {
+          groupsByContainerId[containerId] = matchingGroup;
+        }
       }
 
       if (!containers[containerId]) {
@@ -211,114 +279,188 @@ function StudentCard({
   student,
   isRecommendedInCurrentGroup,
   isDragging,
+  suppressTooltip,
 }: {
   student: MovableStudent;
   isRecommendedInCurrentGroup: boolean;
   isDragging?: boolean;
+  suppressTooltip?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border bg-card p-2 text-card-foreground shadow-sm transition",
-        isRecommendedInCurrentGroup &&
-          "border-emerald-400 bg-emerald-50 text-emerald-950",
-        isDragging && "opacity-40",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="truncate text-xs font-semibold">{student.name}</p>
-        <Tooltip>
-          <TooltipTrigger asChild>
+    <Tooltip open={isDragging || suppressTooltip ? false : undefined}>
+      <TooltipTrigger asChild>
+        <div
+          className={cn(
+            "rounded-lg border bg-card p-2 text-card-foreground shadow-sm transition",
+            isRecommendedInCurrentGroup &&
+              "border-emerald-400 bg-emerald-50 text-emerald-950",
+            isDragging && "opacity-40",
+          )}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate text-xs font-semibold">{student.name}</p>
             <Badge
               variant={isRecommendedInCurrentGroup ? "default" : "outline"}
             >
               {student.score.toFixed(0)}
             </Badge>
-          </TooltipTrigger>
-          <TooltipContent
-            side="top"
-            className="w-[340px] max-w-[90vw] !flex !flex-col !items-stretch gap-2 rounded-lg border bg-card p-3 text-card-foreground shadow-lg"
-          >
-            <div className="rounded-md border bg-muted/20 p-2">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Reason
-              </p>
-              <p className="mt-1 text-xs leading-relaxed">
-                {student.reason || "No reason provided"}
-              </p>
+          </div>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className="w-[340px] max-w-[90vw] !flex !flex-col !items-stretch gap-2 rounded-lg border bg-card p-3 text-card-foreground shadow-lg"
+      >
+        <div className="rounded-md border bg-muted/20 p-2 text-xs">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Student
+          </p>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <div>
+              <span className="text-muted-foreground">Track ID</span>
+              <p className="font-medium">{student.track || "N/A"}</p>
             </div>
+            <div>
+              <span className="text-muted-foreground">Year level</span>
+              <p className="font-medium">{student.yearLevel}</p>
+            </div>
+          </div>
+          <div className="mt-2">
+            <span className="text-muted-foreground">Interests</span>
+            {student.interests.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {student.interests.map((interest) => (
+                  <Badge
+                    key={interest}
+                    variant="secondary"
+                    className="text-[10px]"
+                  >
+                    {interest}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-muted-foreground">No interests listed.</p>
+            )}
+          </div>
+        </div>
 
-            <div className="rounded-md border bg-muted/20 p-2 text-xs">
-              <div className="mb-2 flex items-center justify-between border-b pb-1.5">
-                <span className="font-medium text-muted-foreground">
-                  Match score
-                </span>
-                <span className="text-sm font-semibold">
-                  {student.score.toFixed(2)}
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Base</span>
-                  <span>{student.scoreBreakdown.baseScore.toFixed(2)}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Year penalty</span>
-                  <span className="text-red-500">
-                    -{student.scoreBreakdown.yearPenalty.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Country penalty</span>
-                  <span className="text-red-500">
-                    -{student.scoreBreakdown.countryPenalty.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Timezone penalty</span>
-                  <span className="text-red-500">
-                    -{student.scoreBreakdown.timezonePenalty.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Size bonus</span>
-                  <span className="text-green-600">
-                    +{student.scoreBreakdown.sizeBonus.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between border-t pt-1.5 font-semibold">
-                  <span>Total</span>
-                  <span>{student.scoreBreakdown.objectiveScore.toFixed(2)}</span>
-                </div>
-              </div>
+        <div className="rounded-md border bg-muted/20 p-2">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Reason
+          </p>
+          <p className="mt-1 text-xs leading-relaxed">
+            {student.reason || "No reason provided"}
+          </p>
+        </div>
+
+        <div className="rounded-md border bg-muted/20 p-2 text-xs">
+          <div className="mb-2 flex items-center justify-between border-b pb-1.5">
+            <span className="font-medium text-muted-foreground">
+              Match score
+            </span>
+            <span className="text-sm font-semibold">
+              {student.score.toFixed(2)}
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Base</span>
+              <span>{student.scoreBreakdown.baseScore.toFixed(2)}</span>
             </div>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      <p className="mt-1 text-[11px] text-muted-foreground">
-        Y{student.yearLevel} | {student.country}
-      </p>
-    </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Year penalty</span>
+              <span className="text-red-500">
+                -{student.scoreBreakdown.yearPenalty.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Location penalty</span>
+              <span className="text-red-500">
+                -{student.scoreBreakdown.countryPenalty.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Timezone penalty</span>
+              <span className="text-red-500">
+                -{student.scoreBreakdown.timezonePenalty.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Size bonus</span>
+              <span className="text-green-600">
+                +{student.scoreBreakdown.sizeBonus.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-t pt-1.5 font-semibold">
+              <span>Total</span>
+              <span>{student.scoreBreakdown.objectiveScore.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
-function ExistingStudentCard({ student }: { student: GroupMember }) {
+function ExistingStudentCard({
+  student,
+  suppressTooltip,
+}: {
+  student: GroupMember;
+  suppressTooltip?: boolean;
+}) {
   return (
-    <div className="rounded-lg border bg-card/70 p-2 text-card-foreground">
-      <p className="truncate text-xs font-semibold">{student.name}</p>
-      <p className="mt-1 text-[11px] text-muted-foreground">
-        Y{student.yearLevel} | {student.country}
-      </p>
-    </div>
+    <Tooltip open={suppressTooltip ? false : undefined}>
+      <TooltipTrigger asChild>
+        <div className="rounded-lg border bg-card/70 p-2 text-card-foreground">
+          <p className="truncate text-xs font-semibold">{student.name}</p>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className="w-[260px] max-w-[90vw] !flex !flex-col !items-stretch gap-2 rounded-lg border bg-card p-3 text-card-foreground shadow-lg"
+      >
+        <div className="rounded-md border bg-muted/20 p-2 text-xs">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Student
+          </p>
+          <div className="mt-1">
+            <span className="text-muted-foreground">Year level</span>
+            <p className="font-medium">{student.yearLevel}</p>
+          </div>
+          <div className="mt-2">
+            <span className="text-muted-foreground">Interests</span>
+            {student.interests.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {student.interests.map((interest) => (
+                  <Badge
+                    key={interest}
+                    variant="secondary"
+                    className="text-[10px]"
+                  >
+                    {interest}
+                  </Badge>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-muted-foreground">No interests listed.</p>
+            )}
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
 function SortableStudentCard({
   student,
   isRecommendedInCurrentGroup,
+  suppressTooltip,
 }: {
   student: MovableStudent;
   isRecommendedInCurrentGroup: boolean;
+  suppressTooltip?: boolean;
 }) {
   const {
     attributes,
@@ -340,6 +482,7 @@ function SortableStudentCard({
         student={student}
         isRecommendedInCurrentGroup={isRecommendedInCurrentGroup}
         isDragging={isDragging}
+        suppressTooltip={suppressTooltip}
       />
     </div>
   );
@@ -352,6 +495,7 @@ function DroppableStudentList({
   recommendedGroupId,
   emptyText,
   horizontal = false,
+  suppressTooltips,
 }: {
   containerId: string;
   studentIds: string[];
@@ -359,6 +503,7 @@ function DroppableStudentList({
   recommendedGroupId: string | null;
   emptyText: string;
   horizontal?: boolean;
+  suppressTooltips?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: containerId });
 
@@ -386,16 +531,14 @@ function DroppableStudentList({
               }
 
               return (
-                <div
-                  key={studentId}
-                  className={cn(horizontal && "w-[220px] shrink-0")}
-                >
+                <div key={studentId} className={cn(horizontal && "shrink-0")}>
                   <SortableStudentCard
                     student={student}
                     isRecommendedInCurrentGroup={
                       recommendedGroupId !== null &&
                       student.recommendedGroupId === recommendedGroupId
                     }
+                    suppressTooltip={suppressTooltips}
                   />
                 </div>
               );
@@ -413,14 +556,15 @@ function DroppableStudentList({
 
 export function MatchingBoard({
   recommendations,
+  notFullGroups,
   onRunMatch,
   onConfirmAssignments,
   isRunning,
   isConfirming,
 }: MatchingBoardProps) {
   const boardData = useMemo(
-    () => buildBoardData(recommendations),
-    [recommendations],
+    () => buildBoardData(recommendations, notFullGroups),
+    [notFullGroups, recommendations],
   );
   const [containers, setContainers] = useState<Record<string, string[]>>({});
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
@@ -451,11 +595,19 @@ export function MatchingBoard({
         const recommendedCount = movedStudents.length;
         const totalCount = existingCount + recommendedCount;
         const remainingCapacity = Math.max(0, group.maxSize - totalCount);
+        const movedStudentDetails = movedStudents
+          .map((studentId) => boardData.studentsById[studentId])
+          .filter((student): student is MovableStudent => Boolean(student));
+        const sharedInterests = getSharedInterests([
+          ...group.existingStudents,
+          ...movedStudentDetails,
+        ]);
 
         return {
           containerId,
           group,
           movedStudents,
+          sharedInterests,
           existingCount,
           recommendedCount,
           totalCount,
@@ -463,7 +615,11 @@ export function MatchingBoard({
         };
       },
     );
-  }, [boardData.groupsByContainerId, effectiveContainers]);
+  }, [
+    boardData.groupsByContainerId,
+    boardData.studentsById,
+    effectiveContainers,
+  ]);
 
   const availableTracks = useMemo(() => {
     return [
@@ -599,12 +755,15 @@ export function MatchingBoard({
   const assignedStudentCount =
     recommendations.length -
     (effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0);
-  const waitingStudentCount = effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0;
+  const waitingStudentCount =
+    effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0;
 
   function buildAssignmentsPayload() {
     const payload: Array<{ studentId: number; groupId: number | string }> = [];
 
-    for (const [containerId, studentIds] of Object.entries(effectiveContainers)) {
+    for (const [containerId, studentIds] of Object.entries(
+      effectiveContainers,
+    )) {
       if (containerId === WAITING_CONTAINER_ID) {
         continue;
       }
@@ -615,7 +774,9 @@ export function MatchingBoard({
       }
 
       const numericGroupId = Number(group.id);
-      const groupId = Number.isFinite(numericGroupId) ? numericGroupId : group.id;
+      const groupId = Number.isFinite(numericGroupId)
+        ? numericGroupId
+        : group.id;
 
       for (const studentId of studentIds) {
         const parsedStudentId = Number(studentId);
@@ -651,10 +812,9 @@ export function MatchingBoard({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border bg-card p-4">
+      <div className="rounded-xl  bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Group Assignment</h2>
             <p className="text-sm text-muted-foreground">
               Drag students to assign them to groups.
             </p>
@@ -735,13 +895,13 @@ export function MatchingBoard({
           onDragCancel={() => setActiveStudentId(null)}
           onDragEnd={onDragEnd}
         >
-          <section className="rounded-xl border bg-card p-4">
+          <section className="bg-card">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <input
                 value={groupSearch}
                 onChange={(event) => setGroupSearch(event.target.value)}
                 placeholder="Search by group, tutor, or track"
-                className="h-9 min-w-[220px] flex-1 rounded-md border px-3 text-sm"
+                className="h-9 flex-1 rounded-md border px-3 text-sm"
               />
               <select
                 value={trackFilter}
@@ -784,6 +944,7 @@ export function MatchingBoard({
                   recommendedGroupId={null}
                   emptyText="Drop students here to keep them waiting."
                   horizontal
+                  suppressTooltips={activeStudentId !== null}
                 />
               </div>
 
@@ -820,6 +981,28 @@ export function MatchingBoard({
                         </div>
                         <div className="mt-2">
                           <p className="mb-1 text-xs text-muted-foreground">
+                            Shared interests
+                          </p>
+                          {item.sharedInterests.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {item.sharedInterests.map((interest) => (
+                                <Badge
+                                  key={interest}
+                                  variant="secondary"
+                                  className="text-[10px]"
+                                >
+                                  {interest}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              No shared interests yet.
+                            </p>
+                          )}
+                        </div>
+                        <div className="mt-2">
+                          <p className="mb-1 text-xs text-muted-foreground">
                             Existing students
                           </p>
                           {item.group.existingStudents.length > 0 ? (
@@ -829,6 +1012,7 @@ export function MatchingBoard({
                                   <ExistingStudentCard
                                     key={existingStudent.id}
                                     student={existingStudent}
+                                    suppressTooltip={activeStudentId !== null}
                                   />
                                 ),
                               )}
@@ -849,6 +1033,7 @@ export function MatchingBoard({
                             studentsById={boardData.studentsById}
                             recommendedGroupId={item.group.id}
                             emptyText="Drop students here"
+                            suppressTooltips={activeStudentId !== null}
                           />
                         </div>
                       </section>
@@ -861,10 +1046,11 @@ export function MatchingBoard({
 
           <DragOverlay>
             {activeStudent ? (
-              <div className="w-[300px]">
+              <div className="">
                 <StudentCard
                   student={activeStudent}
                   isRecommendedInCurrentGroup={false}
+                  isDragging
                 />
               </div>
             ) : null}

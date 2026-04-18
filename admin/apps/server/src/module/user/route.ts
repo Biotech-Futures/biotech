@@ -10,14 +10,15 @@ import {
 } from "./schema.js";
 import {
   queryUsers,
-  queryStudents,
   queryUserById,
   createUser,
   bulkCreateUsers,
+  queryTracks,
   updateUser,
   updateStatus,
   deleteUser,
 } from "./service.js";
+import { queryStudents } from "./service/student.js";
 
 export const userRoute = new Hono();
 
@@ -29,9 +30,19 @@ userRoute.get("/", sValidator("query", queryUsersSchema), async (c) => {
 });
 
 // GET /api/v1/user/students - List students with student-specific filters
-userRoute.get("/students", sValidator("query", queryStudentsSchema), (c) => {
-  const params = c.req.valid("query");
-  const result = queryStudents(params);
+userRoute.get(
+  "/students",
+  sValidator("query", queryStudentsSchema),
+  async (c) => {
+    const params = c.req.valid("query");
+    const result = await queryStudents(params);
+    return c.json(result);
+  },
+);
+
+// GET /api/v1/user/tracks - List tracks available for filtering and assignment
+userRoute.get("/tracks", async (c) => {
+  const result = await queryTracks();
   return c.json(result);
 });
 
@@ -51,12 +62,16 @@ userRoute.post("/", sValidator("json", createUserSchema), async (c) => {
 });
 
 // POST /api/v1/user/bulk - Bulk create users (JSON array)
-userRoute.post("/bulk", sValidator("json", bulkCreateUsersSchema), async (c) => {
-  const data = c.req.valid("json");
-  const admin = c.get("user") as { id: string };
-  const result = await bulkCreateUsers(data, admin.id);
-  return c.json(result);
-});
+userRoute.post(
+  "/bulk",
+  sValidator("json", bulkCreateUsersSchema),
+  async (c) => {
+    const data = c.req.valid("json");
+    const admin = c.get("user") as { id: string };
+    const result = await bulkCreateUsers(data, admin.id);
+    return c.json(result);
+  },
+);
 
 // POST /api/v1/user/bulk-csv - Bulk create users from CSV text
 // Expected CSV format (with header): firstName,lastName,email,role,track
@@ -64,9 +79,16 @@ userRoute.post("/bulk-csv", async (c) => {
   const admin = c.get("user") as { id: string };
   const csvText: string = await c.req.text();
 
-  const lines = csvText.trim().split("\n").map((l: string) => l.trim()).filter(Boolean);
+  const lines = csvText
+    .trim()
+    .split("\n")
+    .map((l: string) => l.trim())
+    .filter(Boolean);
   if (lines.length < 2) {
-    return c.json({ msg: "CSV must have a header row and at least one data row", data: null });
+    return c.json({
+      msg: "CSV must have a header row and at least one data row",
+      data: null,
+    });
   }
 
   // Skip header row, parse data rows
@@ -108,12 +130,16 @@ userRoute.put("/:id", sValidator("json", updateUserSchema), async (c) => {
 });
 
 // PATCH /api/v1/user/:id/status - Activate or deactivate account
-userRoute.patch("/:id/status", sValidator("json", updateStatusSchema), async (c) => {
-  const id = c.req.param("id");
-  const data = c.req.valid("json");
-  const result = await updateStatus(id, data);
-  return c.json(result);
-});
+userRoute.patch(
+  "/:id/status",
+  sValidator("json", updateStatusSchema),
+  async (c) => {
+    const id = c.req.param("id");
+    const data = c.req.valid("json");
+    const result = await updateStatus(id, data);
+    return c.json(result);
+  },
+);
 
 // DELETE /api/v1/user/:id - Delete user
 userRoute.delete("/:id", async (c) => {

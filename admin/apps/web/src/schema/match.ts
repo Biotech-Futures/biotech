@@ -8,6 +8,7 @@ export const individualStudentSchema = z.object({
   trackCode: z.string(),
   yearLevel: z.number().int().nullable(),
   countryName: z.string(),
+  interests: z.array(z.string()).default([]),
 });
 
 export const individualStudentsResponseSchema = z.object({
@@ -97,6 +98,7 @@ export type IndividualStudentsResponse = z.infer<
   typeof individualStudentsResponseSchema
 >;
 export type MatchRecommendation = z.infer<typeof matchRecommendationSchema>;
+export type NotFullGroup = z.infer<typeof notFullGroupSchema>;
 export type ConfirmAssignmentsResponse = z.infer<
   typeof confirmAssignmentsResponseSchema
 >;

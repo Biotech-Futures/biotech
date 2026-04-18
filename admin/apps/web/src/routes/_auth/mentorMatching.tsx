@@ -6,17 +6,31 @@ import {
   type MatchMode,
 } from "@/query/mentorMatch";
 import { MentorMatchingBoard } from "@/components/match/MentorMatchingBoard";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_auth/mentorMatching")({
   component: RouteComponent,
 });
 
 function RouteComponent() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [mode, setMode] = useState<MatchMode>("balanced");
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmedCount, setConfirmedCount] = useState(0);
 
   const { data: unmatchedGroupsData, isPending: isLoadingGroups } =
     useQueryUnmatchedGroups();
@@ -35,10 +49,13 @@ function RouteComponent() {
   ) {
     try {
       const res = await confirmAssignments.mutateAsync({ assignments });
-      toast.success(
-        `Confirmed ${res.data.confirmedCount} mentor assignment${res.data.confirmedCount === 1 ? "" : "s"}.`,
-      );
-      await runMatch();
+      setConfirmedCount(res.data.confirmedCount);
+      setConfirmDialogOpen(true);
+      await Promise.all([
+        runMatch(),
+        queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
+        queryClient.invalidateQueries({ queryKey: ["matchedGroups"] }),
+      ]);
     } catch (error) {
       if (error instanceof AxiosError) {
         const msg =
@@ -49,6 +66,14 @@ function RouteComponent() {
         toast.error("Confirm failed. Please try again.");
       }
     }
+  }
+
+  function goTo(mentorStatus: "matched" | "unmatched") {
+    setConfirmDialogOpen(false);
+    void navigate({
+      to: "/group",
+      search: { mentorStatus, groupId: undefined },
+    });
   }
 
   return (
@@ -68,6 +93,30 @@ function RouteComponent() {
           isConfirming={confirmAssignments.isPending}
         />
       )}
+
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmedCount} assignment{confirmedCount === 1 ? "" : "s"} confirmed
+            </DialogTitle>
+            <DialogDescription>
+              Where would you like to go next?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button className="w-full" onClick={() => goTo("matched")}>
+              View Matched Groups
+            </Button>
+            <Button className="w-full" variant="outline" onClick={() => goTo("unmatched")}>
+              View Unmatched Groups
+            </Button>
+            <Button className="w-full" variant="ghost" onClick={() => setConfirmDialogOpen(false)}>
+              Decide Later
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

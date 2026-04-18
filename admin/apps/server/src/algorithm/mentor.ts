@@ -10,6 +10,7 @@ const TRACK_UTC_OFFSET: Record<string, number> = {
   "AUS-QLD": 10,
   "AUS-VIC": 10,
   "AUS-WA": 8,
+  "AUS-SA": 9.5,
   "BRA": -3,
   "GLOBAL": 0, // neutral, skip timezone penalty
 };
@@ -221,8 +222,11 @@ function galeShapley(
   }
 
   let unmatched: GroupSource[] = [...groups];
+  const maxIterations = groups.length * mentors.length + 1;
+  let iterations = 0;
 
   while (unmatched.length > 0) {
+    if (++iterations > maxIterations) break; // safety guard against infinite loop
     const nextRound: GroupSource[] = [];
 
     for (const group of unmatched) {
@@ -403,38 +407,33 @@ export function matchMentors(
     }));
   }
 
-  // ── Balanced: all available mentors, poor-quality matches rejected ────────
+  // ── Balanced: pre-filter poor pairs, then run Gale-Shapley on valid ones ──
   if (mode === "balanced") {
     const scoreMatrix = buildScoreMatrix(groups, availableMentors);
-    const { assignment, tentative } = galeShapley(groups, availableMentors, scoreMatrix);
-    const eligibleByGroup = new Map(groups.map((g) => [g.groupId, availableMentors]));
-    const results = buildResults(groups, availableMentors, scoreMatrix, assignment, tentative, eligibleByGroup, mode);
 
-    // Reject assignments that are too poor for auto-confirmation:
-    // no shared interests at all, or timezone gap at maximum penalty.
-    return results.map((rec) => {
-      if (rec.recommendedMentor === null) return rec;
-      const bd = rec.scoreBreakdown;
-      if (bd.interestBonus === 0) {
-        return {
-          ...rec,
-          recommendedMentor: null,
-          reason: "No shared interests between the mentor and group students. Manual assignment recommended.",
-          score: 0,
-          scoreBreakdown: { ...EMPTY_BREAKDOWN },
-        };
-      }
-      if (bd.timezonePenalty >= TIMEZONE_MAX_PENALTY) {
-        return {
-          ...rec,
-          recommendedMentor: null,
-          reason: "Timezone difference too large for a productive mentoring relationship. Manual assignment recommended.",
-          score: 0,
-          scoreBreakdown: { ...EMPTY_BREAKDOWN },
-        };
-      }
-      return rec;
-    });
+    // Only allow mentor-group pairs that have shared interests and an acceptable timezone gap.
+    // This prevents displacing a good match in favour of a mentor that would later be nullified.
+    const eligibleByGroup = new Map<number, MentorSource[]>(
+      groups.map((g) => [
+        g.groupId,
+        availableMentors.filter((m) => {
+          const entry = scoreMatrix.get(`${g.groupId}:${m.mentorId}`);
+          if (!entry) return false;
+          return (
+            entry.breakdown.interestBonus > 0 &&
+            entry.breakdown.timezonePenalty < TIMEZONE_MAX_PENALTY
+          );
+        }),
+      ]),
+    );
+
+    const { assignment, tentative } = galeShapleyPerGroup(
+      groups,
+      availableMentors,
+      scoreMatrix,
+      eligibleByGroup,
+    );
+    return buildResults(groups, availableMentors, scoreMatrix, assignment, tentative, eligibleByGroup, mode);
   }
 
   // ── Strict: same-track / GLOBAL only ─────────────────────────────────────
@@ -588,8 +587,11 @@ function galeShapleyPerGroup(
   }
 
   let unmatched: GroupSource[] = [...groups];
+  const maxIterationsPerGroup = groups.length * mentors.length + 1;
+  let iterationsPerGroup = 0;
 
   while (unmatched.length > 0) {
+    if (++iterationsPerGroup > maxIterationsPerGroup) break; // safety guard against infinite loop
     const nextRound: GroupSource[] = [];
 
     for (const group of unmatched) {

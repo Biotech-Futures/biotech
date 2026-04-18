@@ -3,11 +3,14 @@ import {
   useQueryMatchedGroups,
   useQueryMentorList,
   useMutationReplaceMentor,
-  useMutationBulkReplaceInactive,
+  useMutationConfirmMentorAssignments,
+  useMutationUnassignMentors,
 } from "@/query/mentorMatch";
+import { useQueryClient } from "@tanstack/react-query";
 import type { MatchedGroup } from "@/type/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BulkReplaceDialog } from "@/components/match/BulkReplaceDialog";
 import {
   Select,
   SelectContent,
@@ -34,18 +37,23 @@ import { toast } from "sonner";
 import { AxiosError } from "axios";
 
 export function MatchedGroupsPanel() {
+  const queryClient = useQueryClient();
   const { data: matchedData, isPending: isLoadingMatched, refetch } = useQueryMatchedGroups();
   const { data: mentorListData, isPending: isLoadingMentors } = useQueryMentorList();
   const replaceMentor = useMutationReplaceMentor();
-  const bulkReplaceInactive = useMutationBulkReplaceInactive();
+  const confirmAssignments = useMutationConfirmMentorAssignments();
+  const unassignMentors = useMutationUnassignMentors();
 
   const [replacingId, setReplacingId] = useState<number | null>(null);
   const [selectedMentorId, setSelectedMentorId] = useState<string>("");
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+
   const matchedGroups: MatchedGroup[] = matchedData?.data ?? [];
   const mentors = mentorListData?.data ?? [];
-  const inactiveCount = matchedGroups.filter((g) => !g.mentor.isActive).length;
+  const inactiveGroups = matchedGroups.filter((g) => !g.mentor.isActive);
+  const inactiveCount = inactiveGroups.length;
 
   function toggleExpand(membershipId: number) {
     setExpandedIds((prev) => {
@@ -68,35 +76,55 @@ export function MatchedGroupsPanel() {
 
   async function confirmReplace(group: MatchedGroup) {
     if (!selectedMentorId) {
-      toast.error("Please select a mentor.");
+      toast.error("Please select an action.");
       return;
     }
     try {
-      await replaceMentor.mutateAsync({
-        membershipId: group.membershipId,
-        groupId: group.groupId,
-        newMentorUserId: Number(selectedMentorId),
-      });
-      toast.success("Mentor replaced successfully.");
+      if (selectedMentorId === "unassign") {
+        await unassignMentors.mutateAsync([group.groupId]);
+        toast.success("Mentor unassigned — group is now unmatched.");
+      } else {
+        await replaceMentor.mutateAsync({
+          membershipId: group.membershipId,
+          groupId: group.groupId,
+          newMentorUserId: Number(selectedMentorId),
+        });
+        toast.success("Mentor replaced successfully.");
+      }
       setReplacingId(null);
       setSelectedMentorId("");
-      await refetch();
+      await Promise.all([
+        refetch(),
+        queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
+      ]);
     } catch (error) {
       const msg =
         error instanceof AxiosError
           ? ((error.response?.data as { msg?: string } | undefined)?.msg ?? error.message)
-          : "Replace failed. Please try again.";
-      toast.error(`Replace failed: ${msg}`);
+          : "Action failed. Please try again.";
+      toast.error(msg);
     }
   }
 
-  async function handleBulkReplaceInactive() {
+  async function handleBulkConfirm(
+    assignments: Array<{ groupId: number; mentorUserId: number }>,
+    unassigns: number[],
+  ) {
     try {
-      const res = await bulkReplaceInactive.mutateAsync();
-      toast.success(
-        `Removed ${res.data.removedCount} inactive mentor assignment${res.data.removedCount === 1 ? "" : "s"}.`,
-      );
-      await refetch();
+      await Promise.all([
+        assignments.length > 0 ? confirmAssignments.mutateAsync({ assignments }) : Promise.resolve(),
+        unassigns.length > 0 ? unassignMentors.mutateAsync(unassigns) : Promise.resolve(),
+      ]);
+      setBulkDialogOpen(false);
+      await Promise.all([
+        refetch(),
+        queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
+        queryClient.invalidateQueries({ queryKey: ["mentorList"] }),
+      ]);
+      const parts = [];
+      if (assignments.length > 0) parts.push(`${assignments.length} replaced`);
+      if (unassigns.length > 0) parts.push(`${unassigns.length} unassigned`);
+      toast.success(parts.join(", ") + ".");
     } catch (error) {
       const msg =
         error instanceof AxiosError
@@ -115,7 +143,7 @@ export function MatchedGroupsPanel() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold">Matched Assignments</h2>
+          <h2 className="text-base font-semibold">Matched Groups</h2>
           <Badge variant="secondary">{matchedGroups.length}</Badge>
           {inactiveCount > 0 && (
             <Badge variant="destructive" className="gap-1">
@@ -125,14 +153,9 @@ export function MatchedGroupsPanel() {
           )}
         </div>
         {inactiveCount > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleBulkReplaceInactive}
-            disabled={bulkReplaceInactive.isPending}
-          >
+          <Button variant="outline" size="sm" onClick={() => setBulkDialogOpen(true)}>
             <RefreshCwIcon className="size-3.5 mr-1.5" />
-            {bulkReplaceInactive.isPending ? "Removing..." : "Remove Inactive Mentors"}
+            Replace Inactive Mentors
           </Button>
         )}
       </div>
@@ -203,9 +226,12 @@ export function MatchedGroupsPanel() {
                         <div className="flex items-center gap-2">
                           <Select value={selectedMentorId} onValueChange={setSelectedMentorId}>
                             <SelectTrigger className="h-8 w-44 text-xs">
-                              <SelectValue placeholder="Select mentor" />
+                              <SelectValue placeholder="Select action" />
                             </SelectTrigger>
                             <SelectContent>
+                              <SelectItem value="unassign" className="text-muted-foreground">
+                                — Unassign (leave unmatched)
+                              </SelectItem>
                               {mentors.map((m) => (
                                 <SelectItem key={m.mentorId} value={String(m.mentorId)}>
                                   {m.name}
@@ -220,7 +246,7 @@ export function MatchedGroupsPanel() {
                             size="sm"
                             className="h-8 text-xs"
                             onClick={() => confirmReplace(group)}
-                            disabled={!selectedMentorId || replaceMentor.isPending}
+                            disabled={!selectedMentorId || replaceMentor.isPending || unassignMentors.isPending}
                           >
                             Confirm
                           </Button>
@@ -307,6 +333,14 @@ export function MatchedGroupsPanel() {
           </Table>
         </div>
       )}
+      <BulkReplaceDialog
+        open={bulkDialogOpen}
+        onOpenChange={setBulkDialogOpen}
+        inactiveGroups={inactiveGroups}
+        mentors={mentors}
+        onConfirm={handleBulkConfirm}
+        isPending={confirmAssignments.isPending}
+      />
     </div>
   );
 }

@@ -23,21 +23,21 @@
 
 ### Mentor Matching
 
-- [ ] Assign mentors to groups
-- [ ] Display matching scores
-- [ ] Allow manual adjustment before confirmation
+- [x] Assign mentors to groups
+- [x] Display matching scores
+- [x] Allow manual adjustment before confirmation
 
 ### Advanced Matching Controls
 
-- [ ] Replace mentor (single group)
-- [ ] Bulk replace inactive mentors
-- [ ] Detect inactive mentors (e.g., no messages)
+- [x] Replace mentor (single group)
+- [x] Bulk replace inactive mentors
+- [x] Detect inactive mentors (e.g., no messages)
 
 ---
 
 ## 🧠 Group Management & Oversight
 
-- [ ] View all groups and members
+- [x] View all groups and members
 - [ ] Reassign users (single)
 - [ ] Reassign users (bulk)
 - [ ] Enter any group chat

@@ -49,7 +49,11 @@ export async function matchMentor(
 ) {
   // Demo mode: skip DB, run algorithm on static demo data
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
-    return matchMentors(demoGroups, demoMentors, mode);
+    const matchedGroupIds = new Set(demoMatchedGroups.map((g) => g.groupId));
+    const unmatchedDemoGroups = demoGroups.filter(
+      (g) => !matchedGroupIds.has(g.groupId),
+    );
+    return matchMentors(unmatchedDemoGroups, demoMentors, mode);
   }
 
   // 1. Find groups that have no active mentor membership
@@ -311,14 +315,17 @@ export async function getMentors() {
 export async function getUnmatchedGroups() {
   // Demo mode: return full group data including student details
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
-    return demoGroups.map((g) => ({
-      groupId: g.groupId,
-      groupName: g.groupName,
-      trackCode: g.trackCode,
-      studentInterests: g.studentInterests,
-      studentCount: g.studentCount,
-      students: g.students,
-    }));
+    const matchedGroupIds = new Set(demoMatchedGroups.map((g) => g.groupId));
+    return demoGroups
+      .filter((g) => !matchedGroupIds.has(g.groupId))
+      .map((g) => ({
+        groupId: g.groupId,
+        groupName: g.groupName,
+        trackCode: g.trackCode,
+        studentInterests: g.studentInterests,
+        studentCount: g.studentCount,
+        students: g.students,
+      }));
   }
 
   const unmatchedGroupsBase = await db
@@ -491,7 +498,7 @@ export async function getMatchedGroups() {
     .innerJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
     .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)));
 
-  // Fetch student interests per group
+  // Fetch student interests per group (students only — exclude mentor memberships)
   const memberInterestRows = await db
     .select({
       groupId: groupMembership.groupId,
@@ -501,7 +508,13 @@ export async function getMatchedGroups() {
     .from(groupMembership)
     .innerJoin(studentInterest, eq(studentInterest.studentUserId, groupMembership.userId))
     .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
-    .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)));
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        eq(groupMembership.membershipRole, "student"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
 
   const interestsByUserId = new Map<number, string[]>();
   for (const row of memberInterestRows) {
@@ -563,7 +576,12 @@ export async function replaceMentor(input: ReplaceMentorInput) {
   await db
     .update(groupMembership)
     .set({ leftAt: now })
-    .where(eq(groupMembership.id, input.membershipId));
+    .where(
+      and(
+        eq(groupMembership.id, input.membershipId),
+        eq(groupMembership.groupId, input.groupId),
+      ),
+    );
 
   const latest = await db
     .select({ id: groupMembership.id })
@@ -635,7 +653,60 @@ export async function confirmMentorAssignments(
     return { confirmedCount: 0 };
   }
 
+  // Demo mode: update in-memory state instead of writing to DB
+  if (process.env.MATCH_USE_DEMO_DATA === "true") {
+    const maxId = demoMatchedGroups.reduce(
+      (max, g) => Math.max(max, g.membershipId),
+      1000,
+    );
+    let nextMembershipId = maxId + 1;
+    let confirmedCount = 0;
+    for (const { groupId, mentorUserId } of assignments) {
+      const group = demoGroups.find((g) => g.groupId === groupId);
+      const mentor = demoMentors.find((m) => m.mentorId === mentorUserId);
+      if (!group || !mentor) continue;
+      // Remove any existing match for this group first
+      demoMatchedGroups = demoMatchedGroups.filter(
+        (g) => g.groupId !== groupId,
+      );
+      demoMatchedGroups.push({
+        membershipId: nextMembershipId++,
+        groupId: group.groupId,
+        groupName: group.groupName,
+        trackCode: group.trackCode,
+        studentCount: group.studentCount,
+        students: (group.students ?? []).map((s) => ({
+          name: s.name,
+          interests: s.interests,
+        })),
+        mentor: {
+          mentorId: mentor.mentorId,
+          name: `${mentor.firstName} ${mentor.lastName}`.trim(),
+          isActive: true,
+          trackCode: mentor.trackCode,
+          institution: mentor.institution,
+        },
+      });
+      confirmedCount++;
+    }
+    return { confirmedCount };
+  }
+
   const now = new Date().toISOString();
+  const groupIds = assignments.map((a) => a.groupId);
+
+  // Soft-delete any existing active mentor membership for these groups
+  // to prevent duplicate active mentor assignments
+  await db
+    .update(groupMembership)
+    .set({ leftAt: now })
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
 
   const latestMembership = await db
     .select({ id: groupMembership.id })
@@ -656,4 +727,19 @@ export async function confirmMentorAssignments(
   await db.insert(groupMembership).values(rows);
 
   return { confirmedCount: assignments.length };
+}
+
+export async function unassignMentors(groupIds: number[]) {
+  const now = new Date().toISOString();
+  await db
+    .update(groupMembership)
+    .set({ leftAt: now })
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
+  return { unassignedCount: groupIds.length };
 }

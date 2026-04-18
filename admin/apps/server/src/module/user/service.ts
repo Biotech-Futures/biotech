@@ -1,11 +1,8 @@
 import db from "@/lib/db.js";
-import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
-  areasOfInterest,
-  groupMembership,
   mentorProfile,
   roles,
-  studentInterest,
   studentProfile,
   supervisorProfile,
   tracks,
@@ -15,11 +12,11 @@ import {
 import type {
   BulkCreateUsersInput,
   CreateUserInput,
-  QueryStudentsInput,
   QueryUsersInput,
   UpdateStatusInput,
   UpdateUserInput,
 } from "./schema.js";
+import { auth } from "@/lib/auth.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -34,6 +31,11 @@ export type User = {
   accountStatus: string;
   invitedAt: string | null;
   activatedAt: string | null;
+};
+
+export type TrackOption = {
+  id: number;
+  trackCode: string;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -60,7 +62,10 @@ function baseUserQuery() {
     .from(users)
     .leftJoin(
       userRoleAssignment,
-      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+      and(
+        eq(userRoleAssignment.userId, users.id),
+        isNull(userRoleAssignment.validTo),
+      ),
     )
     .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
     .leftJoin(tracks, eq(tracks.id, users.trackId));
@@ -97,7 +102,10 @@ export async function queryUsers(params: QueryUsersInput) {
     .from(users)
     .leftJoin(
       userRoleAssignment,
-      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
+      and(
+        eq(userRoleAssignment.userId, users.id),
+        isNull(userRoleAssignment.validTo),
+      ),
     )
     .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
     .leftJoin(tracks, eq(tracks.id, users.trackId));
@@ -112,7 +120,13 @@ export async function queryUsers(params: QueryUsersInput) {
   const total = countResult[0]?.count ?? 0;
   return {
     msg: "Users retrieved successfully",
-    data: { items: items as User[], total, page, limit, hasMore: offset + items.length < total },
+    data: {
+      items: items as User[],
+      total,
+      page,
+      limit,
+      hasMore: offset + items.length < total,
+    },
   };
 }
 
@@ -122,84 +136,18 @@ export async function queryUserById(id: string) {
   return { msg: "User retrieved successfully", data: user };
 }
 
-export async function queryStudents(params: QueryStudentsInput) {
-  const { page, limit, search, track, interest, inGroup } = params;
-  const offset = (page - 1) * limit;
+export async function queryTracks() {
+  const items = await db
+    .select({
+      id: tracks.id,
+      trackCode: tracks.trackCode,
+    })
+    .from(tracks)
+    .orderBy(asc(tracks.trackCode));
 
-  const conditions = [eq(roles.slug, "student")];
-
-  if (search) {
-    conditions.push(
-      or(
-        ilike(users.firstName, `%${search}%`),
-        ilike(users.lastName, `%${search}%`),
-        ilike(users.email, `%${search}%`),
-      ) as ReturnType<typeof eq>,
-    );
-  }
-  if (track) conditions.push(eq(tracks.trackCode, track));
-
-  const where = and(...conditions);
-
-  let query = db
-    .select(userSelect)
-    .from(users)
-    .leftJoin(
-      userRoleAssignment,
-      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
-    )
-    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
-    .leftJoin(tracks, eq(tracks.id, users.trackId))
-    .leftJoin(studentProfile, eq(studentProfile.userId, users.id));
-
-  if (interest) {
-    query = (query as any)
-      .innerJoin(studentInterest, eq(studentInterest.studentUserId, users.id))
-      .innerJoin(
-        areasOfInterest,
-        and(
-          eq(areasOfInterest.id, studentInterest.interestId),
-          ilike(areasOfInterest.interestDesc, `%${interest}%`),
-        ),
-      );
-  }
-
-  if (inGroup === "yes") {
-    query = (query as any).innerJoin(
-      groupMembership,
-      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
-    );
-  } else if (inGroup === "no") {
-    const activeMembership = db
-      .select({ userId: groupMembership.userId })
-      .from(groupMembership)
-      .where(and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)));
-
-    conditions.push(
-      sql`NOT EXISTS (${activeMembership})` as unknown as ReturnType<typeof eq>,
-    );
-  }
-
-  const countQuery = db
-    .select({ count: sql<number>`cast(count(*) as int)` })
-    .from(users)
-    .leftJoin(
-      userRoleAssignment,
-      and(eq(userRoleAssignment.userId, users.id), isNull(userRoleAssignment.validTo)),
-    )
-    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
-    .leftJoin(tracks, eq(tracks.id, users.trackId))
-    .where(where);
-
-  const [items, countResult] = await Promise.all([
-    (query as any).where(where).limit(limit).offset(offset),
-    countQuery,
-  ]);
-
-  const total = countResult[0]?.count ?? 0;
   return {
-    msg: "Students retrieved successfully",
-    data: { items: items as User[], total, page, limit, hasMore: offset + items.length < total },
+    msg: "Tracks retrieved successfully",
+    data: items as TrackOption[],
   };
 }
 
@@ -212,17 +160,21 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
     .where(eq(users.email, input.email));
   if (existing.length > 0) return { msg: "Email already exists", data: null };
 
+  if (!input.track) return { msg: "Track is required", data: null };
+
   const trackRow = await db
     .select({ id: tracks.id })
     .from(tracks)
     .where(eq(tracks.trackCode, input.track));
-  if (trackRow.length === 0) return { msg: `Track "${input.track}" not found`, data: null };
+  if (trackRow.length === 0)
+    return { msg: `Track "${input.track}" not found`, data: null };
 
   const roleRow = await db
     .select({ id: roles.id })
     .from(roles)
     .where(eq(roles.slug, input.role));
-  if (roleRow.length === 0) return { msg: `Role "${input.role}" not found`, data: null };
+  if (roleRow.length === 0)
+    return { msg: `Role "${input.role}" not found`, data: null };
 
   const now = new Date().toISOString();
   const userId = generateId();
@@ -251,7 +203,10 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   return { msg: "User created successfully", data: created };
 }
 
-export async function bulkCreateUsers(input: BulkCreateUsersInput, adminUserId: string) {
+export async function bulkCreateUsers(
+  input: BulkCreateUsersInput,
+  adminUserId: string,
+) {
   const created: User[] = [];
   const skipped: string[] = [];
 
@@ -283,11 +238,15 @@ export async function updateUser(id: string, input: UpdateUserInput) {
   if (input.email !== undefined) userUpdates.email = input.email;
 
   if (input.track !== undefined) {
+    if (input.track === null)
+      return { msg: "Track cannot be cleared", data: null };
+
     const trackRow = await db
       .select({ id: tracks.id })
       .from(tracks)
       .where(eq(tracks.trackCode, input.track));
-    if (trackRow.length === 0) return { msg: `Track "${input.track}" not found`, data: null };
+    if (trackRow.length === 0)
+      return { msg: `Track "${input.track}" not found`, data: null };
     userUpdates.trackId = trackRow[0].id;
   }
 
@@ -300,13 +259,17 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       .select({ id: roles.id })
       .from(roles)
       .where(eq(roles.slug, input.role));
-    if (roleRow.length === 0) return { msg: `Role "${input.role}" not found`, data: null };
+    if (roleRow.length === 0)
+      return { msg: `Role "${input.role}" not found`, data: null };
 
     await db
       .update(userRoleAssignment)
       .set({ validTo: now })
       .where(
-        and(eq(userRoleAssignment.userId, userId), isNull(userRoleAssignment.validTo)),
+        and(
+          eq(userRoleAssignment.userId, userId),
+          isNull(userRoleAssignment.validTo),
+        ),
       );
 
     await db.insert(userRoleAssignment).values({
@@ -345,9 +308,13 @@ export async function deleteUser(id: string) {
   const existing = await fetchUserById(userId);
   if (!existing) return { msg: "User not found", data: null };
 
-  await db.delete(userRoleAssignment).where(eq(userRoleAssignment.userId, userId));
+  await db
+    .delete(userRoleAssignment)
+    .where(eq(userRoleAssignment.userId, userId));
   await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
-  await db.delete(supervisorProfile).where(eq(supervisorProfile.userId, userId));
+  await db
+    .delete(supervisorProfile)
+    .where(eq(supervisorProfile.userId, userId));
   await db.delete(studentProfile).where(eq(studentProfile.userId, userId));
   await db.delete(users).where(eq(users.id, userId));
 
@@ -364,7 +331,7 @@ async function bulkCreateAdminUsers(users: CreateUserInput[]) {
         const newUser = await auth.api.createUser({
           body: {
             email: user.email,
-            name: user.name,
+            name: `${user.firstName} ${user.lastName}`.trim(),
           },
         });
         if (newUser) {

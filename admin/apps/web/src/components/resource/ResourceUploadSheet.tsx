@@ -11,8 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useQueryResourceRoles, useQueryResourceTypes, useUploadResource } from "@/query/resource";
-import type { ResourceTypeName } from "@/type/resource";
+import {
+  useCreateResource,
+  useQueryResourceRoles,
+  useQueryResourceTypes,
+  useUploadResource,
+} from "@/query/resource";
+import type { ResourceKind, ResourceTypeName } from "@/type/resource";
 import { RESOURCE_TRACKS } from "@/type/resource";
 
 interface ResourceUploadSheetProps {
@@ -23,14 +28,20 @@ interface ResourceUploadSheetProps {
 export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetProps) {
   const { data: rolesData } = useQueryResourceRoles();
   const { data: typesData } = useQueryResourceTypes();
-  const { mutate: uploadResource, isPending } = useUploadResource();
+  const { mutate: uploadResource, isPending: isUploadPending } = useUploadResource();
+  const { mutate: createResource, isPending: isCreatePending } = useCreateResource();
 
   const [resourceName, setResourceName] = useState("");
   const [resourceDescription, setResourceDescription] = useState("");
+  const [resourceKind, setResourceKind] = useState<ResourceKind>("file");
   const [resourceType, setResourceType] = useState<ResourceTypeName | "">("");
   const [trackId, setTrackId] = useState<string>("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [contentHtml, setContentHtml] = useState("");
+  const [htmlFileName, setHtmlFileName] = useState("");
+  const [showHtmlEditor, setShowHtmlEditor] = useState(true);
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const roles = rolesData?.data ?? [];
   const types = typesData?.data ?? [];
@@ -45,23 +56,76 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
   const resetForm = () => {
     setResourceName("");
     setResourceDescription("");
+    setResourceKind("file");
     setResourceType("");
     setTrackId("");
     setRoleIds([]);
     setFile(null);
+    setContentHtml("");
+    setHtmlFileName("");
+    setShowHtmlEditor(true);
+    setShowHtmlPreview(false);
+  };
+
+  const handleChooseHtmlFile = async (selectedFile: File | null) => {
+    if (!selectedFile) {
+      setHtmlFileName("");
+      setContentHtml("");
+      return;
+    }
+
+    try {
+      const htmlText = await selectedFile.text();
+      setHtmlFileName(selectedFile.name);
+      setContentHtml(htmlText);
+
+      if (!resourceName.trim()) {
+        const baseName = selectedFile.name.replace(/\.html?$/i, "");
+        setResourceName(baseName);
+      }
+    } catch {
+      window.alert("Failed to read the HTML file.");
+    }
   };
 
   const handleSubmit = () => {
-    if (!file) {
-      window.alert("Please choose a file first.");
-      return;
-    }
     if (!resourceName.trim()) {
       window.alert("Resource name is required.");
       return;
     }
     if (!resourceDescription.trim()) {
       window.alert("Resource description is required.");
+      return;
+    }
+
+    if (resourceKind === "page") {
+      if (!contentHtml.trim()) {
+        window.alert("HTML content is required for page resources.");
+        return;
+      }
+
+      createResource(
+        {
+          resource_name: resourceName.trim(),
+          resource_description: resourceDescription.trim(),
+          resource_kind: "page",
+          content_html: contentHtml.trim(),
+          resource_type: resourceType || "guide",
+          track_id: trackId ? Number(trackId) : undefined,
+          role_ids: roleIds,
+        },
+        {
+          onSuccess: () => {
+            resetForm();
+            onOpenChange(false);
+          },
+        },
+      );
+      return;
+    }
+
+    if (!file) {
+      window.alert("Please choose a file first.");
       return;
     }
 
@@ -81,27 +145,155 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     });
   };
 
+  const openHtmlPreviewPage = (html: string) => {
+    const documentHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resource Preview</title>
+    <style>
+      body { margin: 0; padding: 24px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #111827; background: #f8fafc; }
+      .wrap { max-width: 960px; margin: 0 auto; background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      ${html || "<p>No content yet.</p>"}
+    </div>
+  </body>
+</html>`;
+
+    const blob = new Blob([documentHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (!win) {
+      window.alert("Preview tab was blocked. Please allow pop-ups for this site.");
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
-        <SheetHeader>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-lg h-dvh max-h-dvh min-h-0 overflow-hidden"
+      >
+        <SheetHeader className="shrink-0 border-b">
           <SheetTitle>Upload Resource</SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-4 px-4">
+        <div className="min-h-0 flex-1 overflow-y-auto space-y-4 px-4 py-4">
           <div className="space-y-1.5">
-            <Label htmlFor="resource-file">File</Label>
-            <Input
-              id="resource-file"
-              type="file"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-            {file ? (
-              <p className="text-xs text-muted-foreground">
-                {file.name} ({fileSizeText})
-              </p>
-            ) : null}
+            <Label htmlFor="resource-kind">Resource Kind</Label>
+            <Select value={resourceKind} onValueChange={(value) => setResourceKind(value as ResourceKind)}>
+              <SelectTrigger id="resource-kind">
+                <SelectValue placeholder="Select resource mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="file">File Upload</SelectItem>
+                <SelectItem value="page">HTML Page</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          {resourceKind === "file" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="resource-file">File</Label>
+              <Input
+                id="resource-file"
+                type="file"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              {file ? (
+                <p className="text-xs text-muted-foreground">
+                  {file.name} ({fileSizeText})
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="resource-html-file">HTML File</Label>
+              <Input
+                id="resource-html-file"
+                type="file"
+                accept=".html,.htm,text/html"
+                onChange={(event) => handleChooseHtmlFile(event.target.files?.[0] ?? null)}
+              />
+              {htmlFileName ? (
+                <p className="text-xs text-muted-foreground">{htmlFileName}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Upload an HTML file or paste HTML below.
+                </p>
+              )}
+            </div>
+          )}
+
+          {resourceKind === "page" ? (
+            <div className="space-y-1.5">
+              <div className="space-y-2">
+                <Label htmlFor="resource-content-html">HTML Content</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    onClick={() => openHtmlPreviewPage(contentHtml)}
+                  >
+                    Open Preview Page
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setContentHtml("")}
+                  >
+                    Clear
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowHtmlEditor((prev) => !prev)}
+                  >
+                    {showHtmlEditor ? "Hide Editor" : "Show Editor"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowHtmlPreview((prev) => !prev)}
+                  >
+                    {showHtmlPreview ? "Hide Preview" : "Show Preview"}
+                  </Button>
+                </div>
+              </div>
+              {showHtmlEditor ? (
+                <Textarea
+                  id="resource-content-html"
+                  value={contentHtml}
+                  onChange={(event) => setContentHtml(event.target.value)}
+                  placeholder="<h2>Title</h2><p>Rich content page...</p>"
+                  className="min-h-44 font-mono text-xs"
+                />
+              ) : null}
+              {showHtmlPreview ? (
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Live Preview</Label>
+                  <div
+                    className="prose prose-sm max-w-none rounded-md border bg-muted/20 p-3"
+                    dangerouslySetInnerHTML={{
+                      __html: contentHtml || "<p>No content yet.</p>",
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="upload-resource-name">Resource Name</Label>
@@ -188,12 +380,16 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
           </div>
         </div>
 
-        <SheetFooter>
+        <SheetFooter className="shrink-0 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isPending}>
-            {isPending ? "Uploading..." : "Upload"}
+          <Button onClick={handleSubmit} disabled={isUploadPending || isCreatePending}>
+            {isUploadPending || isCreatePending
+              ? "Saving..."
+              : resourceKind === "page"
+                ? "Create Page"
+                : "Upload"}
           </Button>
         </SheetFooter>
       </SheetContent>

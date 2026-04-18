@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { adminUser, users, announcements, announcementAudience, roles, tracks, mentorProfile, mentorAvailability, session, account, userSession, alert, auditLog, countries, countryStates, events, eventRsvp, groups, groupMembership, areasOfInterest, mentorInterest, resources, matchRun, certificateType, mentorCertificate, messages, resourceAudience, studentInterest, studentProfile, supervisorProfile, userRoleAssignment } from "./schema";
+import { adminUser, users, announcements, announcementAudience, roles, tracks, mentorProfile, mentorAvailability, session, account, userSession, alert, auditLog, countries, countryStates, events, eventRsvp, groups, groupMembership, areasOfInterest, mentorInterest, resources, matchRun, certificateType, mentorCertificate, messages, resourceAudience, studentInterest, studentProfile, supervisorProfile, userRoleAssignment } from "./schema.js";
 
 export const usersRelations = relations(users, ({one, many}) => ({
 	adminUser: one(adminUser, {

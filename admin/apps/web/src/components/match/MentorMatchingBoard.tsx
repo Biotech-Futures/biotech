@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import type { MentorGroupRecommendation, MentorListItem, UnmatchedGroup } from "@/type/mentorMatch";
 import type { MatchMode } from "@/query/mentorMatch";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
 const MATCH_MODES: {
   value: MatchMode;
@@ -239,6 +239,20 @@ export function MentorMatchingBoard({
   const [expandedMentorIds, setExpandedMentorIds] = useState<Set<number>>(new Set());
   const [trackFilter, setTrackFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [overrides, setOverrides] = useState<Map<number, number>>(new Map());
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+
+  // Reset overrides when a new match is run
+  useEffect(() => {
+    setOverrides(new Map());
+    setEditingGroupId(null);
+  }, [recommendations]);
+
+  const capacityShortage = useMemo(() => {
+    const totalCapacity = mentors.reduce((sum, m) => sum + m.remainingCapacity, 0);
+    const shortage = unmatchedGroups.length - totalCapacity;
+    return shortage > 0 ? { totalCapacity, shortage } : null;
+  }, [mentors, unmatchedGroups]);
 
   const availableTracks = useMemo(() => {
     return [
@@ -262,7 +276,7 @@ export function MentorMatchingBoard({
   }, [recommendations, trackFilter, search]);
 
   const selectableIds = filtered
-    .filter((r) => r.recommendedMentor !== null)
+    .filter((r) => r.recommendedMentor !== null || overrides.has(r.group.groupId))
     .map((r) => r.group.groupId);
 
   const allSelected =
@@ -321,18 +335,24 @@ export function MentorMatchingBoard({
     });
   }
 
-  function onClickConfirm() {
+  async function onClickConfirm() {
     if (selectedIds.size === 0) {
       toast.error("Select at least one assignment to confirm.");
       return;
     }
     const assignments = Array.from(selectedIds).flatMap((groupId) => {
       const rec = recommendations.find((r) => r.group.groupId === groupId);
-      if (!rec?.recommendedMentor) return [];
-      return [{ groupId, mentorUserId: rec.recommendedMentor.mentorId }];
+      if (!rec) return [];
+      const mentorUserId = overrides.get(groupId) ?? rec.recommendedMentor?.mentorId;
+      if (!mentorUserId) return [];
+      return [{ groupId, mentorUserId }];
     });
-    void onConfirmAssignments(assignments);
-    setSelectedIds(new Set());
+    try {
+      await onConfirmAssignments(assignments);
+      setSelectedIds(new Set());
+    } catch {
+      // error is already handled and toasted in onConfirmAssignments
+    }
   }
 
   return (
@@ -409,6 +429,25 @@ export function MentorMatchingBoard({
           </div>
         </div>
       </div>
+
+      {/* Capacity shortage warning */}
+      {capacityShortage && (
+        <div className="flex items-start gap-3 rounded-xl border border-yellow-300 bg-yellow-50 p-4 text-sm dark:border-yellow-700 dark:bg-yellow-950">
+          <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-yellow-600 dark:text-yellow-400" />
+          <div className="space-y-1">
+            <p className="font-medium text-yellow-800 dark:text-yellow-300">
+              Insufficient mentor capacity
+            </p>
+            <p className="text-yellow-700 dark:text-yellow-400">
+              Total mentor capacity ({capacityShortage.totalCapacity} slot{capacityShortage.totalCapacity === 1 ? "" : "s"}) is less than the number of unmatched groups ({unmatchedGroups.length}).{" "}
+              At least {capacityShortage.shortage} group{capacityShortage.shortage === 1 ? "" : "s"} will not be assigned a mentor.
+            </p>
+            <p className="text-yellow-700 dark:text-yellow-400">
+              Consider using <strong>Balanced</strong> mode to prioritise match quality for the groups that can be assigned, and manually assign the remaining groups afterwards.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Pre-match panels */}
       {recommendations.length === 0 && (
@@ -649,6 +688,12 @@ export function MentorMatchingBoard({
                   const isSelected = selectedIds.has(groupId);
                   const isExpanded = expandedIds.has(groupId);
                   const hasMatch = rec.recommendedMentor !== null;
+                  const overrideMentorId = overrides.get(groupId);
+                  const overrideMentor = overrideMentorId !== undefined
+                    ? mentors.find((m) => m.mentorId === overrideMentorId)
+                    : undefined;
+                  const isEditing = editingGroupId === groupId;
+                  const isSelectable = hasMatch || overrideMentorId !== undefined;
 
                   return [
                     <TableRow
@@ -656,7 +701,7 @@ export function MentorMatchingBoard({
                       className={cn(
                         "cursor-pointer",
                         isSelected && "bg-primary/5",
-                        !hasMatch && "opacity-60",
+                        !isSelectable && "opacity-60",
                       )}
                       onClick={() => toggleExpand(groupId)}
                     >
@@ -677,7 +722,7 @@ export function MentorMatchingBoard({
 
                       {/* Checkbox */}
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        {hasMatch && (
+                        {isSelectable && (
                           <button
                             onClick={() => toggleRow(groupId)}
                             className={cn(
@@ -699,29 +744,94 @@ export function MentorMatchingBoard({
                         <Badge variant="outline">{rec.group.trackCode}</Badge>
                       </TableCell>
                       <TableCell>{rec.group.studentCount}</TableCell>
-                      <TableCell>
-                        {hasMatch ? (
-                          <span>{rec.recommendedMentor!.name}</span>
+
+                      {/* Recommended Mentor cell — with manual override */}
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        {isEditing ? (
+                          <div className="flex items-center gap-2">
+                            <select
+                              autoFocus
+                              className="h-7 rounded border bg-background px-2 text-xs"
+                              defaultValue={overrideMentorId ?? rec.recommendedMentor?.mentorId ?? ""}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                setOverrides((prev) => {
+                                  const next = new Map(prev);
+                                  if (val) next.set(groupId, val);
+                                  else next.delete(groupId);
+                                  return next;
+                                });
+                                setEditingGroupId(null);
+                              }}
+                            >
+                              <option value="">— Select mentor —</option>
+                              {mentors.map((m) => (
+                                <option key={m.mentorId} value={m.mentorId}>
+                                  {m.name} ({m.trackCode}, {m.remainingCapacity} left)
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => setEditingGroupId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         ) : (
-                          <span className="text-muted-foreground">
-                            No suitable mentor
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(!isSelectable && "text-muted-foreground")}>
+                              {overrideMentor
+                                ? overrideMentor.name
+                                : hasMatch
+                                  ? rec.recommendedMentor!.name
+                                  : "No suitable mentor"}
+                            </span>
+                            {overrideMentorId !== undefined && (
+                              <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                                Manual
+                              </Badge>
+                            )}
+                            <button
+                              className="text-xs text-muted-foreground hover:text-foreground underline"
+                              onClick={() => setEditingGroupId(groupId)}
+                            >
+                              {isSelectable ? "Change" : "Assign"}
+                            </button>
+                            {overrideMentorId !== undefined && (
+                              <button
+                                className="text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  setOverrides((prev) => {
+                                    const next = new Map(prev);
+                                    next.delete(groupId);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         )}
                       </TableCell>
+
                       <TableCell>
-                        {rec.recommendedMentor?.institution ?? (
+                        {(overrideMentor ?? rec.recommendedMentor)?.institution ?? (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        {hasMatch ? (
-                          rec.recommendedMentor!.remainingCapacity
+                        {isSelectable ? (
+                          (overrideMentor ?? rec.recommendedMentor)?.remainingCapacity ?? "—"
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right font-semibold">
-                        {hasMatch ? rec.score.toFixed(0) : (
+                        {overrideMentorId !== undefined ? (
+                          <span className="text-muted-foreground text-xs">manual</span>
+                        ) : hasMatch ? rec.score.toFixed(0) : (
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>

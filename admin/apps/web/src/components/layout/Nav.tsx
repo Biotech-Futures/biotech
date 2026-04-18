@@ -8,23 +8,23 @@ import {
 import { Link } from "@tanstack/react-router";
 import {
   UsersIcon,
-  MailIcon,
   CalendarIcon,
   UserIcon,
+  GraduationCapIcon,
   Link2Icon,
   FileTextIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   {
+    title: "User",
+    url: "/user",
+    icon: <UserIcon />,
+  },
+  {
     title: "Group",
     url: "/group",
     icon: <UsersIcon />,
-  },
-  {
-    title: "Email",
-    url: "/email",
-    icon: <MailIcon />,
   },
   {
     title: "Event",
@@ -32,24 +32,29 @@ const NAV_ITEMS = [
     icon: <CalendarIcon />,
   },
   {
-    title: "User",
+    title: "Students",
     url: "/student",
-    icon: <UserIcon />,
+    icon: <GraduationCapIcon />,
   },
   {
     title: "Resource",
     url: "/resource",
     icon: <FileTextIcon />,
   },
-  {
-    title: "Matching",
-    url: "/matching",
-    icon: <Link2Icon />,
-  },
+  // {
+  //   title: "Matching",
+  //   url: "/matching",
+  //   icon: <Link2Icon />,
+  // },
   {
     title: "Mentor Matching",
     url: "/mentorMatching",
     icon: <Link2Icon />,
+  },
+  {
+    title: "Mentor",
+    url: "/mentor",
+    icon: <GraduationCapIcon />,
   },
 ];
 
@@ -59,7 +64,7 @@ export function NavMain() {
       <SidebarGroupContent className="flex flex-col gap-2">
         <SidebarMenu>
           {NAV_ITEMS.map((item) => (
-            <SidebarMenuItem key={item.title} className="p-2">
+            <SidebarMenuItem key={item.title} className="">
               <SidebarMenuButton asChild tooltip={item.title}>
                 <Link
                   to={item.url}

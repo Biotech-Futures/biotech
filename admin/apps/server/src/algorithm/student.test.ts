@@ -5,6 +5,7 @@ import {
   formatRecommendationInput,
   recommendGroupsByTrack,
   scoreGroup,
+  scoreStudentInGroup,
   type ExistingGroupInput,
   type ExistingGroupMemberInput,
   type GroupStudentSource,
@@ -65,9 +66,165 @@ describe("assignTrack", () => {
     expect(assignTrack("BRA")).toBe("BRA");
     expect(assignTrack("USA-CA")).toBe("GLOBAL");
   });
+
+  it("requires exact supported region codes", () => {
+    expect(assignTrack("")).toBe("GLOBAL");
+    expect(assignTrack("aus-nsw")).toBe("GLOBAL");
+    expect(assignTrack(" AUS-NSW ")).toBe("GLOBAL");
+  });
+});
+
+describe("scoreGroup", () => {
+  it("rejects groups outside the 2-5 member size range", () => {
+    expect(scoreGroup([student({ id: "s1" })], "AUS-NSW")).toBeNull();
+    expect(
+      scoreGroup(
+        [
+          student({ id: "s1" }),
+          student({ id: "s2" }),
+          student({ id: "s3" }),
+          student({ id: "s4" }),
+          student({ id: "s5" }),
+          student({ id: "s6" }),
+        ],
+        "AUS-NSW",
+      ),
+    ).toBeNull();
+  });
+
+  it("allows chained interest overlap when every member matches at least one peer", () => {
+    const result = scoreGroup(
+      [
+        student({ id: "s1", interests: ["math"] }),
+        student({ id: "s2", interests: ["math", "science"] }),
+        student({ id: "s3", interests: ["science"] }),
+      ],
+      "AUS-NSW",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.qualityScore).toBe(100);
+    expect(result?.scoreBreakdown.objectiveScore).toBe(103);
+  });
+
+  it("normalizes interest case and whitespace before checking overlap", () => {
+    const result = scoreGroup(
+      [
+        student({ id: "s1", interests: ["  Robotics "] }),
+        student({ id: "s2", interests: ["robotics"] }),
+      ],
+      "AUS-NSW",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.qualityScore).toBe(100);
+  });
+
+  it("uses yearlevel fallback when yearLevel is missing", () => {
+    const legacyStudent: StudentInput = {
+      id: "s1",
+      interests: ["math"],
+      yearlevel: 9,
+    };
+    const currentStudent: StudentInput = {
+      id: "s2",
+      interests: ["math"],
+      yearLevel: 11,
+    };
+
+    const result = scoreStudentInGroup(
+      legacyStudent,
+      [legacyStudent, currentStudent],
+      "AUS-NSW",
+    );
+
+    expect(result?.scoreBreakdown.yearPenalty).toBe(16);
+    expect(result?.score).toBe(84);
+  });
+
+  it("caps global timezone penalty and ignores timezone when country matches", () => {
+    const crossCountry = scoreGroup(
+      [
+        student({
+          id: "s1",
+          region: "USA-CA",
+          country: "US",
+          timezoneOffsetHours: -12,
+        }),
+        student({
+          id: "s2",
+          region: "JPN",
+          country: "JP",
+          timezoneOffsetHours: 14,
+        }),
+      ],
+      "GLOBAL",
+    );
+    const sameCountry = scoreGroup(
+      [
+        student({
+          id: "s3",
+          region: "USA-CA",
+          country: "US",
+          timezoneOffsetHours: -12,
+        }),
+        student({
+          id: "s4",
+          region: "USA-NY",
+          country: "US",
+          timezoneOffsetHours: 14,
+        }),
+      ],
+      "GLOBAL",
+    );
+
+    expect(crossCountry?.scoreBreakdown.timezonePenalty).toBe(18);
+    expect(crossCountry?.scoreBreakdown.countryPenalty).toBe(12);
+    expect(sameCountry?.scoreBreakdown.timezonePenalty).toBe(0);
+    expect(sameCountry?.scoreBreakdown.countryPenalty).toBe(0);
+  });
 });
 
 describe("buildGroups", () => {
+  it("returns empty collections for empty input", () => {
+    expect(buildGroups([])).toEqual({
+      groups: [],
+      studentScores: [],
+      unmatchedStudentIds: [],
+      unmatchedStudentReasons: [],
+    });
+  });
+
+  it("marks a single student as unmatched with no compatible peers", () => {
+    const result = buildGroups([student({ id: "s1" })]);
+
+    expect(result.groups).toEqual([]);
+    expect(result.unmatchedStudentIds).toEqual(["s1"]);
+    expect(result.unmatchedStudentReasons[0]).toMatchObject({
+      studentId: "s1",
+      reasonCode: "NO_SHARED_INTEREST_IN_TRACK",
+      compatibleStudentIdsInTrack: [],
+      score: 0,
+    });
+  });
+
+  it("never creates groups larger than five and explains compatible leftovers", () => {
+    const input = Array.from({ length: 6 }, (_, index) =>
+      student({ id: `s${index + 1}`, interests: ["math"] }),
+    );
+
+    const result = buildGroups(input);
+
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].groupSize).toBe(5);
+    expect(result.unmatchedStudentIds).toEqual(["s6"]);
+    expect(result.unmatchedStudentReasons[0]).toMatchObject({
+      studentId: "s6",
+      reasonCode: "LEFTOVER_AFTER_GROUP_SELECTION",
+      compatibleStudentIdsInTrack: ["s1", "s2", "s3", "s4", "s5"],
+    });
+  });
+
   it("does not cross tracks", () => {
     const input: StudentInput[] = [
       student({ id: "a1", region: "AUS-NSW", interests: ["math"] }),
@@ -286,6 +443,37 @@ describe("buildGroups", () => {
       "s1",
       "s2",
     ]);
+  });
+
+  it("builds two full groups from a common 10-student ungrouped cohort", () => {
+    const input: StudentInput[] = [
+      ...Array.from({ length: 5 }, (_, index) =>
+        student({
+          id: `math-${index + 1}`,
+          interests: ["math"],
+          yearLevel: 10,
+        }),
+      ),
+      ...Array.from({ length: 5 }, (_, index) =>
+        student({
+          id: `robotics-${index + 1}`,
+          interests: ["robotics"],
+          yearLevel: 11,
+        }),
+      ),
+    ];
+
+    const result = buildGroups(input);
+
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups.map((group) => group.groupSize)).toEqual([5, 5]);
+    expect(result.groups.map((group) => group.studentIds)).toEqual([
+      ["math-1", "math-2", "math-3", "math-4", "math-5"],
+      ["robotics-1", "robotics-2", "robotics-3", "robotics-4", "robotics-5"],
+    ]);
+    expect(result.studentScores).toHaveLength(10);
+    expect(result.unmatchedStudentIds).toEqual([]);
+    expect(result.unmatchedStudentReasons).toEqual([]);
   });
 });
 
@@ -527,6 +715,124 @@ describe("recommendGroupsByTrack", () => {
     expect(result[0].reason).toContain("full");
   });
 
+  it("respects custom maxSize when deciding whether a group is full", () => {
+    const input: RecommendationInputByTrack = {
+      "AUS-NSW": {
+        students: [student({ id: "s1", region: "AUS-NSW", interests: ["math"] })],
+        groups: [
+          group({
+            id: "custom-full",
+            trackId: "AUS-NSW",
+            maxSize: 2,
+            groupStudent: [
+              member({ id: "m1", interests: ["math"] }),
+              member({ id: "m2", interests: ["math"] }),
+            ],
+          }),
+        ],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+    expect(result[0].recommendGroup).toBeNull();
+    expect(result[0].reason).toBe(
+      "All existing groups in this track are already full.",
+    );
+  });
+
+  it("returns no-groups reason when the resolved student track has no groups", () => {
+    const input: RecommendationInputByTrack = {
+      GLOBAL: {
+        students: [
+          student({
+            id: "s1",
+            region: "USA-CA",
+            country: "US",
+            interests: ["math"],
+          }),
+        ],
+        groups: [],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+    expect(result[0]).toMatchObject({
+      recommendGroup: null,
+      reason: "No existing groups are available in this track.",
+      score: 0,
+    });
+  });
+
+  it("does not recommend when the input bucket track differs from the student track", () => {
+    const input: RecommendationInputByTrack = {
+      "AUS-NSW": {
+        students: [
+          student({
+            id: "s1",
+            region: "USA-CA",
+            country: "US",
+            interests: ["math"],
+          }),
+        ],
+        groups: [
+          group({
+            id: "nsw-1",
+            trackId: "AUS-NSW",
+            groupStudent: [member({ id: "m1", interests: ["math"] })],
+          }),
+        ],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+    expect(result[0]).toMatchObject({
+      recommendGroup: null,
+      reason: "No existing groups are available in this track.",
+      score: 0,
+    });
+  });
+
+  it("sorts recommendations by student id across multiple track buckets", () => {
+    const input: RecommendationInputByTrack = {
+      GLOBAL: {
+        students: [
+          student({
+            id: "b",
+            region: "USA-CA",
+            country: "US",
+            interests: ["robotics"],
+          }),
+        ],
+        groups: [
+          group({
+            id: "global-1",
+            trackId: "GLOBAL",
+            groupStudent: [
+              member({ id: "gm1", country: "US", interests: ["robotics"] }),
+            ],
+          }),
+        ],
+      },
+      "AUS-NSW": {
+        students: [student({ id: "a", region: "AUS-NSW", interests: ["math"] })],
+        groups: [
+          group({
+            id: "nsw-1",
+            trackId: "AUS-NSW",
+            groupStudent: [member({ id: "nm1", interests: ["math"] })],
+          }),
+        ],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+    expect(result.map((item) => item.student.id)).toEqual(["a", "b"]);
+    expect(result.map((item) => item.recommendGroup?.id)).toEqual([
+      "nsw-1",
+      "global-1",
+    ]);
+  });
+
   it("returns null recommendation with clear reason when no valid group exists", () => {
     const input: RecommendationInputByTrack = {
       "AUS-NSW": {
@@ -617,6 +923,116 @@ describe("recommendGroupsByTrack", () => {
     });
     expect(result[0].score).toBe(70);
   });
+
+  it("recommends a common batch of 10 ungrouped students across 3 existing groups", () => {
+    const input: RecommendationInputByTrack = {
+      "AUS-NSW": {
+        students: [
+          ...Array.from({ length: 4 }, (_, index) =>
+            student({
+              id: `math-${index + 1}`,
+              region: "AUS-NSW",
+              interests: ["math"],
+              yearLevel: 10,
+            }),
+          ),
+          ...Array.from({ length: 3 }, (_, index) =>
+            student({
+              id: `biology-${index + 1}`,
+              region: "AUS-NSW",
+              interests: ["biology"],
+              yearLevel: 11,
+            }),
+          ),
+          student({
+            id: "history-1",
+            region: "AUS-NSW",
+            interests: ["history"],
+            yearLevel: 10,
+          }),
+        ],
+        groups: [
+          group({
+            id: "nsw-math",
+            trackId: "AUS-NSW",
+            groupStudent: [
+              member({ id: "math-member-1", interests: ["math"], yearLevel: 10 }),
+              member({ id: "math-member-2", interests: ["math"], yearLevel: 10 }),
+            ],
+          }),
+          group({
+            id: "nsw-biology",
+            trackId: "AUS-NSW",
+            groupStudent: [
+              member({
+                id: "biology-member-1",
+                interests: ["biology"],
+                yearLevel: 11,
+              }),
+              member({
+                id: "biology-member-2",
+                interests: ["biology"],
+                yearLevel: 11,
+              }),
+            ],
+          }),
+        ],
+      },
+      GLOBAL: {
+        students: [
+          ...Array.from({ length: 2 }, (_, index) =>
+            student({
+              id: `robotics-${index + 1}`,
+              region: "USA-CA",
+              country: "US",
+              timezoneOffsetHours: -8,
+              interests: ["robotics"],
+              yearLevel: 10,
+            }),
+          ),
+        ],
+        groups: [
+          group({
+            id: "global-robotics",
+            trackId: "GLOBAL",
+            groupStudent: [
+              member({
+                id: "robotics-member-1",
+                country: "US",
+                timezoneOffsetHours: -8,
+                interests: ["robotics"],
+                yearLevel: 10,
+              }),
+              member({
+                id: "robotics-member-2",
+                country: "US",
+                timezoneOffsetHours: -8,
+                interests: ["robotics"],
+                yearLevel: 10,
+              }),
+            ],
+          }),
+        ],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+
+    expect(result).toHaveLength(10);
+    expect(
+      result.filter((item) => item.recommendGroup?.id === "nsw-math"),
+    ).toHaveLength(4);
+    expect(
+      result.filter((item) => item.recommendGroup?.id === "nsw-biology"),
+    ).toHaveLength(3);
+    expect(
+      result.filter((item) => item.recommendGroup?.id === "global-robotics"),
+    ).toHaveLength(2);
+    expect(result.find((item) => item.student.id === "history-1")).toMatchObject({
+      recommendGroup: null,
+      score: 0,
+    });
+  });
 });
 
 describe("formatRecommendationInput", () => {
@@ -705,5 +1121,69 @@ describe("formatRecommendationInput", () => {
       name: "Eli Brown",
       interests: ["robotics"],
     });
+  });
+
+  it("normalizes names, tracks, tutors, and mixed interest object shapes", () => {
+    const groupStudents: GroupStudentSource[] = [
+      {
+        groupId: "g1",
+        groupName: null,
+        groupTrackCode: null,
+        groupTrackId: null,
+        groupTutorId: "t1",
+        groupTutorName: null,
+        userId: "m1",
+        firstName: "Morgan",
+        lastName: null,
+        region: "AUS-QLD",
+        countryName: "AU",
+        yearlevel: 8,
+        interests: [
+          " math ",
+          { name: "Robotics" },
+          { interestDesc: " " },
+          { name: null },
+        ],
+      },
+    ];
+    const individualStudents: IndividualStudentSource[] = [
+      {
+        id: "s1",
+        name: "Explicit Name",
+        region: "USA-CA",
+        country: "US",
+        yearlevel: 9,
+        interests: [{ name: "AI" }, { interestDesc: " biology " }],
+      },
+    ];
+
+    const result = formatRecommendationInput(groupStudents, individualStudents);
+
+    expect(Object.keys(result).sort()).toEqual(["AUS-QLD", "GLOBAL"]);
+    expect(result["AUS-QLD"]?.groups[0]).toMatchObject({
+      id: "g1",
+      groupName: "g1",
+      trackId: "AUS-QLD",
+      tutor: { id: "t1", name: "" },
+    });
+    expect(result["AUS-QLD"]?.groups[0].groupStudent[0]).toMatchObject({
+      id: "m1",
+      name: "Morgan",
+      yearlevel: 8,
+      interests: ["math", "Robotics"],
+    });
+    expect(result.GLOBAL?.students[0]).toMatchObject({
+      id: "s1",
+      name: "Explicit Name",
+      trackId: undefined,
+      yearlevel: 9,
+      interests: ["AI", "biology"],
+    });
+  });
+
+  it("throws when a source student has neither id nor userId", () => {
+    expect(() =>
+      formatRecommendationInput([], [{ firstName: "Missing", interests: [] }]),
+    ).toThrow("Student source is missing id/userId.");
   });
 });

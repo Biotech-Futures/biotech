@@ -12,13 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
+import { Route as AuthUserRouteImport } from './routes/_auth/user'
 import { Route as AuthStudentRouteImport } from './routes/_auth/student'
 import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
 import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentorMatching'
+import { Route as AuthMentorRouteImport } from './routes/_auth/mentor'
 import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
-import { Route as AuthEmailRouteImport } from './routes/_auth/email'
 import { Route as AuthDemoRouteImport } from './routes/_auth/demo'
 
 const SigninRoute = SigninRouteImport.update({
@@ -33,6 +34,11 @@ const AuthRouteRoute = AuthRouteRouteImport.update({
 const AuthIndexRoute = AuthIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthUserRoute = AuthUserRouteImport.update({
+  id: '/user',
+  path: '/user',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthStudentRoute = AuthStudentRouteImport.update({
@@ -50,6 +56,11 @@ const AuthMentorMatchingRoute = AuthMentorMatchingRouteImport.update({
   path: '/mentorMatching',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthMentorRoute = AuthMentorRouteImport.update({
+  id: '/mentor',
+  path: '/mentor',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 const AuthMatchingRoute = AuthMatchingRouteImport.update({
   id: '/matching',
   path: '/matching',
@@ -65,11 +76,6 @@ const AuthEventRoute = AuthEventRouteImport.update({
   path: '/event',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthEmailRoute = AuthEmailRouteImport.update({
-  id: '/email',
-  path: '/email',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
 const AuthDemoRoute = AuthDemoRouteImport.update({
   id: '/demo',
   path: '/demo',
@@ -80,24 +86,26 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
   '/signin': typeof SigninRoute
   '/demo': typeof AuthDemoRoute
-  '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
+  '/mentor': typeof AuthMentorRoute
   '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
   '/student': typeof AuthStudentRoute
+  '/user': typeof AuthUserRoute
 }
 export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
   '/demo': typeof AuthDemoRoute
-  '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
+  '/mentor': typeof AuthMentorRoute
   '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
   '/student': typeof AuthStudentRoute
+  '/user': typeof AuthUserRoute
   '/': typeof AuthIndexRoute
 }
 export interface FileRoutesById {
@@ -105,13 +113,14 @@ export interface FileRoutesById {
   '/_auth': typeof AuthRouteRouteWithChildren
   '/signin': typeof SigninRoute
   '/_auth/demo': typeof AuthDemoRoute
-  '/_auth/email': typeof AuthEmailRoute
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
   '/_auth/matching': typeof AuthMatchingRoute
+  '/_auth/mentor': typeof AuthMentorRoute
   '/_auth/mentorMatching': typeof AuthMentorMatchingRoute
   '/_auth/resource': typeof AuthResourceRoute
   '/_auth/student': typeof AuthStudentRoute
+  '/_auth/user': typeof AuthUserRoute
   '/_auth/': typeof AuthIndexRoute
 }
 export interface FileRouteTypes {
@@ -120,37 +129,40 @@ export interface FileRouteTypes {
     | '/'
     | '/signin'
     | '/demo'
-    | '/email'
     | '/event'
     | '/group'
     | '/matching'
+    | '/mentor'
     | '/mentorMatching'
     | '/resource'
     | '/student'
+    | '/user'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/signin'
     | '/demo'
-    | '/email'
     | '/event'
     | '/group'
     | '/matching'
+    | '/mentor'
     | '/mentorMatching'
     | '/resource'
     | '/student'
+    | '/user'
     | '/'
   id:
     | '__root__'
     | '/_auth'
     | '/signin'
     | '/_auth/demo'
-    | '/_auth/email'
     | '/_auth/event'
     | '/_auth/group'
     | '/_auth/matching'
+    | '/_auth/mentor'
     | '/_auth/mentorMatching'
     | '/_auth/resource'
     | '/_auth/student'
+    | '/_auth/user'
     | '/_auth/'
   fileRoutesById: FileRoutesById
 }
@@ -182,6 +194,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/user': {
+      id: '/_auth/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof AuthUserRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
     '/_auth/student': {
       id: '/_auth/student'
       path: '/student'
@@ -201,6 +220,13 @@ declare module '@tanstack/react-router' {
       path: '/mentorMatching'
       fullPath: '/mentorMatching'
       preLoaderRoute: typeof AuthMentorMatchingRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/mentor': {
+      id: '/_auth/mentor'
+      path: '/mentor'
+      fullPath: '/mentor'
+      preLoaderRoute: typeof AuthMentorRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/matching': {
@@ -224,13 +250,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthEventRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/email': {
-      id: '/_auth/email'
-      path: '/email'
-      fullPath: '/email'
-      preLoaderRoute: typeof AuthEmailRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
     '/_auth/demo': {
       id: '/_auth/demo'
       path: '/demo'
@@ -243,25 +262,27 @@ declare module '@tanstack/react-router' {
 
 interface AuthRouteRouteChildren {
   AuthDemoRoute: typeof AuthDemoRoute
-  AuthEmailRoute: typeof AuthEmailRoute
   AuthEventRoute: typeof AuthEventRoute
   AuthGroupRoute: typeof AuthGroupRoute
   AuthMatchingRoute: typeof AuthMatchingRoute
+  AuthMentorRoute: typeof AuthMentorRoute
   AuthMentorMatchingRoute: typeof AuthMentorMatchingRoute
   AuthResourceRoute: typeof AuthResourceRoute
   AuthStudentRoute: typeof AuthStudentRoute
+  AuthUserRoute: typeof AuthUserRoute
   AuthIndexRoute: typeof AuthIndexRoute
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthDemoRoute: AuthDemoRoute,
-  AuthEmailRoute: AuthEmailRoute,
   AuthEventRoute: AuthEventRoute,
   AuthGroupRoute: AuthGroupRoute,
   AuthMatchingRoute: AuthMatchingRoute,
+  AuthMentorRoute: AuthMentorRoute,
   AuthMentorMatchingRoute: AuthMentorMatchingRoute,
   AuthResourceRoute: AuthResourceRoute,
   AuthStudentRoute: AuthStudentRoute,
+  AuthUserRoute: AuthUserRoute,
   AuthIndexRoute: AuthIndexRoute,
 }
 

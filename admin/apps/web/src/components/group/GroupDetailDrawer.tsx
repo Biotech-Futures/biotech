@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { Group, Track } from "@/type/group";
+import type { TrackOption } from "@/type/user";
 import {
   Select,
   SelectContent,
@@ -21,21 +22,31 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUpdateGroup } from "@/query/group";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { UsersIcon, UserIcon, SaveIcon, XIcon } from "lucide-react";
 
-const trackColors: Record<Track, string> = {
-  frontend: "bg-blue-100 text-blue-800",
-  backend: "bg-green-100 text-green-800",
-  fullstack: "bg-purple-100 text-purple-800",
-  data: "bg-orange-100 text-orange-800",
-};
+function getTrackColor(track: Track) {
+  switch (track.toLowerCase()) {
+    case "frontend":
+      return "bg-blue-100 text-blue-800";
+    case "backend":
+      return "bg-green-100 text-green-800";
+    case "fullstack":
+      return "bg-purple-100 text-purple-800";
+    case "data":
+      return "bg-orange-100 text-orange-800";
+    default:
+      return "bg-slate-100 text-slate-800";
+  }
+}
 
 interface GroupDetailDrawerProps {
   group: Group | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: "view" | "edit";
+  tracks?: TrackOption[];
+  isLoadingTracks?: boolean;
 }
 
 export function GroupDetailDrawer({
@@ -43,6 +54,8 @@ export function GroupDetailDrawer({
   open,
   onOpenChange,
   mode,
+  tracks = [],
+  isLoadingTracks = false,
 }: GroupDetailDrawerProps) {
   const { mutate: updateGroup, isPending } = useUpdateGroup();
   const [editData, setEditData] = useState<{
@@ -62,6 +75,17 @@ export function GroupDetailDrawer({
       });
     }
   }, [group]);
+
+  const trackOptions = useMemo(() => {
+    if (tracks.some((item) => item.trackCode === editData.track)) return tracks;
+    return [
+      ...tracks,
+      {
+        id: -1,
+        trackCode: editData.track,
+      },
+    ];
+  }, [editData.track, tracks]);
 
   if (!group) return null;
 
@@ -107,7 +131,7 @@ export function GroupDetailDrawer({
               <>
                 <div>
                   <Label className="text-muted-foreground">Track</Label>
-                  <Badge className={trackColors[group.track]}>
+                  <Badge className={getTrackColor(group.track)}>
                     {group.track}
                   </Badge>
                 </div>
@@ -140,10 +164,16 @@ export function GroupDetailDrawer({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="frontend">Frontend</SelectItem>
-                      <SelectItem value="backend">Backend</SelectItem>
-                      <SelectItem value="fullstack">Fullstack</SelectItem>
-                      <SelectItem value="data">Data</SelectItem>
+                      {isLoadingTracks && trackOptions.length === 0 && (
+                        <SelectItem value="loading" disabled>
+                          Loading tracks...
+                        </SelectItem>
+                      )}
+                      {trackOptions.map((item) => (
+                        <SelectItem key={item.id} value={item.trackCode}>
+                          {item.trackCode}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

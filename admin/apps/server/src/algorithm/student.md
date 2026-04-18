@@ -251,3 +251,26 @@ The current test suite in [student.test.ts](/Users/charles/Desktop/project/biote
 - full groups are excluded from recommendation
 - unmatched reasons and score breakdowns are returned
 - equal-score scenarios remain deterministic
+
+## Edge-Case Test Input And Output Matrix
+
+The table below summarizes the edge-case coverage in [student.test.ts](/Users/charles/Desktop/project/biotech/admin/apps/server/src/algorithm/student.test.ts).
+
+| Area | Test input | Expected output |
+| --- | --- | --- |
+| Exact track codes | `assignTrack("")`, `assignTrack("aus-nsw")`, `assignTrack(" AUS-NSW ")` | All return `GLOBAL`; supported tracks require exact codes. |
+| Invalid new-group size | `scoreGroup` with 1 student or 6 students | Returns `null`; only 2-5 member groups are valid. |
+| Chained interest overlap | Three students with interests `["math"]`, `["math", "science"]`, `["science"]` | Valid group; each member shares with at least one peer; `qualityScore = 100`, `objectiveScore = 103`. |
+| Interest normalization | Two students with interests `"  Robotics "` and `"robotics"` | Valid group; interest comparison trims and lowercases. |
+| Legacy year field | Student with `yearlevel = 9` and no `yearLevel`, paired with year 11 | Per-student regional year penalty is `16`; score is `84`. |
+| Global timezone cap | Countries differ with timezone gap 26 hours | Timezone penalty is capped at `18`; country penalty is `12`. |
+| Same-country timezone | Same country with timezone gap 26 hours | Timezone and country penalties are both `0`. |
+| Empty grouping input | `buildGroups([])` | Returns empty `groups`, `studentScores`, `unmatchedStudentIds`, and `unmatchedStudentReasons`. |
+| Single student grouping | One student with no peers | No groups; student is unmatched with `NO_SHARED_INTEREST_IN_TRACK` and score `0`. |
+| Six compatible students | Six same-track students sharing `"math"` | Builds one 5-student group; leftover student is unmatched with `LEFTOVER_AFTER_GROUP_SELECTION` and compatible peer IDs. |
+| Custom existing-group capacity | Existing group has `maxSize = 2` and already has 2 members | No recommendation; reason is `All existing groups in this track are already full.` |
+| No existing groups | Student has a valid track bucket with `groups: []` | No recommendation; reason is `No existing groups are available in this track.` |
+| Bucket/student track mismatch | Student is placed in `AUS-NSW` input bucket but resolves to `GLOBAL` | No recommendation; uses the resolved student track and returns the no-groups reason. |
+| Recommendation ordering | Two track buckets produce recommendations for students `b` and `a` | Output is sorted by student ID: `a`, then `b`. |
+| Source normalization | Raw rows with null group name, tutor ID, `yearlevel`, region fallback, and mixed interest object shapes | Group name falls back to group ID; tutor name falls back to empty string; track resolves from region; blank interests are removed. |
+| Missing source ID | Raw individual student has neither `id` nor `userId` | `formatRecommendationInput` throws `Student source is missing id/userId.` |

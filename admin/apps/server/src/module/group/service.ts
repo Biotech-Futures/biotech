@@ -1,8 +1,20 @@
-// Group service with mock data
+import db from "@/lib/db.js";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  ilike,
+  inArray,
+  isNull,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
+import { groups, groupMembership, tracks, users } from "@/drizzle/schema.js";
 import type { QueryGroupsInput, UpdateGroupInput } from "./schema.js";
 
-// Types
-export type Track = "frontend" | "backend" | "fullstack" | "data";
+export type Track = string;
 
 export type GroupMember = {
   id: string;
@@ -21,104 +33,184 @@ export type Group = {
   updatedAt: string;
 };
 
-// Mock data storage
-const mentors: GroupMember[] = [
-  { id: "m1", name: "Alice Johnson", email: "alice@example.com", role: "mentor" },
-  { id: "m2", name: "Bob Smith", email: "bob@example.com", role: "mentor" },
-  { id: "m3", name: "Carol White", email: "carol@example.com", role: "mentor" },
-  { id: "m4", name: "David Brown", email: "david@example.com", role: "mentor" },
-  { id: "m5", name: "Emma Davis", email: "emma@example.com", role: "mentor" },
-];
+type GroupBaseRow = {
+  id: number;
+  name: string;
+  track: string;
+  createdAt: string;
+};
 
-const studentNames = [
-  "John Doe", "Jane Smith", "Mike Johnson", "Sarah Williams", "Tom Brown",
-  "Lisa Anderson", "Chris Taylor", "Amy Martinez", "Kevin Garcia", "Rachel Lee",
-  "Steve Clark", "Michelle Rodriguez", "Brian Wilson", "Emily Moore", "Jason Taylor",
-  "Ashley Thomas", "Matthew Jackson", "Samantha White", "Daniel Harris", "Jessica Martin",
-  "Andrew Thompson", "Nicole Robinson", "Joshua Lewis", "Amanda Walker", "Ryan Hall",
-  "Stephanie Allen", "Brandon Young", "Jennifer King", "Justin Wright", "Melissa Scott",
-];
+function toGroupMember(row: {
+  userId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  membershipRole: string | null;
+}): GroupMember | null {
+  const role = row.membershipRole?.toLowerCase();
+  if (role !== "student" && role !== "mentor") return null;
 
-const tracks: Track[] = ["frontend", "backend", "fullstack", "data"];
-
-// Generate mock groups
-function generateMockGroups(): Group[] {
-  const groups: Group[] = [];
-  let studentId = 1;
-
-  for (let i = 1; i <= 50; i++) {
-    const track = tracks[(i - 1) % 4];
-    const mentorIndex = (i - 1) % mentors.length;
-
-    // Generate 3-5 members per group
-    const memberCount = 3 + (i % 3);
-    const members: GroupMember[] = [];
-
-    for (let j = 0; j < memberCount; j++) {
-      const studentNameIndex = (studentId - 1) % studentNames.length;
-      members.push({
-        id: `s${studentId}`,
-        name: studentNames[studentNameIndex],
-        email: `student${studentId}@example.com`,
-        role: "student",
-      });
-      studentId++;
-    }
-
-    groups.push({
-      id: `g${i}`,
-      name: `Group ${i}`,
-      track,
-      members,
-      mentor: mentors[mentorIndex],
-      createdAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
-      updatedAt: new Date(2024, 0, 1 + (i % 30)).toISOString(),
-    });
-  }
-
-  return groups;
+  return {
+    id: String(row.userId),
+    name: `${row.firstName} ${row.lastName}`.trim(),
+    email: row.email,
+    role,
+  };
 }
 
-// Initialize mock data
-let mockGroups: Group[] = generateMockGroups();
+async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
+  if (baseRows.length === 0) return [];
 
-// Query groups with pagination and filters
-export function queryGroups(params: QueryGroupsInput) {
-  const { page, limit, searchName, searchGroup, track } = params;
-  const offset = (page - 1) * limit;
+  const groupIds = baseRows.map((group) => group.id);
+  const memberRows = await db
+    .select({
+      groupId: groupMembership.groupId,
+      userId: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+      membershipRole: groupMembership.membershipRole,
+    })
+    .from(groupMembership)
+    .innerJoin(users, eq(users.id, groupMembership.userId))
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        isNull(groupMembership.leftAt),
+      ),
+    )
+    .orderBy(asc(groupMembership.groupId), asc(groupMembership.joinedAt));
 
-  // Filter groups
-  let filtered = mockGroups.filter((group) => {
-    // Filter by track
-    if (track && group.track !== track) {
-      return false;
+  const membersByGroupId = new Map<number, GroupMember[]>();
+  const mentorByGroupId = new Map<number, GroupMember>();
+
+  for (const row of memberRows) {
+    const member = toGroupMember(row);
+    if (!member) continue;
+
+    if (member.role === "mentor") {
+      mentorByGroupId.set(row.groupId, member);
+      continue;
     }
 
-    // Filter by group name
-    if (searchGroup) {
-      const searchLower = searchGroup.toLowerCase();
-      if (!group.name.toLowerCase().includes(searchLower)) {
-        return false;
-      }
-    }
+    const members = membersByGroupId.get(row.groupId) ?? [];
+    members.push(member);
+    membersByGroupId.set(row.groupId, members);
+  }
 
-    // Filter by member name
-    if (searchName) {
-      const searchLower = searchName.toLowerCase();
-      const hasMatchingMember = group.members.some(
-        (member) => member.name.toLowerCase().includes(searchLower)
+  return baseRows.map((row) => ({
+    id: String(row.id),
+    name: row.name,
+    track: row.track,
+    members: membersByGroupId.get(row.id) ?? [],
+    mentor: mentorByGroupId.get(row.id) ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.createdAt,
+  }));
+}
+
+function buildGroupWhere(
+  params: Pick<
+    QueryGroupsInput,
+    "searchName" | "searchGroup" | "track" | "mentorStatus"
+  >,
+) {
+  const conditions = [isNull(groups.deletedAt)];
+
+  if (params.track) conditions.push(eq(tracks.trackCode, params.track));
+  if (params.searchGroup) {
+    conditions.push(ilike(groups.groupName, `%${params.searchGroup}%`));
+  }
+
+  const activeMentorMembership = db
+    .select({ id: groupMembership.id })
+    .from(groupMembership)
+    .where(
+      and(
+        eq(groupMembership.groupId, groups.id),
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
+
+  if (params.mentorStatus === "matched") {
+    conditions.push(exists(activeMentorMembership));
+  }
+
+  if (params.mentorStatus === "unmatched") {
+    conditions.push(notExists(activeMentorMembership));
+  }
+
+  if (params.searchName) {
+    const search = `%${params.searchName}%`;
+    const matchingMember = db
+      .select({ id: groupMembership.id })
+      .from(groupMembership)
+      .innerJoin(users, eq(users.id, groupMembership.userId))
+      .where(
+        and(
+          eq(groupMembership.groupId, groups.id),
+          isNull(groupMembership.leftAt),
+          or(
+            ilike(users.firstName, search),
+            ilike(users.lastName, search),
+            ilike(users.email, search),
+          ),
+        ),
       );
-      if (!hasMatchingMember) {
-        return false;
-      }
-    }
 
-    return true;
-  });
+    conditions.push(exists(matchingMember));
+  }
 
-  const total = filtered.length;
-  const hasMore = offset + limit < total;
-  const items = filtered.slice(offset, offset + limit);
+  return and(...conditions);
+}
+
+async function fetchGroupBaseById(id: number): Promise<GroupBaseRow | null> {
+  const rows = await db
+    .select({
+      id: groups.id,
+      name: groups.groupName,
+      track: tracks.trackCode,
+      createdAt: groups.createdAt,
+    })
+    .from(groups)
+    .innerJoin(tracks, eq(tracks.id, groups.trackId))
+    .where(and(eq(groups.id, id), isNull(groups.deletedAt)))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export async function queryGroups(params: QueryGroupsInput) {
+  const { page, limit } = params;
+  const offset = (page - 1) * limit;
+  const where = buildGroupWhere(params);
+
+  const [baseRows, countResult] = await Promise.all([
+    db
+      .select({
+        id: groups.id,
+        name: groups.groupName,
+        track: tracks.trackCode,
+        createdAt: groups.createdAt,
+      })
+      .from(groups)
+      .innerJoin(tracks, eq(tracks.id, groups.trackId))
+      .where(where)
+      .orderBy(asc(groups.groupName), asc(groups.id))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({
+        count: sql<number>`cast(count(distinct ${groups.id}) as int)`,
+      })
+      .from(groups)
+      .innerJoin(tracks, eq(tracks.id, groups.trackId))
+      .where(where),
+  ]);
+
+  const items = await buildGroups(baseRows);
+  const total = countResult[0]?.count ?? 0;
 
   return {
     msg: "Groups retrieved successfully",
@@ -127,47 +219,59 @@ export function queryGroups(params: QueryGroupsInput) {
       total,
       page,
       limit,
-      hasMore,
+      hasMore: offset + items.length < total,
     },
   };
 }
 
-// Get single group by ID
-export function queryGroupById(id: string) {
-  const group = mockGroups.find((g) => g.id === id);
-
-  if (!group) {
-    return {
-      msg: "Group not found",
-      data: null,
-    };
+export async function queryGroupById(id: string) {
+  const groupId = Number(id);
+  if (!Number.isFinite(groupId)) {
+    return { msg: "Group not found", data: null };
   }
 
+  const baseRow = await fetchGroupBaseById(groupId);
+  if (!baseRow) return { msg: "Group not found", data: null };
+
+  const [group] = await buildGroups([baseRow]);
   return {
     msg: "Group retrieved successfully",
     data: group,
   };
 }
 
-// Update group
-export function updateGroup(id: string, updates: UpdateGroupInput) {
-  const index = mockGroups.findIndex((g) => g.id === id);
-
-  if (index === -1) {
-    return {
-      msg: "Group not found",
-      data: null,
-    };
+export async function updateGroup(id: string, updates: UpdateGroupInput) {
+  const groupId = Number(id);
+  if (!Number.isFinite(groupId)) {
+    return { msg: "Group not found", data: null };
   }
 
-  mockGroups[index] = {
-    ...mockGroups[index],
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  };
+  const existing = await fetchGroupBaseById(groupId);
+  if (!existing) return { msg: "Group not found", data: null };
+
+  const groupUpdates: Partial<typeof groups.$inferInsert> = {};
+  if (updates.name !== undefined) groupUpdates.groupName = updates.name;
+
+  if (updates.track !== undefined) {
+    const trackRows = await db
+      .select({ id: tracks.id })
+      .from(tracks)
+      .where(eq(tracks.trackCode, updates.track))
+      .limit(1);
+
+    if (!trackRows[0]) {
+      return { msg: `Track "${updates.track}" not found`, data: null };
+    }
+
+    groupUpdates.trackId = trackRows[0].id;
+  }
+
+  if (Object.keys(groupUpdates).length > 0) {
+    await db.update(groups).set(groupUpdates).where(eq(groups.id, groupId));
+  }
 
   return {
     msg: "Group updated successfully",
-    data: mockGroups[index],
+    data: (await queryGroupById(id)).data,
   };
 }

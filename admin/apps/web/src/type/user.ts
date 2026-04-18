@@ -1,4 +1,4 @@
-export type UserTrack = "frontend" | "backend" | "fullstack" | "data";
+export type UserTrack = string;
 export type UserRole = "student" | "mentor" | "supervisor" | "admin";
 export type ServerUserRole = UserRole;
 export type UserStatus = "active" | "inactive";
@@ -46,7 +46,10 @@ export type CsvUserRow = UserFormValues & {
 };
 
 export type UserOverride = Partial<
-  Pick<UserAccount, "name" | "email" | "role" | "track" | "active" | "updatedAt">
+  Pick<
+    UserAccount,
+    "name" | "email" | "role" | "track" | "active" | "updatedAt"
+  >
 >;
 
 export const USER_TRACKS: UserTrack[] = [
@@ -70,12 +73,83 @@ export const SERVER_USER_ROLES: ServerUserRole[] = [
   "admin",
 ];
 
+export type StudentTrack = string;
+
+export type TrackOption = {
+  id: number;
+  trackCode: string;
+};
+
+export type TracksResponse = {
+  msg: string;
+  data: TrackOption[];
+};
+
+export type StudentInterest = {
+  id: number;
+  description: string;
+};
+
+export type StudentGroupInfo = {
+  id: number;
+  name: string;
+  membershipId: number;
+  membershipRole: string | null;
+  joinedAt: string;
+};
+
+export type StudentUser = {
+  id: number;
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: "student";
+  track: StudentTrack | null;
+  isActive: boolean;
+  accountStatus: string;
+  invitedAt: string | null;
+  activatedAt: string | null;
+  basicInfo: {
+    id: number;
+    name: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    track: StudentTrack | null;
+    isActive: boolean;
+    accountStatus: string;
+  };
+  studentInfo: {
+    schoolName: string | null;
+    yearLevel: number | null;
+    joinPermissionReceived: boolean;
+    joinPermissionResponseId: string | null;
+  };
+  groupInfo: StudentGroupInfo | null;
+  groupId: string | null;
+  groupName: string | null;
+  interests: StudentInterest[];
+};
+
+export type StudentPaginatedResponse = {
+  msg: string;
+  data: {
+    items: StudentUser[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  };
+};
+export const STUDENT_TRACKS: StudentTrack[] = USER_TRACKS;
+
 export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
   return user.active ? "active" : "inactive";
 }
 
 export function labelizeUserRole(role: UserRole) {
-  return role.charAt(0).toUpperCase() + role.slice(1);
+  return role?.charAt(0).toUpperCase() + role?.slice(1);
 }
 
 export function labelizeTrack(track: UserTrack | null) {

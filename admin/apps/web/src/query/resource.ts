@@ -3,6 +3,7 @@ import { myFetch } from "@/lib/myFetch";
 import type { CreateResource, UpdateResource } from "@/schema/resource";
 import type {
   Resource,
+  ResourceKind,
   ResourceRole,
   ResourceOrder,
   ResourceTypeOption,
@@ -17,13 +18,14 @@ interface QueryResourcesParams {
   track_id?: number;
   order?: ResourceOrder;
   resource_type?: ResourceTypeName;
+  resource_kind?: ResourceKind;
 }
 
 export function useQueryResources(params: QueryResourcesParams) {
-  const { page, search, uploader, track_id, order, resource_type } = params;
+  const { page, search, uploader, track_id, order, resource_type, resource_kind } = params;
 
   return useQuery({
-    queryKey: ["resources", page, search, uploader, track_id, order, resource_type],
+    queryKey: ["resources", page, search, uploader, track_id, order, resource_type, resource_kind],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
       const res = await myFetch.get<PaginatedResponse<Resource>>("/resource", {
         params: {
@@ -32,6 +34,7 @@ export function useQueryResources(params: QueryResourcesParams) {
           uploader,
           track_id,
           resource_type,
+          resource_kind,
           order: order ?? "newest",
         },
       });

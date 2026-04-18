@@ -8,7 +8,7 @@ export const queryUsersSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(10),
   search: z.string().optional(),
   role: z.enum(ROLES).optional(),
-  track: z.enum(TRACKS).optional(),
+  track: trackCodeSchema.optional(),
   active: z.coerce.boolean().optional(),
 });
 
@@ -17,7 +17,7 @@ export const queryStudentsSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(10),
   search: z.string().optional(),
   age: z.coerce.number().int().min(10).max(30).optional(),
-  track: z.enum(TRACKS).optional(),
+  track: z.string().optional(),
   interest: z.string().optional(),
   inGroup: z.enum(["yes", "no"]).optional(),
   active: z.coerce.boolean().optional(),
@@ -28,7 +28,7 @@ export const createUserSchema = z.object({
   lastName: z.string().min(1).max(255),
   email: z.string().email(),
   role: z.enum(ROLES),
-  track: z.enum(TRACKS).optional(),
+  track: trackCodeSchema.optional(),
   groupId: z.string().optional(),
   active: z.coerce.boolean().optional(),
 });
@@ -42,7 +42,7 @@ export const updateUserSchema = z.object({
   lastName: z.string().min(1).max(255).optional(),
   email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
-  track: z.enum(TRACKS).nullable().optional(),
+  track: trackCodeSchema.nullable().optional(),
   groupId: z.string().nullable().optional(),
   active: z.coerce.boolean().optional(),
 });

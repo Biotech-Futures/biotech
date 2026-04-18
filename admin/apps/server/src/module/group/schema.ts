@@ -7,6 +7,7 @@ export const queryGroupsSchema = z.object({
   searchName: z.string().optional(), // Search by member name
   searchGroup: z.string().optional(), // Search by group name
   track: z.string().optional(),
+  mentorStatus: z.enum(["matched", "unmatched"]).optional(),
 });
 
 export const updateGroupSchema = z.object({

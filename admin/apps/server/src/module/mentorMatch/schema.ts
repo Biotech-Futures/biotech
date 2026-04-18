@@ -27,4 +27,9 @@ export type MentorMatchUidQueryInput = z.infer<
   typeof mentorMatchUidQuerySchema
 >;
 
+export const unassignMentorsSchema = z.object({
+  groupIds: z.array(z.coerce.number().int().positive()).min(1),
+});
+
 export type ReplaceMentorInput = z.infer<typeof replaceMentorSchema>;
+export type UnassignMentorsInput = z.infer<typeof unassignMentorsSchema>;
