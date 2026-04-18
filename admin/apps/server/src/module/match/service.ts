@@ -23,11 +23,7 @@ import {
   tracks,
   users,
 } from "@/drizzle/schema.js";
-import {
-  demoIndividualStudents,
-  demoMatchRecommendations,
-  useMatchDemoData,
-} from "./demo.js";
+
 import type { ConfirmMatchAssignmentInput } from "./schema.js";
 
 const DEFAULT_GROUP_MAX_SIZE = 5;
@@ -195,53 +191,6 @@ function buildFormRecommendations(
 }
 
 export async function matchStudent(uid: string) {
-  if (useMatchDemoData()) {
-    const demoGroupsById = new Map<string, MatchGroupSummary>();
-
-    for (const recommendation of demoMatchRecommendations) {
-      const group = recommendation.recommendGroup;
-      if (!group) {
-        continue;
-      }
-
-      const groupKey = String(group.id);
-      if (demoGroupsById.has(groupKey)) {
-        continue;
-      }
-
-      const maxSize = group.maxSize ?? DEFAULT_GROUP_MAX_SIZE;
-      const studentCount = group.groupStudent.length;
-      const availableSeats = Math.max(0, maxSize - studentCount);
-
-      if (availableSeats <= 0) {
-        continue;
-      }
-
-      demoGroupsById.set(groupKey, {
-        id: group.id,
-        groupName: group.groupName,
-        trackId: group.trackId,
-        maxSize,
-        tutor: group.tutor ?? null,
-        groupStudent: group.groupStudent.map((student) => ({
-          id: student.id,
-          name: student.name ?? "Unknown student",
-          trackId: student.trackId,
-          country: student.country,
-          yearLevel: student.yearLevel ?? student.yearlevel,
-          interests: student.interests,
-        })),
-        studentCount,
-        availableSeats,
-      });
-    }
-
-    return {
-      recommendations: demoMatchRecommendations,
-      notFullGroups: [...demoGroupsById.values()],
-    } satisfies MatchStudentResult;
-  }
-
   const activeMembershipSubquery = db
     .select({ userId: groupMembership.userId })
     .from(groupMembership)
@@ -603,7 +552,9 @@ export async function matchStudent(uid: string) {
           )
           .where(inArray(studentInterest.studentUserId, allStudentIds));
 
-  const studentInterestsByUserId = mapInterestsByUserId(activeStudentInterestRows);
+  const studentInterestsByUserId = mapInterestsByUserId(
+    activeStudentInterestRows,
+  );
 
   const activeTutorRows =
     allGroupIds.length === 0
@@ -623,7 +574,10 @@ export async function matchStudent(uid: string) {
           )
           .innerJoin(users, eq(users.id, mentorProfile.userId))
           .where(
-            and(inArray(groups.id, allGroupIds), isNull(groupMembership.leftAt)),
+            and(
+              inArray(groups.id, allGroupIds),
+              isNull(groupMembership.leftAt),
+            ),
           );
 
   const allTutorByGroupId = new Map<
@@ -645,7 +599,10 @@ export async function matchStudent(uid: string) {
     });
   }
 
-  const studentsByGroupId = new Map<number, MatchGroupSummary["groupStudent"]>();
+  const studentsByGroupId = new Map<
+    number,
+    MatchGroupSummary["groupStudent"]
+  >();
   for (const row of activeStudentRows) {
     const existing = studentsByGroupId.get(row.groupId) ?? [];
     existing.push({
@@ -686,10 +643,6 @@ export async function matchStudent(uid: string) {
 }
 
 export async function getIndividualStudents() {
-  if (useMatchDemoData()) {
-    return demoIndividualStudents;
-  }
-
   const activeMembershipSubquery = db
     .select({ userId: groupMembership.userId })
     .from(groupMembership)
