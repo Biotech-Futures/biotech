@@ -5,24 +5,25 @@ from django.utils import timezone
 class Groups(models.Model):
     group_name = models.CharField(max_length=255)
     track = models.ForeignKey('Tracks', on_delete=models.PROTECT)
-    created_at = models.DateTimeField(default=timezone.now)
-    deleted_at = models.DateTimeField(null=True, blank=True)
+    creation_datetime = models.DateTimeField(default=timezone.now)
+    deleted_flag = models.BooleanField(default=False)
+    deleted_datetime = models.DateTimeField(default=None, blank=True, null=True)
 
     class Meta:
         db_table = 'groups'
         indexes = [
             models.Index(fields=['track']),
-            models.Index(fields=['deleted_at']),
-            models.Index(fields=['created_at']),
+            models.Index(fields=['deleted_flag']),
+            models.Index(fields=['creation_datetime']),
         ]
         constraints = [
             models.UniqueConstraint(
                 fields=['track', 'group_name'],
-                condition=Q(deleted_at__isnull=True),
+                condition=Q(deleted_flag=False),
                 name='unique_active_group_name_per_track'
             ),
             models.CheckConstraint(
-                condition=Q(deleted_at__gte=F('created_at')) | Q(deleted_at__isnull=True),
+                condition=Q(deleted_flag=False) | (Q(deleted_flag=True) & Q(deleted_datetime__isnull=False)),
                 name='group_deleted_after_created'
             ),
             models.CheckConstraint(
@@ -36,4 +37,4 @@ class Groups(models.Model):
 
     @property
     def is_deleted(self):
-        return self.deleted_at is not None
+        return self.deleted_flag

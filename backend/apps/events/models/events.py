@@ -1,19 +1,18 @@
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
 from django.utils import timezone
 
 class Events(models.Model):
     event_name = models.CharField(max_length=255)
-    description = models.CharField(max_length=255, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
     start_datetime = models.DateTimeField()
     ends_datetime = models.DateTimeField()
     location = models.CharField(max_length=255, blank=True, null=True) # Allow null/blank for virtual events
-    humanitix_link = models.URLField(max_length=255)
+    humanitix_link = models.URLField(max_length=255, blank=True, null=True) # Optional: not all events use Humanitix
     host_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True) # Set null to allow events to persist if host user is deleted
     deleted_flag = models.BooleanField(default=False)
     deleted_datetime = models.DateTimeField(default=None, blank=True, null=True) # Allow null/blank for events that aren't deleted
-    event_image = models.CharField(db_column='event_image(IMG)', max_length=255, blank=True, null=True)  # Field name made lowercase. Field renamed to remove unsuitable characters. Field renamed because it ended with '_'.     
+    event_image = models.CharField(max_length=255, blank=True, null=True)
     is_virtual = models.BooleanField(default=False)
 
     class Meta:

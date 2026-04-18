@@ -40,10 +40,10 @@ class EventSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_start_datetime(self, value):
-        """Prevent creating events in the past"""
-        if value < timezone.now():
+        """Prevent creating events in the past (only enforced on create, not update)"""
+        if self.instance is None and value < timezone.now():
             raise serializers.ValidationError("Cannot create events in the past.")
-        return value 
+        return value
     
 class EventInviteSerializers(serializers.ModelSerializer):
     class Meta:
@@ -53,4 +53,4 @@ class EventInviteSerializers(serializers.ModelSerializer):
 class EventInviteCreateSerializers(serializers.ModelSerializer):
     class Meta:
         model = EventInvite
-        fields = ["event", "user", "sent_datetime"]
+        fields = ["id", "event", "user", "sent_datetime"]
