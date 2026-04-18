@@ -1,6 +1,5 @@
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
 from django.utils import timezone
 
 class EventInvite(models.Model):
@@ -15,7 +14,7 @@ class EventInvite(models.Model):
         verbose_name = "Event Invite"
         verbose_name_plural = "Event Invites"
         constraints = [
-            models.UniqueConstraint(fields=['event', 'user'], name='unique_event_user'), # we remove the composite and add this constraint since django will add a default id field and composite keys arent natively supported
+            models.UniqueConstraint(fields=['event', 'user'], name='unique_event_user'), # composite key equivalent; Django adds a default id
 
             # Ensure attendance can only be True if RSVP is also True
             models.CheckConstraint(

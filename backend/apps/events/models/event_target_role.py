@@ -1,7 +1,4 @@
-from django.conf import settings
 from django.db import models
-from django.db.models import Q
-from django.utils import timezone
 
 class EventTargetRole(models.Model):
     event = models.ForeignKey('Events', on_delete=models.CASCADE)
@@ -13,6 +10,10 @@ class EventTargetRole(models.Model):
         verbose_name_plural = "Event Target Roles"
         constraints = [
             models.UniqueConstraint(fields=['event', 'role'], name='unique_event_role')
+        ]
+        indexes = [
+            models.Index(fields=['event']),
+            models.Index(fields=['role']),
         ]
 
     def __str__(self):

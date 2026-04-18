@@ -2,10 +2,12 @@ from rest_framework import serializers
 from .models import Countries, GroupMembership, Tracks, Groups
 from apps.users.models import User
 
+
 class CountrySerializer(serializers.ModelSerializer):
   class Meta:
     model = Countries
     fields = ['id', 'country_name']
+
 
 class GroupMembershipSerializer(serializers.ModelSerializer):
   class Meta:
@@ -29,10 +31,12 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
         })
     return attrs
 
+
 class TrackSerializer(serializers.ModelSerializer):
   class Meta:
     model = Tracks
     fields = ['id', 'track_name', 'state']
+
 
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
@@ -57,7 +61,6 @@ class GroupSerializer(serializers.ModelSerializer):
     return attrs
 
 
-# for bulk endpoints, rejects empty lists + non-positive integers
 class BulkUserSerializer(serializers.Serializer):
   user_ids = serializers.ListField(
     child=serializers.IntegerField(min_value=1),
