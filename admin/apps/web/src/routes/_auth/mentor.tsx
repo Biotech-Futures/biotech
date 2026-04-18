@@ -26,6 +26,8 @@ import {
   ChevronRightIcon,
   MessageSquareOffIcon,
   RefreshCwIcon,
+  ShieldCheckIcon,
+  ClockIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -35,6 +37,8 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_auth/mentor")({
   component: MentorPage,
 });
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function daysSince(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -259,21 +263,118 @@ function MentorPage() {
                   isExpanded && (
                     <TableRow key={`detail-${mentor.mentorId}`} className="hover:bg-transparent">
                       <TableCell colSpan={7} className="p-0">
-                        <div className="border-t bg-muted/20 px-6 py-3">
-                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                            Interests
-                          </p>
-                          {mentor.interests.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {mentor.interests.map((i) => (
-                                <Badge key={i} variant="secondary" className="text-xs">
-                                  {i}
-                                </Badge>
-                              ))}
+                        <div className="border-t bg-muted/20 px-6 py-4 space-y-4">
+                          {/* Basic Info */}
+                          <div>
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Account Info
+                            </p>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground">User ID:</span>
+                                <span className="font-mono">{mentor.mentorId}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground">Email:</span>
+                                <span>{mentor.email}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground">Institution:</span>
+                                <span>{mentor.institution ?? "—"}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-muted-foreground">Max Groups:</span>
+                                <span>{mentor.maxGroupCount}</span>
+                              </div>
                             </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">No interests listed.</p>
-                          )}
+                          </div>
+
+                          {/* Interests */}
+                          <div>
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Interests
+                            </p>
+                            {mentor.interests.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {mentor.interests.map((i) => (
+                                  <Badge key={i} variant="secondary" className="text-xs">
+                                    {i}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">No interests listed.</p>
+                            )}
+                          </div>
+
+                          {/* Availability */}
+                          <div>
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                              <ClockIcon className="size-3" /> Availability
+                            </p>
+                            {mentor.availability.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {[...mentor.availability]
+                                  .sort((a, b) => a.weekday - b.weekday)
+                                  .map((slot, idx) => (
+                                    <div key={idx} className="rounded-md border bg-background px-2 py-1 text-xs">
+                                      <span className="font-medium">{WEEKDAYS[slot.weekday]}</span>
+                                      <span className="ml-1 text-muted-foreground">
+                                        {slot.startTime.slice(0, 5)}–{slot.endTime.slice(0, 5)}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">No availability set.</p>
+                            )}
+                          </div>
+
+                          {/* Certificates */}
+                          <div>
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                              <ShieldCheckIcon className="size-3" /> Certificates
+                            </p>
+                            {mentor.certificates.length > 0 ? (
+                              <div className="space-y-2">
+                                {mentor.certificates.map((cert, idx) => (
+                                  <div key={idx} className="rounded-md border bg-background px-3 py-2 text-xs space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium">{cert.certificateTypeName}</span>
+                                      {cert.verifiedAt ? (
+                                        <span className="flex items-center gap-0.5 text-green-600">
+                                          <ShieldCheckIcon className="size-3" /> Verified
+                                        </span>
+                                      ) : (
+                                        <span className="text-muted-foreground">Unverified</span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-4 text-muted-foreground">
+                                      {cert.certificateNumber && (
+                                        <span>No. {cert.certificateNumber}</span>
+                                      )}
+                                      {cert.issuedBy && <span>Issued by: {cert.issuedBy}</span>}
+                                      <span>Issued: {cert.issuedAt}</span>
+                                      {cert.expiresAt && <span>Expires: {cert.expiresAt}</span>}
+                                    </div>
+                                    {cert.fileUrl && (
+                                      <a
+                                        href={cert.fileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-primary underline-offset-2 hover:underline"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        View file
+                                      </a>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">No certificates on file.</p>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>

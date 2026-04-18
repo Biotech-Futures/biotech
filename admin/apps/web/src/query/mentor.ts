@@ -4,6 +4,22 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 
+const availabilitySchema = z.object({
+  weekday: z.number(),
+  startTime: z.string(),
+  endTime: z.string(),
+});
+
+const certificateSchema = z.object({
+  certificateTypeName: z.string(),
+  certificateNumber: z.string().nullable(),
+  issuedBy: z.string().nullable(),
+  issuedAt: z.string(),
+  expiresAt: z.string().nullable(),
+  fileUrl: z.string().nullable(),
+  verifiedAt: z.string().nullable(),
+});
+
 const mentorDetailSchema = z.object({
   mentorId: z.number(),
   firstName: z.string(),
@@ -18,6 +34,8 @@ const mentorDetailSchema = z.object({
   remainingCapacity: z.number(),
   interests: z.array(z.string()),
   lastMessageAt: z.string().nullable(),
+  availability: z.array(availabilitySchema),
+  certificates: z.array(certificateSchema),
 });
 
 const mentorListResponseSchema = z.object({

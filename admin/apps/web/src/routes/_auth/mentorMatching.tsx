@@ -68,12 +68,9 @@ function RouteComponent() {
     }
   }
 
-  function goTo(mentorStatus: "matched" | "unmatched") {
+  function goToGroups() {
     setConfirmDialogOpen(false);
-    void navigate({
-      to: "/group",
-      search: { mentorStatus, groupId: undefined },
-    });
+    void navigate({ to: "/group" });
   }
 
   return (
@@ -105,11 +102,8 @@ function RouteComponent() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button className="w-full" onClick={() => goTo("matched")}>
-              View Matched Groups
-            </Button>
-            <Button className="w-full" variant="outline" onClick={() => goTo("unmatched")}>
-              View Unmatched Groups
+            <Button className="w-full" onClick={goToGroups}>
+              Go to Groups
             </Button>
             <Button className="w-full" variant="ghost" onClick={() => setConfirmDialogOpen(false)}>
               Decide Later

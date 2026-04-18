@@ -5,6 +5,9 @@ import {
   mentorInterest,
   areasOfInterest,
   mentorProfile,
+  mentorAvailability,
+  mentorCertificate,
+  certificateType,
   messages,
   tracks,
   users,
@@ -88,6 +91,51 @@ export async function getMentorList() {
     interestsByMentor.set(row.mentorUserId, list);
   }
 
+  // 5. Availability per mentor
+  const availabilityRows = await db
+    .select({
+      mentorUserId: mentorAvailability.mentorUserId,
+      weekday: mentorAvailability.weekday,
+      startTime: mentorAvailability.startTime,
+      endTime: mentorAvailability.endTime,
+    })
+    .from(mentorAvailability)
+    .where(
+      sql`${mentorAvailability.mentorUserId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
+    );
+
+  const availabilityByMentor = new Map<number, Array<{ weekday: number; startTime: string; endTime: string }>>();
+  for (const row of availabilityRows) {
+    const list = availabilityByMentor.get(row.mentorUserId) ?? [];
+    list.push({ weekday: row.weekday, startTime: row.startTime, endTime: row.endTime });
+    availabilityByMentor.set(row.mentorUserId, list);
+  }
+
+  // 6. Certificates per mentor
+  const certificateRows = await db
+    .select({
+      mentorProfileId: mentorCertificate.mentorProfileId,
+      certificateTypeName: certificateType.name,
+      certificateNumber: mentorCertificate.certificateNumber,
+      issuedBy: mentorCertificate.issuedBy,
+      issuedAt: mentorCertificate.issuedAt,
+      expiresAt: mentorCertificate.expiresAt,
+      fileUrl: mentorCertificate.fileUrl,
+      verifiedAt: mentorCertificate.verifiedAt,
+    })
+    .from(mentorCertificate)
+    .innerJoin(certificateType, eq(certificateType.id, mentorCertificate.certificateTypeId))
+    .where(
+      sql`${mentorCertificate.mentorProfileId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
+    );
+
+  const certificatesByMentor = new Map<number, typeof certificateRows>();
+  for (const row of certificateRows) {
+    const list = certificatesByMentor.get(row.mentorProfileId) ?? [];
+    list.push(row);
+    certificatesByMentor.set(row.mentorProfileId, list);
+  }
+
   return mentorRows.map((m) => {
     const currentAssignedCount = assignedCountByMentor.get(m.mentorId) ?? 0;
     return {
@@ -104,6 +152,8 @@ export async function getMentorList() {
       remainingCapacity: m.maxGroupCount - currentAssignedCount,
       interests: interestsByMentor.get(m.mentorId) ?? [],
       lastMessageAt: lastMessageByMentor.get(m.mentorId) ?? null,
+      availability: availabilityByMentor.get(m.mentorId) ?? [],
+      certificates: certificatesByMentor.get(m.mentorId) ?? [],
     };
   });
 }
