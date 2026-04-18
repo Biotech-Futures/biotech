@@ -1,114 +1,91 @@
-from django.utils import timezone
 from django.db.models import Q
-from rest_framework import generics, permissions, status
-from rest_framework.exceptions import ValidationError
+from django.utils import timezone
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.response import Response
-from rest_framework.views import APIView
-from apps.groups.models.group_members import GroupMembership
+
+from apps.audit.services import log_audit_event
 from apps.resources.models import RoleAssignmentHistory
+
 from .models import Announcement
 from .serializers import AnnouncementSerializer
 
 
-def get_active_role(user):
-    """Returns the user's current active role name, or None."""
-    now = timezone.now()
-    active = RoleAssignmentHistory.objects.filter(
-        user=user,
-        valid_from__lte=now
-    ).filter(
-        Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-    ).select_related('role').first()
-    return active.role if active else None
-
-
-class IsMentor(permissions.BasePermission):
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_staff or request.user.is_superuser:
-            return True
-        role = get_active_role(request.user)
-        return role is not None and role.role_name.lower() == 'mentor'
-
-
-class IsAdministrator(permissions.BasePermission):
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_staff or request.user.is_superuser:
-            return True
-        role = get_active_role(request.user)
-        return role is not None and role.role_name.lower() == 'administrator'
-
-
-class IsMentorOrAdministrator(permissions.BasePermission):
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        if request.user.is_staff or request.user.is_superuser:
-            return True
-        role = get_active_role(request.user)
-        if not role:
-            return False
-        return role.role_name.lower() in ('mentor', 'administrator')
-
-
-class AnnouncementCreateView(generics.CreateAPIView):
-    serializer_class = AnnouncementSerializer
-    permission_classes = [IsMentorOrAdministrator]
-
-    def perform_create(self, serializer):
-        role = get_active_role(self.request.user)
-        role_name = role.role_name.lower() if role else ''
-
-        # Mentors must target a group
-        if role_name == 'mentor' and not serializer.validated_data.get('group'):
-            raise ValidationError({'group': 'Mentors must specify a group.'})
-
-        serializer.save(created_by=self.request.user)
-
-
-class AnnouncementListView(generics.ListAPIView):
-    """Returns active announcements visible to the requesting user."""
+class AnnouncementViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    queryset = Announcement.objects.select_related("author_user", "track").prefetch_related("audiences__role", "audiences__track").all()
     serializer_class = AnnouncementSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_permissions(self):
+        if self.action in {"create", "update", "partial_update", "destroy"}:
+            return [permissions.IsAdminUser()]
+        return [permissions.IsAuthenticated()]
+
     def get_queryset(self):
-        now = timezone.now()
+        queryset = self.queryset
         user = self.request.user
 
-        user_group_ids = GroupMembership.objects.filter(
-            user=user
-        ).values_list('group_id', flat=True)
+        if not user or not user.is_authenticated:
+            return Announcement.objects.none()
 
-        user_role = get_active_role(user)
+        if user.is_staff or user.is_superuser:
+            return queryset.order_by("-published_at")
 
-        return Announcement.objects.filter(
-            deleted_flag=False,
-            start_date__lte=now,
-            end_date__gte=now,
+        now = timezone.now()
+        role_ids = RoleAssignmentHistory.objects.filter(
+            user=user,
+            valid_from__lte=now,
         ).filter(
-            Q(group_id__in=user_group_ids) |          # targeted at user's group
-            Q(target_role=user_role) |                 # targeted at user's role
-            Q(group__isnull=True, target_role__isnull=True)  # targeted at everyone
-        ).order_by('-created_at')
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        ).values_list("role_id", flat=True)
 
+        audience_filter = Q(author_user=user) | Q(visibility_scope=Announcement.VisibilityScope.PUBLIC)
+        if role_ids:
+            audience_filter |= Q(audiences__role_id__in=role_ids)
+        if user.track_id:
+            audience_filter |= Q(track_id=user.track_id) | Q(audiences__track_id=user.track_id)
 
-class AnnouncementDeleteView(APIView):
-    """Soft delete — only the creator can delete their own announcement."""
-    permission_classes = [IsMentorOrAdministrator]
+        return queryset.filter(Q(archived_at__isnull=True), audience_filter).distinct().order_by("-published_at")
 
-    def delete(self, request, pk):
-        try:
-            announcement = Announcement.objects.get(pk=pk, deleted_flag=False)
-        except Announcement.DoesNotExist:
-            return Response({'detail': 'Announcement not found.'}, status=status.HTTP_404_NOT_FOUND)
+    def perform_create(self, serializer):
+        announcement = serializer.save(author_user=self.request.user)
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="announcement",
+            entity_id=announcement.id,
+            action="create",
+            after_state=AnnouncementSerializer(announcement).data,
+        )
 
-        if announcement.created_by != request.user:
-            return Response({'detail': 'You can only delete your own announcements.'}, status=status.HTTP_403_FORBIDDEN)
+    def perform_update(self, serializer):
+        before_state = AnnouncementSerializer(self.get_object()).data
+        announcement = serializer.save()
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="announcement",
+            entity_id=announcement.id,
+            action="update",
+            before_state=before_state,
+            after_state=AnnouncementSerializer(announcement).data,
+        )
 
-        announcement.deleted_flag = True
-        announcement.deleted_datetime = timezone.now()
-        announcement.save()
+    def destroy(self, request, *args, **kwargs):
+        announcement = self.get_object()
+        before_state = AnnouncementSerializer(announcement).data
+        announcement.archived_at = timezone.now()
+        announcement.save(update_fields=["archived_at"])
+        log_audit_event(
+            actor=request.user,
+            entity_type="announcement",
+            entity_id=announcement.id,
+            action="archive",
+            before_state=before_state,
+            after_state=AnnouncementSerializer(announcement).data,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)

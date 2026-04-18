@@ -1,35 +1,43 @@
 from django.conf import settings
 from django.db import models
-from django.utils import timezone
 
-class EventInvite(models.Model):
-    event = models.ForeignKey('Events', on_delete=models.CASCADE)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE) # changed to CASCADE to maintain referential integrity
-    sent_datetime = models.DateTimeField(default=timezone.now)
-    attendance_status = models.BooleanField(default=False) # changed to default False to avoid null values
-    rsvp_status = models.BooleanField(default=False) # changed to default False to avoid null values
+
+class EventRsvp(models.Model):
+    class RsvpStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GOING = "going", "Going"
+        MAYBE = "maybe", "Maybe"
+        DECLINED = "declined", "Declined"
+
+    event = models.ForeignKey("Events", on_delete=models.CASCADE, related_name="rsvps")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    rsvp_status = models.CharField(
+        max_length=50,
+        choices=RsvpStatus.choices,
+        default=RsvpStatus.PENDING,
+    )
+    responded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = 'event_invite'
-        verbose_name = "Event Invite"
-        verbose_name_plural = "Event Invites"
+        db_table = "event_rsvp"
+        verbose_name = "Event RSVP"
+        verbose_name_plural = "Event RSVPs"
         constraints = [
-            models.UniqueConstraint(fields=['event', 'user'], name='unique_event_user'), # composite key equivalent; Django adds a default id
-
-            # Ensure attendance can only be True if RSVP is also True
+            models.UniqueConstraint(fields=["event", "user"], name="unique_event_rsvp_user"),
             models.CheckConstraint(
-                condition=models.Q(attendance_status=False) | models.Q(rsvp_status=True),
-                name='check_attendance_requires_rsvp'
+                condition=models.Q(responded_at__isnull=True)
+                | models.Q(rsvp_status__in=["going", "maybe", "declined"]),
+                name="event_rsvp_response_state_valid",
             ),
-            models.CheckConstraint(
-                condition=models.Q(sent_datetime__lte=models.functions.Now()),
-                name='check_invite_sent_datetime_not_future'
-            )
         ]
         indexes = [
-            models.Index(fields=['event']),
-            models.Index(fields=['user']),
+            models.Index(fields=["event"]),
+            models.Index(fields=["user"]),
+            models.Index(fields=["rsvp_status"]),
         ]
 
     def __str__(self):
-        return f"Invite for {self.user} to {self.event}"
+        return f"{self.user} -> {self.event} ({self.rsvp_status})"
+
+
+EventInvite = EventRsvp

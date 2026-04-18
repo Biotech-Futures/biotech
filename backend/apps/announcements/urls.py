@@ -1,8 +1,11 @@
-from django.urls import path
-from .views import AnnouncementCreateView, AnnouncementListView, AnnouncementDeleteView
+from django.urls import include, path
+from rest_framework.routers import SimpleRouter
+
+from .views import AnnouncementViewSet
+
+router = SimpleRouter()
+router.register(r"v1", AnnouncementViewSet, basename="announcements")
 
 urlpatterns = [
-    path('v1/', AnnouncementListView.as_view(), name='announcement-list'),
-    path('v1/create/', AnnouncementCreateView.as_view(), name='announcement-create'),
-    path('v1/<int:pk>/delete/', AnnouncementDeleteView.as_view(), name='announcement-delete'),
+    path("", include(router.urls)),
 ]

@@ -29,9 +29,8 @@ class GroupsTests(TestCase):
 
     def make_deleted_group(self, name="Deleted Group"):
         g = Groups.objects.create(group_name=name, track=self.track)
-        g.deleted_flag = True
-        g.deleted_datetime = timezone.now()
-        g.save(update_fields=["deleted_flag", "deleted_datetime"])
+        g.deleted_at = timezone.now()
+        g.save(update_fields=["deleted_at"])
         return g
 
     def test_list_groups_with_no_auth(self):
@@ -88,12 +87,12 @@ class GroupsTests(TestCase):
         payload = {
             'group_name': 'team_beta',
             'track': self.track.id,
-            'deleted_flag': True,
+            'deleted_at': timezone.now().isoformat(),
         }
         resp = self.client.post(url, payload, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         obj = Groups.objects.get(group_name='team_beta', track=self.track)
-        self.assertFalse(obj.deleted_flag)
+        self.assertIsNone(obj.deleted_at)
 
     def test_duplicate_group_name_per_track_returns_400(self):
         url = reverse('groups-list')
@@ -136,7 +135,7 @@ class GroupsTests(TestCase):
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.group1.refresh_from_db()
-        self.assertFalse(self.group1.deleted_flag)
+        self.assertIsNone(self.group1.deleted_at)
 
     def test_delete_rejects_non_admin(self):
         url = reverse('groups-detail', args=[self.group1.id])
@@ -144,7 +143,7 @@ class GroupsTests(TestCase):
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.group1.refresh_from_db()
-        self.assertFalse(self.group1.deleted_flag)
+        self.assertIsNone(self.group1.deleted_at)
 
     def test_admin_soft_delete_hides_from_list(self):
         detail_url = reverse('groups-detail', args=[self.group1.id])
@@ -182,12 +181,12 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         resp = self.client.patch(url, {
             'group_name': 'Still Active',
-            'deleted_flag': True,
+            'deleted_at': timezone.now().isoformat(),
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.group1.refresh_from_db()
         self.assertEqual(self.group1.group_name, 'Still Active')
-        self.assertFalse(self.group1.deleted_flag)
+        self.assertIsNone(self.group1.deleted_at)
 
     def test_admin_can_bulk_create_groups_with_members(self):
         extra_user = get_user_model().objects.create_user(

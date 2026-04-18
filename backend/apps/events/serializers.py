@@ -1,6 +1,7 @@
-from rest_framework import serializers
-from .models import Events, EventInvite
 from django.utils import timezone
+from rest_framework import serializers
+
+from .models import EventRsvp, Events
 
 
 class EventSerializer(serializers.ModelSerializer):
@@ -10,6 +11,8 @@ class EventSerializer(serializers.ModelSerializer):
             "id",
             "event_name",
             "description",
+            "track",
+            "event_type",
             "start_datetime",
             "ends_datetime",
             "location",
@@ -26,31 +29,35 @@ class EventSerializer(serializers.ModelSerializer):
         is_virtual = attrs.get("is_virtual") if "is_virtual" in attrs else getattr(self.instance, "is_virtual", False)
         location = attrs.get("location") if "location" in attrs else getattr(self.instance, "location", None)
 
-        # ---- Field-specific validation ----
         if start and end and end <= start:
-            raise serializers.ValidationError({
-                "ends_datetime": "End time must be after start time."
-            })
+            raise serializers.ValidationError({"ends_datetime": "End time must be after start time."})
 
         if is_virtual and location:
-            raise serializers.ValidationError({
-                "location": "Virtual events must not have a physical location."
-            })
+            raise serializers.ValidationError({"location": "Virtual events must not have a physical location."})
 
         return attrs
 
     def validate_start_datetime(self, value):
-        """Prevent creating events in the past (only enforced on create, not update)"""
         if self.instance is None and value < timezone.now():
             raise serializers.ValidationError("Cannot create events in the past.")
         return value
-    
-class EventInviteSerializers(serializers.ModelSerializer):
-    class Meta:
-        model = EventInvite
-        fields = ["id", "event", "user", "sent_datetime", "attendance_status", "rsvp_status"]
 
-class EventInviteCreateSerializers(serializers.ModelSerializer):
+
+class EventRsvpSerializer(serializers.ModelSerializer):
     class Meta:
-        model = EventInvite
-        fields = ["id", "event", "user", "sent_datetime"]
+        model = EventRsvp
+        fields = ["id", "event", "user", "rsvp_status", "responded_at"]
+
+
+class EventRsvpUpsertSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventRsvp
+        fields = ["event", "user", "rsvp_status", "responded_at"]
+
+
+class EventRsvpRequestSerializer(serializers.Serializer):
+    rsvp_status = serializers.ChoiceField(
+        choices=EventRsvp.RsvpStatus.choices,
+        required=False,
+        default=EventRsvp.RsvpStatus.PENDING,
+    )
