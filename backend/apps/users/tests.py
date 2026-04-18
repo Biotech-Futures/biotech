@@ -1,6 +1,15 @@
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.events.models import Events
+from apps.groups.models import Countries, CountryStates, Groups, Tracks
+from apps.matching_runtime.models import MatchRecommendation, MatchRun
+
 
 User = get_user_model()
 
@@ -62,3 +71,77 @@ class UserEmailFilterTestCase(TestCase):
         # Should contain both users
         self.assertContains(response, 'admin@admin.com')
         self.assertContains(response, 'user@example.com')
+
+
+class AdminWorkflowApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin_user = User.objects.create_user(
+            email="ops-admin@test.com",
+            password="adminpass123",
+            first_name="Ops",
+            last_name="Admin",
+            is_staff=True,
+        )
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="OPS-TRACK", state=self.state)
+
+        self.target_user = User.objects.create_user(
+            email="target@test.com",
+            first_name="Target",
+            last_name="User",
+            track=self.track,
+        )
+        self.invited_user = User.objects.create_user(
+            email="invited@test.com",
+            first_name="Invited",
+            last_name="User",
+            track=self.track,
+        )
+        self.group = Groups.objects.create(group_name="Ops Group", track=self.track)
+        self.match_run = MatchRun.objects.create(
+            initiated_by_user=self.admin_user,
+            track=self.track,
+            run_type="initial",
+        )
+        self.recommendation = MatchRecommendation.objects.create(
+            match_run=self.match_run,
+            group=self.group,
+            mentor_user=self.admin_user,
+        )
+        self.event = Events.objects.create(
+            event_name="Upcoming Event",
+            start_datetime=timezone.now() + timedelta(days=5),
+            ends_datetime=timezone.now() + timedelta(days=5, hours=1),
+            is_virtual=True,
+        )
+
+    def test_bulk_status_updates_users(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.post(
+            reverse("admin-bulk-user-status"),
+            {
+                "user_ids": [self.target_user.id, self.invited_user.id],
+                "account_status": User.AccountStatus.ACTIVE,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.target_user.refresh_from_db()
+        self.invited_user.refresh_from_db()
+        self.assertEqual(self.target_user.account_status, User.AccountStatus.ACTIVE)
+        self.assertTrue(self.target_user.is_active)
+        self.assertIsNotNone(self.target_user.activated_at)
+        self.assertEqual(self.invited_user.account_status, User.AccountStatus.ACTIVE)
+
+    def test_admin_summary_returns_operational_counts(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("admin-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["active_groups"], 1)
+        self.assertEqual(response.data["groups_without_mentor"], 1)
+        self.assertEqual(response.data["unassigned_match_recommendations"], 1)
+        self.assertGreaterEqual(response.data["upcoming_events"], 1)

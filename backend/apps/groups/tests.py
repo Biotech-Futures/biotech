@@ -201,6 +201,97 @@ class GroupsTests(TestCase):
         self.assertEqual(self.group1.group_name, 'Still Active')
         self.assertIsNone(self.group1.deleted_at)
 
+    def test_admin_can_bulk_create_groups_with_members(self):
+        extra_user = get_user_model().objects.create_user(
+            email="member@test.com", password="memberpass"
+        )
+        self.client.force_authenticate(user=self.admin_user)
+        url = reverse("groups-bulk-create")
+        response = self.client.post(
+            url,
+            {
+                "groups": [
+                    {
+                        "group_name": "Bulk Group",
+                        "track": self.track.id,
+                        "member_user_ids": [extra_user.id],
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_group = Groups.objects.get(group_name="Bulk Group", track=self.track)
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=created_group,
+                user=extra_user,
+                left_at__isnull=True,
+            ).exists()
+        )
+
+    def test_admin_can_bulk_add_and_remove_members(self):
+        extra_user = get_user_model().objects.create_user(
+            email="bulk-member@test.com", password="memberpass"
+        )
+        self.client.force_authenticate(user=self.admin_user)
+
+        add_response = self.client.post(
+            reverse("groups-add-members", args=[self.group1.id]),
+            {"user_ids": [extra_user.id]},
+            format="json",
+        )
+        self.assertEqual(add_response.status_code, status.HTTP_200_OK)
+        membership = GroupMembership.objects.get(group=self.group1, user=extra_user, left_at__isnull=True)
+
+        remove_response = self.client.post(
+            reverse("groups-remove-members", args=[self.group1.id]),
+            {"user_ids": [extra_user.id]},
+            format="json",
+        )
+        self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
+        membership.refresh_from_db()
+        self.assertIsNotNone(membership.left_at)
+
+    def test_admin_can_replace_group_mentor(self):
+        old_mentor = get_user_model().objects.create_user(
+            email="old-mentor@group.test",
+            password="mentorpass",
+        )
+        new_mentor = get_user_model().objects.create_user(
+            email="new-mentor@group.test",
+            password="mentorpass",
+        )
+        from apps.users.models import MentorProfile
+
+        MentorProfile.objects.create(user=old_mentor, institution="Uni", mentor_reason="Help", max_group_count=2)
+        MentorProfile.objects.create(user=new_mentor, institution="Uni", mentor_reason="Help", max_group_count=2)
+        existing_membership = GroupMembership.objects.create(
+            group=self.group1,
+            user=old_mentor,
+            membership_role="mentor",
+        )
+
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.post(
+            reverse("groups-replace-mentor", args=[self.group1.id]),
+            {"mentor_user_id": new_mentor.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        existing_membership.refresh_from_db()
+        self.assertIsNotNone(existing_membership.left_at)
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=self.group1,
+                user=new_mentor,
+                membership_role="mentor",
+                left_at__isnull=True,
+            ).exists()
+        )
+
 
 class CountriesApiTests(TestCase):
     def setUp(self):

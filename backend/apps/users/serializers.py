@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import User, StudentProfile, MentorProfile
 from apps.resources.models import RoleAssignmentHistory
+from apps.groups.models import Tracks
 from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field 
@@ -147,3 +148,34 @@ class UserStatusPatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["is_active"]
+
+
+class BulkUserStatusSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    account_status = serializers.ChoiceField(choices=User.AccountStatus.choices)
+
+
+class BulkUserTrackSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    track_id = serializers.PrimaryKeyRelatedField(queryset=Tracks.objects.all(), source="track")
+
+
+class AdminOperationsSummarySerializer(serializers.Serializer):
+    track_scope = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+        required=False,
+    )
+    active_users = serializers.IntegerField()
+    invited_or_pending_users = serializers.IntegerField()
+    suspended_or_deactivated_users = serializers.IntegerField()
+    active_groups = serializers.IntegerField()
+    groups_without_mentor = serializers.IntegerField()
+    unassigned_match_recommendations = serializers.IntegerField()
+    upcoming_events = serializers.IntegerField()
