@@ -70,6 +70,11 @@ export const SERVER_USER_ROLES: ServerUserRole[] = [
   "admin",
 ];
 
+export type StudentTrack = UserTrack;
+export type StudentUser = UserAccount;
+export type StudentPaginatedResponse = UserPaginatedResponse;
+export const STUDENT_TRACKS = USER_TRACKS;
+
 export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
   return user.active ? "active" : "inactive";
 }

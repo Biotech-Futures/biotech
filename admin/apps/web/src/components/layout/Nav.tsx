@@ -11,6 +11,7 @@ import {
   MailIcon,
   CalendarIcon,
   UserIcon,
+  GraduationCapIcon,
   Link2Icon,
   FileTextIcon,
   GraduationCapIcon,
@@ -33,8 +34,13 @@ const NAV_ITEMS = [
     icon: <CalendarIcon />,
   },
   {
-    title: "User",
+    title: "Students",
     url: "/student",
+    icon: <GraduationCapIcon />,
+  },
+  {
+    title: "User",
+    url: "/user",
     icon: <UserIcon />,
   },
   {
