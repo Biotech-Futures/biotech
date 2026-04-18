@@ -17,16 +17,22 @@ import type { Group, Track } from "@/type/group";
 export const Route = createFileRoute("/_auth/group")({
   validateSearch: (search) => ({
     groupId: typeof search.groupId === "string" ? search.groupId : undefined,
+    tab:
+      search.tab === "matched" || search.tab === "unmatched"
+        ? (search.tab as "matched" | "unmatched")
+        : undefined,
   }),
   component: GroupPage,
 });
 
 function GroupPage() {
   const navigate = useNavigate();
-  const { groupId } = Route.useSearch();
+  const { groupId, tab: tabParam } = Route.useSearch();
 
   // Tab state
-  const [tab, setTab] = useState<"groups" | "matched" | "unmatched">("groups");
+  const [tab, setTab] = useState<"groups" | "matched" | "unmatched">(
+    tabParam ?? "groups",
+  );
 
   // Filter state - separate search inputs
   const [searchName, setSearchName] = useState("");
@@ -78,7 +84,7 @@ function GroupPage() {
     if (!open && groupId) {
       navigate({
         to: "/group",
-        search: () => ({ groupId: undefined }),
+        search: (prev) => ({ ...prev, groupId: undefined }),
         replace: true,
       });
     }

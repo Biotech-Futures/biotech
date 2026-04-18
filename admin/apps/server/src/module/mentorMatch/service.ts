@@ -49,7 +49,11 @@ export async function matchMentor(
 ) {
   // Demo mode: skip DB, run algorithm on static demo data
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
-    return matchMentors(demoGroups, demoMentors, mode);
+    const matchedGroupIds = new Set(demoMatchedGroups.map((g) => g.groupId));
+    const unmatchedDemoGroups = demoGroups.filter(
+      (g) => !matchedGroupIds.has(g.groupId),
+    );
+    return matchMentors(unmatchedDemoGroups, demoMentors, mode);
   }
 
   // 1. Find groups that have no active mentor membership
@@ -311,14 +315,17 @@ export async function getMentors() {
 export async function getUnmatchedGroups() {
   // Demo mode: return full group data including student details
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
-    return demoGroups.map((g) => ({
-      groupId: g.groupId,
-      groupName: g.groupName,
-      trackCode: g.trackCode,
-      studentInterests: g.studentInterests,
-      studentCount: g.studentCount,
-      students: g.students,
-    }));
+    const matchedGroupIds = new Set(demoMatchedGroups.map((g) => g.groupId));
+    return demoGroups
+      .filter((g) => !matchedGroupIds.has(g.groupId))
+      .map((g) => ({
+        groupId: g.groupId,
+        groupName: g.groupName,
+        trackCode: g.trackCode,
+        studentInterests: g.studentInterests,
+        studentCount: g.studentCount,
+        students: g.students,
+      }));
   }
 
   const unmatchedGroupsBase = await db
@@ -633,6 +640,45 @@ export async function confirmMentorAssignments(
 
   if (assignments.length === 0) {
     return { confirmedCount: 0 };
+  }
+
+  // Demo mode: update in-memory state instead of writing to DB
+  if (process.env.MATCH_USE_DEMO_DATA === "true") {
+    const maxId = demoMatchedGroups.reduce(
+      (max, g) => Math.max(max, g.membershipId),
+      1000,
+    );
+    let nextMembershipId = maxId + 1;
+    let confirmedCount = 0;
+    for (const { groupId, mentorUserId } of assignments) {
+      const group = demoGroups.find((g) => g.groupId === groupId);
+      const mentor = demoMentors.find((m) => m.mentorId === mentorUserId);
+      if (!group || !mentor) continue;
+      // Remove any existing match for this group first
+      demoMatchedGroups = demoMatchedGroups.filter(
+        (g) => g.groupId !== groupId,
+      );
+      demoMatchedGroups.push({
+        membershipId: nextMembershipId++,
+        groupId: group.groupId,
+        groupName: group.groupName,
+        trackCode: group.trackCode,
+        studentCount: group.studentCount,
+        students: (group.students ?? []).map((s) => ({
+          name: s.name,
+          interests: s.interests,
+        })),
+        mentor: {
+          mentorId: mentor.mentorId,
+          name: `${mentor.firstName} ${mentor.lastName}`.trim(),
+          isActive: true,
+          trackCode: mentor.trackCode,
+          institution: mentor.institution,
+        },
+      });
+      confirmedCount++;
+    }
+    return { confirmedCount };
   }
 
   const now = new Date().toISOString();
