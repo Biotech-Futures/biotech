@@ -1,6 +1,8 @@
 import db from "@/lib/db.js";
 import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
+  groupMembership,
+  groups,
   mentorProfile,
   roles,
   studentProfile,
@@ -27,6 +29,8 @@ export type User = {
   email: string;
   role: string | null;
   track: string | null;
+  groupName: string | null;
+  interests: string[];
   isActive: boolean;
   accountStatus: string;
   invitedAt: string | null;
@@ -50,6 +54,12 @@ const userSelect = {
   email: users.email,
   role: roles.slug,
   track: tracks.trackCode,
+  groupName: groups.groupName,
+  interests: sql<string[]>`COALESCE(
+    (SELECT array_agg(aoi.interest_desc) FROM student_interest si JOIN areas_of_interest aoi ON aoi.id = si.interest_id WHERE si.student_user_id = ${users.id}),
+    (SELECT array_agg(aoi.interest_desc) FROM mentor_interest mi JOIN areas_of_interest aoi ON aoi.id = mi.interest_id WHERE mi.mentor_user_id = ${users.id}),
+    ARRAY[]::text[]
+  )`,
   isActive: users.isActive,
   accountStatus: users.accountStatus,
   invitedAt: users.invitedAt,
@@ -68,7 +78,15 @@ function baseUserQuery() {
       ),
     )
     .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
-    .leftJoin(tracks, eq(tracks.id, users.trackId));
+    .leftJoin(tracks, eq(tracks.id, users.trackId))
+    .leftJoin(
+      groupMembership,
+      and(
+        eq(groupMembership.userId, users.id),
+        isNull(groupMembership.leftAt),
+      ),
+    )
+    .leftJoin(groups, eq(groups.id, groupMembership.groupId));
 }
 
 async function fetchUserById(id: number): Promise<User | null> {
