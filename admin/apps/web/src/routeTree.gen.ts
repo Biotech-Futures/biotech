@@ -19,7 +19,6 @@ import { Route as AuthMentorRouteImport } from './routes/_auth/mentor'
 import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
-import { Route as AuthEmailRouteImport } from './routes/_auth/email'
 import { Route as AuthDemoRouteImport } from './routes/_auth/demo'
 
 const SigninRoute = SigninRouteImport.update({
@@ -71,11 +70,6 @@ const AuthEventRoute = AuthEventRouteImport.update({
   path: '/event',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthEmailRoute = AuthEmailRouteImport.update({
-  id: '/email',
-  path: '/email',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
 const AuthDemoRoute = AuthDemoRouteImport.update({
   id: '/demo',
   path: '/demo',
@@ -86,7 +80,6 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
   '/signin': typeof SigninRoute
   '/demo': typeof AuthDemoRoute
-  '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
@@ -98,7 +91,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
   '/demo': typeof AuthDemoRoute
-  '/email': typeof AuthEmailRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
@@ -113,7 +105,6 @@ export interface FileRoutesById {
   '/_auth': typeof AuthRouteRouteWithChildren
   '/signin': typeof SigninRoute
   '/_auth/demo': typeof AuthDemoRoute
-  '/_auth/email': typeof AuthEmailRoute
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
   '/_auth/matching': typeof AuthMatchingRoute
@@ -129,7 +120,6 @@ export interface FileRouteTypes {
     | '/'
     | '/signin'
     | '/demo'
-    | '/email'
     | '/event'
     | '/group'
     | '/matching'
@@ -141,7 +131,6 @@ export interface FileRouteTypes {
   to:
     | '/signin'
     | '/demo'
-    | '/email'
     | '/event'
     | '/group'
     | '/matching'
@@ -155,7 +144,6 @@ export interface FileRouteTypes {
     | '/_auth'
     | '/signin'
     | '/_auth/demo'
-    | '/_auth/email'
     | '/_auth/event'
     | '/_auth/group'
     | '/_auth/matching'
@@ -243,13 +231,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthEventRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/email': {
-      id: '/_auth/email'
-      path: '/email'
-      fullPath: '/email'
-      preLoaderRoute: typeof AuthEmailRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
     '/_auth/demo': {
       id: '/_auth/demo'
       path: '/demo'
@@ -262,7 +243,6 @@ declare module '@tanstack/react-router' {
 
 interface AuthRouteRouteChildren {
   AuthDemoRoute: typeof AuthDemoRoute
-  AuthEmailRoute: typeof AuthEmailRoute
   AuthEventRoute: typeof AuthEventRoute
   AuthGroupRoute: typeof AuthGroupRoute
   AuthMatchingRoute: typeof AuthMatchingRoute
@@ -275,7 +255,6 @@ interface AuthRouteRouteChildren {
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthDemoRoute: AuthDemoRoute,
-  AuthEmailRoute: AuthEmailRoute,
   AuthEventRoute: AuthEventRoute,
   AuthGroupRoute: AuthGroupRoute,
   AuthMatchingRoute: AuthMatchingRoute,

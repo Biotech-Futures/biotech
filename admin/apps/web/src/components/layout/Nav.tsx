@@ -23,11 +23,6 @@ const NAV_ITEMS = [
     icon: <UsersIcon />,
   },
   {
-    title: "Email",
-    url: "/email",
-    icon: <MailIcon />,
-  },
-  {
     title: "Event",
     url: "/event",
     icon: <CalendarIcon />,
@@ -65,7 +60,7 @@ export function NavMain() {
       <SidebarGroupContent className="flex flex-col gap-2">
         <SidebarMenu>
           {NAV_ITEMS.map((item) => (
-            <SidebarMenuItem key={item.title} className="p-2">
+            <SidebarMenuItem key={item.title} className="">
               <SidebarMenuButton asChild tooltip={item.title}>
                 <Link
                   to={item.url}
