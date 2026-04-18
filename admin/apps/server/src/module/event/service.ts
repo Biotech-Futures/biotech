@@ -61,17 +61,21 @@ export async function queryEvents(params: QueryEventsInput) {
   }
 
   if (upcoming) {
-  const sydneyNow = new Date().toLocaleString("en-AU", { 
-    timeZone: "Australia/Sydney",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-    hour12: false
-  });
-  const [datePart, timePart] = sydneyNow.split(", ");
-  const [day, month, year] = datePart.split("/");
-  const nowSydney = `${year}-${month}-${day} ${timePart}`;
-  conditions.push(gte(events.startAt, nowSydney));
-}
+    const sydneyNow = new Date().toLocaleString("en-AU", {
+      timeZone: "Australia/Sydney",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const [datePart, timePart] = sydneyNow.split(", ");
+    const [day, month, year] = datePart.split("/");
+    const nowSydney = `${year}-${month}-${day} ${timePart}`;
+    conditions.push(gte(events.startAt, nowSydney));
+  }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -126,16 +130,17 @@ export async function queryEventById(id: string) {
 
 export async function createEvent(data: CreateEventInput) {
   if (!data.hostUserId) throw new Error("hostUserId is required");
-   const rows = await db
-  .insert(events)
-  .values({
-    hostUserId: data.hostUserId,
-    trackId: data.trackId ?? null,
-    eventType: data.eventType ?? null,
-    startAt: new Date(data.startAt).toISOString(),
-    endsAt: new Date(data.endsAt).toISOString(),
-  } as typeof events.$inferInsert)
-  .returning();
+  const rows = await db
+    .insert(events)
+    .values({
+      id: Math.floor(Date.now() / 1000),
+      hostUserId: data.hostUserId,
+      trackId: data.trackId ?? null,
+      eventType: data.eventType ?? null,
+      startAt: new Date(data.startAt).toISOString(),
+      endsAt: new Date(data.endsAt).toISOString(),
+    } as typeof events.$inferInsert)
+    .returning();
 
   return {
     msg: "Event created successfully",
@@ -270,15 +275,14 @@ export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
   }
 
   const rows = await db
-  .insert(eventRsvp)
-  .values({
-    eventId,
-    userId: data.userId,
-    rsvpStatus: data.rsvpStatus,
-  } as typeof eventRsvp.$inferInsert)
-  .returning();
-  };
-
+    .insert(eventRsvp)
+    .values({
+      eventId,
+      userId: data.userId,
+      rsvpStatus: data.rsvpStatus,
+    } as typeof eventRsvp.$inferInsert)
+    .returning();
+}
 
 export async function updateEventRsvp(
   rsvpIdParam: string,
