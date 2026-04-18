@@ -11,8 +11,18 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { groups, groupMembership, tracks, users } from "@/drizzle/schema.js";
-import type { QueryGroupsInput, UpdateGroupInput } from "./schema.js";
+import {
+  groups,
+  groupMembership,
+  messages,
+  tracks,
+  users,
+} from "@/drizzle/schema.js";
+import type {
+  QueryGroupMessagesInput,
+  QueryGroupsInput,
+  UpdateGroupInput,
+} from "./schema.js";
 
 export type Track = string;
 
@@ -31,6 +41,20 @@ export type Group = {
   mentor: GroupMember | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type GroupMessage = {
+  id: string;
+  groupId: string;
+  sender: {
+    id: string;
+    name: string;
+    email: string;
+    role: "student" | "mentor" | null;
+  };
+  text: string;
+  sentAt: string;
+  editedAt: string | null;
 };
 
 type GroupBaseRow = {
@@ -237,6 +261,97 @@ export async function queryGroupById(id: string) {
   return {
     msg: "Group retrieved successfully",
     data: group,
+  };
+}
+
+export async function queryGroupMessages(
+  id: string,
+  params: QueryGroupMessagesInput,
+) {
+  const groupId = Number(id);
+  if (!Number.isFinite(groupId)) {
+    return { msg: "Group not found", data: null };
+  }
+
+  const existing = await fetchGroupBaseById(groupId);
+  if (!existing) return { msg: "Group not found", data: null };
+
+  const { page, limit } = params;
+  const offset = (page - 1) * limit;
+
+  const where = and(
+    eq(messages.groupId, groupId),
+    isNull(messages.deletedAt),
+  );
+
+  const [messageRows, countResult] = await Promise.all([
+    db
+      .select({
+        id: messages.id,
+        groupId: messages.groupId,
+        senderUserId: users.id,
+        senderFirstName: users.firstName,
+        senderLastName: users.lastName,
+        senderEmail: users.email,
+        senderRole: groupMembership.membershipRole,
+        text: messages.messageText,
+        sentAt: messages.sentAt,
+        editedAt: messages.editedAt,
+      })
+      .from(messages)
+      .innerJoin(users, eq(users.id, messages.senderUserId))
+      .leftJoin(
+        groupMembership,
+        and(
+          eq(groupMembership.groupId, messages.groupId),
+          eq(groupMembership.userId, messages.senderUserId),
+          isNull(groupMembership.leftAt),
+        ),
+      )
+      .where(where)
+      .orderBy(asc(messages.sentAt), asc(messages.id))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({
+        count: sql<number>`cast(count(${messages.id}) as int)`,
+      })
+      .from(messages)
+      .where(where),
+  ]);
+
+  const items: GroupMessage[] = messageRows.map((row) => {
+    const senderRole = row.senderRole?.toLowerCase();
+
+    return {
+      id: String(row.id),
+      groupId: String(row.groupId),
+      sender: {
+        id: String(row.senderUserId),
+        name: `${row.senderFirstName} ${row.senderLastName}`.trim(),
+        email: row.senderEmail,
+        role:
+          senderRole === "student" || senderRole === "mentor"
+            ? senderRole
+            : null,
+      },
+      text: row.text,
+      sentAt: row.sentAt,
+      editedAt: row.editedAt,
+    };
+  });
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    msg: "Group messages retrieved successfully",
+    data: {
+      items,
+      total,
+      page,
+      limit,
+      hasMore: offset + items.length < total,
+    },
   };
 }
 

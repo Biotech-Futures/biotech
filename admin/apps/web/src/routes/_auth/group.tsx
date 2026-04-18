@@ -6,6 +6,7 @@ import {
   GroupFilters,
   GroupTable,
   GroupDetailDrawer,
+  GroupMessagesDialog,
   createColumns,
 } from "@/components/group";
 import { useQueryGroup, useQueryGroups } from "@/query/group";
@@ -68,8 +69,9 @@ function GroupPage() {
 
   // Drawer state
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [messageGroup, setMessageGroup] = useState<Group | null>(null);
+  const [messagesOpen, setMessagesOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetMode, setSheetMode] = useState<"view" | "edit">("view");
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -122,7 +124,6 @@ function GroupPage() {
     if (!groupById?.data) return;
 
     setSelectedGroup(groupById.data);
-    setSheetMode("view");
     setSheetOpen(true);
   }, [groupId, groupById?.data]);
 
@@ -147,20 +148,18 @@ function GroupPage() {
   // Handlers
   const handleViewDetail = (group: Group) => {
     setSelectedGroup(group);
-    setSheetMode("view");
     setSheetOpen(true);
   };
 
-  const handleEdit = (group: Group) => {
-    setSelectedGroup(group);
-    setSheetMode("edit");
-    setSheetOpen(true);
+  const handleViewMessages = (group: Group) => {
+    setMessageGroup(group);
+    setMessagesOpen(true);
   };
 
   // Columns with handlers
   const columns = createColumns({
     onViewDetail: handleViewDetail,
-    onEdit: handleEdit,
+    onViewMessages: handleViewMessages,
   });
 
   return (
@@ -211,14 +210,17 @@ function GroupPage() {
         isPending={isPending}
       />
 
-      {/* Detail/Edit Drawer (available on both tabs) */}
+      {/* Detail Drawer */}
       <GroupDetailDrawer
         group={selectedGroup}
         open={sheetOpen}
         onOpenChange={handleDrawerOpenChange}
-        mode={sheetMode}
-        tracks={tracksData?.data ?? []}
-        isLoadingTracks={isLoadingTracks}
+      />
+
+      <GroupMessagesDialog
+        group={messageGroup}
+        open={messagesOpen}
+        onOpenChange={setMessagesOpen}
       />
     </div>
   );

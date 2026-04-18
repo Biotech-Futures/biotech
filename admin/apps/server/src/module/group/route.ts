@@ -1,7 +1,16 @@
 import { Hono } from "hono";
 import { sValidator } from "@hono/standard-validator";
-import { queryGroupsSchema, updateGroupSchema } from "./schema.js";
-import { queryGroups, queryGroupById, updateGroup } from "./service.js";
+import {
+  queryGroupMessagesSchema,
+  queryGroupsSchema,
+  updateGroupSchema,
+} from "./schema.js";
+import {
+  queryGroupMessages,
+  queryGroups,
+  queryGroupById,
+  updateGroup,
+} from "./service.js";
 
 export const groupRoute = new Hono();
 
@@ -11,6 +20,18 @@ groupRoute.get("/", sValidator("query", queryGroupsSchema), async (c) => {
   const result = await queryGroups(params);
   return c.json(result);
 });
+
+// GET /api/v1/group/:id/messages - View group message history
+groupRoute.get(
+  "/:id/messages",
+  sValidator("query", queryGroupMessagesSchema),
+  async (c) => {
+    const id = c.req.param("id");
+    const params = c.req.valid("query");
+    const result = await queryGroupMessages(id, params);
+    return c.json(result);
+  },
+);
 
 // GET /api/v1/group/:id - Get single group
 groupRoute.get("/:id", async (c) => {

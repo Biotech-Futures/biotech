@@ -1,7 +1,16 @@
-import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  boolean,
+  index,
+  varchar,
+  jsonb,
+  foreignKey,
+  serial,
+} from "drizzle-orm/pg-core";
 
-export const user = pgTable("user", {
+export const adminUser = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
@@ -32,7 +41,7 @@ export const session = pgTable(
     userAgent: text("user_agent"),
     userId: text("user_id")
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => adminUser.id, { onDelete: "cascade" }),
     impersonatedBy: text("impersonated_by"),
   },
   (table) => [index("session_userId_idx").on(table.userId)],
@@ -46,7 +55,7 @@ export const account = pgTable(
     providerId: text("provider_id").notNull(),
     userId: text("user_id")
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => adminUser.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
@@ -78,21 +87,24 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
-export const userRelations = relations(user, ({ many }) => ({
-  sessions: many(session),
-  accounts: many(account),
-}));
-
-export const sessionRelations = relations(session, ({ one }) => ({
-  user: one(user, {
-    fields: [session.userId],
-    references: [user.id],
-  }),
-}));
-
-export const accountRelations = relations(account, ({ one }) => ({
-  user: one(user, {
-    fields: [account.userId],
-    references: [user.id],
-  }),
-}));
+export const matchRun = pgTable(
+  "match_run",
+  {
+    id: serial("id").primaryKey(),
+    adminUserId: text("admin_user_id").notNull(),
+    runType: varchar("run_type", { length: 100 }).notNull(),
+    payload: jsonb().notNull(),
+    createdAt: timestamp("created_at", {
+      precision: 6,
+      mode: "string",
+    }).notNull(),
+    result: jsonb().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.adminUserId],
+      foreignColumns: [adminUser.id],
+      name: "match_run_initiated_by_user_id_fkey",
+    }),
+  ],
+);

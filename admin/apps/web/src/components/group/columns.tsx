@@ -4,7 +4,13 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { Group, Track } from "@/type/group";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, MoreHorizontal, UsersIcon, UserIcon } from "lucide-react";
+import {
+  ArrowUpDown,
+  MessageSquareIcon,
+  MoreHorizontal,
+  UsersIcon,
+  UserIcon,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,10 +35,13 @@ function getTrackColor(track: Track) {
 
 interface ColumnsOptions {
   onViewDetail?: (group: Group) => void;
-  onEdit?: (group: Group) => void;
+  onViewMessages?: (group: Group) => void;
 }
 
-export function createColumns({ onViewDetail, onEdit }: ColumnsOptions = {}): ColumnDef<Group>[] {
+export function createColumns({
+  onViewDetail,
+  onViewMessages,
+}: ColumnsOptions = {}): ColumnDef<Group>[] {
   return [
     {
       accessorKey: "name",
@@ -108,26 +117,19 @@ export function createColumns({ onViewDetail, onEdit }: ColumnsOptions = {}): Co
       },
     },
     {
-      id: "actions",
+      id: "messages",
+      header: "Messages",
       cell: ({ row }) => {
         const group = row.original;
 
         return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onViewDetail?.(group)}>
-                View Details
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onEdit?.(group)}>
-                Edit Group
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onViewMessages?.(group)}
+          >
+            View Messages
+          </Button>
         );
       },
     },

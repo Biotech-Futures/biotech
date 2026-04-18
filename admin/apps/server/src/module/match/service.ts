@@ -215,7 +215,7 @@ export async function matchStudent(uid: string) {
     .innerJoin(countries, eq(countries.id, countryStates.countryId))
     .where(notExists(activeMembershipSubquery));
 
-  const groupMembershipRows = await db
+  const groupMembersRows = await db
     .select({
       groupId: groups.id,
       userId: users.id,
@@ -236,7 +236,7 @@ export async function matchStudent(uid: string) {
     .where(isNull(groupMembership.leftAt));
 
   const groupIds = [
-    ...new Set(groupMembershipRows.map((student) => student.groupId)),
+    ...new Set(groupMembersRows.map((student) => student.groupId)),
   ];
 
   const groupMetaRows =
@@ -257,7 +257,7 @@ export async function matchStudent(uid: string) {
     groupMetaRows.map((group) => [group.groupId, group] as const),
   );
 
-  const groupStudents = groupMembershipRows.flatMap((student) => {
+  const groupStudents = groupMembersRows.flatMap((student) => {
     const groupMeta = groupMetaById.get(student.groupId);
     if (!groupMeta) {
       return [];

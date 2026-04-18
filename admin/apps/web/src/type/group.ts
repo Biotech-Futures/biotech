@@ -21,6 +21,20 @@ export type Group = {
   updatedAt: string;
 };
 
+export type GroupMessage = {
+  id: string;
+  groupId: string;
+  sender: {
+    id: string;
+    name: string;
+    email: string;
+    role: "student" | "mentor" | null;
+  };
+  text: string;
+  sentAt: string;
+  editedAt: string | null;
+};
+
 export type PaginatedResponse<T> = {
   msg: string;
   data: {

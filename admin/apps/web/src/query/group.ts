@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import type {
   Group,
+  GroupMessage,
   MentorStatusFilter,
   Track,
   PaginatedResponse,
@@ -45,6 +46,31 @@ export function useQueryGroup(id: string) {
       return res.data;
     },
     enabled: !!id,
+  });
+}
+
+interface QueryGroupMessagesParams {
+  page?: number;
+  limit?: number;
+  enabled?: boolean;
+}
+
+export function useQueryGroupMessages(
+  id: string,
+  { page = 1, limit = 50, enabled = true }: QueryGroupMessagesParams = {},
+) {
+  return useQuery({
+    queryKey: ["group", id, "messages", page, limit],
+    queryFn: async (): Promise<PaginatedResponse<GroupMessage>> => {
+      const res = await myFetch.get<PaginatedResponse<GroupMessage>>(
+        `/group/${id}/messages`,
+        {
+          params: { page, limit },
+        },
+      );
+      return res.data;
+    },
+    enabled: enabled && !!id,
   });
 }
 
