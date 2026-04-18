@@ -15,10 +15,40 @@ import type { Group, MentorStatusFilter, Track } from "@/type/group";
 export const Route = createFileRoute("/_auth/group")({
   validateSearch: (
     search,
-  ): { groupId?: string; mentorStatus?: MentorStatusFilter } => {
-    const params: { groupId?: string; mentorStatus?: MentorStatusFilter } = {};
+  ): {
+    groupId?: string;
+    page: number;
+    searchName?: string;
+    searchGroup?: string;
+    track?: Track;
+    mentorStatus?: MentorStatusFilter;
+  } => {
+    const params: {
+      groupId?: string;
+      page: number;
+      searchName?: string;
+      searchGroup?: string;
+      track?: Track;
+      mentorStatus?: MentorStatusFilter;
+    } = {
+      page:
+        typeof search.page === "number" && search.page >= 1
+          ? search.page
+          : typeof search.page === "string" && Number(search.page) >= 1
+            ? Number(search.page)
+            : 1,
+    };
 
     if (typeof search.groupId === "string") params.groupId = search.groupId;
+    if (typeof search.searchName === "string" && search.searchName.trim()) {
+      params.searchName = search.searchName;
+    }
+    if (typeof search.searchGroup === "string" && search.searchGroup.trim()) {
+      params.searchGroup = search.searchGroup;
+    }
+    if (typeof search.track === "string" && search.track.trim()) {
+      params.track = search.track;
+    }
     if (
       search.mentorStatus === "matched" ||
       search.mentorStatus === "unmatched"
@@ -33,18 +63,8 @@ export const Route = createFileRoute("/_auth/group")({
 
 function GroupPage() {
   const navigate = useNavigate();
-  const { groupId, mentorStatus: mentorStatusParam } = Route.useSearch();
-
-  // Filter state - separate search inputs
-  const [searchName, setSearchName] = useState("");
-  const [searchGroup, setSearchGroup] = useState("");
-  const [track, setTrack] = useState<Track | undefined>();
-  const [mentorStatus, setMentorStatus] = useState<
-    MentorStatusFilter | undefined
-  >(mentorStatusParam);
-
-  // Pagination state
-  const [page, setPage] = useState(1);
+  const { groupId, page, searchName, searchGroup, track, mentorStatus } =
+    Route.useSearch();
 
   // Drawer state
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
@@ -65,19 +85,37 @@ function GroupPage() {
     groupId ?? "",
   );
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [searchName, searchGroup, track, mentorStatus]);
-
-  useEffect(() => {
-    setMentorStatus(mentorStatusParam);
-  }, [mentorStatusParam]);
-
   const groups = data?.data.items ?? [];
   const totalPages = Math.ceil(
     (data?.data.total ?? 0) / (data?.data.limit ?? 10),
   );
+
+  const updateFilters = (
+    filters: Partial<{
+      searchName: string;
+      searchGroup: string;
+      track: Track;
+      mentorStatus: MentorStatusFilter;
+    }>,
+  ) => {
+    void navigate({
+      to: "/group",
+      search: (prev) => ({
+        ...prev,
+        ...filters,
+        page: 1,
+      }),
+      replace: true,
+    });
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    void navigate({
+      to: "/group",
+      search: (prev) => ({ ...prev, page: nextPage }),
+      replace: true,
+    });
+  };
 
   useEffect(() => {
     if (!groupId) return;
@@ -143,14 +181,22 @@ function GroupPage() {
 
       {/* Filters */}
       <GroupFilters
-        searchName={searchName}
-        onSearchNameChange={setSearchName}
-        searchGroup={searchGroup}
-        onSearchGroupChange={setSearchGroup}
+        searchName={searchName ?? ""}
+        onSearchNameChange={(value) => {
+          updateFilters({ searchName: value.trim() || undefined });
+        }}
+        searchGroup={searchGroup ?? ""}
+        onSearchGroupChange={(value) => {
+          updateFilters({ searchGroup: value.trim() || undefined });
+        }}
         track={track}
-        onTrackChange={setTrack}
+        onTrackChange={(value) => {
+          updateFilters({ track: value });
+        }}
         mentorStatus={mentorStatus}
-        onMentorStatusChange={setMentorStatus}
+        onMentorStatusChange={(value) => {
+          updateFilters({ mentorStatus: value });
+        }}
         tracks={tracksData?.data ?? []}
         isLoadingTracks={isLoadingTracks}
       />
@@ -161,7 +207,7 @@ function GroupPage() {
         data={groups}
         page={page}
         totalPages={totalPages}
-        onPageChange={setPage}
+        onPageChange={handlePageChange}
         isPending={isPending}
       />
 
