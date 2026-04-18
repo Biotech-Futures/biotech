@@ -21,6 +21,7 @@ function RouteComponent() {
   } = useQueryMatchInfo();
   const confirmAssignments = useMutationConfirmAssignments();
   const recommendations = matchInfoData?.data.recommendations ?? [];
+  const notFullGroups = matchInfoData?.data.notFullGroups ?? [];
 
   async function onConfirmAssignments(
     assignments: Array<{ studentId: number; groupId: number | string }>,
@@ -50,6 +51,7 @@ function RouteComponent() {
       ) : (
         <MatchingBoard
           recommendations={recommendations}
+          notFullGroups={notFullGroups}
           onRunMatch={() => {
             void runMatch();
           }}

@@ -529,14 +529,7 @@ export const groups = pgTable(
 export const matchRun = pgTable(
   "match_run",
   {
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    id: bigint({ mode: "number" }).primaryKey().generatedByDefaultAsIdentity({
-      name: "match_run_id_seq",
-      startWith: 1,
-      increment: 1,
-      minValue: 1,
-      cache: 1,
-    }),
+    id: bigint({ mode: "number" }).primaryKey(),
     adminUserId: text("admin_user_id").notNull(),
     runType: varchar("run_type", { length: 100 }).notNull(),
     payload: jsonb().notNull(),

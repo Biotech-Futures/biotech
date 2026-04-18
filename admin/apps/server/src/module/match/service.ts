@@ -487,6 +487,7 @@ export async function matchStudent(uid: string) {
   };
 
   await db.insert(matchRun).values({
+    id: Math.floor(Math.random() * 1000000),
     adminUserId: uid,
     runType: "student-match",
     payload,

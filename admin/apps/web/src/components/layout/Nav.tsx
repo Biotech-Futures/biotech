@@ -10,9 +10,9 @@ import {
   UsersIcon,
   CalendarIcon,
   UserIcon,
+  GraduationCapIcon,
   Link2Icon,
   FileTextIcon,
-  GraduationCapIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -30,6 +30,16 @@ const NAV_ITEMS = [
     title: "Event",
     url: "/event",
     icon: <CalendarIcon />,
+  },
+  {
+    title: "Students",
+    url: "/student",
+    icon: <GraduationCapIcon />,
+  },
+  {
+    title: "User",
+    url: "/user",
+    icon: <UserIcon />,
   },
   {
     title: "Resource",

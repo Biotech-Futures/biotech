@@ -19,7 +19,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { MatchRecommendation } from "@/schema/match";
+import type { MatchRecommendation, NotFullGroup } from "@/schema/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +32,7 @@ import { toast } from "sonner";
 
 type MatchingBoardProps = {
   recommendations: MatchRecommendation[];
+  notFullGroups: NotFullGroup[];
   onRunMatch: () => void;
   onConfirmAssignments: (
     assignments: Array<{ studentId: number; groupId: number | string }>,
@@ -115,12 +116,51 @@ function toContainerId(groupId: string): string {
   return `group-${groupId}`;
 }
 
-function buildBoardData(recommendations: MatchRecommendation[]): BoardData {
+function toMatchingGroup(
+  group: MatchRecommendation["recommendGroup"] | NotFullGroup,
+): MatchingGroup | null {
+  if (!group) {
+    return null;
+  }
+
+  return {
+    id: toStringId(group.id),
+    name: group.groupName,
+    track: toStringId(group.trackId),
+    tutor: group.tutor?.name || "Unassigned",
+    maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
+    existingStudents: group.groupStudent.map((groupStudent) => ({
+      id: toStringId(groupStudent.id),
+      name:
+        groupStudent.name?.trim() ||
+        `Student #${toStringId(groupStudent.id)}`,
+      yearLevel: formatYearLevel(
+        groupStudent.yearLevel ?? groupStudent.yearlevel,
+      ),
+      country: groupStudent.country ?? "N/A",
+    })),
+  };
+}
+
+function buildBoardData(
+  recommendations: MatchRecommendation[],
+  notFullGroups: NotFullGroup[],
+): BoardData {
   const studentsById: Record<string, MovableStudent> = {};
   const groupsByContainerId: Record<string, MatchingGroup> = {};
   const containers: Record<string, string[]> = {
     [WAITING_CONTAINER_ID]: [],
   };
+
+  for (const group of notFullGroups) {
+    const containerId = toContainerId(toStringId(group.id));
+    const matchingGroup = toMatchingGroup(group);
+
+    if (matchingGroup) {
+      groupsByContainerId[containerId] = matchingGroup;
+      containers[containerId] = [];
+    }
+  }
 
   for (const recommendation of recommendations) {
     const studentId = toStringId(recommendation.student.id);
@@ -147,23 +187,10 @@ function buildBoardData(recommendations: MatchRecommendation[]): BoardData {
       const containerId = toContainerId(toStringId(group.id));
 
       if (!groupsByContainerId[containerId]) {
-        groupsByContainerId[containerId] = {
-          id: toStringId(group.id),
-          name: group.groupName,
-          track: toStringId(group.trackId),
-          tutor: group.tutor?.name || "Unassigned",
-          maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
-          existingStudents: group.groupStudent.map((groupStudent) => ({
-            id: toStringId(groupStudent.id),
-            name:
-              groupStudent.name?.trim() ||
-              `Student #${toStringId(groupStudent.id)}`,
-            yearLevel: formatYearLevel(
-              groupStudent.yearLevel ?? groupStudent.yearlevel,
-            ),
-            country: groupStudent.country ?? "N/A",
-          })),
-        };
+        const matchingGroup = toMatchingGroup(group);
+        if (matchingGroup) {
+          groupsByContainerId[containerId] = matchingGroup;
+        }
       }
 
       if (!containers[containerId]) {
@@ -413,14 +440,15 @@ function DroppableStudentList({
 
 export function MatchingBoard({
   recommendations,
+  notFullGroups,
   onRunMatch,
   onConfirmAssignments,
   isRunning,
   isConfirming,
 }: MatchingBoardProps) {
   const boardData = useMemo(
-    () => buildBoardData(recommendations),
-    [recommendations],
+    () => buildBoardData(recommendations, notFullGroups),
+    [notFullGroups, recommendations],
   );
   const [containers, setContainers] = useState<Record<string, string[]>>({});
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);

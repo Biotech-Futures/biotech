@@ -17,7 +17,8 @@ import { AppSidebar } from "./app-sidebar";
 
 function formatCrumbLabel(segment: string) {
   const labelMap: Record<string, string> = {
-    student: "User",
+    student: "Students",
+    user: "User",
   };
 
   if (labelMap[segment]) {

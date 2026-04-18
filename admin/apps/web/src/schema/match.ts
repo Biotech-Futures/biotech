@@ -97,6 +97,7 @@ export type IndividualStudentsResponse = z.infer<
   typeof individualStudentsResponseSchema
 >;
 export type MatchRecommendation = z.infer<typeof matchRecommendationSchema>;
+export type NotFullGroup = z.infer<typeof notFullGroupSchema>;
 export type ConfirmAssignmentsResponse = z.infer<
   typeof confirmAssignmentsResponseSchema
 >;
