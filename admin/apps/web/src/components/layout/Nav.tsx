@@ -8,7 +8,6 @@ import {
 import { Link } from "@tanstack/react-router";
 import {
   UsersIcon,
-  MailIcon,
   CalendarIcon,
   UserIcon,
   Link2Icon,
@@ -18,6 +17,11 @@ import {
 
 const NAV_ITEMS = [
   {
+    title: "User",
+    url: "/student",
+    icon: <UserIcon />,
+  },
+  {
     title: "Group",
     url: "/group",
     icon: <UsersIcon />,
@@ -26,11 +30,6 @@ const NAV_ITEMS = [
     title: "Event",
     url: "/event",
     icon: <CalendarIcon />,
-  },
-  {
-    title: "User",
-    url: "/student",
-    icon: <UserIcon />,
   },
   {
     title: "Resource",

@@ -260,26 +260,6 @@ function UserManagementPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">User Management</h1>
-          <p className="text-sm text-muted-foreground">
-            Add users, bulk import CSV data, assign roles and tracks, and toggle
-            account status.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setBulkOpen(true)}>
-            <UploadIcon />
-            Bulk Upload CSV
-          </Button>
-          <Button onClick={openCreate}>
-            <PlusIcon />
-            Add User
-          </Button>
-        </div>
-      </div>
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           title="Total Users"
