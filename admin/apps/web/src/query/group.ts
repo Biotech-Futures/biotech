@@ -1,18 +1,24 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
-import type { Group, Track, PaginatedResponse } from "@/type/group";
+import type {
+  Group,
+  MentorStatusFilter,
+  Track,
+  PaginatedResponse,
+} from "@/type/group";
 
 interface QueryGroupsParams {
   page: number;
   searchName?: string;
   searchGroup?: string;
   track?: Track;
+  mentorStatus?: MentorStatusFilter;
 }
 
 export function useQueryGroups(params: QueryGroupsParams) {
-  const { page, searchName, searchGroup, track } = params;
+  const { page, searchName, searchGroup, track, mentorStatus } = params;
   return useQuery({
-    queryKey: ["groups", page, searchName, searchGroup, track],
+    queryKey: ["groups", page, searchName, searchGroup, track, mentorStatus],
     queryFn: async (): Promise<PaginatedResponse<Group>> => {
       const res = await myFetch.get<PaginatedResponse<Group>>(`/group`, {
         params: {
@@ -20,6 +26,7 @@ export function useQueryGroups(params: QueryGroupsParams) {
           searchName,
           searchGroup,
           track,
+          mentorStatus,
         },
       });
       return res.data;

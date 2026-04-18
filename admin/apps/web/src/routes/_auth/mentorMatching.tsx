@@ -68,9 +68,12 @@ function RouteComponent() {
     }
   }
 
-  function goTo(tab: "matched" | "unmatched") {
+  function goTo(mentorStatus: "matched" | "unmatched") {
     setConfirmDialogOpen(false);
-    void navigate({ to: "/group", search: { tab, groupId: undefined } });
+    void navigate({
+      to: "/group",
+      search: { mentorStatus, groupId: undefined },
+    });
   }
 
   return (

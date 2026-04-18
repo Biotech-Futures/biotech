@@ -37,7 +37,7 @@
 
 ## 🧠 Group Management & Oversight
 
-- [ ] View all groups and members
+- [x] View all groups and members
 - [ ] Reassign users (single)
 - [ ] Reassign users (bulk)
 - [ ] Enter any group chat

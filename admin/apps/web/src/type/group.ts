@@ -2,6 +2,8 @@
 
 export type Track = string;
 
+export type MentorStatusFilter = "matched" | "unmatched";
+
 export type GroupMember = {
   id: string;
   name: string;

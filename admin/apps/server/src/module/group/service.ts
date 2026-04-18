@@ -7,6 +7,7 @@ import {
   ilike,
   inArray,
   isNull,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -109,13 +110,35 @@ async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
 }
 
 function buildGroupWhere(
-  params: Pick<QueryGroupsInput, "searchName" | "searchGroup" | "track">,
+  params: Pick<
+    QueryGroupsInput,
+    "searchName" | "searchGroup" | "track" | "mentorStatus"
+  >,
 ) {
   const conditions = [isNull(groups.deletedAt)];
 
   if (params.track) conditions.push(eq(tracks.trackCode, params.track));
   if (params.searchGroup) {
     conditions.push(ilike(groups.groupName, `%${params.searchGroup}%`));
+  }
+
+  const activeMentorMembership = db
+    .select({ id: groupMembership.id })
+    .from(groupMembership)
+    .where(
+      and(
+        eq(groupMembership.groupId, groups.id),
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
+
+  if (params.mentorStatus === "matched") {
+    conditions.push(exists(activeMentorMembership));
+  }
+
+  if (params.mentorStatus === "unmatched") {
+    conditions.push(notExists(activeMentorMembership));
   }
 
   if (params.searchName) {
