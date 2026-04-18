@@ -7,12 +7,18 @@ import { MatchingBoard } from "@/components/match/MatchingBoard";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import { useEffect, useRef } from "react";
 
 export const Route = createFileRoute("/_auth/matching")({
+  validateSearch: (search) => ({
+    run: search.run === true || search.run === "true",
+  }),
   component: RouteComponent,
 });
 
 function RouteComponent() {
+  const { run } = Route.useSearch();
+  const hasAutoRun = useRef(false);
   const { isPending } = useQueryIndividualStudents();
   const {
     data: matchInfoData,
@@ -22,6 +28,13 @@ function RouteComponent() {
   const confirmAssignments = useMutationConfirmAssignments();
   const recommendations = matchInfoData?.data.recommendations ?? [];
   const notFullGroups = matchInfoData?.data.notFullGroups ?? [];
+
+  useEffect(() => {
+    if (!run || hasAutoRun.current) return;
+
+    hasAutoRun.current = true;
+    void runMatch();
+  }, [run, runMatch]);
 
   async function onConfirmAssignments(
     assignments: Array<{ studentId: number; groupId: number | string }>,

@@ -7,16 +7,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { StudentTrack } from "@/type/user";
+import type { StudentTrack, TrackOption } from "@/type/user";
 import { STUDENT_TRACKS } from "@/type/user";
 
 interface StudentFiltersProps {
   search: string;
   onSearchChange: (value: string) => void;
-  age: string;
-  onAgeChange: (value: string) => void;
+  yearLevel: string;
+  onYearLevelChange: (value: string) => void;
   track: StudentTrack | undefined;
   onTrackChange: (value: StudentTrack | undefined) => void;
+  tracks?: TrackOption[];
+  isLoadingTracks?: boolean;
   interest: string;
   onInterestChange: (value: string) => void;
   inGroup: "yes" | "no" | "all";
@@ -26,15 +28,22 @@ interface StudentFiltersProps {
 export function StudentFilters({
   search,
   onSearchChange,
-  age,
-  onAgeChange,
+  yearLevel,
+  onYearLevelChange,
   track,
   onTrackChange,
+  tracks = [],
+  isLoadingTracks = false,
   interest,
   onInterestChange,
   inGroup,
   onInGroupChange,
 }: StudentFiltersProps) {
+  const trackOptions =
+    tracks.length > 0
+      ? tracks.map((item) => item.trackCode)
+      : STUDENT_TRACKS;
+
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
       <div className="space-y-1">
@@ -48,16 +57,21 @@ export function StudentFilters({
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="student-age">Age</Label>
-        <Select value={age || "all"} onValueChange={(value) => onAgeChange(value === "all" ? "" : value)}>
-          <SelectTrigger id="student-age">
-            <SelectValue placeholder="All ages" />
+        <Label htmlFor="student-year-level">Year</Label>
+        <Select
+          value={yearLevel || "all"}
+          onValueChange={(value) =>
+            onYearLevelChange(value === "all" ? "" : value)
+          }
+        >
+          <SelectTrigger id="student-year-level">
+            <SelectValue placeholder="All years" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All ages</SelectItem>
-            {[14, 15, 16, 17, 18].map((n) => (
+            <SelectItem value="all">All years</SelectItem>
+            {[7, 8, 9, 10, 11, 12].map((n) => (
               <SelectItem key={n} value={String(n)}>
-                {n}
+                Year {n}
               </SelectItem>
             ))}
           </SelectContent>
@@ -68,14 +82,21 @@ export function StudentFilters({
         <Label htmlFor="student-track">Track</Label>
         <Select
           value={track ?? "all"}
-          onValueChange={(value) => onTrackChange(value === "all" ? undefined : (value as StudentTrack))}
+          onValueChange={(value) =>
+            onTrackChange(value === "all" ? undefined : (value as StudentTrack))
+          }
         >
           <SelectTrigger id="student-track">
             <SelectValue placeholder="All tracks" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All tracks</SelectItem>
-            {STUDENT_TRACKS.map((item) => (
+            {isLoadingTracks && tracks.length === 0 && (
+              <SelectItem value="loading" disabled>
+                Loading tracks...
+              </SelectItem>
+            )}
+            {trackOptions.map((item) => (
               <SelectItem key={item} value={item}>
                 {item}
               </SelectItem>
@@ -96,7 +117,12 @@ export function StudentFilters({
 
       <div className="space-y-1">
         <Label htmlFor="student-group">In Group</Label>
-        <Select value={inGroup} onValueChange={(value) => onInGroupChange(value as "yes" | "no" | "all")}>
+        <Select
+          value={inGroup}
+          onValueChange={(value) =>
+            onInGroupChange(value as "yes" | "no" | "all")
+          }
+        >
           <SelectTrigger id="student-group">
             <SelectValue placeholder="All" />
           </SelectTrigger>

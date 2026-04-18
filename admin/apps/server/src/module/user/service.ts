@@ -1,5 +1,5 @@
 import db from "@/lib/db.js";
-import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
   mentorProfile,
   roles,
@@ -31,6 +31,11 @@ export type User = {
   accountStatus: string;
   invitedAt: string | null;
   activatedAt: string | null;
+};
+
+export type TrackOption = {
+  id: number;
+  trackCode: string;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -131,6 +136,21 @@ export async function queryUserById(id: string) {
   return { msg: "User retrieved successfully", data: user };
 }
 
+export async function queryTracks() {
+  const items = await db
+    .select({
+      id: tracks.id,
+      trackCode: tracks.trackCode,
+    })
+    .from(tracks)
+    .orderBy(asc(tracks.trackCode));
+
+  return {
+    msg: "Tracks retrieved successfully",
+    data: items as TrackOption[],
+  };
+}
+
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
 export async function createUser(input: CreateUserInput, adminUserId: string) {
@@ -139,6 +159,8 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
     .from(users)
     .where(eq(users.email, input.email));
   if (existing.length > 0) return { msg: "Email already exists", data: null };
+
+  if (!input.track) return { msg: "Track is required", data: null };
 
   const trackRow = await db
     .select({ id: tracks.id })
@@ -216,6 +238,9 @@ export async function updateUser(id: string, input: UpdateUserInput) {
   if (input.email !== undefined) userUpdates.email = input.email;
 
   if (input.track !== undefined) {
+    if (input.track === null)
+      return { msg: "Track cannot be cleared", data: null };
+
     const trackRow = await db
       .select({ id: tracks.id })
       .from(tracks)
@@ -306,7 +331,7 @@ async function bulkCreateAdminUsers(users: CreateUserInput[]) {
         const newUser = await auth.api.createUser({
           body: {
             email: user.email,
-            name: user.name,
+            name: `${user.firstName} ${user.lastName}`.trim(),
           },
         });
         if (newUser) {

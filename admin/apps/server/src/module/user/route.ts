@@ -13,6 +13,7 @@ import {
   queryUserById,
   createUser,
   bulkCreateUsers,
+  queryTracks,
   updateUser,
   updateStatus,
   deleteUser,
@@ -29,11 +30,19 @@ userRoute.get("/", sValidator("query", queryUsersSchema), async (c) => {
 });
 
 // GET /api/v1/user/students - List students with student-specific filters
-userRoute.get("/students", sValidator("query", queryStudentsSchema), (c) => {
-  const params = c.req.valid("query");
-  const result = queryStudents(params);
+userRoute.get(
+  "/students",
+  sValidator("query", queryStudentsSchema),
+  async (c) => {
+    const params = c.req.valid("query");
+    const result = await queryStudents(params);
+    return c.json(result);
+  },
+);
 
-  console.log("Query Students Params:", params);
+// GET /api/v1/user/tracks - List tracks available for filtering and assignment
+userRoute.get("/tracks", async (c) => {
+  const result = await queryTracks();
   return c.json(result);
 });
 

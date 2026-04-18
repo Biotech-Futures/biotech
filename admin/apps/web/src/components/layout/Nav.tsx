@@ -36,21 +36,16 @@ const NAV_ITEMS = [
     url: "/student",
     icon: <GraduationCapIcon />,
   },
-  // {
-  //   title: "User",
-  //   url: "/user",
-  //   icon: <UserIcon />,
-  // },
   {
     title: "Resource",
     url: "/resource",
     icon: <FileTextIcon />,
   },
-  {
-    title: "Matching",
-    url: "/matching",
-    icon: <Link2Icon />,
-  },
+  // {
+  //   title: "Matching",
+  //   url: "/matching",
+  //   icon: <Link2Icon />,
+  // },
   {
     title: "Mentor Matching",
     url: "/mentorMatching",

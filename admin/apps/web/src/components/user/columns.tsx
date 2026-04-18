@@ -6,10 +6,17 @@ import { Link } from "@tanstack/react-router";
 export const studentColumns: ColumnDef<StudentUser>[] = [
   {
     accessorKey: "name",
-    header: "Name",
+    header: "Student",
     cell: ({ row }) => {
-      const { name, groupId } = row.original;
-      if (!groupId) return name;
+      const { name, email, groupId } = row.original;
+      const content = (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{name}</p>
+          <p className="truncate text-xs text-muted-foreground">{email}</p>
+        </div>
+      );
+
+      if (!groupId) return content;
 
       return (
         <Link
@@ -18,19 +25,23 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
           className="text-primary font-medium underline-offset-2 hover:underline"
           title={`Open group details for ${groupId}`}
         >
-          {name}
+          {content}
         </Link>
       );
     },
   },
   {
-    accessorKey: "email",
-    header: "Email",
+    id: "school",
+    header: "School",
+    cell: ({ row }) => row.original.studentInfo.schoolName ?? "-",
   },
   {
-    accessorKey: "age",
-    header: "Age",
-    cell: ({ row }) => row.original.age ?? "-",
+    id: "yearLevel",
+    header: "Year",
+    cell: ({ row }) => {
+      const yearLevel = row.original.studentInfo.yearLevel;
+      return yearLevel ? `Year ${yearLevel}` : "-";
+    },
   },
   {
     accessorKey: "track",
@@ -41,35 +52,53 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
     id: "group",
     header: "Group",
     cell: ({ row }) => {
-      const { groupId, groupName } = row.original;
-      if (!groupId) return "-";
+      const { groupInfo } = row.original;
+      if (!groupInfo) return "-";
 
       return (
         <Link
           to="/group"
-          search={{ groupId }}
+          search={{ groupId: String(groupInfo.id) }}
           className="text-primary underline-offset-2 hover:underline"
-          title={`Open group details for ${groupId}`}
+          title={`Open group details for ${groupInfo.id}`}
         >
-          {groupName ?? groupId}
+          {groupInfo.name}
         </Link>
       );
     },
   },
   {
     accessorKey: "interests",
-    header: "Interest",
+    header: "Interests",
     cell: ({ row }) => {
       const items = row.original.interests;
-      return items.length ? items.join(", ") : "-";
+      if (!items.length) return "-";
+
+      return (
+        <div className="flex max-w-sm flex-wrap gap-1">
+          {items.map((item) => (
+            <Badge key={item.id} variant="outline">
+              {item.description}
+            </Badge>
+          ))}
+        </div>
+      );
     },
   },
   {
-    id: "inGroup",
-    header: "In Group",
+    id: "permission",
+    header: "Permission",
     cell: ({ row }) => (
-      <Badge variant={row.original.groupId ? "default" : "secondary"}>
-        {row.original.groupId ? "Yes" : "No"}
+      <Badge
+        variant={
+          row.original.studentInfo.joinPermissionReceived
+            ? "default"
+            : "secondary"
+        }
+      >
+        {row.original.studentInfo.joinPermissionReceived
+          ? "Received"
+          : "Missing"}
       </Badge>
     ),
   },

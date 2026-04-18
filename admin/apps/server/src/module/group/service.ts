@@ -2,7 +2,7 @@
 import type { QueryGroupsInput, UpdateGroupInput } from "./schema.js";
 
 // Types
-export type Track = "frontend" | "backend" | "fullstack" | "data";
+export type Track = string;
 
 export type GroupMember = {
   id: string;

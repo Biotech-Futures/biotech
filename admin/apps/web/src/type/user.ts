@@ -73,10 +73,76 @@ export const SERVER_USER_ROLES: ServerUserRole[] = [
   "admin",
 ];
 
-export type StudentTrack = UserTrack;
-export type StudentUser = UserAccount;
-export type StudentPaginatedResponse = UserPaginatedResponse;
-export const STUDENT_TRACKS = USER_TRACKS;
+export type StudentTrack = string;
+
+export type TrackOption = {
+  id: number;
+  trackCode: string;
+};
+
+export type TracksResponse = {
+  msg: string;
+  data: TrackOption[];
+};
+
+export type StudentInterest = {
+  id: number;
+  description: string;
+};
+
+export type StudentGroupInfo = {
+  id: number;
+  name: string;
+  membershipId: number;
+  membershipRole: string | null;
+  joinedAt: string;
+};
+
+export type StudentUser = {
+  id: number;
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: "student";
+  track: StudentTrack | null;
+  isActive: boolean;
+  accountStatus: string;
+  invitedAt: string | null;
+  activatedAt: string | null;
+  basicInfo: {
+    id: number;
+    name: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    track: StudentTrack | null;
+    isActive: boolean;
+    accountStatus: string;
+  };
+  studentInfo: {
+    schoolName: string | null;
+    yearLevel: number | null;
+    joinPermissionReceived: boolean;
+    joinPermissionResponseId: string | null;
+  };
+  groupInfo: StudentGroupInfo | null;
+  groupId: string | null;
+  groupName: string | null;
+  interests: StudentInterest[];
+};
+
+export type StudentPaginatedResponse = {
+  msg: string;
+  data: {
+    items: StudentUser[];
+    total: number;
+    page: number;
+    limit: number;
+    hasMore: boolean;
+  };
+};
+export const STUDENT_TRACKS: StudentTrack[] = USER_TRACKS;
 
 export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
   return user.active ? "active" : "inactive";

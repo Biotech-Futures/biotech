@@ -17,7 +17,7 @@ export const queryStudentsSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(10),
   search: z.string().optional(),
   age: z.coerce.number().int().min(10).max(30).optional(),
-  track: z.enum(TRACKS).optional(),
+  track: z.string().optional(),
   interest: z.string().optional(),
   inGroup: z.enum(["yes", "no"]).optional(),
   active: z.coerce.boolean().optional(),
