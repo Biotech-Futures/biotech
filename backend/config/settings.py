@@ -4,7 +4,7 @@ from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config("DJANGO_SECRET_KEY")
+SECRET_KEY = config("DJANGO_SECRET_KEY", default="django-insecure-dummy")
 DEBUG = config("DEBUG", default=True, cast=bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
@@ -37,8 +37,8 @@ INSTALLED_APPS = [
 ]
 
 # Azure Blob Storage
-AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME")
-AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY")
+AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME", default="dummy")
+AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY", default="dummy")
 AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
 AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
@@ -110,11 +110,16 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME", default="biotech_db"),
-        "USER": config("DB_USER", default="pratikkulkarni"),
-        "PASSWORD": config("DB_PASSWORD", default=""),
-        "HOST": config("DB_HOST", default="127.0.0.1"),
-        "PORT": config("DB_PORT", default="5432"),
+        "NAME": "biotechDev",
+        "USER": "biotech_admin",
+        "PASSWORD": "G@l@xie5",
+        "HOST": "biotech-dev.postgres.database.azure.com",
+        "PORT": "5432",
+        "OPTIONS": {
+            "sslmode": "require",
+            "connect_timeout": 5,
+        },
+        "CONN_MAX_AGE": 0
     }
 }
 
