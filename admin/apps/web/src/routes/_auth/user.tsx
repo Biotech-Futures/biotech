@@ -103,7 +103,7 @@ function UserManagementPage() {
         if (left.active !== right.active) {
           return left.active ? -1 : 1;
         }
-        return left.name.localeCompare(right.name);
+        return left?.name?.localeCompare(right.name);
       });
   }, [mergedUsers, role, search, status, track]);
 
