@@ -33,8 +33,8 @@ function StudentPage() {
     setPage(1);
   }, [search, age, track, interest, inGroup]);
 
-  const students = data?.data.items ?? [];
-  const total = data?.data.total ?? 0;
+  const students = data?.data?.items ?? [];
+  const total = data?.data?.total ?? 0;
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 10)), [total]);
 
   const handleStudentClick = (student: { groupId: string | null }) => {

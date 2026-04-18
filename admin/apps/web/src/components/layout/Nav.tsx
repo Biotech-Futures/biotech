@@ -18,7 +18,7 @@ import {
 const NAV_ITEMS = [
   {
     title: "User",
-    url: "/student",
+    url: "/user",
     icon: <UserIcon />,
   },
   {
@@ -36,11 +36,11 @@ const NAV_ITEMS = [
     url: "/student",
     icon: <GraduationCapIcon />,
   },
-  {
-    title: "User",
-    url: "/user",
-    icon: <UserIcon />,
-  },
+  // {
+  //   title: "User",
+  //   url: "/user",
+  //   icon: <UserIcon />,
+  // },
   {
     title: "Resource",
     url: "/resource",
