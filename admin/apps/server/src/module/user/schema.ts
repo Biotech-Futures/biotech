@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const ROLES = ["student", "mentor", "supervisor", "admin"] as const;
-export const TRACKS = ["frontend", "backend", "fullstack", "data"] as const;
+export const TRACKS = ["AUS-NSW", "AUS-QLD", "AUS-VIC", "AUS-WA", "AUS-SA", "BRA", "GLOBAL"] as const;
 
 export const queryUsersSchema = z.object({
   page: z.coerce.number().min(1).default(1),
