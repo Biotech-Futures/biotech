@@ -31,6 +31,7 @@ export type GroupMember = {
   name: string;
   email: string;
   role: "student" | "mentor";
+  membershipId?: number;
 };
 
 export type Group = {
@@ -65,6 +66,7 @@ type GroupBaseRow = {
 };
 
 function toGroupMember(row: {
+  membershipId: number;
   userId: number;
   firstName: string;
   lastName: string;
@@ -79,6 +81,7 @@ function toGroupMember(row: {
     name: `${row.firstName} ${row.lastName}`.trim(),
     email: row.email,
     role,
+    membershipId: row.membershipId,
   };
 }
 
@@ -89,6 +92,7 @@ async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
   const memberRows = await db
     .select({
       groupId: groupMembership.groupId,
+      membershipId: groupMembership.id,
       userId: users.id,
       firstName: users.firstName,
       lastName: users.lastName,

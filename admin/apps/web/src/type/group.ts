@@ -9,6 +9,7 @@ export type GroupMember = {
   name: string;
   email: string;
   role: "student" | "mentor";
+  membershipId?: number;
 };
 
 export type Group = {
