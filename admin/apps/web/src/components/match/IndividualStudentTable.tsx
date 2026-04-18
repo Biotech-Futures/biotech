@@ -44,8 +44,8 @@ export function IndividualStudentTable({
             <TableHead>Name</TableHead>
             <TableHead>Track</TableHead>
             <TableHead>Track ID</TableHead>
+            <TableHead>Interest</TableHead>
             <TableHead>Year Level</TableHead>
-            <TableHead>Country</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -62,8 +62,20 @@ export function IndividualStudentTable({
                   <Badge variant="outline">{student.trackCode}</Badge>
                 </TableCell>
                 <TableCell>{student.trackId}</TableCell>
+                <TableCell>
+                  {student.interests.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {student.interests.map((interest) => (
+                        <Badge key={interest} variant="secondary">
+                          {interest}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">N/A</span>
+                  )}
+                </TableCell>
                 <TableCell>{student.yearLevel ?? "N/A"}</TableCell>
-                <TableCell>{student.countryName}</TableCell>
               </TableRow>
             ))
           ) : (

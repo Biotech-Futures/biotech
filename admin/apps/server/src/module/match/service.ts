@@ -668,7 +668,27 @@ export async function getIndividualStudents() {
     .innerJoin(countries, eq(countries.id, countryStates.countryId))
     .where(notExists(activeMembershipSubquery));
 
-  return individualStudents;
+  const userIds = individualStudents.map((student) => student.userId);
+  const interestRows =
+    userIds.length === 0
+      ? []
+      : await db
+          .select({
+            userId: studentInterest.studentUserId,
+            interestDesc: areasOfInterest.interestDesc,
+          })
+          .from(studentInterest)
+          .innerJoin(
+            areasOfInterest,
+            eq(areasOfInterest.id, studentInterest.interestId),
+          )
+          .where(inArray(studentInterest.studentUserId, userIds));
+  const interestsByUserId = mapInterestsByUserId(interestRows);
+
+  return individualStudents.map((student) => ({
+    ...student,
+    interests: interestsByUserId.get(student.userId) ?? [],
+  }));
 }
 
 export async function confirmStudentAssignments(

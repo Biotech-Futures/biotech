@@ -8,6 +8,7 @@ export const individualStudentSchema = z.object({
   trackCode: z.string(),
   yearLevel: z.number().int().nullable(),
   countryName: z.string(),
+  interests: z.array(z.string()).default([]),
 });
 
 export const individualStudentsResponseSchema = z.object({
