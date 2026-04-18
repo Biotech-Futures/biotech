@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'apps.groups',
     'apps.chat',
     'apps.resources',
-    'apps.announcements',
+    # 'apps.announcements',  # TBD
     'apps.audit',
     'apps.integrations',
     'apps.events',
