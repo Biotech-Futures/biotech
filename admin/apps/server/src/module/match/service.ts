@@ -746,6 +746,7 @@ export async function confirmStudentAssignments(
       .where(
         and(
           inArray(groupMembership.userId, studentIds),
+          eq(groupMembership.membershipRole, "student"),
           isNull(groupMembership.leftAt),
         ),
       );

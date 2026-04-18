@@ -12,6 +12,7 @@ import { HTTPException } from "hono/http-exception";
 import { authRequirement } from "./middleware/auth.js";
 import { resourceRoute } from "./module/resource/route.js";
 import { eventRoute } from "./module/event/route.js";
+import { mentorRoute } from "./module/mentor/route.js";
 
 const app = new Hono();
 
@@ -34,7 +35,8 @@ app
   .route("mentor-match", mentorMatchRoute)
   .route("user", userRoute)
   .route("resource", resourceRoute)
-  .route("event", eventRoute);
+  .route("event", eventRoute)
+  .route("mentor", mentorRoute);
 
 app.onError((error, c) => {
   console.log("Error occurred:", error);

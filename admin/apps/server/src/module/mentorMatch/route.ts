@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { sValidator } from "@hono/standard-validator";
-import { confirmMentorAssignmentSchema, replaceMentorSchema } from "./schema.js";
+import { confirmMentorAssignmentSchema, replaceMentorSchema, unassignMentorsSchema } from "./schema.js";
 import {
   bulkReplaceInactiveMentors,
   confirmMentorAssignments,
@@ -9,6 +9,7 @@ import {
   getUnmatchedGroups,
   matchMentor,
   replaceMentor,
+  unassignMentors,
 } from "./service.js";
 
 export const mentorMatchRoute = new Hono();
@@ -61,3 +62,13 @@ mentorMatchRoute.post("/bulk-replace-inactive", async (c) => {
   const data = await bulkReplaceInactiveMentors();
   return c.json({ msg: "Inactive mentor assignments removed", data });
 });
+
+mentorMatchRoute.post(
+  "/unassign",
+  sValidator("json", unassignMentorsSchema),
+  async (c) => {
+    const { groupIds } = c.req.valid("json");
+    const data = await unassignMentors(groupIds);
+    return c.json({ msg: "Mentor assignments removed", data });
+  },
+);

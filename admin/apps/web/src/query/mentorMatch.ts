@@ -30,6 +30,7 @@ export function useQueryUnmatchedGroups() {
       const res = await myFetch.get("mentor-match/groups");
       return unmatchedGroupsResponseSchema.parse(res.data);
     },
+    refetchOnMount: true,
   });
 }
 
@@ -63,6 +64,7 @@ export function useQueryMatchedGroups() {
       const res = await myFetch.get("mentor-match/matched-groups");
       return matchedGroupsResponseSchema.parse(res.data);
     },
+    refetchOnMount: true,
   });
 }
 
@@ -86,6 +88,15 @@ export function useMutationBulkReplaceInactive() {
     mutationFn: async () => {
       const res = await myFetch.post("mentor-match/bulk-replace-inactive", {});
       return bulkReplaceInactiveResponseSchema.parse(res.data);
+    },
+  });
+}
+
+export function useMutationUnassignMentors() {
+  return useMutation({
+    mutationFn: async (groupIds: number[]) => {
+      const res = await myFetch.post("mentor-match/unassign", { groupIds });
+      return res.data as { msg: string; data: { unassignedCount: number } };
     },
   });
 }

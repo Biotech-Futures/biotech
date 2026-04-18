@@ -498,7 +498,7 @@ export async function getMatchedGroups() {
     .innerJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
     .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)));
 
-  // Fetch student interests per group
+  // Fetch student interests per group (students only — exclude mentor memberships)
   const memberInterestRows = await db
     .select({
       groupId: groupMembership.groupId,
@@ -508,7 +508,13 @@ export async function getMatchedGroups() {
     .from(groupMembership)
     .innerJoin(studentInterest, eq(studentInterest.studentUserId, groupMembership.userId))
     .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
-    .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)));
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        eq(groupMembership.membershipRole, "student"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
 
   const interestsByUserId = new Map<number, string[]>();
   for (const row of memberInterestRows) {
@@ -570,7 +576,12 @@ export async function replaceMentor(input: ReplaceMentorInput) {
   await db
     .update(groupMembership)
     .set({ leftAt: now })
-    .where(eq(groupMembership.id, input.membershipId));
+    .where(
+      and(
+        eq(groupMembership.id, input.membershipId),
+        eq(groupMembership.groupId, input.groupId),
+      ),
+    );
 
   const latest = await db
     .select({ id: groupMembership.id })
@@ -682,6 +693,20 @@ export async function confirmMentorAssignments(
   }
 
   const now = new Date().toISOString();
+  const groupIds = assignments.map((a) => a.groupId);
+
+  // Soft-delete any existing active mentor membership for these groups
+  // to prevent duplicate active mentor assignments
+  await db
+    .update(groupMembership)
+    .set({ leftAt: now })
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
 
   const latestMembership = await db
     .select({ id: groupMembership.id })
@@ -702,4 +727,19 @@ export async function confirmMentorAssignments(
   await db.insert(groupMembership).values(rows);
 
   return { confirmedCount: assignments.length };
+}
+
+export async function unassignMentors(groupIds: number[]) {
+  const now = new Date().toISOString();
+  await db
+    .update(groupMembership)
+    .set({ leftAt: now })
+    .where(
+      and(
+        inArray(groupMembership.groupId, groupIds),
+        eq(groupMembership.membershipRole, "mentor"),
+        isNull(groupMembership.leftAt),
+      ),
+    );
+  return { unassignedCount: groupIds.length };
 }
