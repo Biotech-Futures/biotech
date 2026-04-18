@@ -52,7 +52,7 @@ class UserListHTMLView(generics.ListAPIView):
     template_name = "users/list.html"
 
     def get_queryset(self):
-        queryset = User.objects.select_related("track", "track__state").all()
+        queryset = User.objects.select_related("track", "track__state").order_by("id")
         is_active_param = self.request.query_params.get("is_active")
         if is_active_param is not None:
             queryset = queryset.filter(is_active=is_active_param.lower() in {"1", "true", "yes"})
