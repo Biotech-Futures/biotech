@@ -36,13 +36,15 @@ class EventAPITests(APITestCase):
             start_datetime=timezone.now() + timezone.timedelta(days=3),
             ends_datetime=timezone.now() + timezone.timedelta(days=3, hours=2),
             location="Sydney",
+            humanitix_link="https://example.com/future",
         )
         self.past_event = Events.objects.create(
             event_name="Past Event",
             description="Already happened.",
             start_datetime=timezone.now() - timezone.timedelta(days=5),
-            ends_datetime=timezone.now() - timezone.timedelta(days=5, hours=-2),
+            ends_datetime=timezone.now() - timezone.timedelta(days=4, hours=22),
             location="Melbourne",
+            humanitix_link="https://example.com/past",
         )
 
     # --- GET TESTS ---
@@ -89,7 +91,7 @@ class EventAPITests(APITestCase):
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(Events.objects.filter(event_name="User Created Event").exists())
+        self.assertFalse(Events.objects.filter(event_name="Admin Created Event", host_user=self.user).exists())
 
     def test_validation_error_if_end_before_start(self):
         """POST with invalid datetime order should fail"""

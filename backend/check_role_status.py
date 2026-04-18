@@ -92,7 +92,7 @@ def check_user_roles(user_id):
         )
         if active_roles:
             for role_hist in active_roles:
-                print(f"   - {role_hist.role.role_name} (since {role_hist.valid_from})")
+                print(f"   - {role_hist.role.slug} (since {role_hist.valid_from})")
         else:
             print("   - No active roles")
         
@@ -102,7 +102,7 @@ def check_user_roles(user_id):
         if all_roles:
             for role_hist in all_roles:
                 end_date = role_hist.valid_to.strftime('%Y-%m-%d %H:%M') if role_hist.valid_to else 'ACTIVE'
-                print(f"   - {role_hist.role.role_name}: {role_hist.valid_from.strftime('%Y-%m-%d %H:%M')} → {end_date}")
+                print(f"   - {role_hist.role.slug}: {role_hist.valid_from.strftime('%Y-%m-%d %H:%M')} → {end_date}")
         else:
             print("   - No role history")
             
@@ -114,7 +114,7 @@ def list_all_roles():
     print(f"\n=== ALL AVAILABLE ROLES ===")
     roles = Roles.objects.all()
     for role in roles:
-        print(f"   ID {role.id}: {role.role_name}")
+        print(f"   ID {role.id}: {role.slug}")
 
 def show_all_users_and_roles():
     """Show all users and their current roles"""
@@ -147,7 +147,7 @@ def show_all_users_and_roles():
         )
         
         if active_roles:
-            role_names = [role_hist.role.role_name for role_hist in active_roles]
+            role_names = [role_hist.role.slug for role_hist in active_roles]
             print(f"   Active Roles: {', '.join(role_names)}")
         else:
             print(f"   Active Roles: None")
@@ -183,12 +183,12 @@ def show_all_users_and_roles():
     role_stats = RoleAssignmentHistory.objects.filter(
         valid_from__lte=timezone.now(),
         valid_to__isnull=True
-    ).values('role__role_name').annotate(
+    ).values('role__slug').annotate(
         count=models.Count('user', distinct=True)
     ).order_by('-count')
     
     for stat in role_stats:
-        print(f"   {stat['role__role_name']}: {stat['count']} users")
+        print(f"   {stat['role__slug']}: {stat['count']} users")
 
 def show_user_credentials():
     """Show user credentials for API testing"""
@@ -206,7 +206,7 @@ def show_user_credentials():
             valid_to__isnull=True
         )
         
-        role_names = [role_hist.role.role_name for role_hist in active_roles]
+        role_names = [role_hist.role.slug for role_hist in active_roles]
         roles_str = ', '.join(role_names) if role_names else 'No roles'
         
         # Map known test passwords

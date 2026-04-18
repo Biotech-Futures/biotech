@@ -101,7 +101,7 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_current_role_name(self, obj):
         rah = self._active_assignment(obj)
-        return None if rah is None or rah.role is None else rah.role.role_name
+        return None if rah is None or rah.role is None else rah.role.slug
     
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_pg_firstname(self, obj):

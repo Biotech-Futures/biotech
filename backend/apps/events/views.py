@@ -1,5 +1,5 @@
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, permissions, viewsets, generics, status
@@ -8,7 +8,6 @@ from .serializers import EventSerializer, EventInviteCreateSerializers, EventInv
 from apps.users.models import User
 from apps.resources.models import RoleAssignmentHistory
 from rest_framework.views import APIView
-from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 
@@ -31,10 +30,10 @@ class EventViewSet(mixins.ListModelMixin,
 
     def get_queryset(self):
         now = timezone.now()
-        # Upcoming, not soft-deleted
+        # Upcoming or ongoing, not soft-deleted
         return (
             Events.objects
-            .filter(deleted_flag=False, start_datetime__gte=now)
+            .filter(deleted_flag=False, ends_datetime__gte=now)
             .order_by("start_datetime")
         )
 
@@ -62,7 +61,7 @@ class IsNotStudent(permissions.BasePermission):
         ).select_related('role').first()
         
         if active_role and active_role.role:
-            return active_role.role.role_name
+            return active_role.role.slug
         
         return None
     
@@ -111,12 +110,18 @@ class EventInviteCreateView(APIView):
         user_id = kwargs.get("uid")
         user = get_object_or_404(User, pk=user_id)
 
-        ei = EventInvite.objects.create(
-            event=event,
-            user=user,
-            sent_datetime=timezone.now()
-        )
-        return Response(EventInviteCreateSerializers(ei).data, status=status.HTTP_200_OK)
+        try:
+            ei = EventInvite.objects.create(
+                event=event,
+                user=user,
+                sent_datetime=timezone.now()
+            )
+        except IntegrityError:
+            return Response(
+                {"detail": "An invite for this user to this event already exists."},
+                status=status.HTTP_409_CONFLICT
+            )
+        return Response(EventInviteCreateSerializers(ei).data, status=status.HTTP_201_CREATED)
     
 
 class EventPagePagination(PageNumberPagination):

@@ -13,12 +13,11 @@ from django.conf import settings
 from rest_framework.test import APIClient
 from channels.testing import WebsocketCommunicator
 from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 
 from config.asgi import application  # ASGI entrypoint (Channels)
 from apps.chat.models import Messages
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
-from apps.groups.models import Groups, GroupMembers, Countries, CountryStates, Tracks
+from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
 
 
 # Create your tests here.
@@ -50,10 +49,10 @@ class ChatFeatureTests(TestCase):
         self.admin = User.objects.create_user(email="admin@test.com", password="pw", is_staff=False)
 
         # --- roles ---
-        self.role_mentor = Roles.objects.create(role_name="mentor")
-        self.role_supervisor = Roles.objects.create(role_name="supervisor")
-        self.role_admin = Roles.objects.create(role_name="admin")
-        self.role_student = Roles.objects.create(role_name="basic_student")
+        self.role_mentor = Roles.objects.create(slug="mentor")
+        self.role_supervisor = Roles.objects.create(slug="supervisor")
+        self.role_admin = Roles.objects.create(slug="admin")
+        self.role_student = Roles.objects.create(slug="basic_student")
 
         now = timezone.now()
         future = now.replace(year=2099)
@@ -75,21 +74,27 @@ class ChatFeatureTests(TestCase):
         # --- geo / track prerequisites for Groups ---
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="Biotech Research", state=self.state)
+        self.track = Tracks.objects.create(track_code="AUS-NSW", state=self.state)
 
         # --- groups & membership ---
         self.group = Groups.objects.create(group_name="G1", track=self.track)
-        GroupMembers.objects.create(user=self.student, group=self.group)
-        GroupMembers.objects.create(user=self.mentor, group=self.group)
-        GroupMembers.objects.create(user=self.supervisor, group=self.group)
+        GroupMembership.objects.create(user=self.student, group=self.group)
+        GroupMembership.objects.create(user=self.mentor, group=self.group)
+        GroupMembership.objects.create(user=self.supervisor, group=self.group)
         # admin has global access; they don't need membership
         
         # --- resources ---
         self.res1 = Resources.objects.create(
-            resource_name="R1", resource_description="d1", uploader_user_id=self.admin
+            resource_name="R1",
+            resource_description="d1",
+            uploader_user_id=self.admin,
+            upload_datetime=timezone.now() - timedelta(minutes=1),
         )
         self.res2 = Resources.objects.create(
-            resource_name="R2", resource_description="d2", uploader_user_id=self.admin
+            resource_name="R2",
+            resource_description="d2",
+            uploader_user_id=self.admin,
+            upload_datetime=timezone.now() - timedelta(minutes=1),
         )
 
         # API clients
@@ -123,7 +128,7 @@ class ChatFeatureTests(TestCase):
         msg = Messages.objects.get(pk=msg_id)
         self.assertEqual(msg.group_id, self.group.id)
         self.assertEqual(msg.sender_user_id, self.student.id)
-        self.assertFalse(msg.deleted_flag)
+        self.assertIsNone(msg.deleted_at)
         self.assertEqual(set(msg.resources.values_list("resource_id", flat=True)), {self.res1.id, self.res2.id})
 
     def test_get_messages_with_limit_and_after(self):
@@ -162,7 +167,7 @@ class ChatFeatureTests(TestCase):
         resp = self.client_mentor.delete(url)
         self.assertEqual(resp.status_code, 204)
         msg.refresh_from_db()
-        self.assertTrue(msg.deleted_flag)
+        self.assertIsNotNone(msg.deleted_at)
 
     def test_delete_forbidden_for_mentor_in_other_group(self):
         # make another group where mentor is NOT a member
@@ -180,7 +185,7 @@ class ChatFeatureTests(TestCase):
         resp = self.client_supervisor.delete(url)
         self.assertEqual(resp.status_code, 204)
         msg2.refresh_from_db()
-        self.assertTrue(msg2.deleted_flag)
+        self.assertIsNotNone(msg2.deleted_at)
 
     def test_delete_forbidden_for_supervisor_in_other_group(self):
         # make another group where supervisor is NOT a member
@@ -199,11 +204,17 @@ class ChatFeatureTests(TestCase):
         resp = self.client_admin.delete(url)
         self.assertEqual(resp.status_code, 204)
         msg3.refresh_from_db()
-        self.assertTrue(msg3.deleted_flag)
+        self.assertIsNotNone(msg3.deleted_at)
 
     def test_soft_deleted_messages_are_excluded_from_list(self):
         m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep")
-        m2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="hide", deleted_flag=True)
+        m2 = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="hide",
+            sent_at=timezone.now() - timedelta(minutes=2),
+            deleted_at=timezone.now() - timedelta(minutes=1),
+        )
 
         resp = self.client_student.get(self._list_url())
         self.assertEqual(resp.status_code, 200)

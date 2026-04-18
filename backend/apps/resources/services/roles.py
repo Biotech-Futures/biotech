@@ -37,11 +37,11 @@ def create_role(role_name: str) -> Roles:
     raise ValidationError("Role name cannot be empty.")
 
   # Check if role already exists (case-insensitive)
-  if Roles.objects.filter(role_name__iexact=role_name).exists():
+  if Roles.objects.filter(slug__iexact=role_name).exists():
     raise ValidationError(f"Role '{role_name}' already exists.")
 
   # Create the role
-  role = Roles.objects.create(role_name=role_name)
+  role = Roles.objects.create(slug=role_name)
 
   # Create corresponding Django group for permissions
   _ensure_group(role_name)
@@ -76,7 +76,7 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
   existing_same_role = current_active_roles.filter(role=role)
   
   result = {
-      'granted_role': role.role_name,
+      'granted_role': role.slug,
       'revoked_roles': [],
       #  'had_existing': len(current_active_roles) > 0
       'had_existing': current_active_roles.exists(),
@@ -88,7 +88,7 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
     # User already has this role - update the valid_to date instead of creating duplicate
     existing_same_role.update(valid_to=start)
     result['action_taken'] = 'updated_existing_role'
-    result['message'] = f"Updated existing {role.role_name} role assignment (extended duration)"
+    result['message'] = f"Updated existing {role.slug} role assignment (extended duration)"
     return result
   
   if revoke_others:
@@ -101,14 +101,14 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
     other_assignments = current_active_roles.exclude(role=role)
     
     for assignment in other_assignments:
-        result['revoked_roles'].append(assignment.role.role_name)
+        result['revoked_roles'].append(assignment.role.slug)
         # Close the role assignment
         assignment.valid_to = start
         assignment.save()
         
         # Remove from Django groups
         try:
-            group = Group.objects.get(name=assignment.role.role_name)
+            group = Group.objects.get(name=assignment.role.slug)
             user.groups.remove(group)
         except Group.DoesNotExist:
             pass
@@ -124,11 +124,11 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
   RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=start)
   
   # Add to Django group
-  group = _ensure_group(role.role_name)
+  group = _ensure_group(role.slug)
   user.groups.add(group)
   
   result['action_taken'] = 'created_new_role'
-  result['message'] = f"Granted new {role.role_name} role"
+  result['message'] = f"Granted new {role.slug} role"
   
   return result
 
@@ -160,7 +160,7 @@ def revoke_role(user, role: Roles, end=None):
 
   # remove the group record 
   try: 
-    group = Group.objects.get(name=role.role_name)
+    group = Group.objects.get(name=role.slug)
     user.groups.remove(group)
   except Group.DoesNotExist:
     pass
@@ -175,7 +175,7 @@ def revoke_role(user, role: Roles, end=None):
   if not has_other_roles:
       # Assign default role
       try:
-          default_role = Roles.objects.get(role_name='basic_user')
+          default_role = Roles.objects.get(slug='basic_user')
           grant_role(user, default_role, start=end)
       except Roles.DoesNotExist:
           # Log this situation as it indicates a configuration issue
@@ -193,6 +193,6 @@ def ensure_user_has_role(user): ##JUST FOR DEFAULT ROLES =====> JUST AN ADDITION
     ).exists()
     
     if not has_active_role:
-        default_role = Roles.objects.get(role_name='basic_user')  # Setting to default role 
+        default_role = Roles.objects.get(slug='basic_user')  # Setting to default role 
 
 

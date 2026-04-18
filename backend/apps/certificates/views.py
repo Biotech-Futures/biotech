@@ -34,7 +34,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
     Admins:
         - Full CRUD access to all certificates
         - GET /certificates/v1/?expires_by=YYYY-MM-DD -> audit view with expiry filter
-        - Can set 'verified' flag
+        - Can set verification timestamps (verified_at / verified_by)
         
     Supervisors:
         - GET /certificates/v1/ -> list certificates of mentors they oversee
@@ -67,7 +67,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         ).select_related('role').first()
         
         if active_role and active_role.role:
-            return active_role.role.role_name
+            return active_role.role.slug
         
         return None
     
@@ -129,10 +129,10 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             return MentorCertificateCreateSerializer
         
         if self.action in ['update', 'partial_update']:
-            # Admins can update all fields including 'verified'
+            # Admins can update all fields including verification
             if self.request.user.is_staff or self.request.user.is_superuser:
                 return AdminCertificateUpdateSerializer
-            # Mentors can only update their certificate details, not 'verified'
+            # Mentors can only update their certificate details, not verification fields
             return MentorCertificateUpdateSerializer
         
         return MentorCertificateSerializer
@@ -141,7 +141,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         """
         When creating a certificate:
         - If user is a mentor (not admin), auto-set mentor_profile to current user
-        - Certificate starts as unverified (verified=False by default)
+        - Certificate starts unverified (verified_at is null by default)
         """
         user = self.request.user
         
@@ -157,7 +157,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             # Mentor creating their own certificate
             if hasattr(user, 'mentorprofile'):
                 # Auto-set mentor_profile to current user, starts unverified
-                serializer.save(mentor_profile=user.mentorprofile, verified=False)
+                serializer.save(mentor_profile=user.mentorprofile)
                 return
         
         # Fallback (shouldn't reach here due to permissions)
@@ -176,8 +176,9 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             )
         
         certificate = self.get_object()
-        certificate.verified = True
-        certificate.save(update_fields=['verified'])
+        certificate.verified_at = timezone.now()
+        certificate.verified_by = request.user
+        certificate.save(update_fields=["verified_at", "verified_by"])
         
         serializer = self.get_serializer(certificate)
         return Response(serializer.data)
@@ -195,8 +196,9 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             )
         
         certificate = self.get_object()
-        certificate.verified = False
-        certificate.save(update_fields=['verified'])
+        certificate.verified_at = None
+        certificate.verified_by = None
+        certificate.save(update_fields=["verified_at", "verified_by"])
         
         serializer = self.get_serializer(certificate)
         return Response(serializer.data)

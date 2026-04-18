@@ -1,6 +1,6 @@
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
-from apps.groups.models import GroupMembers
+from apps.groups.models import GroupMembership
 from apps.users.utils.roles import get_active_assignment
 
 ROLE_ADMIN = "admin"
@@ -35,12 +35,16 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
     def _has_admin_access(self, user):
         rah = get_active_assignment(user)
         return bool(
-            rah and rah.role and rah.role.role_name in {ROLE_ADMIN}
+            rah and rah.role and rah.role.slug in {ROLE_ADMIN}
         )
 
     @database_sync_to_async
     def is_member(self, uid):
-        return GroupMembers.objects.filter(user_id=uid, group_id=self.group_id).exists()
+        return GroupMembership.objects.filter(
+            user_id=uid,
+            group_id=self.group_id,
+            left_at__isnull=True,
+        ).exists()
 
 
     async def receive_json(self, content, **kwargs):

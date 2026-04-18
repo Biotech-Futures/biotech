@@ -1,12 +1,13 @@
 from rest_framework import serializers
-from .models import RoleAssignmentHistory, Roles, Resources, ResourceRoles, ResourceType
+from drf_spectacular.utils import extend_schema_field
+from .models import RoleAssignmentHistory, Roles, Resources, ResourceAudience, ResourceType
 from apps.users.models import User
 from datetime import datetime, time, date
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
 
-class UserSerializer(serializers.ModelSerializer):
+class ResourceUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'first_name', 'last_name', 'email']
@@ -17,15 +18,17 @@ class ResourceTypeSerializer(serializers.ModelSerializer):
         fields = ['id', 'type_name', 'type_description']
 
 class RoleSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source="slug", max_length=100)
+
     class Meta:
         model = Roles
-        fields = ['id', 'role_name']
+        fields = ["id", "role_name"]
 
     def validate_role_name(self, value: str) -> str:
         name = (value or "").strip()
         if not name:
             raise serializers.ValidationError("role_name cannot be blank.")
-        qs = Roles.objects.filter(role_name__iexact=name)
+        qs = Roles.objects.filter(slug__iexact=name)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
@@ -34,7 +37,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
     # Keep nested read-only shape for GETs:
-    user = UserSerializer(read_only=True)
+    user = ResourceUserSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
 
     # Accept role updates via role_id on PATCH:
@@ -51,6 +54,7 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
         model = RoleAssignmentHistory
         fields = ["id", "user", "role", "role_id", "valid_from", "valid_to", "is_active"]
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_active(self, obj):
         return obj.valid_to is None or obj.valid_to >= timezone.now()
 
@@ -90,8 +94,27 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("valid_to cannot be before valid_from.")
         return attrs
 
+
+class ResourceAudienceSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source="role.slug", read_only=True)
+    track_name = serializers.CharField(source="track.track_code", read_only=True)
+
+    class Meta:
+        model = ResourceAudience
+        fields = ["id", "role", "role_name", "track", "track_name"]
+
+
+class ResourceAudienceWriteSerializer(serializers.Serializer):
+    role_id = serializers.IntegerField(required=False)
+    track_id = serializers.IntegerField(required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("role_id") and not attrs.get("track_id"):
+            raise serializers.ValidationError("Each audience rule must include role_id or track_id.")
+        return attrs
+
 class ResourcesSerializer(serializers.ModelSerializer):
-    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    uploader = ResourceUserSerializer(source='uploader_user_id', read_only=True)
     # Resource type field - read as nested object, write as ID
     resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     resource_type_id = serializers.PrimaryKeyRelatedField(
@@ -110,6 +133,8 @@ class ResourcesSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of role IDs that can access this resource"
     )
+    audiences = ResourceAudienceSerializer(many=True, read_only=True)
+    audience_rules = ResourceAudienceWriteSerializer(many=True, write_only=True, required=False)
     
     class Meta:
         model = Resources
@@ -119,6 +144,8 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'resource_description',
             'resource_type_detail',
             'resource_type_id',
+            'track',
+            'visibility_scope',
             'upload_datetime',
             # 'uploader',  # read-only field for display
             # 'uploader_id',  # write-only field for input
@@ -126,7 +153,9 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'deleted_flag',
             'deleted_datetime',
             'visible_roles', ##Custom Field (to be used for appending ResourceRoles data)
-            'role_ids' ##Custom Field (to be used for appending ResourceRoles data)
+            'role_ids', ##Custom Field (to be used for appending ResourceRoles data)
+            'audiences',
+            'audience_rules',
         ]
         read_only_fields = ['id', 'upload_datetime', 'deleted_datetime']
 
@@ -166,44 +195,57 @@ class ResourcesSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
 
+    @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
-        from .models import ResourceRoles
-        resource_roles = ResourceRoles.objects.filter(resource=obj).select_related('role')
-        return RoleSerializer([rr.role for rr in resource_roles], many=True).data
+        audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
+        return RoleSerializer([aud.role for aud in audiences], many=True).data
+
+    def _replace_audiences(self, resource, *, role_ids=None, audience_rules=None):
+        if role_ids is None and audience_rules is None:
+            return
+
+        ResourceAudience.objects.filter(resource=resource).delete()
+
+        if role_ids is not None:
+            for role in role_ids:
+                ResourceAudience.objects.create(resource=resource, role=role)
+
+        if audience_rules is not None:
+            for rule in audience_rules:
+                ResourceAudience.objects.create(
+                    resource=resource,
+                    role_id=rule.get("role_id"),
+                    track_id=rule.get("track_id"),
+                )
 
     def create(self, validated_data):
         """Create resource and specify roles for visibility (ResourceRoles)"""
         role_ids = validated_data.pop('role_ids', [])         
+        audience_rules = validated_data.pop("audience_rules", [])
         resource = super().create(validated_data)
         
-        # Assign roles to resource (ResourceRoles)
-        for role_id in role_ids:
-            ResourceRoles.objects.create(resource=resource, role=role_id)
+        self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
         
         return resource
 
     def update(self, instance, validated_data):
         """Update resource and roles"""
         role_ids = validated_data.pop('role_ids', None)
+        audience_rules = validated_data.pop("audience_rules", None)
         
         resource = super().update(instance, validated_data)
         
-        # Update roles if provided
-        if role_ids is not None:
-            # Remove existing role assignments
-            ResourceRoles.objects.filter(resource=resource).delete()
-            # Add new role assignments
-            for role_id in role_ids:
-                ResourceRoles.objects.create(resource=resource, role=role_id)
+        self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
         
         return resource
 
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
-    uploader = UserSerializer(source='uploader_user_id', read_only=True)
+    uploader = ResourceUserSerializer(source='uploader_user_id', read_only=True)
     resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
     visible_roles = serializers.SerializerMethodField()
+    audiences = ResourceAudienceSerializer(many=True, read_only=True)
 
     class Meta:
         model = Resources
@@ -212,18 +254,16 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'resource_name',
             'resource_description',
             'resource_type_detail',
+            'track',
+            'visibility_scope',
             'upload_datetime',
             'uploader',
-            'visible_roles'
+            'visible_roles',
+            'audiences',
         ]
     
+    @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):
         """Get the roles that can access this resource"""
-        # Use prefetched data if available
-        if hasattr(obj, '_prefetched_objects_cache') and 'resourceroles' in obj._prefetched_objects_cache:
-            resource_roles = obj.resourceroles.all()
-            return RoleSerializer([rr.role for rr in resource_roles], many=True).data
-        # Otherwise query directly
-        from .models import ResourceRoles
-        resource_roles = ResourceRoles.objects.filter(resource=obj).select_related('role')
-        return RoleSerializer([rr.role for rr in resource_roles], many=True).data
+        audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
+        return RoleSerializer([aud.role for aud in audiences], many=True).data

@@ -214,6 +214,19 @@ source .venv/bin/activate
 python manage.py runserver 8000 --settings=config.settings_local
 ```
 
+#### Redeploy database
+```bash
+docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml up -d postgres
+docker compose -f docker-compose.dev.yml ps
+
+cd backend
+source .venv/bin/activate
+python manage.py migrate --settings=config.settings_local
+python manage.py createsuperuser --settings=config.settings_local
+python manage.py runserver 8000 --settings=config.settings_local
+```
+
 ### Terminal 2: frontend
 
 ```bash

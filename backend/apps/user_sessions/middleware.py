@@ -1,5 +1,10 @@
 # apps/user_sessions/middleware.py
-from .models import Sessions
+from datetime import timedelta
+
+from django.conf import settings
+from django.utils import timezone
+
+from .models import UserSession
 
 
 class SessionTrackingMiddleware:
@@ -16,10 +21,36 @@ class SessionTrackingMiddleware:
 
         # Track authenticated requests
         if request.user.is_authenticated:
-            # Create a session tracking record
-            Sessions.objects.create(
-                user=request.user,
-                isloggedin=True
+            now = timezone.now()
+            sid = request.COOKIES.get("sid")
+            session = None
+            if sid:
+                session = UserSession.objects.filter(
+                    sid=sid,
+                    user=request.user,
+                    revoked_at__isnull=True,
+                    ended_at__isnull=True,
+                ).first()
+
+            if session is None:
+                session = UserSession.objects.create(
+                    user=request.user,
+                    created_at=now,
+                    last_activity_at=now,
+                    expires_at=now + timedelta(seconds=getattr(settings, "SESSION_COOKIE_AGE", 86400)),
+                )
+            else:
+                session.last_activity_at = now
+                session.expires_at = now + timedelta(seconds=getattr(settings, "SESSION_COOKIE_AGE", 86400))
+                session.save(update_fields=["last_activity_at", "expires_at"])
+
+            response.set_cookie(
+                "sid",
+                session.sid,
+                max_age=getattr(settings, "SESSION_COOKIE_AGE", 86400),
+                httponly=True,
+                secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
+                samesite=getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax"),
             )
 
         return response

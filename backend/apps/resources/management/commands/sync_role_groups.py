@@ -11,6 +11,6 @@ class Command(BaseCommand):
   help = "Ensure a Django auth Group exists for each Business Role (student, admin, supervisor, mentor)"
 
   def handle(self, *args, **kwargs):
-    for role in Roles.objects.values_list('role_name', flat=True):
+    for role in Roles.objects.values_list('slug', flat=True):
       Group.objects.get_or_create(name=role)
     self.stdout.write(self.style.SUCCESS("Role groups synced"))

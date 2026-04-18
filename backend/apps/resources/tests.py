@@ -25,13 +25,13 @@ class RolesApiTests(TestCase):
         self.me = User.objects.create_user(password="pw12345", email = "test_email@gmail.com")
 
         # Some roles (unordered on purpose to check ordering in response)
-        self.viewer = Roles.objects.create(role_name="viewer")
-        self.admin = Roles.objects.create(role_name="admin")
+        self.viewer = Roles.objects.create(slug="viewer")
+        self.admin = Roles.objects.create(slug="admin")
 
     def test_roles_requires_auth(self):
         url = reverse("roles-list")
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_roles_list_ok_and_ordered(self):
         self.client.force_authenticate(self.me)
@@ -63,10 +63,10 @@ class RoleAssignmentsApiTests(TestCase):
         # Step 1: Minimal chain to satisfy FKs
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data Science", state=state)
+        track = Tracks.objects.create(track_code="Data Science", state=state)
 
-        self.r_admin = Roles.objects.create(role_name="admin")
-        self.r_view  = Roles.objects.create(role_name="viewer")
+        self.r_admin = Roles.objects.create(slug="admin")
+        self.r_view  = Roles.objects.create(slug="viewer")
 
         # Step 2: Create Users with required fields
         self.u1 = User.objects.create(
@@ -74,7 +74,6 @@ class RoleAssignmentsApiTests(TestCase):
             last_name="Tester",
             email="u1@example.com",
             track=track,
-            state=state,
         )
 
         self.u2 = User.objects.create(
@@ -82,7 +81,6 @@ class RoleAssignmentsApiTests(TestCase):
             last_name="Tester",
             email="u2@example.com",
             track=track,
-            state=state,
         )
 
         # Step 3: Create role assignment history (with timezone-aware datetimes)
@@ -258,12 +256,12 @@ class RoleAssignmentPatchApiTests(TestCase):
 
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data Science", state=state)
+        track = Tracks.objects.create(track_code="Data Science", state=state)
 
-        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com", track=track, state=state)
+        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com", track=track)
 
-        self.r_admin = Roles.objects.create(role_name="admin")
-        self.r_view  = Roles.objects.create(role_name="viewer")
+        self.r_admin = Roles.objects.create(slug="admin")
+        self.r_view  = Roles.objects.create(slug="viewer")
 
         # Active assignment (open-ended)
         self.a = RoleAssignmentHistory.objects.create(
@@ -277,9 +275,9 @@ class RoleAssignmentPatchApiTests(TestCase):
         return reverse("role-assignments-detail", args=[pk])
 
     def test_patch_requires_admin(self):
-        # unauthenticated -> 403
+        # unauthenticated -> 401
         resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # non-admin -> 403
         self.client.force_authenticate(self.non_admin)
@@ -322,7 +320,7 @@ class TestRevokeUserRole(TestCase):
         # Create required FK objects
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="Data Science", state=self.state)
+        self.track = Tracks.objects.create(track_code="Data Science", state=self.state)
 
         # Create test user 
         self.user = Users.objects.create(
@@ -330,21 +328,20 @@ class TestRevokeUserRole(TestCase):
             last_name="Doe",
             email="user@test.com",
             track=self.track,
-            state=self.state,
         )
 
         # Create test roles
-        self.student = Roles.objects.create(role_name="student")
-        self.mentor = Roles.objects.create(role_name="mentor")
-        self.basic = Roles.objects.create(role_name="basic_user")
+        self.student = Roles.objects.create(slug="student")
+        self.mentor = Roles.objects.create(slug="mentor")
+        self.basic = Roles.objects.create(slug="basic_user")
 
     def setup_users_and_roles(self, db):
         # Users
         self.user = User.objects.create(email="user@test.com", password="pw12345")
         # Roles
-        self.student = Roles.objects.create(role_name="student")
-        self.mentor = Roles.objects.create(role_name="mentor")
-        self.basic = Roles.objects.create(role_name="basic_user")
+        self.student = Roles.objects.create(slug="student")
+        self.mentor = Roles.objects.create(slug="mentor")
+        self.basic = Roles.objects.create(slug="basic_user")
 
     def test_revoke_closes_history_and_removes_group(self):
         grant_role(self.user, self.student)
@@ -435,16 +432,16 @@ class GrantRoleComprehensiveTests(TestCase):
         
         # Create test roles
         self.supervisor_role = Roles.objects.create(
-            role_name='Supervisor',
+            slug="Supervisor",
         )
         self.student_role = Roles.objects.create(
-            role_name='Student',
+            slug="Student",
         )
         self.teacher_role = Roles.objects.create(
-            role_name='Teacher',
+            slug="Teacher",
         )
         self.basic_user_role = Roles.objects.create(
-            role_name='basic_user',
+            slug="basic_user",
         )
         
         # Authenticate as admin
@@ -486,7 +483,7 @@ class GrantRoleComprehensiveTests(TestCase):
         active_roles = RoleAssignmentHistory.objects.filter(
             user=self.regular_user,
             valid_to__isnull=True
-        ).values_list('role__role_name', flat=True)
+        ).values_list('role__slug', flat=True)
         self.assertEqual(list(active_roles), ['Student'])
     
     def test_grant_role_api_success(self):
@@ -546,10 +543,10 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         
         # Create test roles
         self.supervisor_role = Roles.objects.create(
-            role_name='Supervisor',
+            slug="Supervisor",
         )
         self.student_role = Roles.objects.create(
-            role_name='Student',
+            slug="Student",
         )
         
         # Authenticate as admin
@@ -837,13 +834,13 @@ class ResourceRolesComprehensiveTests(TestCase):
         
         # Create test roles
         self.supervisor_role = Roles.objects.create(
-            role_name='Supervisor',
+            slug="Supervisor",
         )
         self.student_role = Roles.objects.create(
-            role_name='Student',
+            slug="Student",
         )
         self.teacher_role = Roles.objects.create(
-            role_name='Teacher',
+            slug="Teacher",
         )
         
         # Create test resource
@@ -969,8 +966,8 @@ class CreateRoleServiceTests(TestCase):
         role = create_role(role_name)
 
         # Verify role was created
-        self.assertEqual(role.role_name, role_name)
-        self.assertTrue(Roles.objects.filter(role_name=role_name).exists())
+        self.assertEqual(role.slug, role_name)
+        self.assertTrue(Roles.objects.filter(slug=role_name).exists())
 
         # Verify Django group was created
         self.assertTrue(Group.objects.filter(name=role_name).exists())
@@ -1018,7 +1015,7 @@ class CreateRoleServiceTests(TestCase):
     def test_create_role_strips_whitespace(self):
         """Test that role name whitespace is stripped"""
         role = create_role("  admin_role  ")
-        self.assertEqual(role.role_name, "admin_role")
+        self.assertEqual(role.slug, "admin_role")
 
     def test_create_role_transaction_rollback_on_error(self):
         """Test that transaction is rolled back if Django group creation fails"""
@@ -1064,7 +1061,7 @@ class CreateRoleAPITests(TestCase):
         data = {"role_name": "new_role"}
 
         response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_role_non_admin_fails(self):
         """Test that non-admin users cannot create roles"""
@@ -1090,7 +1087,7 @@ class CreateRoleAPITests(TestCase):
         self.assertIn("id", response_data)
 
         # Verify role was created in database
-        self.assertTrue(Roles.objects.filter(role_name="mentor").exists())
+        self.assertTrue(Roles.objects.filter(slug="mentor").exists())
 
         # Verify Django group was created
         self.assertTrue(Group.objects.filter(name="mentor").exists())
@@ -1174,7 +1171,7 @@ class CreateRoleAPITests(TestCase):
         # Check that whitespace was stripped in response and database
         self.assertEqual(response.json()["role_name"], "student_mentor")
         role = Roles.objects.get(id=response.json()["id"])
-        self.assertEqual(role.role_name, "student_mentor")
+        self.assertEqual(role.slug, "student_mentor")
 
     def test_create_role_both_endpoints_work(self):
         """Test that both original and v1 endpoints work"""
@@ -1191,8 +1188,8 @@ class CreateRoleAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify both roles exist
-        self.assertTrue(Roles.objects.filter(role_name="v1_role").exists())
-        self.assertTrue(Roles.objects.filter(role_name="original_role").exists())
+        self.assertTrue(Roles.objects.filter(slug="v1_role").exists())
+        self.assertTrue(Roles.objects.filter(slug="original_role").exists())
 
 
 class CreateRoleIntegrationTests(TestCase):
@@ -1218,14 +1215,13 @@ class CreateRoleIntegrationTests(TestCase):
 
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data Science", state=state)
+        track = Tracks.objects.create(track_code="Data Science", state=state)
 
         user = Users.objects.create(
             first_name="Test",
             last_name="User",
             email="testuser@test.com",
-            track=track,
-            state=state
+            track=track
         )
 
         # Create role via API
@@ -1235,7 +1231,7 @@ class CreateRoleIntegrationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Get the created role
-        role = Roles.objects.get(role_name="integration_mentor")
+        role = Roles.objects.get(slug="integration_mentor")
 
         # Assign role to user using service layer
         grant_role(user, role)
@@ -1525,7 +1521,7 @@ class ResourceTypeAPITests(TestCase):
         type_detail = response.data['resource_type_detail']
         self.assertEqual(type_detail['id'], self.template_type.id)
         self.assertEqual(type_detail['type_name'], 'template')
-        self.assertEqual(type_detail['type_description'], 'Templates and boilerplate files')
+        self.assertEqual(type_detail['type_description'], 'Template resources')
 
 
 class ResourceTypeIntegrationTests(TestCase):
@@ -1562,8 +1558,8 @@ class ResourceTypeIntegrationTests(TestCase):
         )
 
         # Create test roles
-        self.supervisor_role = Roles.objects.create(role_name='Supervisor')
-        self.student_role = Roles.objects.create(role_name='Student')
+        self.supervisor_role = Roles.objects.create(slug='Supervisor')
+        self.student_role = Roles.objects.create(slug='Student')
 
         self.client.force_authenticate(user=self.admin_user)
 

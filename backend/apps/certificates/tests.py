@@ -6,11 +6,35 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
-from apps.users.models import Background, MentorProfile  # FK targets
+from apps.users.models import MentorProfile
 from apps.resources.models import Roles, RoleAssignmentHistory
 from .models import CertificateType, MentorCertificate
 
 User = get_user_model()
+
+
+def create_mentor_profile(
+    *,
+    email,
+    password="pass123",
+    first_name="Mentor",
+    last_name="User",
+    institution="School",
+    mentor_reason="Help",
+    max_group_count=3,
+):
+    mentor_user = User.objects.create_user(
+        email=email,
+        password=password,
+        first_name=first_name,
+        last_name=last_name,
+    )
+    return MentorProfile.objects.create(
+        user=mentor_user,
+        institution=institution,
+        mentor_reason=mentor_reason,
+        max_group_count=max_group_count,
+    )
 
 class CertificateDetailTests(APITestCase):
     def setUp(self):
@@ -27,18 +51,19 @@ class CertificateDetailTests(APITestCase):
         )
 
         # Minimal mentor profile prerequisite
-        bg = Background.objects.create(background_desc_unique_field="STEM")
-        mentor_user = User.objects.create_user(
-            email="mentor@example.com", password="m12345",
-            first_name="M", last_name="E"
-        )
-        self.mentor_profile = MentorProfile.objects.create(
-            user=mentor_user, background=bg, institution="School", mentor_reason="Help", max_grp_cnt=3
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@example.com",
+            password="m12345",
+            first_name="M",
+            last_name="E",
+            institution="School",
+            mentor_reason="Help",
+            max_group_count=3,
         )
 
         # Cert type & certificate
         self.cert_type = CertificateType.objects.create(
-            certificate_type="WWCC", requires_number=True, requires_expiry=True
+            name="WWCC", requires_number=True, requires_expiry=True
         )
         self.cert = MentorCertificate.objects.create(
             certificate_type=self.cert_type,
@@ -48,7 +73,7 @@ class CertificateDetailTests(APITestCase):
             issued_at=timezone.now().date(),
             expires_at=(timezone.now() + timezone.timedelta(days=365)).date(),
             file_url="https://example.com/cert.pdf",
-            verified=False,
+            
         )
 
         self.url = f"/certificates/v1/{self.cert.id}/"
@@ -59,7 +84,7 @@ class CertificateDetailTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.data["certificate_type"], "WWCC")
         self.assertEqual(resp.data["certificate_number"], "ABC123")
-        self.assertIn("verified", resp.data)
+        self.assertIn("verified_at", resp.data)
 
     def test_non_admin_forbidden(self):
         """Non-admin users should be forbidden"""
@@ -81,7 +106,7 @@ class CertificateDetailTests(APITestCase):
     def test_student_forbidden(self):
         """Student role should have no access"""
         # Create student role
-        student_role, _ = Roles.objects.get_or_create(role_name='Student')
+        student_role, _ = Roles.objects.get_or_create(slug='Student')
         RoleAssignmentHistory.objects.create(
             user=self.user,
             role=student_role,
@@ -105,15 +130,15 @@ class CertificateCreateTests(APITestCase):
             email="admin@example.com", password="admin123", is_staff=True
         )
 
-        bg = Background.objects.create(background_desc_unique_field="Science")
-        mentor_user = User.objects.create_user(
-            email="mentor@example.com", password="m12345"
-        )
-        self.mentor_profile = MentorProfile.objects.create(
-            user=mentor_user, background=bg, institution="Uni", mentor_reason="Teach", max_grp_cnt=3
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@example.com",
+            password="m12345",
+            institution="Uni",
+            mentor_reason="Teach",
+            max_group_count=3,
         )
         self.cert_type = CertificateType.objects.create(
-            certificate_type="WWCC", requires_number=True, requires_expiry=True
+            name="WWCC", requires_number=True, requires_expiry=True
         )
         self.url = "/certificates/v1/"
 
@@ -184,21 +209,19 @@ class MentorRBACTests(APITestCase):
         self.client = APIClient()
         
         # Create mentor role
-        self.mentor_role, _ = Roles.objects.get_or_create(role_name='Mentor')
+        self.mentor_role, _ = Roles.objects.get_or_create(slug='Mentor')
         
         # Create mentor user with role
-        bg = Background.objects.create(background_desc_unique_field="Engineering")
-        self.mentor_user = User.objects.create_user(
-            email="mentor@test.com", password="pass123",
-            first_name="Test", last_name="Mentor"
-        )
-        self.mentor_profile = MentorProfile.objects.create(
-            user=self.mentor_user,
-            background=bg,
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@test.com",
+            password="pass123",
+            first_name="Test",
+            last_name="Mentor",
             institution="Test Uni",
             mentor_reason="Help",
-            max_grp_cnt=5
+            max_group_count=5,
         )
+        self.mentor_user = self.mentor_profile.user
         
         # Assign mentor role
         RoleAssignmentHistory.objects.create(
@@ -209,9 +232,9 @@ class MentorRBACTests(APITestCase):
         
         # Create certificate type
         self.cert_type = CertificateType.objects.create(
-            certificate_type="WWCC",
+            name="WWCC",
             requires_number=True,
-            requires_expiry=True
+            requires_expiry=True,
         )
         
         self.url = "/certificates/v1/"
@@ -241,7 +264,7 @@ class MentorRBACTests(APITestCase):
         # Verify mentor_profile was auto-set
         cert = MentorCertificate.objects.get(certificate_number="MENTOR123")
         self.assertEqual(cert.mentor_profile, self.mentor_profile)
-        self.assertFalse(cert.verified)  # Should be unverified by default
+        self.assertIsNone(cert.verified_at)  # Should be unverified by default
     
     def test_mentor_can_list_own_certificates(self):
         """Mentor can only see their own certificates"""
@@ -256,14 +279,12 @@ class MentorRBACTests(APITestCase):
         )
         
         # Create another mentor and their certificate
-        other_bg = Background.objects.create(background_desc_unique_field="Math")
-        other_user = User.objects.create_user(email="other@test.com", password="pass")
-        other_profile = MentorProfile.objects.create(
-            user=other_user,
-            background=other_bg,
+        other_profile = create_mentor_profile(
+            email="other@test.com",
+            password="pass",
             institution="Other Uni",
             mentor_reason="Teach",
-            max_grp_cnt=3
+            max_group_count=3,
         )
         MentorCertificate.objects.create(
             certificate_type=self.cert_type,
@@ -320,17 +341,16 @@ class MentorRBACTests(APITestCase):
             issued_by="NSW Gov",
             issued_at=timezone.now().date(),
             expires_at=(timezone.now() + timezone.timedelta(days=365)).date(),
-            verified=False
+            
         )
         
         self.client.force_authenticate(user=self.mentor_user)
         # Try to verify via PATCH
-        payload = {"verified": True}
+        payload = {"verified_at": timezone.now().isoformat()}
         resp = self.client.patch(f"{self.url}{cert.id}/", payload, format="json")
         
-        # Request succeeds but verified flag is ignored
         cert.refresh_from_db()
-        self.assertFalse(cert.verified)
+        self.assertIsNone(cert.verified_at)
     
     def test_mentor_cannot_delete_certificate(self):
         """Mentor cannot delete certificates"""
@@ -360,20 +380,18 @@ class AdminRBACTests(APITestCase):
             is_superuser=True
         )
         
-        bg = Background.objects.create(background_desc_unique_field="Science")
-        mentor_user = User.objects.create_user(email="mentor@test.com", password="pass")
-        self.mentor_profile = MentorProfile.objects.create(
-            user=mentor_user,
-            background=bg,
+        self.mentor_profile = create_mentor_profile(
+            email="mentor@test.com",
+            password="pass",
             institution="Test Uni",
             mentor_reason="Help",
-            max_grp_cnt=3
+            max_group_count=3,
         )
         
         self.cert_type = CertificateType.objects.create(
-            certificate_type="WWCC",
+            name="WWCC",
             requires_number=True,
-            requires_expiry=True
+            requires_expiry=True,
         )
         
         self.cert = MentorCertificate.objects.create(
@@ -383,7 +401,7 @@ class AdminRBACTests(APITestCase):
             issued_by="NSW Gov",
             issued_at=timezone.now().date(),
             expires_at=(timezone.now() + timezone.timedelta(days=30)).date(),
-            verified=False
+            
         )
         
         self.url = "/certificates/v1/"
@@ -393,20 +411,20 @@ class AdminRBACTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post(f"{self.url}{self.cert.id}/verify/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertTrue(resp.data["verified"])
+        self.assertIsNotNone(resp.data["verified_at"])
         
         self.cert.refresh_from_db()
-        self.assertTrue(self.cert.verified)
+        self.assertIsNotNone(self.cert.verified_at)
     
     def test_admin_can_unverify_certificate(self):
         """Admin can unverify certificates"""
-        self.cert.verified = True
+        self.cert.verified_at = timezone.now()
         self.cert.save()
         
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post(f"{self.url}{self.cert.id}/unverify/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertFalse(resp.data["verified"])
+        self.assertIsNone(resp.data["verified_at"])
     
     def test_admin_audit_filter_expiring_soon(self):
         """Admin can filter certificates by expiry date"""

@@ -89,7 +89,7 @@ def check_resource_details(resource_id):
         if resource_roles:
             print("   Roles that can access this resource:")
             for rr in resource_roles:
-                print(f"   - {rr.role.role_name} (ID: {rr.role.id})")
+                print(f"   - {rr.role.slug} (ID: {rr.role.id})")
         else:
             print("   - No specific role restrictions (accessible to all authenticated users)")
         
@@ -125,7 +125,7 @@ def check_user_accessible_resources(user_id):
         if active_roles:
             user_role_names = []
             for role_hist in active_roles:
-                role_name = role_hist.role.role_name
+                role_name = role_hist.role.slug
                 user_role_names.append(role_name)
                 print(f"   - {role_name} (since {role_hist.valid_from.strftime('%Y-%m-%d')})")
         else:
@@ -149,7 +149,7 @@ def check_user_accessible_resources(user_id):
                 print(f"   ✅ {resource.resource_name or f'Resource {resource.id}'} (Public)")
             else:
                 # Check if user has any of the required roles
-                required_role_names = [rr.role.role_name for rr in resource_roles]
+                required_role_names = [rr.role.slug for rr in resource_roles]
                 if any(role in user_role_names for role in required_role_names):
                     accessible_resources.append(resource)
                     matching_roles = [role for role in user_role_names if role in required_role_names]
@@ -185,7 +185,7 @@ def list_all_resources():
         # Get role restrictions
         resource_roles = ResourceRoles.objects.filter(resource=resource)
         if resource_roles:
-            role_names = [rr.role.role_name for rr in resource_roles]
+            role_names = [rr.role.slug for rr in resource_roles]
             access_info = f"Roles: {', '.join(role_names)}"
         else:
             access_info = "Public"

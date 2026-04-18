@@ -35,7 +35,7 @@ class CertificatePermission(permissions.BasePermission):
         ).select_related('role').first()
         
         if active_role and active_role.role:
-            return active_role.role.role_name
+            return active_role.role.slug
         
         return None
 

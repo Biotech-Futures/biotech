@@ -29,7 +29,7 @@ class PermissionClassesTests(TestCase):
 
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data", state=state)
+        track = Tracks.objects.create(track_code="Data", state=state)
 
         # Create auth users with business fields (User model is both auth and business user)
         self.regular = User.objects.create_user(
@@ -37,7 +37,6 @@ class PermissionClassesTests(TestCase):
             password="pw",
             first_name="Reg",
             last_name="User",
-            state=state,
             track=track
         )
         self.admin = User.objects.create_user(
@@ -45,7 +44,6 @@ class PermissionClassesTests(TestCase):
             password="pw",
             first_name="Adm",
             last_name="User",
-            state=state,
             track=track,
             is_staff=True  # Make admin a staff user for IsAdminUser permission
         )
@@ -67,8 +65,8 @@ class PermissionClassesTests(TestCase):
             upload_datetime=timezone.now() - timedelta(days=1),  # explicitly set
         )
 
-        self.role_viewer = Roles.objects.create(role_name="viewer")
-        self.role_admin = Roles.objects.create(role_name="admin")
+        self.role_viewer = Roles.objects.create(slug="viewer")
+        self.role_admin = Roles.objects.create(slug="admin")
 
         # Link resource to "viewer" role
         ResourceRoles.objects.create(resource=self.resource, role=self.role_viewer)
@@ -85,7 +83,7 @@ class PermissionClassesTests(TestCase):
         """Regular user can list roles, but only admin can create/modify."""
         # unauthenticated - denied
         resp = self.client.get(reverse("roles-list"))
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # authenticated regular user - can list roles
         self.client.force_authenticate(self.regular)
@@ -113,7 +111,7 @@ class PermissionClassesTests(TestCase):
 
         # unauthenticated
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # unrelated user (no role assignment)
         stranger = get_user_model().objects.create_user(email="strangigga@example.com", password="pw")

@@ -120,33 +120,37 @@ class UserRegisterView(APIView):
         data = request.data
         databody = data["body"]
 
-        #users table creation
-        user = User.objects.create_user(email=databody["Title"])
-        user.first_name = databody["FirstName"]
-        user.last_name = databody["Surname"]
-
         country, created = Countries.objects.get_or_create(country_name=databody["Country"])
-        
-        if databody["Country"] == "Australia":
-            user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Region"])
-            if databody["Region"] == "NSW":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-NSW", state=user_country)
-            elif databody["Region"] == "QLD":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-QLD", state=user_country)
-            elif databody["Region"] == "VIC":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-VIC", state=user_country)
-            elif databody["Region"] == "WA":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-WA", state=user_country)
-        else:
-            user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Country"])
-            if databody["Country"] == "Brazil":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="Brazil", state=user_country)
-            else:
-                user_track, t_created = Tracks.objects.get_or_create(track_name="Global", state=user_country)
-        user.track = user_track
-    
 
-        user.save()
+        if databody["Country"] == "Australia":
+            user_country, s_created = CountryStates.objects.get_or_create(
+                country=country, state_name=databody["Region"]
+            )
+            if databody["Region"] == "NSW":
+                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-NSW", state=user_country)
+            elif databody["Region"] == "QLD":
+                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-QLD", state=user_country)
+            elif databody["Region"] == "VIC":
+                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-VIC", state=user_country)
+            elif databody["Region"] == "WA":
+                user_track, t_created = Tracks.objects.get_or_create(track_code="AUS-WA", state=user_country)
+            else:
+                user_track, t_created = Tracks.objects.get_or_create(track_code="Global", state=user_country)
+        else:
+            user_country, s_created = CountryStates.objects.get_or_create(
+                country=country, state_name=databody["Country"]
+            )
+            if databody["Country"] == "Brazil":
+                user_track, t_created = Tracks.objects.get_or_create(track_code="Brazil", state=user_country)
+            else:
+                user_track, t_created = Tracks.objects.get_or_create(track_code="Global", state=user_country)
+
+        user = User.objects.create_user(
+            email=databody["Title"],
+            first_name=databody["FirstName"],
+            last_name=databody["Surname"],
+            track=user_track,
+        )
 
         #roleassignmenthistory creation
         now = timezone.now()

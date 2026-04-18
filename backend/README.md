@@ -1,46 +1,9 @@
-## Setup
+*To be replaced with usage docs*
 
+To get started, run
 ```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r requirements-dev.txt   # optional: pytest + pytest-django
-cp .env.example .env                  # edit secrets and DB credentials
 ```
-
-Ensure PostgreSQL is running and matches `DB_*` / `POSTGRES_*` in `.env`.
-
-## Database migrations
-
-Use **`config.settings_local`** for local Postgres and file storage (see `config/settings_local.py`).
-
-```bash
-cd backend
-source .venv/bin/activate
-export DJANGO_SETTINGS_MODULE=config.settings_local
-
-python manage.py migrate
-python manage.py showmigrations
-python manage.py makemigrations --check --dry-run   # should print "No changes detected" if models match DB
-```
-
-Or run migrations via the helper (same defaults):
-
-```bash
-chmod +x scripts/db_migrate.sh
-./scripts/db_migrate.sh migrate
-./scripts/db_migrate.sh showmigrations
-```
-
-After changing `models.py`, create and apply migrations:
-
-```bash
-python manage.py makemigrations
-python manage.py migrate
-```
-
-Target / reference DDL for future schema work lives in `table_statements.sql`; Django migrations remain the source of truth for the live database.
 
 # SOFT3888_TU08_02
 BIOTech Futures Mentoring Platform
