@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import type {
   CsvUserRow,
+  TracksResponse,
+  ServerUser,
   UserAccount,
   UserFormValues,
   UserOverride,
@@ -14,7 +16,8 @@ const LOCAL_USERS_KEY = "admin.user.local-users";
 const USER_OVERRIDES_KEY = "admin.user.overrides";
 
 type CreateUserPayload = {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   role: UserRole;
   track?: UserTrack;
@@ -22,11 +25,15 @@ type CreateUserPayload = {
 };
 
 type UpdateUserPayload = {
-  name?: string;
-  email: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   role?: UserRole;
   track?: UserTrack | null;
-  active?: boolean;
+};
+
+type UpdateStatusPayload = {
+  isActive: boolean;
 };
 
 type MutationResponse<T> = {
@@ -51,12 +58,47 @@ export function useQueryUsers() {
   return useQuery({
     queryKey: ["users"],
     queryFn: async (): Promise<UserPaginatedResponse> => {
-      const res = await myFetch.get<UserPaginatedResponse>("/user", {
+      const res = await myFetch.get<{
+        msg: string;
+        data?: {
+          items?: Array<Partial<ServerUser> & {
+            firstName?: string | null;
+            lastName?: string | null;
+            isActive?: boolean | null;
+            invitedAt?: string | null;
+            activatedAt?: string | null;
+          }>;
+          total?: number;
+          page?: number;
+          limit?: number;
+          hasMore?: boolean;
+        };
+      }>("/user", {
         params: {
           page: 1,
           limit: 100,
         },
       });
+
+      return {
+        msg: res.data.msg,
+        data: {
+          items: (res.data.data?.items ?? []).map(normalizeServerUser),
+          total: res.data.data?.total ?? 0,
+          page: res.data.data?.page ?? 1,
+          limit: res.data.data?.limit ?? 100,
+          hasMore: res.data.data?.hasMore ?? false,
+        },
+      };
+    },
+  });
+}
+
+export function useQueryTracks() {
+  return useQuery({
+    queryKey: ["user-tracks"],
+    queryFn: async (): Promise<TracksResponse> => {
+      const res = await myFetch.get<TracksResponse>("/user/tracks");
       return res.data;
     },
   });
@@ -113,6 +155,24 @@ export function useUpdateUser() {
   });
 }
 
+export function useUpdateUserStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: { id: string; updates: UpdateStatusPayload }) => {
+      const res = await myFetch.patch<MutationResponse<UserAccount | null>>(
+        `/user/${payload.id}/status`,
+        payload.updates,
+      );
+      return res.data;
+    },
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["user", id] });
+    },
+  });
+}
+
 export function loadLocalUsers() {
   return readStorage<UserAccount[]>(LOCAL_USERS_KEY, []);
 }
@@ -129,9 +189,33 @@ export function saveUserOverrides(overrides: Record<string, UserOverride>) {
   writeStorage(USER_OVERRIDES_KEY, overrides);
 }
 
-export function normalizeServerUser(user: UserAccount): UserAccount {
+export function normalizeServerUser(
+  user: Partial<ServerUser> & {
+    firstName?: string | null;
+    lastName?: string | null;
+    isActive?: boolean | null;
+    invitedAt?: string | null;
+    activatedAt?: string | null;
+  },
+): UserAccount {
+  const name =
+    `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.name || "";
+
   return {
-    ...user,
+    id: String(user.id ?? ""),
+    name,
+    email: user.email ?? "",
+    role: (user.role ?? "student") as UserRole,
+    track: user.track ?? null,
+    groupId: user.groupId ?? null,
+    groupName: user.groupName ?? null,
+    age: user.age ?? null,
+    interests: Array.isArray(user.interests) ? user.interests : [],
+    createdAt:
+      user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
+    updatedAt:
+      user.updatedAt ?? user.activatedAt ?? user.invitedAt ?? new Date(0).toISOString(),
+    active: Boolean(user.active ?? user.isActive),
     source: "server",
   };
 }
@@ -222,11 +306,22 @@ function normalizeTrack(track: string) {
   if (!track || track === "unassigned" || track === "none") {
     return null;
   }
-  if (track === "frontend" || track === "backend" || track === "fullstack" || track === "data") {
-    return track;
+  return track;
+}
+
+export function splitName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { firstName: "", lastName: "" };
   }
 
-  throw new Error(`Unsupported track "${track}". Use frontend, backend, fullstack, or data.`);
+  const parts = trimmed.split(/\s+/);
+  const firstName = parts.shift() ?? "";
+
+  return {
+    firstName,
+    lastName: parts.join(" "),
+  };
 }
 
 function parseCsvRows(text: string) {

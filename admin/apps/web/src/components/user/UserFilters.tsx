@@ -7,7 +7,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { USER_ROLES, USER_TRACKS, type UserRole, type UserTrack } from "@/type/user";
+import {
+  USER_ROLES,
+  type TrackOption,
+  type UserRole,
+  type UserTrack,
+} from "@/type/user";
 
 interface UserFiltersProps {
   search: string;
@@ -16,6 +21,7 @@ interface UserFiltersProps {
   onRoleChange: (value: UserRole | "all") => void;
   track: UserTrack | "all";
   onTrackChange: (value: UserTrack | "all") => void;
+  tracks?: TrackOption[];
   status: "all" | "active" | "inactive";
   onStatusChange: (value: "all" | "active" | "inactive") => void;
 }
@@ -27,9 +33,12 @@ export function UserFilters({
   onRoleChange,
   track,
   onTrackChange,
+  tracks,
   status,
   onStatusChange,
 }: UserFiltersProps) {
+  const availableTracks = (tracks ?? []).map((item) => item.trackCode);
+
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <div className="space-y-1">
@@ -67,7 +76,7 @@ export function UserFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All tracks</SelectItem>
-            {USER_TRACKS.map((item) => (
+            {availableTracks.map((item) => (
               <SelectItem key={item} value={item}>
                 {item}
               </SelectItem>
