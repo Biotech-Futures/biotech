@@ -36,6 +36,7 @@ export type Role = {
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
+export type ResourceKind = "file" | "page";
 
 export type ResourceTypeOption = {
   value: ResourceTypeName;
@@ -62,9 +63,11 @@ export type ResourceRow = {
   visibility_scope: string;
   uploaded_at: string;
   deleted_at: string | null;
+  resource_kind: ResourceKind;
   resource_name: string;
   resource_description: string | null;
   resource_type: ResourceTypeName | null;
+  content_html: string | null;
   file_name: string | null;
   file_mime_type: string | null;
   file_size: number | null;
@@ -106,9 +109,11 @@ const uploadedFiles = new Map<
 >();
 
 type DbResourceExtra = {
+  resource_kind: ResourceKind;
   resource_name: string;
   resource_description: string | null;
   resource_type: ResourceTypeName | null;
+  content_html: string | null;
   file_name: string | null;
   file_mime_type: string | null;
   file_size: number | null;
@@ -120,9 +125,11 @@ const dbResourceExtras = new Map<number, DbResourceExtra>();
 function getDbResourceExtra(id: number): DbResourceExtra {
   return (
     dbResourceExtras.get(id) ?? {
+      resource_kind: "file",
       resource_name: `Resource ${id}`,
       resource_description: null,
       resource_type: null,
+      content_html: null,
       file_name: null,
       file_mime_type: null,
       file_size: null,
@@ -421,6 +428,10 @@ export async function queryResources(params: QueryResourcesInput) {
     resourcesList = resourcesList.filter((item) => item.resource_type === params.resource_type);
   }
 
+  if (params.resource_kind) {
+    resourcesList = resourcesList.filter((item) => item.resource_kind === params.resource_kind);
+  }
+
   if (uploader) {
     const keyword = uploader.toLowerCase();
     resourcesList = resourcesList.filter((item) => {
@@ -516,12 +527,14 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
       visibility_scope: "role_based",
       uploaded_at: new Date().toISOString(),
       deleted_at: null,
+      resource_kind: payload.resource_kind ?? "file",
       resource_name: payload.resource_name,
       resource_description: payload.resource_description,
-      resource_type: payload.resource_type ?? null,
-      file_name: null,
-      file_mime_type: null,
-      file_size: null,
+      resource_type: payload.resource_type ?? "guide",
+      content_html: payload.resource_kind === "page" ? (payload.content_html ?? "") : null,
+      file_name: payload.resource_kind === "page" ? null : null,
+      file_mime_type: payload.resource_kind === "page" ? null : null,
+      file_size: payload.resource_kind === "page" ? null : null,
       storage_key: buildStorageKey(id),
     };
 
@@ -557,9 +570,11 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
     deletedAt: null,
   });
   dbResourceExtras.set(id, {
+    resource_kind: payload.resource_kind ?? "file",
     resource_name: payload.resource_name,
     resource_description: payload.resource_description,
-    resource_type: payload.resource_type ?? null,
+    resource_type: payload.resource_type ?? "guide",
+    content_html: payload.resource_kind === "page" ? (payload.content_html ?? "") : null,
     file_name: null,
     file_mime_type: null,
     file_size: null,
@@ -602,6 +617,8 @@ export async function uploadResource(payload: {
         resource_name: payload.resource_name,
         resource_description: payload.resource_description,
         resource_type: payload.resource_type,
+        resource_kind: "file",
+        content_html: null,
         track_id: payload.track_id,
         role_ids: payload.role_ids,
       },
@@ -664,9 +681,11 @@ export async function uploadResource(payload: {
     deletedAt: null,
   });
   dbResourceExtras.set(id, {
+    resource_kind: "file",
     resource_name: payload.resource_name,
     resource_description: payload.resource_description,
     resource_type: payload.resource_type ?? null,
+    content_html: null,
     file_name: payload.file_name,
     file_mime_type: payload.file_mime_type || "application/octet-stream",
     file_size: payload.file_size,
@@ -707,6 +726,12 @@ export async function downloadResource(id: number) {
   }
 
   const file = uploadedFiles.get(resourceResult.data.storage_key);
+  if (resourceResult.data.resource_kind === "page") {
+    return {
+      msg: "This resource is an HTML page and cannot be downloaded as a file",
+      data: null,
+    } as const;
+  }
   if (!file) {
     return {
       msg: "This resource has no uploaded file",
@@ -730,12 +755,20 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
     const current = demoRows[index];
     const updated: DemoResourceRow = {
       ...current,
+      resource_kind: updates.resource_kind ?? current.resource_kind,
       resource_name: updates.resource_name ?? current.resource_name,
       resource_description: updates.resource_description ?? current.resource_description,
       resource_type:
         updates.resource_type === undefined ? current.resource_type : updates.resource_type,
+      content_html:
+        updates.content_html === undefined ? current.content_html : updates.content_html,
       track_id: updates.track_id === undefined ? current.track_id : updates.track_id,
     };
+    if (updated.resource_kind === "page") {
+      updated.file_name = null;
+      updated.file_mime_type = null;
+      updated.file_size = null;
+    }
     demoRows[index] = updated;
 
     if (updates.role_ids) {
@@ -771,13 +804,18 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
     .where(eq(resources.id, id));
 
   dbResourceExtras.set(id, {
+    resource_kind: updates.resource_kind ?? current.resource_kind,
     resource_name: updates.resource_name ?? current.resource_name,
     resource_description: updates.resource_description ?? current.resource_description,
     resource_type:
-      updates.resource_type === undefined ? current.resource_type : updates.resource_type,
-    file_name: current.file_name,
-    file_mime_type: current.file_mime_type,
-    file_size: current.file_size,
+      updates.resource_type === undefined
+        ? current.resource_type
+        : updates.resource_type,
+    content_html:
+      updates.content_html === undefined ? current.content_html : updates.content_html,
+    file_name: updates.resource_kind === "page" ? null : current.file_name,
+    file_mime_type: updates.resource_kind === "page" ? null : current.file_mime_type,
+    file_size: updates.resource_kind === "page" ? null : current.file_size,
     storage_key: current.storage_key,
   });
 

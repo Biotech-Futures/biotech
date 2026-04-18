@@ -4,6 +4,7 @@ export type ResourceRole = {
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
+export type ResourceKind = "file" | "page";
 export type ResourceOrder = "newest" | "oldest";
 
 export type ResourceTypeOption = {
@@ -39,9 +40,11 @@ export type Resource = {
   visibility_scope: string;
   uploaded_at: string;
   deleted_at: string | null;
+  resource_kind: ResourceKind;
   resource_name: string;
   resource_description: string | null;
   resource_type: ResourceTypeName | null;
+  content_html: string | null;
   file_name: string | null;
   file_mime_type: string | null;
   file_size: number | null;
