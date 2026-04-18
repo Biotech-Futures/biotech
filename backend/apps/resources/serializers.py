@@ -22,6 +22,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Roles
+<<<<<<< Updated upstream
         fields = ["id", "slug", "role_name"]
         extra_kwargs = {"slug": {"required": False, "allow_blank": True}}
 
@@ -35,11 +36,24 @@ class RoleSerializer(serializers.ModelSerializer):
         if not name:
             raise serializers.ValidationError("slug cannot be blank.")
         qs = Roles.objects.filter(slug__iexact=name)
+=======
+        fields = ['id', 'slug']
+
+    def validate_slug(self, value: str) -> str:
+        slug = (value or "").strip()
+        if not slug:
+            raise serializers.ValidationError("slug cannot be blank.")
+        qs = Roles.objects.filter(slug__iexact=slug)
+>>>>>>> Stashed changes
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
             raise serializers.ValidationError("A role with this slug already exists.")
+<<<<<<< Updated upstream
         return name
+=======
+        return slug
+>>>>>>> Stashed changes
 
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
     # Keep nested read-only shape for GETs:
@@ -102,12 +116,17 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
 
 
 class ResourceAudienceSerializer(serializers.ModelSerializer):
+<<<<<<< Updated upstream
     role_name = serializers.CharField(source="role.slug", read_only=True)
     track_name = serializers.CharField(source="track.track_code", read_only=True)
+=======
+    role_slug = serializers.CharField(source="role.slug", read_only=True)
+    track_code = serializers.CharField(source="track.track_code", read_only=True)
+>>>>>>> Stashed changes
 
     class Meta:
         model = ResourceAudience
-        fields = ["id", "role", "role_name", "track", "track_name"]
+        fields = ["id", "role", "role_slug", "track", "track_code"]
 
 
 class ResourceAudienceWriteSerializer(serializers.Serializer):

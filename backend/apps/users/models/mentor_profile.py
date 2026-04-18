@@ -4,6 +4,7 @@ from django.db.models import Q
 
 
 class MentorProfile(models.Model):
+<<<<<<< Updated upstream
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -25,6 +26,16 @@ class MentorProfile(models.Model):
         null=True,
         blank=True,
         related_name="mentor_profiles",
+=======
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
+    institution = models.CharField(max_length=255, blank=True, null=True)
+    max_group_count = models.PositiveIntegerField(default=3)
+    country = models.ForeignKey(
+        'groups.Countries', on_delete=models.SET_NULL, null=True, blank=True, related_name='mentor_profiles'
+    )
+    state = models.ForeignKey(
+        'groups.CountryStates', on_delete=models.SET_NULL, null=True, blank=True, related_name='mentor_profiles'
+>>>>>>> Stashed changes
     )
     background = models.CharField(max_length=120, blank=True, null=True)
     region = models.CharField(max_length=80, blank=True, null=True)

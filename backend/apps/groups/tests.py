@@ -30,6 +30,10 @@ class GroupsTests(TestCase):
     def make_deleted_group(self, name="Deleted Group"):
         g = Groups.objects.create(group_name=name, track=self.track)
         g.deleted_at = timezone.now()
+<<<<<<< Updated upstream
+=======
+        
+>>>>>>> Stashed changes
         g.save(update_fields=["deleted_at"])
         return g
 
@@ -87,7 +91,11 @@ class GroupsTests(TestCase):
         payload = {
             'group_name': 'team_beta',
             'track': self.track.id,
+<<<<<<< Updated upstream
             'deleted_at': timezone.now().isoformat(),
+=======
+            'deleted_at': timezone.now(),
+>>>>>>> Stashed changes
         }
         resp = self.client.post(url, payload, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
@@ -181,7 +189,11 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         resp = self.client.patch(url, {
             'group_name': 'Still Active',
+<<<<<<< Updated upstream
             'deleted_at': timezone.now().isoformat(),
+=======
+            'deleted_at': timezone.now(),
+>>>>>>> Stashed changes
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.group1.refresh_from_db()

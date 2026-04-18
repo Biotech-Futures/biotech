@@ -4,6 +4,7 @@ from django.utils import timezone
 
 
 class MatchRun(models.Model):
+<<<<<<< Updated upstream
     initiated_by_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -14,6 +15,10 @@ class MatchRun(models.Model):
         null=True,
         blank=True,
     )
+=======
+    initiated_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
+>>>>>>> Stashed changes
     run_type = models.CharField(max_length=100)
     rules_snapshot = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -39,10 +44,14 @@ class MatchRecommendation(models.Model):
         related_name="recommendations",
     )
     group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE)
+<<<<<<< Updated upstream
     mentor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
     )
+=======
+    mentor_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+>>>>>>> Stashed changes
     score = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
     explanation = models.JSONField(null=True, blank=True)
     accepted = models.BooleanField(default=False)

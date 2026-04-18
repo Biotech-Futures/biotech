@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils.dateparse import parse_date
 from django.utils import timezone
+
 from django.db.models import Q
 from .models import MentorCertificate
 from .serializers import (
@@ -177,12 +178,18 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         
         certificate = self.get_object()
         certificate.verified_at = timezone.now()
+<<<<<<< Updated upstream
         certificate.verified_by_user = request.user
         certificate.save(update_fields=["verified_at", "verified_by_user"])
         
+=======
+        certificate.verified_by = request.user
+        certificate.save(update_fields=['verified_at', 'verified_by'])
+
+>>>>>>> Stashed changes
         serializer = self.get_serializer(certificate)
         return Response(serializer.data)
-    
+
     @action(detail=True, methods=['post'], permission_classes=[CertificatePermission])
     def unverify(self, request, pk=None):
         """
@@ -194,11 +201,16 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
                 {"detail": "Only admins can verify certificates."},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         certificate = self.get_object()
         certificate.verified_at = None
+<<<<<<< Updated upstream
         certificate.verified_by_user = None
         certificate.save(update_fields=["verified_at", "verified_by_user"])
+=======
+        certificate.verified_by = None
+        certificate.save(update_fields=['verified_at', 'verified_by'])
+>>>>>>> Stashed changes
         
         serializer = self.get_serializer(certificate)
         return Response(serializer.data)

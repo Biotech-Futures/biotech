@@ -74,5 +74,9 @@ class GroupViewSet(viewsets.ModelViewSet):
         if group.deleted_at is not None:
             return Response(status=status.HTTP_204_NO_CONTENT)
         group.deleted_at = timezone.now()
+<<<<<<< Updated upstream
         group.save(update_fields=["deleted_at"])
+=======
+        group.save(update_fields=['deleted_at'])
+>>>>>>> Stashed changes
         return Response(status=status.HTTP_204_NO_CONTENT)

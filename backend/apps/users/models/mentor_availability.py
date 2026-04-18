@@ -3,11 +3,16 @@ from django.db.models import F, Q
 
 
 class MentorAvailability(models.Model):
+<<<<<<< Updated upstream
     mentor_profile = models.ForeignKey(
         "MentorProfile",
         on_delete=models.CASCADE,
         db_column="mentor_user_id",
         related_name="availabilities",
+=======
+    mentor_user = models.ForeignKey(
+        'MentorProfile', on_delete=models.CASCADE, related_name='availabilities'
+>>>>>>> Stashed changes
     )
     weekday = models.PositiveSmallIntegerField()
     start_time = models.TimeField()

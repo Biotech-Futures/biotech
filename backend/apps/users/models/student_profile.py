@@ -1,9 +1,10 @@
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+
 
 
 class StudentProfile(models.Model):
+<<<<<<< Updated upstream
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -38,6 +39,24 @@ class StudentProfile(models.Model):
         related_name="student_profiles",
     )
     preassigned_group = models.CharField(max_length=64, blank=True, null=True)
+=======
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
+    supervisor = models.ForeignKey(
+        'SupervisorProfile', on_delete=models.SET_NULL, blank=True, null=True,
+        db_column='supervisor_user_id'
+    )
+    school_name = models.CharField(max_length=255, blank=True, null=True)
+    year_level = models.SmallIntegerField(null=True, blank=True)
+    join_permission_received = models.BooleanField(default=False)
+    join_permission_response_id = models.CharField(max_length=255, null=True, blank=True)
+    country = models.ForeignKey(
+        'groups.Countries', on_delete=models.SET_NULL, null=True, blank=True, related_name='student_profiles'
+    )
+    state = models.ForeignKey(
+        'groups.CountryStates', on_delete=models.SET_NULL, null=True, blank=True, related_name='student_profiles'
+    )
+    preassigned_group = models.CharField(max_length=64, null=True, blank=True)
+>>>>>>> Stashed changes
 
     class Meta:
         db_table = "student_profile"
@@ -46,6 +65,7 @@ class StudentProfile(models.Model):
         indexes = [
             models.Index(fields=["supervisor"]),
         ]
+<<<<<<< Updated upstream
         constraints = [
             models.CheckConstraint(
                 condition=~Q(pg_first_name=""),
@@ -68,6 +88,8 @@ class StudentProfile(models.Model):
                 name="permission_requires_parent_guardian",
             ),
         ]
+=======
+>>>>>>> Stashed changes
 
     def __str__(self):
         return str(self.user)

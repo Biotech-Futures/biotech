@@ -2,6 +2,7 @@ from django.db import models
 
 
 class MentorInterest(models.Model):
+<<<<<<< Updated upstream
     mentor_profile = models.ForeignKey(
         "MentorProfile",
         on_delete=models.CASCADE,
@@ -9,6 +10,12 @@ class MentorInterest(models.Model):
         related_name="interest_entries",
     )
     interest = models.ForeignKey("AreasOfInterest", on_delete=models.CASCADE)
+=======
+    mentor_user = models.ForeignKey(
+        'MentorProfile', on_delete=models.CASCADE, related_name='interests'
+    )
+    interest = models.ForeignKey('AreasOfInterest', on_delete=models.CASCADE)
+>>>>>>> Stashed changes
 
     class Meta:
         db_table = "mentor_interest"

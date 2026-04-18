@@ -13,6 +13,7 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
         model = GroupMembership
         fields = ['id', 'group', 'user', 'membership_role', 'joined_at', 'left_at']
         read_only_fields = ['id', 'joined_at']
+<<<<<<< Updated upstream
         validators = []
 
     def validate(self, attrs):
@@ -28,6 +29,8 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
                     'non_field_errors': ['This user is already a member of this group.']
                 })
         return attrs
+=======
+>>>>>>> Stashed changes
 
 
 class TrackSerializer(serializers.ModelSerializer):
@@ -39,8 +42,16 @@ class TrackSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = Groups
+<<<<<<< Updated upstream
         fields = ['id', 'group_name', 'track', 'created_at', 'deleted_at', 'year_min', 'year_max', 'lead_mentor', 'max_members']
         read_only_fields = ['id', 'created_at', 'deleted_at']
+=======
+        fields = [
+            'id', 'group_name', 'track', 'created_at', 'deleted_at',
+            'year_min', 'year_max', 'lead_mentor', 'max_members',
+        ]
+        read_only_fields = ['id', 'created_at']
+>>>>>>> Stashed changes
         validators = []
 
     def validate(self, attrs):

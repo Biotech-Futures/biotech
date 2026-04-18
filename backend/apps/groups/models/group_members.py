@@ -1,12 +1,16 @@
 from django.conf import settings
 from django.db import models
+<<<<<<< Updated upstream
 from django.db.models import F, Q
+=======
+>>>>>>> Stashed changes
 from django.utils import timezone
 
 
 class GroupMembership(models.Model):
     group = models.ForeignKey("Groups", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+<<<<<<< Updated upstream
     membership_role = models.CharField(max_length=50, blank=True, default="")
     joined_at = models.DateTimeField(default=timezone.now)
     left_at = models.DateTimeField(blank=True, null=True)
@@ -24,6 +28,14 @@ class GroupMembership(models.Model):
                 name="group_membership_left_after_joined",
             ),
         ]
+=======
+    membership_role = models.CharField(max_length=50, null=True, blank=True)
+    joined_at = models.DateTimeField(default=timezone.now)
+    left_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'group_membership'
+>>>>>>> Stashed changes
         indexes = [
             models.Index(fields=["group"]),
             models.Index(fields=["user"]),

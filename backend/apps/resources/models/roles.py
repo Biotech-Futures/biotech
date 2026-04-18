@@ -11,9 +11,15 @@ class Roles(models.Model):
         verbose_name_plural = "Roles"
         constraints = [
             models.CheckConstraint(
+<<<<<<< Updated upstream
                 condition=~Q(slug=""),
                 name="role_slug_not_empty",
             ),
+=======
+                condition=~Q(slug=''),
+                name='role_slug_not_empty'
+            )
+>>>>>>> Stashed changes
         ]
 
     def __str__(self):

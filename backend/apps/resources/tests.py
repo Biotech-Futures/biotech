@@ -53,7 +53,7 @@ class RolesApiTests(TestCase):
         if isinstance(data, dict) and 'results' in data:
             data = data['results']
         self.assertEqual(len(data), 2)
-        self.assertEqual([r["role_name"] for r in data], ["admin", "viewer"])
+        self.assertEqual([r["slug"] for r in data], ["admin", "viewer"])
 
 
 class RoleAssignmentsApiTests(TestCase):
@@ -70,6 +70,7 @@ class RoleAssignmentsApiTests(TestCase):
         state = CountryStates.objects.create(country=country, state_name="NSW")
         track = Tracks.objects.create(track_code="Data Science", state=state)
 
+<<<<<<< Updated upstream
         AuthUser = get_user_model()
         self.me = AuthUser.objects.create_user(
             password="pw12345",
@@ -78,6 +79,8 @@ class RoleAssignmentsApiTests(TestCase):
         )
         self.client.force_authenticate(self.me)
 
+=======
+>>>>>>> Stashed changes
         self.r_admin = Roles.objects.create(slug="admin")
         self.r_view  = Roles.objects.create(slug="viewer")
 
@@ -228,25 +231,25 @@ class RoleManagementApiTests(TestCase):
 
     def test_create_requires_admin(self):
         self.client.force_authenticate(self.user)
-        resp = self.client.post(reverse("roles-list"), {"role_name": "Editor"}, format="json")
+        resp = self.client.post(reverse("roles-list"), {"slug": "Editor"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_update_delete_happy_path(self):
         self.client.force_authenticate(self.admin)
 
         # create
-        r = self.client.post(reverse("roles-list"), {"role_name": "Editor"}, format="json")
+        r = self.client.post(reverse("roles-list"), {"slug": "Editor"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         rid = r.json()["id"]
 
         # patch (partial)
-        r = self.client.patch(reverse("roles-detail", args=[rid]), {"role_name": "EditorPlus"}, format="json")
+        r = self.client.patch(reverse("roles-detail", args=[rid]), {"slug": "EditorPlus"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertEqual(r.json()["role_name"], "EditorPlus")
+        self.assertEqual(r.json()["slug"], "EditorPlus")
 
         # uniqueness (case-insensitive)
-        self.client.post(reverse("roles-list"), {"role_name": "Viewer"}, format="json")
-        r = self.client.patch(reverse("roles-detail", args=[rid]), {"role_name": "viewer"}, format="json")
+        self.client.post(reverse("roles-list"), {"slug": "Viewer"}, format="json")
+        r = self.client.patch(reverse("roles-detail", args=[rid]), {"slug": "viewer"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
         # delete
@@ -980,7 +983,11 @@ class CreateRoleServiceTests(TestCase):
 
         # Verify role was created
         self.assertEqual(role.slug, role_name)
+<<<<<<< Updated upstream
         self.assertTrue(Roles.objects.filter(slug=role_name).exists())
+=======
+        self.assertTrue(Roles.objects.filter(role_name=role_name).exists())
+>>>>>>> Stashed changes
 
         # Verify Django group was created
         self.assertTrue(Group.objects.filter(name=role_name).exists())
@@ -1071,7 +1078,7 @@ class CreateRoleAPITests(TestCase):
     def test_create_role_unauthenticated_fails(self):
         """Test that unauthenticated requests are rejected"""
         url = reverse("v1-roles-list")  # /resources/api/v1/roles/
-        data = {"role_name": "new_role"}
+        data = {"slug": "new_role"}
 
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -1080,7 +1087,7 @@ class CreateRoleAPITests(TestCase):
         """Test that non-admin users cannot create roles"""
         self.client.force_authenticate(user=self.user)
         url = reverse("v1-roles-list")
-        data = {"role_name": "new_role"}
+        data = {"slug": "new_role"}
 
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -1089,14 +1096,14 @@ class CreateRoleAPITests(TestCase):
         """Test successful role creation by admin"""
         self.client.force_authenticate(user=self.admin)
         url = reverse("v1-roles-list")
-        data = {"role_name": "mentor"}
+        data = {"slug": "mentor"}
 
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Check response data
         response_data = response.json()
-        self.assertEqual(response_data["role_name"], "mentor")
+        self.assertEqual(response_data["slug"], "mentor")
         self.assertIn("id", response_data)
 
         # Verify role was created in database
@@ -1111,21 +1118,21 @@ class CreateRoleAPITests(TestCase):
         url = reverse("v1-roles-list")
 
         # Test empty string 
-        response = self.client.post(url, {"role_name": ""}, format='json')
+        response = self.client.post(url, {"slug": ""}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         # Serializer validation returns different format
         response_data = response.json()
         self.assertTrue("role_name" in response_data or "error" in response_data)
 
         # Test whitespace only 
-        response = self.client.post(url, {"role_name": "   "}, format='json')
+        response = self.client.post(url, {"slug": "   "}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_role_duplicate_fails(self):
         """Test that duplicate role name is rejected"""
         self.client.force_authenticate(user=self.admin)
         url = reverse("v1-roles-list")
-        data = {"role_name": "duplicate_test"}
+        data = {"slug": "duplicate_test"}
 
         # Create first role
         response = self.client.post(url, data, format='json')
@@ -1149,14 +1156,14 @@ class CreateRoleAPITests(TestCase):
         url = reverse("v1-roles-list")
 
         # Create role with lowercase
-        response = self.client.post(url, {"role_name": "admin"}, format='json')
+        response = self.client.post(url, {"slug": "admin"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Try to create with uppercase - this triggers serializer validation
-        response = self.client.post(url, {"role_name": "ADMIN"}, format='json')
+        response = self.client.post(url, {"slug": "ADMIN"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
-        # Could be either serializer format {"role_name": ["error message"]} or service format {"error": "message"}
+        # Could be either serializer format {"slug": ["error message"]} or service format {"error": "message"}
         has_error = "role_name" in response_data or "error" in response_data
         self.assertTrue(has_error)
 
@@ -1176,13 +1183,13 @@ class CreateRoleAPITests(TestCase):
         """Test that role name whitespace is properly stripped"""
         self.client.force_authenticate(user=self.admin)
         url = reverse("v1-roles-list")
-        data = {"role_name": "  student_mentor  "}
+        data = {"slug": "  student_mentor  "}
 
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Check that whitespace was stripped in response and database
-        self.assertEqual(response.json()["role_name"], "student_mentor")
+        self.assertEqual(response.json()["slug"], "student_mentor")
         role = Roles.objects.get(id=response.json()["id"])
         self.assertEqual(role.slug, "student_mentor")
 
@@ -1192,12 +1199,12 @@ class CreateRoleAPITests(TestCase):
 
         # Test v1 endpoint
         v1_url = reverse("v1-roles-list")  # /resources/api/v1/roles/
-        response = self.client.post(v1_url, {"role_name": "v1_role"}, format='json')
+        response = self.client.post(v1_url, {"slug": "v1_role"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Test original endpoint
         original_url = reverse("roles-list")  # /resources/roles/
-        response = self.client.post(original_url, {"role_name": "original_role"}, format='json')
+        response = self.client.post(original_url, {"slug": "original_role"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Verify both roles exist
@@ -1240,7 +1247,7 @@ class CreateRoleIntegrationTests(TestCase):
         # Create role via API
         self.client.force_authenticate(user=self.admin)
         url = reverse("v1-roles-list")
-        response = self.client.post(url, {"role_name": "integration_mentor"}, format='json')
+        response = self.client.post(url, {"slug": "integration_mentor"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Get the created role
@@ -1267,11 +1274,11 @@ class CreateRoleIntegrationTests(TestCase):
         url = reverse("v1-roles-list")
 
         # Create role
-        response = self.client.post(url, {"role_name": "validation_test"}, format='json')
+        response = self.client.post(url, {"slug": "validation_test"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Try to create role with same name (serializer should catch this)
-        response = self.client.post(url, {"role_name": "validation_test"}, format='json')
+        response = self.client.post(url, {"slug": "validation_test"}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # Check that error mentions duplicates/exists (format may vary)
@@ -1619,7 +1626,7 @@ class ResourceTypeIntegrationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['resource_type_detail']['type_name'], 'guide')
         self.assertEqual(len(response.data['visible_roles']), 1)
-        self.assertEqual(response.data['visible_roles'][0]['role_name'], 'Supervisor')
+        self.assertEqual(response.data['visible_roles'][0]['slug'], 'Supervisor')
 
     def test_data_migration_populated_types(self):
         """Test that data migration has populated the 4 types"""

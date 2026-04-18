@@ -11,7 +11,7 @@
 # from rest_framework import permissions
 
 # class RoleViewSet(viewsets.ReadOnlyModelViewSet):
-#     queryset = Roles.objects.all().order_by('role_name')
+#     queryset = Roles.objects.all().order_by("slug")
 #     serializer_class = RoleSerializer
 #     permission_classes = [IsAuthenticated]
 #     ordering = ['role_name']
@@ -71,8 +71,12 @@ class RoleViewSet(mixins.ListModelMixin,
 
         try:
             # Use service layer to create role (handles both Role and Group creation)
+<<<<<<< Updated upstream
             raw = serializer.validated_data.get("slug") or serializer.validated_data.get("role_name")
             role = create_role(raw)
+=======
+            role = create_role(serializer.validated_data['slug'])
+>>>>>>> Stashed changes
 
             # Return serialized response
             response_serializer = self.get_serializer(role)
@@ -613,11 +617,15 @@ class ResourcesViewSet(mixins.ListModelMixin,
         try:
             role = Roles.objects.get(id=role_id)
             resource_role = ResourceAudience.objects.get(resource=resource, role=role, track__isnull=True)
+<<<<<<< Updated upstream
             role_name = role.slug
+=======
+            role_slug = role.slug
+>>>>>>> Stashed changes
             resource_role.delete()
-            
+
             return Response({
-                "message": f"Role '{role_name}' removed from resource '{resource.resource_name}'"
+                "message": f"Role '{role_slug}' removed from resource '{resource.resource_name}'"
             }, status=status.HTTP_200_OK)
             
         except Roles.DoesNotExist:

@@ -20,7 +20,7 @@ def create_mentor_profile(
     first_name="Mentor",
     last_name="User",
     institution="School",
-    mentor_reason="Help",
+    ,
     max_group_count=3,
 ):
     mentor_user = User.objects.create_user(
@@ -32,7 +32,7 @@ def create_mentor_profile(
     return MentorProfile.objects.create(
         user=mentor_user,
         institution=institution,
-        mentor_reason=mentor_reason,
+        
         max_group_count=max_group_count,
     )
 
@@ -57,7 +57,7 @@ class CertificateDetailTests(APITestCase):
             first_name="M",
             last_name="E",
             institution="School",
-            mentor_reason="Help",
+            ,
             max_group_count=3,
         )
 
@@ -134,7 +134,7 @@ class CertificateCreateTests(APITestCase):
             email="mentor@example.com",
             password="m12345",
             institution="Uni",
-            mentor_reason="Teach",
+            ,
             max_group_count=3,
         )
         self.cert_type = CertificateType.objects.create(
@@ -218,7 +218,7 @@ class MentorRBACTests(APITestCase):
             first_name="Test",
             last_name="Mentor",
             institution="Test Uni",
-            mentor_reason="Help",
+            ,
             max_group_count=5,
         )
         self.mentor_user = self.mentor_profile.user
@@ -283,7 +283,7 @@ class MentorRBACTests(APITestCase):
             email="other@test.com",
             password="pass",
             institution="Other Uni",
-            mentor_reason="Teach",
+            ,
             max_group_count=3,
         )
         MentorCertificate.objects.create(
@@ -384,7 +384,7 @@ class AdminRBACTests(APITestCase):
             email="mentor@test.com",
             password="pass",
             institution="Test Uni",
-            mentor_reason="Help",
+            ,
             max_group_count=3,
         )
         
