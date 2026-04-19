@@ -21,6 +21,10 @@ type CreateUserPayload = {
   email: string;
   role: UserRole;
   track?: UserTrack;
+  schoolName?: string;
+  yearLevel?: number;
+  interests?: string[];
+  joinPermissionReceived?: boolean;
   active?: boolean;
 };
 
@@ -30,6 +34,10 @@ type UpdateUserPayload = {
   email?: string;
   role?: UserRole;
   track?: UserTrack | null;
+  schoolName?: string | null;
+  yearLevel?: number | null;
+  interests?: string[];
+  joinPermissionReceived?: boolean;
 };
 
 type UpdateStatusPayload = {
@@ -67,6 +75,9 @@ export function useQueryUsers() {
             isActive?: boolean | null;
             invitedAt?: string | null;
             activatedAt?: string | null;
+            schoolName?: string | null;
+            yearLevel?: number | null;
+            joinPermissionReceived?: boolean | null;
           }>;
           total?: number;
           page?: number;
@@ -173,6 +184,20 @@ export function useUpdateUserStatus() {
   });
 }
 
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await myFetch.delete<MutationResponse<null>>(`/user/${id}`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
 export function loadLocalUsers() {
   return readStorage<UserAccount[]>(LOCAL_USERS_KEY, []);
 }
@@ -196,6 +221,9 @@ export function normalizeServerUser(
     isActive?: boolean | null;
     invitedAt?: string | null;
     activatedAt?: string | null;
+    schoolName?: string | null;
+    yearLevel?: number | null;
+    joinPermissionReceived?: boolean | null;
   },
 ): UserAccount {
   const name =
@@ -209,7 +237,9 @@ export function normalizeServerUser(
     track: user.track ?? null,
     groupId: user.groupId ?? null,
     groupName: user.groupName ?? null,
-    age: user.age ?? null,
+    age: user.age ?? user.yearLevel ?? null,
+    schoolName: user.schoolName ?? null,
+    joinPermissionReceived: Boolean(user.joinPermissionReceived),
     interests: Array.isArray(user.interests) ? user.interests : [],
     createdAt:
       user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
@@ -230,8 +260,11 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     track: values.track,
     groupId: null,
     groupName: null,
-    age: values.role === "student" ? 16 : null,
-    interests: values.role === "student" ? ["biology"] : [],
+    age: values.role === "student" ? values.yearLevel : null,
+    schoolName: values.role === "student" ? values.schoolName || null : null,
+    joinPermissionReceived:
+      values.role === "student" ? values.joinPermissionReceived : false,
+    interests: values.role === "student" ? values.interests : [],
     createdAt: timestamp,
     updatedAt: timestamp,
     active: values.active,
@@ -280,8 +313,12 @@ export function parseCsvUsers(text: string) {
     .map((row, rowIndex) => {
       const roleValue = (row[headerIndex.role] ?? "").trim().toLowerCase();
       const role = normalizeRole(roleValue);
-      const track = normalizeTrack((row[headerIndex.track] ?? "").trim().toLowerCase());
+      const track = normalizeTrack((row[headerIndex.track] ?? "").trim());
       const statusRaw = (row[headerIndex.status] ?? "").trim().toLowerCase();
+      const schoolName = (row[headerIndex.school] ?? "").trim();
+      const yearLevelRaw =
+        (row[headerIndex.yearlevel] ?? row[headerIndex.age] ?? "").trim();
+      const interestsRaw = (row[headerIndex.interests] ?? "").trim();
 
       return {
         id: `csv-${rowIndex + 1}`,
@@ -289,6 +326,10 @@ export function parseCsvUsers(text: string) {
         email: (row[headerIndex.email] ?? "").trim(),
         role,
         track,
+        schoolName,
+        yearLevel: yearLevelRaw ? Number(yearLevelRaw) : null,
+        interests: parseInterestList(interestsRaw),
+        joinPermissionReceived: false,
         active: statusRaw ? statusRaw !== "inactive" : true,
       } satisfies CsvUserRow;
     });
@@ -307,6 +348,17 @@ function normalizeTrack(track: string) {
     return null;
   }
   return track;
+}
+
+export function parseInterestList(input: string) {
+  return Array.from(
+    new Set(
+      input
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 export function splitName(name: string) {

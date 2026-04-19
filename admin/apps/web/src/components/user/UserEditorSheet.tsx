@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -33,7 +34,9 @@ interface UserEditorSheetProps {
   user: UserAccount | null;
   tracks?: TrackOption[];
   onSubmit: (values: UserFormValues) => Promise<void> | void;
+  onDelete?: (user: UserAccount) => Promise<void> | void;
   isPending?: boolean;
+  isDeleting?: boolean;
 }
 
 const initialValues: UserFormValues = {
@@ -41,6 +44,10 @@ const initialValues: UserFormValues = {
   email: "",
   role: "student",
   track: null,
+  schoolName: "",
+  yearLevel: null,
+  interests: [],
+  joinPermissionReceived: false,
   active: true,
 };
 
@@ -55,7 +62,9 @@ export function UserEditorSheet({
   user,
   tracks,
   onSubmit,
+  onDelete,
   isPending,
+  isDeleting,
 }: UserEditorSheetProps) {
   const [values, setValues] = useState<UserFormValues>(initialValues);
   const availableTracks = Array.from(
@@ -74,6 +83,10 @@ export function UserEditorSheet({
         email: user.email,
         role: user.role,
         track: user.track,
+        schoolName: user.schoolName ?? "",
+        yearLevel: user.age,
+        interests: user.interests,
+        joinPermissionReceived: user.joinPermissionReceived,
         active: user.active,
       });
       return;
@@ -95,11 +108,30 @@ export function UserEditorSheet({
       window.alert("Invalid email format.");
       return;
     }
+    if (!values.name.trim().includes(" ")) {
+      window.alert("Please enter both first and last name.");
+      return;
+    }
+    if (values.role === "student") {
+      if (!values.schoolName.trim()) {
+        window.alert("School is required for student users.");
+        return;
+      }
+      if (!values.yearLevel || values.yearLevel < 10 || values.yearLevel > 30) {
+        window.alert("Age / Year Level must be between 10 and 30.");
+        return;
+      }
+      if (!values.interests.length) {
+        window.alert("At least one interest is required for student users.");
+        return;
+      }
+    }
 
     await onSubmit({
       ...values,
       name: values.name.trim(),
       email: values.email.trim(),
+      schoolName: values.schoolName.trim(),
     });
   };
 
@@ -185,6 +217,93 @@ export function UserEditorSheet({
             </Select>
           </div>
 
+          {values.role === "student" ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="user-school-name">School</Label>
+                <Input
+                  id="user-school-name"
+                  value={values.schoolName}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      schoolName: event.target.value,
+                    }))
+                  }
+                  placeholder="Sydney High School"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-year-level">Age / Year Level</Label>
+                <Input
+                  id="user-year-level"
+                  type="number"
+                  min={10}
+                  max={30}
+                  value={values.yearLevel ?? ""}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      yearLevel: event.target.value
+                        ? Number(event.target.value)
+                        : null,
+                    }))
+                  }
+                  placeholder="10"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-interests">Interests</Label>
+                <Textarea
+                  id="user-interests"
+                  value={values.interests.join(", ")}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      interests: event.target.value
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    }))
+                  }
+                  placeholder="biology, genetics, ai"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Join Permission Received</Label>
+                <div className="flex gap-2">
+                  <Button
+                    variant={values.joinPermissionReceived ? "default" : "outline"}
+                    size="sm"
+                    onClick={() =>
+                      setValues((current) => ({
+                        ...current,
+                        joinPermissionReceived: true,
+                      }))
+                    }
+                  >
+                    Yes
+                  </Button>
+                  <Button
+                    variant={!values.joinPermissionReceived ? "default" : "outline"}
+                    size="sm"
+                    onClick={() =>
+                      setValues((current) => ({
+                        ...current,
+                        joinPermissionReceived: false,
+                      }))
+                    }
+                  >
+                    No
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+
           <div className="space-y-2">
             <Label>Account Status</Label>
             <div className="flex gap-2">
@@ -207,6 +326,15 @@ export function UserEditorSheet({
         </div>
 
         <SheetFooter>
+          {mode === "edit" && user && onDelete ? (
+            <Button
+              variant="destructive"
+              onClick={() => onDelete(user)}
+              loading={isDeleting}
+            >
+              Delete User
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

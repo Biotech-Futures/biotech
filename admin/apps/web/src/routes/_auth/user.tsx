@@ -10,15 +10,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { PlusIcon, UploadIcon } from "lucide-react";
 import {
-  loadLocalUsers,
-  loadUserOverrides,
-  mergeUsers,
-  saveLocalUsers,
-  saveUserOverrides,
   splitName,
   useQueryTracks,
   useBulkCreateUsers,
   useCreateUser,
+  useDeleteUser,
   useQueryUsers,
   useUpdateUser,
   useUpdateUserStatus,
@@ -28,7 +24,6 @@ import {
   type CsvUserRow,
   type UserAccount,
   type UserFormValues,
-  type UserOverride,
   type UserRole,
   type UserTrack,
 } from "@/type/user";
@@ -36,6 +31,7 @@ import { UserFilters } from "@/components/user/UserFilters";
 import { UserTable } from "@/components/user/UserTable";
 import { UserEditorSheet } from "@/components/user/UserEditorSheet";
 import { UserBulkUploadSheet } from "@/components/user/UserBulkUploadSheet";
+import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 
 const PAGE_SIZE = 10;
 
@@ -49,10 +45,9 @@ function UserManagementPage() {
   const [track, setTrack] = useState<UserTrack | "all">("all");
   const [status, setStatus] = useState<"all" | "active" | "inactive">("all");
   const [page, setPage] = useState(1);
-  const [localUsers, setLocalUsers] = useState<UserAccount[]>([]);
-  const [overrides, setOverrides] = useState<Record<string, UserOverride>>({});
   const [editorOpen, setEditorOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
 
@@ -61,29 +56,14 @@ function UserManagementPage() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const updateUserStatus = useUpdateUserStatus();
+  const deleteUser = useDeleteUser();
   const bulkCreateUsers = useBulkCreateUsers();
-
-  useEffect(() => {
-    setLocalUsers(loadLocalUsers());
-    setOverrides(loadUserOverrides());
-  }, []);
-
-  useEffect(() => {
-    saveLocalUsers(localUsers);
-  }, [localUsers]);
-
-  useEffect(() => {
-    saveUserOverrides(overrides);
-  }, [overrides]);
 
   useEffect(() => {
     setPage(1);
   }, [search, role, track, status]);
 
-  const mergedUsers = useMemo(
-    () => mergeUsers(data?.data?.items, localUsers, overrides),
-    [data?.data?.items, localUsers, overrides],
-  );
+  const mergedUsers = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -136,6 +116,11 @@ function UserManagementPage() {
     setEditorOpen(true);
   };
 
+  const openDetail = (user: UserAccount) => {
+    setSelectedUser(user);
+    setDetailOpen(true);
+  };
+
   const handleSaveUser = async (values: UserFormValues) => {
     if (editorMode === "create") {
       try {
@@ -146,6 +131,11 @@ function UserManagementPage() {
           email: values.email,
           role: values.role,
           track: values.track ?? undefined,
+          schoolName: values.role === "student" ? values.schoolName : undefined,
+          yearLevel: values.role === "student" ? values.yearLevel ?? undefined : undefined,
+          interests: values.role === "student" ? values.interests : undefined,
+          joinPermissionReceived:
+            values.role === "student" ? values.joinPermissionReceived : undefined,
           active: values.active,
         });
 
@@ -163,22 +153,6 @@ function UserManagementPage() {
 
     if (!selectedUser) return;
 
-    if (selectedUser.source === "local") {
-      setLocalUsers((current) =>
-        current.map((item) =>
-          item.id === selectedUser.id
-            ? {
-                ...item,
-                ...values,
-                updatedAt: new Date().toISOString(),
-              }
-            : item,
-        ),
-      );
-      setEditorOpen(false);
-      return;
-    }
-
     try {
       const { firstName, lastName } = splitName(values.name);
       const response = await updateUser.mutateAsync({
@@ -189,6 +163,11 @@ function UserManagementPage() {
           email: values.email,
           role: values.role,
           track: values.track,
+          schoolName: values.role === "student" ? values.schoolName : null,
+          yearLevel: values.role === "student" ? values.yearLevel : null,
+          interests: values.role === "student" ? values.interests : [],
+          joinPermissionReceived:
+            values.role === "student" ? values.joinPermissionReceived : false,
         },
       });
 
@@ -216,21 +195,6 @@ function UserManagementPage() {
   };
 
   const handleToggleActive = async (user: UserAccount) => {
-    if (user.source === "local") {
-      setLocalUsers((current) =>
-        current.map((item) =>
-          item.id === user.id
-            ? {
-                ...item,
-                active: !item.active,
-                updatedAt: new Date().toISOString(),
-              }
-            : item,
-        ),
-      );
-      return;
-    }
-
     try {
       const response = await updateUserStatus.mutateAsync({
         id: user.id,
@@ -245,17 +209,53 @@ function UserManagementPage() {
     }
   };
 
+  const handleDeleteUser = async (user: UserAccount) => {
+    const confirmed = window.confirm(`Delete user "${user.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      const response = await deleteUser.mutateAsync(user.id);
+      if (!response.data && response.msg !== "User deleted successfully") {
+        window.alert(response.msg || "Unable to delete user.");
+        return;
+      }
+
+      if (selectedUser?.id === user.id) {
+        setDetailOpen(false);
+        setEditorOpen(false);
+        setSelectedUser(null);
+      }
+    } catch {
+      window.alert("Unable to delete the user right now.");
+    }
+  };
+
   const handleImportUsers = async (rows: CsvUserRow[]) => {
     try {
-      await bulkCreateUsers.mutateAsync({
+      const response = await bulkCreateUsers.mutateAsync({
         users: rows.map((row) => ({
           ...splitName(row.name),
           email: row.email,
           role: row.role,
           track: row.track ?? undefined,
+          schoolName: row.role === "student" ? row.schoolName : undefined,
+          yearLevel: row.role === "student" ? row.yearLevel ?? undefined : undefined,
+          interests: row.role === "student" ? row.interests : undefined,
+          joinPermissionReceived:
+            row.role === "student" ? row.joinPermissionReceived : undefined,
           active: row.active,
         })),
       });
+
+      const createdCount = response.data?.created?.length ?? 0;
+      const skippedCount = response.data?.skipped?.length ?? 0;
+
+      if (!createdCount && skippedCount) {
+        window.alert(response.msg || "No users were imported.");
+        return;
+      }
+
+      window.alert(response.msg || `Imported ${createdCount} users.`);
       setBulkOpen(false);
     } catch {
       window.alert("Bulk upload failed.");
@@ -319,6 +319,7 @@ function UserManagementPage() {
             page={page}
             totalPages={totalPages}
             onPageChange={setPage}
+            onView={openDetail}
             onEdit={openEdit}
             onToggleActive={handleToggleActive}
             isPending={
@@ -326,6 +327,7 @@ function UserManagementPage() {
               createUser.isPending ||
               updateUser.isPending ||
               updateUserStatus.isPending ||
+              deleteUser.isPending ||
               bulkCreateUsers.isPending
             }
           />
@@ -339,7 +341,20 @@ function UserManagementPage() {
         user={selectedUser}
         tracks={tracksData?.data ?? []}
         onSubmit={handleSaveUser}
-        isPending={createUser.isPending || updateUser.isPending || updateUserStatus.isPending}
+        onDelete={handleDeleteUser}
+        isPending={
+          createUser.isPending ||
+          updateUser.isPending ||
+          updateUserStatus.isPending ||
+          deleteUser.isPending
+        }
+        isDeleting={deleteUser.isPending}
+      />
+
+      <UserDetailSheet
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        user={selectedUser}
       />
 
       <UserBulkUploadSheet

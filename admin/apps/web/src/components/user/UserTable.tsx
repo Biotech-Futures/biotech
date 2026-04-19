@@ -19,6 +19,7 @@ interface UserTableProps {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  onView: (user: UserAccount) => void;
   onEdit: (user: UserAccount) => void;
   onToggleActive: (user: UserAccount) => void;
   isPending?: boolean;
@@ -29,6 +30,7 @@ export function UserTable({
   page,
   totalPages,
   onPageChange,
+  onView,
   onEdit,
   onToggleActive,
   isPending,
@@ -58,7 +60,15 @@ export function UserTable({
             ) : data.length ? (
               data.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <button
+                      type="button"
+                      className="text-left transition hover:underline"
+                      onClick={() => onView(user)}
+                    >
+                      {user.name}
+                    </button>
+                  </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{labelizeUserRole(user.role)}</Badge>

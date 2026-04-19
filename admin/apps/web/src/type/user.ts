@@ -13,6 +13,8 @@ export type UserAccount = {
   groupId: string | null;
   groupName: string | null;
   age: number | null;
+  schoolName: string | null;
+  joinPermissionReceived: boolean;
   interests: string[];
   createdAt: string;
   updatedAt: string;
@@ -38,6 +40,10 @@ export type UserFormValues = {
   email: string;
   role: UserRole;
   track: UserTrack | null;
+  schoolName: string;
+  yearLevel: number | null;
+  interests: string[];
+  joinPermissionReceived: boolean;
   active: boolean;
 };
 
@@ -52,12 +58,7 @@ export type UserOverride = Partial<
   >
 >;
 
-export const USER_TRACKS: UserTrack[] = [
-  "frontend",
-  "backend",
-  "fullstack",
-  "data",
-];
+export const USER_TRACKS: UserTrack[] = [];
 
 export const USER_ROLES: UserRole[] = [
   "student",

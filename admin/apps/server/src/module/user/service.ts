@@ -1,10 +1,12 @@
 import db from "@/lib/db.js";
 import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
+  areasOfInterest,
   groupMembership,
   groups,
   mentorProfile,
   roles,
+  studentInterest,
   studentProfile,
   supervisorProfile,
   tracks,
@@ -32,6 +34,7 @@ export type User = {
   groupName: string | null;
   schoolName: string | null;
   yearLevel: number | null;
+  joinPermissionReceived: boolean;
   interests: string[];
   isActive: boolean;
   accountStatus: string;
@@ -49,6 +52,100 @@ export type TrackOption = {
 // Use high-resolution timestamp to generate unique bigint IDs for admin-scale writes
 const generateId = () => Date.now() * 1000 + Math.floor(Math.random() * 999);
 
+const normalizeInterestDescriptions = (interests: string[] | undefined) =>
+  Array.from(
+    new Set((interests ?? []).map((item) => item.trim()).filter(Boolean)),
+  );
+
+async function resolveInterestIds(executor: any, interests: string[] | undefined) {
+  const descriptions = normalizeInterestDescriptions(interests);
+  const ids: number[] = [];
+
+  for (const description of descriptions) {
+    const existing = await executor
+      .select({ id: areasOfInterest.id })
+      .from(areasOfInterest)
+      .where(sql`lower(${areasOfInterest.interestDesc}) = lower(${description})`);
+
+    if (existing[0]) {
+      ids.push(existing[0].id);
+      continue;
+    }
+
+    const id = generateId();
+    await executor.insert(areasOfInterest).values({
+      id,
+      interestDesc: description,
+    });
+    ids.push(id);
+  }
+
+  return ids;
+}
+
+async function syncStudentInterests(
+  executor: any,
+  userId: number,
+  interests: string[] | undefined,
+) {
+  await executor
+    .delete(studentInterest)
+    .where(eq(studentInterest.studentUserId, userId));
+
+  const interestIds = await resolveInterestIds(executor, interests);
+  if (!interestIds.length) return;
+
+  await executor.insert(studentInterest).values(
+    interestIds.map((interestId) => ({
+      id: generateId(),
+      studentUserId: userId,
+      interestId,
+    })),
+  );
+}
+
+async function upsertStudentProfile(
+  executor: any,
+  userId: number,
+  input: Pick<
+    CreateUserInput | UpdateUserInput,
+    "schoolName" | "yearLevel" | "joinPermissionReceived"
+  >,
+) {
+  const existing = await executor
+    .select({ userId: studentProfile.userId })
+    .from(studentProfile)
+    .where(eq(studentProfile.userId, userId));
+
+  const values = {
+    schoolName: input.schoolName?.trim() || null,
+    yearLevel: input.yearLevel ?? null,
+    joinPermissionReceived: input.joinPermissionReceived ?? false,
+    joinPermissionResponseId: null,
+  };
+
+  if (existing[0]) {
+    await executor
+      .update(studentProfile)
+      .set(values)
+      .where(eq(studentProfile.userId, userId));
+    return;
+  }
+
+  await executor.insert(studentProfile).values({
+    userId,
+    supervisorUserId: null,
+    ...values,
+  });
+}
+
+async function deleteStudentDetails(executor: any, userId: number) {
+  await executor
+    .delete(studentInterest)
+    .where(eq(studentInterest.studentUserId, userId));
+  await executor.delete(studentProfile).where(eq(studentProfile.userId, userId));
+}
+
 const userSelect = {
   id: users.id,
   firstName: users.firstName,
@@ -59,6 +156,7 @@ const userSelect = {
   groupName: groups.groupName,
   schoolName: sql<string | null>`COALESCE(${studentProfile.schoolName}, ${supervisorProfile.schoolName})`,
   yearLevel: studentProfile.yearLevel,
+  joinPermissionReceived: studentProfile.joinPermissionReceived,
   interests: sql<string[]>`COALESCE(
     (SELECT array_agg(aoi.interest_desc) FROM student_interest si JOIN areas_of_interest aoi ON aoi.id = si.interest_id WHERE si.student_user_id = ${users.id}),
     (SELECT array_agg(aoi.interest_desc) FROM mentor_interest mi JOIN areas_of_interest aoi ON aoi.id = mi.interest_id WHERE mi.mentor_user_id = ${users.id}),
@@ -185,6 +283,17 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   if (existing.length > 0) return { msg: "Email already exists", data: null };
 
   if (!input.track) return { msg: "Track is required", data: null };
+  if (input.role === "student") {
+    if (!input.schoolName?.trim()) {
+      return { msg: "School is required for student users", data: null };
+    }
+    if (!input.yearLevel) {
+      return { msg: "Age / year level is required for student users", data: null };
+    }
+    if (!input.interests?.length) {
+      return { msg: "At least one interest is required for student users", data: null };
+    }
+  }
 
   const trackRow = await db
     .select({ id: tracks.id })
@@ -203,24 +312,31 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   const now = new Date().toISOString();
   const userId = generateId();
 
-  await db.insert(users).values({
-    id: userId,
-    email: input.email,
-    firstName: input.firstName,
-    lastName: input.lastName,
-    isActive: true,
-    trackId: trackRow[0].id,
-    accountStatus: "active",
-    invitedAt: now,
-    adminUserId,
-  });
+  await db.transaction(async (tx) => {
+    await tx.insert(users).values({
+      id: userId,
+      email: input.email,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      isActive: input.active ?? true,
+      trackId: trackRow[0].id,
+      accountStatus: input.active === false ? "deactivated" : "active",
+      invitedAt: now,
+      adminUserId,
+    });
 
-  await db.insert(userRoleAssignment).values({
-    id: generateId(),
-    userId,
-    roleId: roleRow[0].id,
-    validFrom: now,
-    validTo: null,
+    await tx.insert(userRoleAssignment).values({
+      id: generateId(),
+      userId,
+      roleId: roleRow[0].id,
+      validFrom: now,
+      validTo: null,
+    });
+
+    if (input.role === "student") {
+      await upsertStudentProfile(tx, userId, input);
+      await syncStudentInterests(tx, userId, input.interests);
+    }
   });
 
   const created = await fetchUserById(userId);
@@ -256,10 +372,27 @@ export async function updateUser(id: string, input: UpdateUserInput) {
 
   const now = new Date().toISOString();
   const userUpdates: Partial<typeof users.$inferInsert> = {};
+  const nextRole = input.role ?? existing.role;
 
   if (input.firstName !== undefined) userUpdates.firstName = input.firstName;
   if (input.lastName !== undefined) userUpdates.lastName = input.lastName;
   if (input.email !== undefined) userUpdates.email = input.email;
+
+  if (nextRole === "student") {
+    const nextSchoolName = input.schoolName ?? existing.schoolName;
+    const nextYearLevel = input.yearLevel ?? existing.yearLevel;
+    const nextInterests = input.interests ?? existing.interests;
+
+    if (!nextSchoolName?.trim()) {
+      return { msg: "School is required for student users", data: null };
+    }
+    if (!nextYearLevel) {
+      return { msg: "Age / year level is required for student users", data: null };
+    }
+    if (!nextInterests?.length) {
+      return { msg: "At least one interest is required for student users", data: null };
+    }
+  }
 
   if (input.track !== undefined) {
     if (input.track === null)
@@ -274,35 +407,57 @@ export async function updateUser(id: string, input: UpdateUserInput) {
     userUpdates.trackId = trackRow[0].id;
   }
 
-  if (Object.keys(userUpdates).length > 0) {
-    await db.update(users).set(userUpdates).where(eq(users.id, userId));
-  }
+  try {
+    await db.transaction(async (tx) => {
+      if (Object.keys(userUpdates).length > 0) {
+        await tx.update(users).set(userUpdates).where(eq(users.id, userId));
+      }
 
-  if (input.role !== undefined && input.role !== existing.role) {
-    const roleRow = await db
-      .select({ id: roles.id })
-      .from(roles)
-      .where(eq(roles.slug, input.role));
-    if (roleRow.length === 0)
-      return { msg: `Role "${input.role}" not found`, data: null };
+      if (input.role !== undefined && input.role !== existing.role) {
+        const roleRow = await tx
+          .select({ id: roles.id })
+          .from(roles)
+          .where(eq(roles.slug, input.role));
+        if (roleRow.length === 0) {
+          throw new Error(`Role "${input.role}" not found`);
+        }
 
-    await db
-      .update(userRoleAssignment)
-      .set({ validTo: now })
-      .where(
-        and(
-          eq(userRoleAssignment.userId, userId),
-          isNull(userRoleAssignment.validTo),
-        ),
-      );
+        await tx
+          .update(userRoleAssignment)
+          .set({ validTo: now })
+          .where(
+            and(
+              eq(userRoleAssignment.userId, userId),
+              isNull(userRoleAssignment.validTo),
+            ),
+          );
 
-    await db.insert(userRoleAssignment).values({
-      id: generateId(),
-      userId,
-      roleId: roleRow[0].id,
-      validFrom: now,
-      validTo: null,
+        await tx.insert(userRoleAssignment).values({
+          id: generateId(),
+          userId,
+          roleId: roleRow[0].id,
+          validFrom: now,
+          validTo: null,
+        });
+      }
+
+      if (nextRole === "student") {
+        await upsertStudentProfile(tx, userId, {
+          schoolName: input.schoolName ?? existing.schoolName,
+          yearLevel: input.yearLevel ?? existing.yearLevel,
+          joinPermissionReceived:
+            input.joinPermissionReceived ?? existing.joinPermissionReceived,
+        });
+        await syncStudentInterests(tx, userId, input.interests ?? existing.interests);
+      } else if (existing.role === "student") {
+        await deleteStudentDetails(tx, userId);
+      }
     });
+  } catch (error) {
+    return {
+      msg: error instanceof Error ? error.message : "Unable to update user",
+      data: null,
+    };
   }
 
   const updated = await fetchUserById(userId);
@@ -335,6 +490,7 @@ export async function deleteUser(id: string) {
   await db
     .delete(userRoleAssignment)
     .where(eq(userRoleAssignment.userId, userId));
+  await db.delete(studentInterest).where(eq(studentInterest.studentUserId, userId));
   await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
   await db
     .delete(supervisorProfile)

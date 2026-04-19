@@ -11,7 +11,8 @@ export const TRACKS = [
   "GLOBAL",
 ] as const;
 
-const trackCodeSchema = z.enum(TRACKS);
+const trackCodeSchema = z.string().trim().min(1);
+const interestListSchema = z.array(z.string().trim().min(1)).default([]);
 
 export const queryUsersSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -39,6 +40,10 @@ export const createUserSchema = z.object({
   email: z.string().email(),
   role: z.enum(ROLES),
   track: trackCodeSchema.optional(),
+  schoolName: z.string().trim().max(255).optional(),
+  yearLevel: z.coerce.number().int().min(10).max(30).optional(),
+  interests: interestListSchema.optional(),
+  joinPermissionReceived: z.coerce.boolean().optional(),
   groupId: z.string().optional(),
   active: z.coerce.boolean().optional(),
 });
@@ -53,6 +58,10 @@ export const updateUserSchema = z.object({
   email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
   track: trackCodeSchema.nullable().optional(),
+  schoolName: z.string().trim().max(255).nullable().optional(),
+  yearLevel: z.coerce.number().int().min(10).max(30).nullable().optional(),
+  interests: interestListSchema.optional(),
+  joinPermissionReceived: z.coerce.boolean().optional(),
   groupId: z.string().nullable().optional(),
   active: z.coerce.boolean().optional(),
 });
