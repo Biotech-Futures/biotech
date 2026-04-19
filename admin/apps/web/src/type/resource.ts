@@ -6,6 +6,7 @@ export type ResourceRole = {
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
 export type ResourceKind = "file" | "page";
 export type ResourceOrder = "newest" | "oldest";
+export type VisibilityScope = "global" | "track_based" | "role_based";
 
 export type ResourceTypeOption = {
   value: ResourceTypeName;
@@ -35,9 +36,9 @@ export type ResourceTrackOption = {
 
 export type Resource = {
   id: number;
-  uploader_user_id: number;
+  uploader_user_id: string | number;
   track_id: number | null;
-  visibility_scope: string;
+  visibility_scope: VisibilityScope;
   uploaded_at: string;
   deleted_at: string | null;
   resource_kind: ResourceKind;

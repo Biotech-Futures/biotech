@@ -18,6 +18,7 @@ import {
   removeRoleFromResource,
   listResourceRoles,
   listResourceTypes,
+  listResourceTracks,
 } from "./service.js";
 import type { AuthUploader } from "./service.js";
 
@@ -41,6 +42,11 @@ resourceRoute.get("/roles", async (c) => {
 
 resourceRoute.get("/types", (c) => {
   const result = listResourceTypes();
+  return c.json(result);
+});
+
+resourceRoute.get("/tracks", async (c) => {
+  const result = await listResourceTracks();
   return c.json(result);
 });
 
@@ -95,6 +101,10 @@ resourceRoute.post("/upload", async (c) => {
   const resourceDescription = String(getValue(body.resource_description) ?? "").trim();
   const resourceTypeRaw = getValue(body.resource_type);
   const resourceType = resourceTypeRaw ? String(resourceTypeRaw) : undefined;
+  const visibilityScopeRaw = getValue(body.visibility_scope);
+  const visibilityScope = visibilityScopeRaw
+    ? String(visibilityScopeRaw)
+    : undefined;
   const trackIdRaw = getValue(body.track_id);
   const trackId =
     trackIdRaw !== undefined && trackIdRaw !== null && String(trackIdRaw).trim() !== ""
@@ -124,6 +134,7 @@ resourceRoute.post("/upload", async (c) => {
       | "video"
       | "template"
       | undefined,
+    visibility_scope: visibilityScope as "global" | "track_based" | "role_based" | undefined,
     track_id: Number.isFinite(trackId) ? trackId : undefined,
     role_ids: roleIds,
     file_name: file.name,

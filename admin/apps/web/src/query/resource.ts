@@ -5,6 +5,7 @@ import type {
   Resource,
   ResourceKind,
   ResourceRole,
+  ResourceTrackOption,
   ResourceOrder,
   ResourceTypeOption,
   ResourceTypeName,
@@ -69,6 +70,18 @@ export function useQueryResourceTypes() {
     queryKey: ["resource-types"],
     queryFn: async () => {
       const res = await myFetch.get<{ msg: string; data: ResourceTypeOption[] }>("/resource/types");
+      return res.data;
+    },
+  });
+}
+
+export function useQueryResourceTracks() {
+  return useQuery({
+    queryKey: ["resource-tracks"],
+    queryFn: async () => {
+      const res = await myFetch.get<{ msg: string; data: ResourceTrackOption[] }>(
+        "/resource/tracks",
+      );
       return res.data;
     },
   });

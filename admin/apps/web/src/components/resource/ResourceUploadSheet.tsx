@@ -20,6 +20,8 @@ import {
 import type { ResourceKind, ResourceTypeName } from "@/type/resource";
 import { RESOURCE_TRACKS } from "@/type/resource";
 
+type VisibilityMode = "global" | "track_based" | "role_based";
+
 interface ResourceUploadSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,13 +36,14 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
   const [resourceName, setResourceName] = useState("");
   const [resourceDescription, setResourceDescription] = useState("");
   const [resourceKind, setResourceKind] = useState<ResourceKind>("file");
+  const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>("global");
   const [resourceType, setResourceType] = useState<ResourceTypeName | "">("");
   const [trackId, setTrackId] = useState<string>("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [contentHtml, setContentHtml] = useState("");
   const [htmlFileName, setHtmlFileName] = useState("");
-  const [showHtmlEditor, setShowHtmlEditor] = useState(true);
+  const [showHtmlEditor, setShowHtmlEditor] = useState(false);
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const roles = rolesData?.data ?? [];
@@ -57,13 +60,14 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     setResourceName("");
     setResourceDescription("");
     setResourceKind("file");
+    setVisibilityMode("global");
     setResourceType("");
     setTrackId("");
     setRoleIds([]);
     setFile(null);
     setContentHtml("");
     setHtmlFileName("");
-    setShowHtmlEditor(true);
+    setShowHtmlEditor(false);
     setShowHtmlPreview(false);
   };
 
@@ -97,6 +101,17 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
       window.alert("Resource description is required.");
       return;
     }
+    if (!trackId) {
+      window.alert("Track is required.");
+      return;
+    }
+    if (roleIds.length === 0) {
+      window.alert("Please select at least one role.");
+      return;
+    }
+
+    const finalTrackId = Number(trackId);
+    const finalRoleIds = roleIds;
 
     if (resourceKind === "page") {
       if (!contentHtml.trim()) {
@@ -110,9 +125,10 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
           resource_description: resourceDescription.trim(),
           resource_kind: "page",
           content_html: contentHtml.trim(),
+          visibility_scope: visibilityMode,
           resource_type: resourceType || "guide",
-          track_id: trackId ? Number(trackId) : undefined,
-          role_ids: roleIds,
+          track_id: finalTrackId,
+          role_ids: finalRoleIds,
         },
         {
           onSuccess: () => {
@@ -133,8 +149,9 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     formData.append("file", file);
     formData.append("resource_name", resourceName.trim());
     formData.append("resource_description", resourceDescription.trim());
+    formData.append("visibility_scope", visibilityMode);
     if (resourceType) formData.append("resource_type", resourceType);
-    if (trackId) formData.append("track_id", trackId);
+    formData.append("track_id", trackId);
     roleIds.forEach((roleId) => formData.append("role_ids", String(roleId)));
 
     uploadResource(formData, {
@@ -316,8 +333,28 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor="upload-visibility-mode">Visibility</Label>
+            <Select
+              value={visibilityMode}
+              onValueChange={(value) => setVisibilityMode(value as VisibilityMode)}
+            >
+              <SelectTrigger id="upload-visibility-mode">
+                <SelectValue placeholder="Select visibility mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="global">Global</SelectItem>
+                <SelectItem value="track_based">Track-based</SelectItem>
+                <SelectItem value="role_based">Role-based</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="upload-resource-track">Track</Label>
-            <Select value={trackId || "none"} onValueChange={(value) => setTrackId(value === "none" ? "" : value)}>
+            <Select
+              value={trackId || "none"}
+              onValueChange={(value) => setTrackId(value === "none" ? "" : value)}
+            >
               <SelectTrigger id="upload-resource-track">
                 <SelectValue placeholder="Select track" />
               </SelectTrigger>

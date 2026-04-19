@@ -8,6 +8,20 @@
       "when": 1775881845503,
       "tag": "0000_parched_nemesis",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776589147565,
+      "tag": "0001_bumpy_earthquake",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776591618023,
+      "tag": "0002_tough_living_mummy",
+      "breakpoints": true
     }
   ]
 }

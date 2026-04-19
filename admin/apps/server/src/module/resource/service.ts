@@ -1,9 +1,10 @@
 import db from "@/lib/db.js";
 import {
+  adminUser,
   resources,
   resourceAudience,
   roles,
-  users,
+  tracks,
 } from "@/drizzle/schema.js";
 import {
   and,
@@ -37,14 +38,21 @@ export type Role = {
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
 export type ResourceKind = "file" | "page";
+export type VisibilityScope = "global" | "track_based" | "role_based";
 
 export type ResourceTypeOption = {
   value: ResourceTypeName;
   label: string;
 };
 
-export type ResourceUploader = {
+export type ResourceTrackOption = {
   id: number;
+  code: string;
+  label: string;
+};
+
+export type ResourceUploader = {
+  id: string | number;
   first_name: string;
   last_name: string;
   email: string;
@@ -58,7 +66,7 @@ export type AuthUploader = {
 
 export type ResourceRow = {
   id: number;
-  uploader_user_id: number;
+  uploader_user_id: string | number;
   track_id: number | null;
   visibility_scope: string;
   uploaded_at: string;
@@ -97,7 +105,8 @@ let demoAudienceRows: DemoResourceAudienceRow[] = demoResourceAudience.map((item
 let demoUploadersState: ResourceUploader[] = FALLBACK_UPLOADERS.map((item) => ({ ...item }));
 let nextDemoResourceId = Math.max(0, ...demoRows.map((item) => item.id)) + 1;
 let nextDemoAudienceId = Math.max(0, ...demoAudienceRows.map((item) => item.id)) + 1;
-let nextDemoUploaderId = Math.max(100, ...demoUploadersState.map((item) => item.id)) + 1;
+let nextDemoUploaderId =
+  Math.max(100, ...demoUploadersState.map((item) => Number(item.id) || 0)) + 1;
 
 const uploadedFiles = new Map<
   string,
@@ -108,41 +117,17 @@ const uploadedFiles = new Map<
   }
 >();
 
-type DbResourceExtra = {
-  resource_kind: ResourceKind;
-  resource_name: string;
-  resource_description: string | null;
-  resource_type: ResourceTypeName | null;
-  content_html: string | null;
-  file_name: string | null;
-  file_mime_type: string | null;
-  file_size: number | null;
-  storage_key: string;
-};
-
-const dbResourceExtras = new Map<number, DbResourceExtra>();
-
-function getDbResourceExtra(id: number): DbResourceExtra {
-  return (
-    dbResourceExtras.get(id) ?? {
-      resource_kind: "file",
-      resource_name: `Resource ${id}`,
-      resource_description: null,
-      resource_type: null,
-      content_html: null,
-      file_name: null,
-      file_mime_type: null,
-      file_size: null,
-      storage_key: buildStorageKey(id),
-    }
-  );
-}
-
 function normalizeRoleIds(roleIds: number[] = [], availableRoles: Role[]): number[] {
   const adminRole = availableRoles.find((item) => item.slug === ADMIN_ROLE_SLUG);
   const validIds = roleIds.filter((roleId) => availableRoles.some((item) => item.id === roleId));
   const withAdmin = adminRole ? [...validIds, adminRole.id] : validIds;
   return Array.from(new Set(withAdmin));
+}
+
+function resolveVisibilityScope(trackId: number | null | undefined, roleIds: number[] = []) {
+  if (roleIds.length > 0) return "role_based" as const;
+  if (trackId !== null && trackId !== undefined) return "track_based" as const;
+  return "global" as const;
 }
 
 function buildStorageKey(resourceId: number, fileName?: string | null) {
@@ -199,61 +184,50 @@ function parseName(name?: string | null) {
 
 async function resolveUploaderForDb(authUploader?: AuthUploader): Promise<ResourceUploader> {
   if (authUploader?.id) {
-    const byAdminUserId = await db
+    const byId = await db
       .select({
-        id: users.id,
-        first_name: users.firstName,
-        last_name: users.lastName,
-        email: users.email,
+        id: adminUser.id,
+        name: adminUser.name,
+        email: adminUser.email,
       })
-      .from(users)
-      .where(eq(users.adminUserId, authUploader.id))
+      .from(adminUser)
+      .where(eq(adminUser.id, authUploader.id))
       .limit(1);
 
-    if (byAdminUserId[0]) {
-      return byAdminUserId[0];
+    if (byId[0]) {
+      const parsed = parseName(byId[0].name);
+      return {
+        id: byId[0].id,
+        first_name: parsed.first,
+        last_name: parsed.last,
+        email: byId[0].email,
+      };
     }
   }
 
   if (authUploader?.email) {
     const matched = await db
       .select({
-        id: users.id,
-        first_name: users.firstName,
-        last_name: users.lastName,
-        email: users.email,
+        id: adminUser.id,
+        name: adminUser.name,
+        email: adminUser.email,
       })
-      .from(users)
-      .where(eq(users.email, authUploader.email))
+      .from(adminUser)
+      .where(eq(adminUser.email, authUploader.email))
       .limit(1);
 
     if (matched[0]) {
-      return matched[0];
+      const parsed = parseName(matched[0].name);
+      return {
+        id: matched[0].id,
+        first_name: parsed.first,
+        last_name: parsed.last,
+        email: matched[0].email,
+      };
     }
   }
 
-  const firstUser = await db
-    .select({
-      id: users.id,
-      first_name: users.firstName,
-      last_name: users.lastName,
-      email: users.email,
-    })
-    .from(users)
-    .orderBy(asc(users.id))
-    .limit(1);
-
-  if (firstUser[0]) {
-    return firstUser[0];
-  }
-
-  const parsed = parseName(authUploader?.name);
-  return {
-    id: FALLBACK_UPLOADERS[0]?.id ?? 1,
-    first_name: parsed.first,
-    last_name: parsed.last,
-    email: authUploader?.email || "admin@example.com",
-  };
+  throw new Error("Cannot resolve uploader: missing authenticated user mapping");
 }
 
 function resolveUploaderForDemo(authUploader?: AuthUploader): ResourceUploader {
@@ -300,10 +274,6 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
     conditions.push(eq(resources.uploaderUserId, params.uploader_user_id));
   }
 
-  if (params.track_id !== undefined) {
-    conditions.push(eq(resources.trackId, params.track_id));
-  }
-
   const rows = await db
     .select({
       id: resources.id,
@@ -312,18 +282,20 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
       visibility_scope: resources.visibilityScope,
       uploaded_at: resources.uploadedAt,
       deleted_at: resources.deletedAt,
+      resource_kind: sql<ResourceKind>`${resources.resourceKind}`,
+      resource_name: resources.resourceName,
+      resource_description: resources.resourceDescription,
+      resource_type: sql<ResourceTypeName | null>`${resources.resourceType}`,
+      content_html: resources.contentHtml,
+      file_name: resources.fileName,
+      file_mime_type: resources.fileMimeType,
+      file_size: resources.fileSize,
+      storage_key: resources.storageKey,
     })
     .from(resources)
     .where(and(...conditions))
     .orderBy(params.order === "oldest" ? asc(resources.uploadedAt) : desc(resources.uploadedAt));
-
-  return rows.map((row) => {
-    const extra = getDbResourceExtra(row.id);
-    return {
-      ...row,
-      ...extra,
-    };
-  }) as ResourceRow[];
+  return rows as ResourceRow[];
 }
 
 async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> {
@@ -335,31 +307,53 @@ async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> 
       visibility_scope: resources.visibilityScope,
       uploaded_at: resources.uploadedAt,
       deleted_at: resources.deletedAt,
+      resource_kind: sql<ResourceKind>`${resources.resourceKind}`,
+      resource_name: resources.resourceName,
+      resource_description: resources.resourceDescription,
+      resource_type: sql<ResourceTypeName | null>`${resources.resourceType}`,
+      content_html: resources.contentHtml,
+      file_name: resources.fileName,
+      file_mime_type: resources.fileMimeType,
+      file_size: resources.fileSize,
+      storage_key: resources.storageKey,
     })
     .from(resources)
     .where(and(eq(resources.id, id), isNull(resources.deletedAt)))
     .limit(1);
 
   if (!row[0]) return null;
-  const extra = getDbResourceExtra(row[0].id);
-  return { ...row[0], ...extra } as ResourceRow;
+  return row[0] as ResourceRow;
 }
 
 async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource[]> {
   if (!resourceRows.length) return [];
 
-  const uploaderIds = Array.from(new Set(resourceRows.map((item) => item.uploader_user_id)));
+  const uploaderIds = Array.from(
+    new Set(resourceRows.map((item) => String(item.uploader_user_id))),
+  );
   const uploaderRows = await db
     .select({
-      id: users.id,
-      first_name: users.firstName,
-      last_name: users.lastName,
-      email: users.email,
+      id: adminUser.id,
+      name: adminUser.name,
+      email: adminUser.email,
     })
-    .from(users)
-    .where(inArray(users.id, uploaderIds));
+    .from(adminUser)
+    .where(inArray(adminUser.id, uploaderIds));
 
-  const uploaderMap = new Map(uploaderRows.map((item) => [item.id, item] as const));
+  const uploaderMap = new Map(
+    uploaderRows.map((item) => {
+      const parsed = parseName(item.name);
+      return [
+        item.id,
+        {
+          id: item.id,
+          first_name: parsed.first,
+          last_name: parsed.last,
+          email: item.email,
+        },
+      ] as const;
+    }),
+  );
   const resourceIds = resourceRows.map((item) => item.id);
 
   const audienceRows = await db
@@ -390,7 +384,7 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
   return resourceRows.map((row) => ({
     ...row,
     uploader:
-      uploaderMap.get(row.uploader_user_id) ?? {
+      uploaderMap.get(String(row.uploader_user_id)) ?? {
         id: row.uploader_user_id,
         first_name: "Unknown",
         last_name: "User",
@@ -424,6 +418,18 @@ export async function queryResources(params: QueryResourcesInput) {
     );
   }
 
+  if (params.uploader_user_id !== undefined) {
+    resourcesList = resourcesList.filter(
+      (item) => String(item.uploader_user_id) === String(params.uploader_user_id),
+    );
+  }
+
+  if (params.track_id !== undefined) {
+    resourcesList = resourcesList.filter(
+      (item) => item.track_id === params.track_id || item.visibility_scope === "global",
+    );
+  }
+
   if (params.resource_type) {
     resourcesList = resourcesList.filter((item) => item.resource_type === params.resource_type);
   }
@@ -443,6 +449,7 @@ export async function queryResources(params: QueryResourcesInput) {
   if (role_slug) {
     const keyword = role_slug.toLowerCase();
     resourcesList = resourcesList.filter((item) =>
+      item.visibility_scope === "global" ||
       item.audiences.some((audience) => audience.role?.slug.toLowerCase().includes(keyword)),
     );
   }
@@ -516,15 +523,19 @@ export async function queryResourceById(id: number) {
 
 export async function createResource(payload: CreateResourceInput, uploader?: AuthUploader) {
   if (useResourceDemoData()) {
-    const roleIds = normalizeRoleIds(payload.role_ids, FALLBACK_ROLES);
+    const requestedRoleIds = payload.role_ids ?? [];
+    const visibilityScope: VisibilityScope =
+      payload.visibility_scope ?? resolveVisibilityScope(payload.track_id, requestedRoleIds);
+    const roleIds = normalizeRoleIds(requestedRoleIds, FALLBACK_ROLES);
+    const trackId = payload.track_id ?? null;
     const authUploader = resolveUploaderForDemo(uploader);
     const id = nextDemoResourceId++;
 
     const row: DemoResourceRow = {
       id,
-      uploader_user_id: authUploader.id,
-      track_id: payload.track_id ?? null,
-      visibility_scope: "role_based",
+      uploader_user_id: Number(authUploader.id),
+      track_id: trackId,
+      visibility_scope: visibilityScope,
       uploaded_at: new Date().toISOString(),
       deleted_at: null,
       resource_kind: payload.resource_kind ?? "file",
@@ -557,28 +568,30 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
 
   const uploaderProfile = await resolveUploaderForDb(uploader);
   const availableRoles = await getRolesFromDb();
-  const roleIds = normalizeRoleIds(payload.role_ids, availableRoles);
+  const requestedRoleIds = payload.role_ids ?? [];
+  const visibilityScope: VisibilityScope =
+    payload.visibility_scope ?? resolveVisibilityScope(payload.track_id, requestedRoleIds);
+  const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
+  const trackId = payload.track_id ?? null;
   const id = await nextResourceIdFromDb();
   const storageKey = buildStorageKey(id);
 
   await db.insert(resources).values({
     id,
-    uploaderUserId: uploaderProfile.id,
-    trackId: payload.track_id ?? null,
-    visibilityScope: "role_based",
+    uploaderUserId: String(uploaderProfile.id),
+    trackId,
+    visibilityScope,
     uploadedAt: new Date().toISOString(),
     deletedAt: null,
-  });
-  dbResourceExtras.set(id, {
-    resource_kind: payload.resource_kind ?? "file",
-    resource_name: payload.resource_name,
-    resource_description: payload.resource_description,
-    resource_type: payload.resource_type ?? "guide",
-    content_html: payload.resource_kind === "page" ? (payload.content_html ?? "") : null,
-    file_name: null,
-    file_mime_type: null,
-    file_size: null,
-    storage_key: storageKey,
+    resourceName: payload.resource_name,
+    resourceDescription: payload.resource_description,
+    resourceType: payload.resource_type ?? null,
+    resourceKind: payload.resource_kind ?? "file",
+    contentHtml: payload.resource_kind === "page" ? (payload.content_html ?? "") : null,
+    fileName: null,
+    fileMimeType: null,
+    fileSize: null,
+    storageKey,
   });
 
   let nextAudienceId = await nextAudienceIdFromDb();
@@ -588,7 +601,7 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
         id: nextAudienceId++,
         resourceId: id,
         roleId,
-        trackId: payload.track_id ?? null,
+        trackId,
       })),
     );
   }
@@ -603,6 +616,7 @@ export async function uploadResource(payload: {
   resource_name: string;
   resource_description: string;
   resource_type?: ResourceTypeName;
+  visibility_scope?: VisibilityScope;
   track_id?: number;
   role_ids?: number[];
   file_name: string;
@@ -617,6 +631,9 @@ export async function uploadResource(payload: {
         resource_name: payload.resource_name,
         resource_description: payload.resource_description,
         resource_type: payload.resource_type,
+        visibility_scope:
+          payload.visibility_scope ??
+          resolveVisibilityScope(payload.track_id, payload.role_ids ?? []),
         resource_kind: "file",
         content_html: null,
         track_id: payload.track_id,
@@ -668,28 +685,30 @@ export async function uploadResource(payload: {
 
   const uploaderProfile = await resolveUploaderForDb(payload.uploader);
   const availableRoles = await getRolesFromDb();
-  const roleIds = normalizeRoleIds(payload.role_ids, availableRoles);
+  const requestedRoleIds = payload.role_ids ?? [];
+  const visibilityScope: VisibilityScope =
+    payload.visibility_scope ?? resolveVisibilityScope(payload.track_id, requestedRoleIds);
+  const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
+  const trackId = payload.track_id ?? null;
   const id = await nextResourceIdFromDb();
   const storageKey = buildStorageKey(id, payload.file_name);
 
   await db.insert(resources).values({
     id,
-    uploaderUserId: uploaderProfile.id,
-    trackId: payload.track_id ?? null,
-    visibilityScope: "role_based",
+    uploaderUserId: String(uploaderProfile.id),
+    trackId,
+    visibilityScope,
     uploadedAt: new Date().toISOString(),
     deletedAt: null,
-  });
-  dbResourceExtras.set(id, {
-    resource_kind: "file",
-    resource_name: payload.resource_name,
-    resource_description: payload.resource_description,
-    resource_type: payload.resource_type ?? null,
-    content_html: null,
-    file_name: payload.file_name,
-    file_mime_type: payload.file_mime_type || "application/octet-stream",
-    file_size: payload.file_size,
-    storage_key: storageKey,
+    resourceName: payload.resource_name,
+    resourceDescription: payload.resource_description,
+    resourceType: payload.resource_type ?? null,
+    resourceKind: "file",
+    contentHtml: null,
+    fileName: payload.file_name,
+    fileMimeType: payload.file_mime_type || "application/octet-stream",
+    fileSize: payload.file_size,
+    storageKey,
   });
 
   let nextAudienceId = await nextAudienceIdFromDb();
@@ -699,7 +718,7 @@ export async function uploadResource(payload: {
         id: nextAudienceId++,
         resourceId: id,
         roleId,
-        trackId: payload.track_id ?? null,
+        trackId,
       })),
     );
   }
@@ -753,6 +772,19 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
     }
 
     const current = demoRows[index];
+    const adminRoleId = FALLBACK_ROLES.find((role) => role.slug === ADMIN_ROLE_SLUG)?.id;
+    const currentNonAdminRoleIds = demoAudienceRows
+      .filter((item) => item.resource_id === id && item.role_id !== null)
+      .map((item) => item.role_id as number)
+      .filter((roleId) => roleId !== adminRoleId);
+    const requestedRoleIds =
+      updates.role_ids === undefined ? currentNonAdminRoleIds : updates.role_ids;
+    const nextTrackId = updates.track_id === undefined ? current.track_id : updates.track_id;
+    const visibilityScope: VisibilityScope =
+      updates.visibility_scope ??
+      (current.visibility_scope as VisibilityScope) ??
+      resolveVisibilityScope(nextTrackId, requestedRoleIds);
+
     const updated: DemoResourceRow = {
       ...current,
       resource_kind: updates.resource_kind ?? current.resource_kind,
@@ -762,7 +794,8 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
         updates.resource_type === undefined ? current.resource_type : updates.resource_type,
       content_html:
         updates.content_html === undefined ? current.content_html : updates.content_html,
-      track_id: updates.track_id === undefined ? current.track_id : updates.track_id,
+      visibility_scope: visibilityScope,
+      track_id: nextTrackId,
     };
     if (updated.resource_kind === "page") {
       updated.file_name = null;
@@ -771,8 +804,8 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
     }
     demoRows[index] = updated;
 
-    if (updates.role_ids) {
-      const roleIds = normalizeRoleIds(updates.role_ids, FALLBACK_ROLES);
+    if (updates.role_ids !== undefined) {
+      const roleIds = normalizeRoleIds(requestedRoleIds, FALLBACK_ROLES);
       demoAudienceRows = demoAudienceRows.filter((item) => item.resource_id !== id);
       demoAudienceRows.push(
         ...roleIds.map((roleId) => ({
@@ -796,32 +829,43 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
   }
 
   const current = existing.data;
+  const currentNonAdminRoleIds = current.audiences
+    .filter((item) => item.role_id !== null && item.role?.slug !== ADMIN_ROLE_SLUG)
+    .map((item) => item.role_id as number);
+  const requestedRoleIds =
+    updates.role_ids === undefined ? currentNonAdminRoleIds : updates.role_ids;
+  const nextTrackId = updates.track_id === undefined ? current.track_id : updates.track_id;
+  const visibilityScope: VisibilityScope =
+    updates.visibility_scope ??
+    (current.visibility_scope as VisibilityScope) ??
+    resolveVisibilityScope(nextTrackId, requestedRoleIds);
+
   await db
     .update(resources)
     .set({
-      trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+      trackId: nextTrackId,
+      visibilityScope,
+      resourceName: updates.resource_name ?? current.resource_name,
+      resourceDescription: updates.resource_description ?? current.resource_description,
+      resourceType:
+        updates.resource_type === undefined ? current.resource_type : updates.resource_type,
+      resourceKind: updates.resource_kind ?? current.resource_kind,
+      contentHtml:
+        updates.content_html === undefined ? current.content_html : updates.content_html,
+      fileName:
+        (updates.resource_kind ?? current.resource_kind) === "page" ? null : current.file_name,
+      fileMimeType:
+        (updates.resource_kind ?? current.resource_kind) === "page"
+          ? null
+          : current.file_mime_type,
+      fileSize:
+        (updates.resource_kind ?? current.resource_kind) === "page" ? null : current.file_size,
     })
     .where(eq(resources.id, id));
 
-  dbResourceExtras.set(id, {
-    resource_kind: updates.resource_kind ?? current.resource_kind,
-    resource_name: updates.resource_name ?? current.resource_name,
-    resource_description: updates.resource_description ?? current.resource_description,
-    resource_type:
-      updates.resource_type === undefined
-        ? current.resource_type
-        : updates.resource_type,
-    content_html:
-      updates.content_html === undefined ? current.content_html : updates.content_html,
-    file_name: updates.resource_kind === "page" ? null : current.file_name,
-    file_mime_type: updates.resource_kind === "page" ? null : current.file_mime_type,
-    file_size: updates.resource_kind === "page" ? null : current.file_size,
-    storage_key: current.storage_key,
-  });
-
-  if (updates.role_ids) {
+  if (updates.role_ids !== undefined) {
     const availableRoles = await getRolesFromDb();
-    const roleIds = normalizeRoleIds(updates.role_ids, availableRoles);
+    const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
     await db.delete(resourceAudience).where(eq(resourceAudience.resourceId, id));
 
     let nextAudienceId = await nextAudienceIdFromDb();
@@ -831,7 +875,7 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
           id: nextAudienceId++,
           resourceId: id,
           roleId,
-          trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+          trackId: nextTrackId,
         })),
       );
     }
@@ -867,7 +911,6 @@ export async function deleteResource(id: number) {
     .set({ deletedAt: new Date().toISOString() })
     .where(eq(resources.id, id));
 
-  dbResourceExtras.delete(id);
   uploadedFiles.delete(existing.data.storage_key);
 
   return {
@@ -990,5 +1033,24 @@ export function listResourceTypes() {
   return {
     msg: "Resource types retrieved successfully",
     data: FALLBACK_TYPES,
+  };
+}
+
+export async function listResourceTracks() {
+  const rows = await db
+    .select({
+      id: tracks.id,
+      code: tracks.trackCode,
+    })
+    .from(tracks)
+    .orderBy(asc(tracks.trackCode));
+
+  return {
+    msg: "Tracks retrieved successfully",
+    data: rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      label: row.code,
+    })),
   };
 }

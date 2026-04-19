@@ -60,9 +60,16 @@ export function createResourceColumns({
       id: "visibility",
       header: "Visibility",
       cell: ({ row }) => {
+        return <span>{row.original.visibility_scope}</span>;
+      },
+    },
+    {
+      id: "role",
+      header: "Role",
+      cell: ({ row }) => {
         const roleSlugs = getVisibleRoleSlugs(row.original);
         if (!roleSlugs.length) {
-          return <span className="text-muted-foreground text-sm">Admin default visibility</span>;
+          return <span className="text-muted-foreground text-sm">-</span>;
         }
         return <span>{roleSlugs.join(", ")}</span>;
       },

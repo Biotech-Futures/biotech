@@ -11,6 +11,7 @@ import {
   downloadResourceFile,
   useDeleteResource,
   useQueryResourceRoles,
+  useQueryResourceTracks,
   useQueryResources,
   useUpdateResource,
 } from "@/query/resource";
@@ -19,6 +20,7 @@ import type {
   ResourceOrder,
   ResourceTypeName,
 } from "@/type/resource";
+import { RESOURCE_TRACKS } from "@/type/resource";
 import { Button } from "@/components/ui/button";
 import { UploadIcon } from "lucide-react";
 
@@ -60,6 +62,7 @@ function ResourcePage() {
   const { mutate: deleteResource, mutateAsync: deleteResourceAsync } = useDeleteResource();
   const { mutateAsync: updateResourceAsync } = useUpdateResource();
   const { data: rolesData } = useQueryResourceRoles();
+  const { data: tracksData } = useQueryResourceTracks();
 
   useEffect(() => {
     setPage(1);
@@ -186,6 +189,7 @@ function ResourcePage() {
         onOrderChange={setOrder}
         type={resourceType}
         onTypeChange={setResourceType}
+        trackOptions={tracksData?.data?.length ? tracksData.data : RESOURCE_TRACKS}
         actionSlot={
           <div className="flex items-center gap-2">
             <Button

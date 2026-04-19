@@ -9,8 +9,8 @@ import { Label } from "@/components/ui/label";
 import { ArrowUpDown, SearchIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
-import type { ResourceOrder, ResourceTypeName } from "@/type/resource";
-import { RESOURCE_TRACKS, RESOURCE_TYPES } from "@/type/resource";
+import type { ResourceOrder, ResourceTrackOption, ResourceTypeName } from "@/type/resource";
+import { RESOURCE_TYPES } from "@/type/resource";
 
 interface ResourceFiltersProps {
   search: string;
@@ -23,6 +23,7 @@ interface ResourceFiltersProps {
   onOrderChange: (value: ResourceOrder) => void;
   type: ResourceTypeName | undefined;
   onTypeChange: (value: ResourceTypeName | undefined) => void;
+  trackOptions: ResourceTrackOption[];
   actionSlot?: ReactNode;
 }
 
@@ -37,6 +38,7 @@ export function ResourceFilters({
   onOrderChange,
   type,
   onTypeChange,
+  trackOptions,
   actionSlot,
 }: ResourceFiltersProps) {
   const [localSearch, setLocalSearch] = useState(search);
@@ -74,7 +76,7 @@ export function ResourceFilters({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Tracks</SelectItem>
-                {RESOURCE_TRACKS.map((track) => (
+                {trackOptions.map((track) => (
                   <SelectItem key={track.id} value={String(track.id)}>
                     {track.code}
                   </SelectItem>

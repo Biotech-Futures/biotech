@@ -468,8 +468,7 @@ export const resources = pgTable(
   {
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     id: bigint({ mode: "number" }).primaryKey().notNull(),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    uploaderUserId: bigint("uploader_user_id", { mode: "number" }).notNull(),
+    uploaderUserId: text("uploader_user_id").notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     trackId: bigint("track_id", { mode: "number" }),
     visibilityScope: varchar("visibility_scope", { length: 50 }).notNull(),
@@ -478,6 +477,16 @@ export const resources = pgTable(
       mode: "string",
     }).notNull(),
     deletedAt: timestamp("deleted_at", { precision: 6, mode: "string" }),
+    resourceName: varchar("resource_name", { length: 255 }).notNull(),
+    resourceDescription: varchar("resource_description", { length: 1000 }),
+    resourceType: varchar("resource_type", { length: 50 }),
+    resourceKind: varchar("resource_kind", { length: 20 }).notNull(),
+    contentHtml: text("content_html"),
+    fileName: varchar("file_name", { length: 255 }),
+    fileMimeType: varchar("file_mime_type", { length: 100 }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    fileSize: bigint("file_size", { mode: "number" }),
+    storageKey: varchar("storage_key", { length: 500 }).notNull(),
   },
   (table) => [
     foreignKey({
@@ -487,7 +496,7 @@ export const resources = pgTable(
     }),
     foreignKey({
       columns: [table.uploaderUserId],
-      foreignColumns: [users.id],
+      foreignColumns: [adminUser.id],
       name: "resources_uploader_user_id_fkey",
     }),
   ],

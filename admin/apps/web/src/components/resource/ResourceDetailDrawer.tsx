@@ -29,6 +29,8 @@ import {
 import { useQueryResourceRoles, useUpdateResource } from "@/query/resource";
 import { updateResourceSchema } from "@/schema/resource";
 
+type VisibilityMode = "global" | "track_based" | "role_based";
+
 interface ResourceDetailDrawerProps {
   resource: Resource | null;
   open: boolean;
@@ -56,6 +58,7 @@ export function ResourceDetailDrawer({
     resource_name: string;
     resource_description: string;
     resource_kind: ResourceKind;
+    visibility_mode: VisibilityMode;
     track_id: number | null;
     resource_type: ResourceTypeName | null;
     content_html: string;
@@ -64,13 +67,14 @@ export function ResourceDetailDrawer({
     resource_name: "",
     resource_description: "",
     resource_kind: "file",
+    visibility_mode: "global",
     track_id: null,
     resource_type: null,
     content_html: "",
     role_ids: [],
   });
   const [htmlFileName, setHtmlFileName] = useState("");
-  const [showHtmlEditor, setShowHtmlEditor] = useState(true);
+  const [showHtmlEditor, setShowHtmlEditor] = useState(false);
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const visibleRoleSlugs = useMemo(() => {
@@ -88,6 +92,16 @@ export function ResourceDetailDrawer({
       resource_name: resource.resource_name,
       resource_description: resource.resource_description ?? "",
       resource_kind: resource.resource_kind,
+      visibility_mode:
+        resource.visibility_scope === "global" ||
+        resource.visibility_scope === "track_based" ||
+        resource.visibility_scope === "role_based"
+          ? (resource.visibility_scope as VisibilityMode)
+          : resource.audiences.some((audience) => audience.role?.slug !== "admin")
+            ? "role_based"
+            : resource.track_id !== null
+              ? "track_based"
+              : "global",
       track_id: resource.track_id,
       resource_type: resource.resource_type,
       content_html: resource.content_html ?? "",
@@ -100,21 +114,34 @@ export function ResourceDetailDrawer({
       ),
     });
     setHtmlFileName("");
-    setShowHtmlEditor(true);
+    setShowHtmlEditor(false);
     setShowHtmlPreview(false);
   }, [resource]);
 
   if (!resource) return null;
 
   const handleSave = () => {
+    if (editData.track_id === null) {
+      window.alert("Track is required.");
+      return;
+    }
+    if (editData.role_ids.length === 0) {
+      window.alert("Please select at least one role.");
+      return;
+    }
+
+    const finalTrackId = editData.track_id;
+    const finalRoleIds = editData.role_ids;
+
     const parsed = updateResourceSchema.safeParse({
       resource_name: editData.resource_name,
       resource_description: editData.resource_description,
       resource_kind: editData.resource_kind,
-      track_id: editData.track_id,
+      visibility_scope: editData.visibility_mode,
+      track_id: finalTrackId,
       resource_type: editData.resource_type,
       content_html: editData.content_html || null,
-      role_ids: editData.role_ids,
+      role_ids: finalRoleIds,
     });
 
     if (!parsed.success) {
@@ -222,6 +249,10 @@ export function ResourceDetailDrawer({
                   <Label className="text-muted-foreground">Track</Label>
                   <p>{getResourceTrackLabel(resource.track_id)}</p>
                 </div>
+                <div>
+                  <Label className="text-muted-foreground">Visibility</Label>
+                  <p>{resource.visibility_scope}</p>
+                </div>
                 {resource.resource_kind === "page" ? (
                   <div>
                     <Label className="text-muted-foreground">Page Preview</Label>
@@ -294,6 +325,27 @@ export function ResourceDetailDrawer({
                     <SelectContent>
                       <SelectItem value="file">File</SelectItem>
                       <SelectItem value="page">HTML Page</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="resource-visibility-mode">Visibility</Label>
+                  <Select
+                    value={editData.visibility_mode}
+                    onValueChange={(value) =>
+                      setEditData((prev) => ({
+                        ...prev,
+                        visibility_mode: value as VisibilityMode,
+                      }))
+                    }
+                  >
+                    <SelectTrigger id="resource-visibility-mode">
+                      <SelectValue placeholder="Select visibility mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="global">Global</SelectItem>
+                      <SelectItem value="track_based">Track-based</SelectItem>
+                      <SelectItem value="role_based">Role-based</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -454,7 +506,11 @@ export function ResourceDetailDrawer({
             <Label className="text-muted-foreground">Visible Roles</Label>
             {mode === "view" ? (
               <div className="flex flex-wrap gap-2">
-                {visibleRoleSlugs.length ? (
+                {resource.visibility_scope === "global" ? (
+                  <span className="text-sm text-muted-foreground">
+                    Global visibility
+                  </span>
+                ) : visibleRoleSlugs.length ? (
                   visibleRoleSlugs.map((slug) => (
                     <Badge key={slug} variant="outline">
                       {slug}
