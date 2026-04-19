@@ -3,6 +3,7 @@ from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
 
+
 class GroupMembership(models.Model):
     group = models.ForeignKey('Groups', on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

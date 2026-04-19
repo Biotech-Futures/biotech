@@ -17,3 +17,9 @@ class MatchRunSerializer(serializers.ModelSerializer):
         fields = ["id", "initiated_by_user", "track", "run_type", "rules_snapshot", "created_at", "recommendations"]
         read_only_fields = ["id", "created_at", "recommendations"]
 
+
+class BulkRecommendationAcceptSerializer(serializers.Serializer):
+    recommendation_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )

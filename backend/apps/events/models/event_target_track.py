@@ -1,7 +1,4 @@
-from django.conf import settings
 from django.db import models
-from django.db.models import Q
-from django.utils import timezone
 
 class EventTargetTrack(models.Model):
     event = models.ForeignKey('Events', on_delete=models.CASCADE)
@@ -13,6 +10,10 @@ class EventTargetTrack(models.Model):
         verbose_name_plural = "Event Target Tracks"
         constraints = [
             models.UniqueConstraint(fields=['event', 'track'], name='unique_event_track')
+        ]
+        indexes = [
+            models.Index(fields=['event']),
+            models.Index(fields=['track']),
         ]
     
     def __str__(self):

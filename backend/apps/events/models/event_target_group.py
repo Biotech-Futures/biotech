@@ -1,7 +1,4 @@
-from django.conf import settings
 from django.db import models
-from django.db.models import Q
-from django.utils import timezone
 
 class EventTargetGroup(models.Model):
     event = models.ForeignKey('Events', on_delete=models.CASCADE)
