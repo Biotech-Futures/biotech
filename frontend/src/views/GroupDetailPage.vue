@@ -310,19 +310,30 @@ const normalizeMessage = (item) => {
   }
 }
 
+const getBackendGroupId = () => {
+  const id = group.value?.id
+  return /^\d+$/.test(String(id || '')) ? String(id) : ''
+}
+
 const scrollMessagesToBottom = async () => {
   await nextTick()
   if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
 }
 
 const loadMessages = async () => {
-  if (!group.value?.id) return
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) {
+    chatError.value = 'Live discussion needs a backend group id. Showing local sample messages.'
+    messages.value = [...mockMessages]
+    await scrollMessagesToBottom()
+    return
+  }
 
   isLoadingMessages.value = true
   chatError.value = ''
 
   try {
-    const data = await requestJson(`${API_BASE_URL}/chat/groups/${group.value.id}/messages/?limit=50`)
+    const data = await requestJson(`${API_BASE_URL}/chat/groups/${backendGroupId}/messages/?limit=50`)
     const liveMessages = extractCollectionItems(data)
       .map(normalizeMessage)
       .reverse()
@@ -340,6 +351,7 @@ const loadMessages = async () => {
 const sendMessage = async () => {
   const text = newMessage.value.trim()
   if (!text || isSendingMessage.value) return
+  const backendGroupId = getBackendGroupId()
 
   const now = new Date()
   const draftMessage = {
@@ -355,7 +367,8 @@ const sendMessage = async () => {
   newMessage.value = ''
   await scrollMessagesToBottom()
 
-  if (!group.value?.id) {
+  if (!backendGroupId) {
+    chatError.value = 'Live discussion needs a backend group id. This message is only shown locally.'
     composer.value?.focus()
     return
   }
@@ -364,7 +377,7 @@ const sendMessage = async () => {
   chatError.value = ''
 
   try {
-    const savedMessage = await requestJson(`${API_BASE_URL}/chat/groups/${group.value.id}/messages/`, {
+    const savedMessage = await requestJson(`${API_BASE_URL}/chat/groups/${backendGroupId}/messages/`, {
       method: 'POST',
       body: JSON.stringify({
         message_text: text,
