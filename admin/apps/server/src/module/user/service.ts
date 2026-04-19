@@ -30,6 +30,8 @@ export type User = {
   role: string | null;
   track: string | null;
   groupName: string | null;
+  schoolName: string | null;
+  yearLevel: number | null;
   interests: string[];
   isActive: boolean;
   accountStatus: string;
@@ -55,6 +57,8 @@ const userSelect = {
   role: roles.slug,
   track: tracks.trackCode,
   groupName: groups.groupName,
+  schoolName: sql<string | null>`COALESCE(${studentProfile.schoolName}, ${supervisorProfile.schoolName})`,
+  yearLevel: studentProfile.yearLevel,
   interests: sql<string[]>`COALESCE(
     (SELECT array_agg(aoi.interest_desc) FROM student_interest si JOIN areas_of_interest aoi ON aoi.id = si.interest_id WHERE si.student_user_id = ${users.id}),
     (SELECT array_agg(aoi.interest_desc) FROM mentor_interest mi JOIN areas_of_interest aoi ON aoi.id = mi.interest_id WHERE mi.mentor_user_id = ${users.id}),
@@ -86,7 +90,9 @@ function baseUserQuery() {
         isNull(groupMembership.leftAt),
       ),
     )
-    .leftJoin(groups, eq(groups.id, groupMembership.groupId));
+    .leftJoin(groups, eq(groups.id, groupMembership.groupId))
+    .leftJoin(studentProfile, eq(studentProfile.userId, users.id))
+    .leftJoin(supervisorProfile, eq(supervisorProfile.userId, users.id));
 }
 
 async function fetchUserById(id: number): Promise<User | null> {
