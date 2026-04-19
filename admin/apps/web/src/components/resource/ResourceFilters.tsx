@@ -165,7 +165,7 @@ export function ResourceFilters({
             </InputGroupAddon>
             <InputGroupInput
               id="resource-uploader"
-              placeholder="Uploader name..."
+              placeholder="Uploader name or email..."
               value={localUploader}
               onChange={(event) => {
                 const value = event.target.value;

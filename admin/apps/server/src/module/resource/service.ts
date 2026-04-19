@@ -431,7 +431,7 @@ export async function queryResources(params: QueryResourcesInput) {
 
   if (params.track_id !== undefined) {
     resourcesList = resourcesList.filter(
-      (item) => item.track_id === params.track_id || item.visibility_scope === "global",
+      (item) => item.track_id === params.track_id,
     );
   }
 
@@ -447,14 +447,14 @@ export async function queryResources(params: QueryResourcesInput) {
     const keyword = uploader.toLowerCase();
     resourcesList = resourcesList.filter((item) => {
       const full = `${item.uploader.first_name} ${item.uploader.last_name}`.toLowerCase();
-      return full.includes(keyword);
+      const email = item.uploader.email.toLowerCase();
+      return full.includes(keyword) || email.includes(keyword);
     });
   }
 
   if (role_slug) {
     const keyword = role_slug.toLowerCase();
     resourcesList = resourcesList.filter((item) =>
-      item.visibility_scope === "global" ||
       item.audiences.some((audience) => audience.role?.slug.toLowerCase().includes(keyword)),
     );
   }
