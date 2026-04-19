@@ -1,5 +1,10 @@
 import db from "@/lib/db.js";
 import {
+  deleteBlobFile,
+  downloadBlobFile,
+  uploadBlobFile,
+} from "@/lib/blob.js";
+import {
   adminUser,
   resources,
   resourceAudience,
@@ -108,7 +113,7 @@ let nextDemoAudienceId = Math.max(0, ...demoAudienceRows.map((item) => item.id))
 let nextDemoUploaderId =
   Math.max(100, ...demoUploadersState.map((item) => Number(item.id) || 0)) + 1;
 
-const uploadedFiles = new Map<
+const demoUploadedFiles = new Map<
   string,
   {
     file_name: string;
@@ -669,7 +674,7 @@ export async function uploadResource(payload: {
         : item,
     );
 
-    uploadedFiles.set(updated.storage_key, {
+    demoUploadedFiles.set(updated.storage_key, {
       file_name: payload.file_name,
       mime_type: payload.file_mime_type || "application/octet-stream",
       bytes: payload.file_bytes,
@@ -723,11 +728,11 @@ export async function uploadResource(payload: {
     );
   }
 
-  uploadedFiles.set(storageKey, {
-    file_name: payload.file_name,
-    mime_type: payload.file_mime_type || "application/octet-stream",
-    bytes: payload.file_bytes,
-  });
+  await uploadBlobFile(
+    storageKey,
+    payload.file_bytes,
+    payload.file_mime_type || "application/octet-stream",
+  );
 
   return queryResourceById(id).then((result) => ({
     msg: "Resource uploaded successfully",
@@ -744,23 +749,43 @@ export async function downloadResource(id: number) {
     } as const;
   }
 
-  const file = uploadedFiles.get(resourceResult.data.storage_key);
   if (resourceResult.data.resource_kind === "page") {
     return {
       msg: "This resource is an HTML page and cannot be downloaded as a file",
       data: null,
     } as const;
   }
-  if (!file) {
+
+  if (useResourceDemoData()) {
+    const file = demoUploadedFiles.get(resourceResult.data.storage_key);
+    if (!file) {
+      return {
+        msg: "This resource has no uploaded file",
+        data: null,
+      } as const;
+    }
+
     return {
-      msg: "This resource has no uploaded file",
+      msg: "Resource download prepared",
+      data: file,
+    } as const;
+  }
+
+  const blobFile = await downloadBlobFile(resourceResult.data.storage_key);
+  if (!blobFile) {
+    return {
+      msg: "File not found in storage",
       data: null,
     } as const;
   }
 
   return {
     msg: "Resource download prepared",
-    data: file,
+    data: {
+      file_name: resourceResult.data.file_name || `resource-${resourceResult.data.id}`,
+      mime_type: blobFile.mime_type,
+      bytes: blobFile.bytes,
+    },
   } as const;
 }
 
@@ -911,7 +936,11 @@ export async function deleteResource(id: number) {
     .set({ deletedAt: new Date().toISOString() })
     .where(eq(resources.id, id));
 
-  uploadedFiles.delete(existing.data.storage_key);
+  if (useResourceDemoData()) {
+    demoUploadedFiles.delete(existing.data.storage_key);
+  } else {
+    await deleteBlobFile(existing.data.storage_key);
+  }
 
   return {
     msg: "Resource deleted successfully",

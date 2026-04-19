@@ -10,6 +10,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.31.0",
     "@better-auth/drizzle-adapter": "^1.5.5",
     "@hono/node-server": "^1.19.11",
     "@hono/standard-validator": "^0.2.2",
