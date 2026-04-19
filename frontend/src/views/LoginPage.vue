@@ -399,7 +399,7 @@
             <div class="progress-line active"></div>
             <div class="progress-item active">
               <span class="progress-dot">2</span>
-              <span class="progress-label">{{ t('passwordStep') }}</span>
+              <span class="progress-label">{{ credentialStepLabel }}</span>
             </div>
           </div>
 
@@ -422,12 +422,35 @@
 
                 <!-- Meta chips for selected identity and auth method. -->
                 <div class="meta-row">
-                  <span class="meta-chip meta-chip--neutral">{{ t('passwordSignIn') }}</span>
+                  <span class="meta-chip meta-chip--neutral">{{ activeLoginModeLabel }}</span>
                 </div>
               </header>
 
               <!-- Email submission form. -->
               <form class="auth-form" @submit.prevent="handleLogin" novalidate>
+                <div class="login-mode-switch" role="tablist" :aria-label="t('loginMethod')">
+                  <button
+                    type="button"
+                    class="login-mode-button"
+                    :class="{ active: loginMode === 'password' }"
+                    role="tab"
+                    :aria-selected="loginMode === 'password'"
+                    @click="setLoginMode('password')"
+                  >
+                    {{ t('passwordSignIn') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="login-mode-button"
+                    :class="{ active: loginMode === 'code' }"
+                    role="tab"
+                    :aria-selected="loginMode === 'code'"
+                    @click="setLoginMode('code')"
+                  >
+                    {{ t('emailCodeSignIn') }}
+                  </button>
+                </div>
+
                 <div class="field-block">
                   <label class="field-label" for="login-email">{{ t('emailLabel') }}</label>
 
@@ -450,7 +473,7 @@
                   <small class="field-help">{{ emailStepHelper }}</small>
                 </div>
 
-                <div class="field-block">
+                <div v-if="loginMode === 'password'" class="field-block">
                   <label class="field-label" for="login-password">{{ t('passwordLabel') }}</label>
 
                   <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
@@ -474,7 +497,7 @@
                   :disabled="sendingCode"
                 >
                   <span v-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
-                  <span v-else>{{ t('signIn') }}</span>
+                  <span v-else>{{ loginActionLabel }}</span>
                 </button>
               </form>
 
@@ -657,6 +680,7 @@ const rolePreviewContent = LOGIN_ROLE_PREVIEW_CONTENT
 */
 const email = ref('')
 const password = ref('')
+const loginMode = ref('password')
 const currentStep = ref('email')
 const error = ref('')
 const statusMessage = ref('')
@@ -943,7 +967,11 @@ const authHeading = computed(() => t('signIn'))
 
 const authSubtitle = computed(() => t('welcomeSubtitle'))
 
-const emailStepHelper = computed(() => t('passwordHelper'))
+const isPasswordLoginMode = computed(() => loginMode.value === 'password')
+const activeLoginModeLabel = computed(() => isPasswordLoginMode.value ? t('passwordSignIn') : t('emailCodeSignIn'))
+const credentialStepLabel = computed(() => isPasswordLoginMode.value ? t('passwordStep') : t('otpStep'))
+const loginActionLabel = computed(() => isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode'))
+const emailStepHelper = computed(() => isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'))
 
 const activeRoleTitle = computed(() => activeRoleData.value?.title || activeRoleLabel.value)
 const activeRoleSummary = computed(() => activeRoleData.value?.summary || '')
@@ -1167,6 +1195,28 @@ const clearOtpAutoSubmitTimer = () => {
 */
 const setBackgroundMode = (mode) => {
   activeLeftBackground.value = mode
+}
+
+const setLoginMode = async (mode) => {
+  if (!['password', 'code'].includes(mode) || loginMode.value === mode) {
+    return
+  }
+
+  loginMode.value = mode
+  currentStep.value = 'email'
+  clearMessages()
+  clearOtpAutoSubmitTimer()
+  otpErrorActive.value = false
+  otpShake.value = false
+
+  await nextTick()
+
+  if (mode === 'password') {
+    passwordInputRef.value?.focus()
+    return
+  }
+
+  emailInputRef.value?.focus()
 }
 
 /*
@@ -1466,7 +1516,7 @@ const handleLogin = async () => {
     return
   }
 
-  if (!enteredPassword) {
+  if (isPasswordLoginMode.value && !enteredPassword) {
     error.value = t('errorEnterPassword')
     await nextTick()
     passwordInputRef.value?.focus()
@@ -1479,24 +1529,44 @@ const handleLogin = async () => {
 
   email.value = normalizedEmail
   sendingCode.value = true
-  statusMessage.value = t('signingIn')
+  statusMessage.value = isPasswordLoginMode.value ? t('signingIn') : t('sendingCode')
 
   try {
-    await auth.loginWithPassword(normalizedEmail, enteredPassword)
+    if (isPasswordLoginMode.value) {
+      await auth.loginWithPassword(normalizedEmail, enteredPassword)
 
-    if (!auth.user) {
-      error.value = t('errorUserLoadFailed')
+      if (!auth.user) {
+        error.value = t('errorUserLoadFailed')
+        statusMessage.value = ''
+        return
+      }
+
+      previewLoginRoleKey.value = ''
+
+      try {
+        await router.replace('/dashboard')
+      } catch {
+        window.location.href = '/#/dashboard'
+      }
+      return
+    }
+
+    const response = await postJson('/services/send-login-code/', {
+      email: normalizedEmail,
+      redirect_url: buildCallbackUrl()
+    })
+
+    if (!response.ok) {
       statusMessage.value = ''
+      error.value = await parseErrorMessage(response, t('errorSendLink'))
       return
     }
 
     previewLoginRoleKey.value = ''
-
-    try {
-      await router.replace('/dashboard')
-    } catch {
-      window.location.href = '/#/dashboard'
-    }
+    statusMessage.value = t('sendingSuccess')
+    currentStep.value = 'otp'
+    await resetOtpState()
+    startResendCountdown()
   } catch (requestError) {
     console.error('Login error:', requestError)
     statusMessage.value = ''
@@ -2820,6 +2890,39 @@ onBeforeUnmount(() => {
   width: 100%;
   display: grid;
   gap: 18px;
+}
+
+.login-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(16, 33, 29, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.login-mode-button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--stone-700);
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-mode-button.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
+  box-shadow: 0 12px 22px rgba(31, 93, 79, 0.18);
+}
+
+.login-mode-button:focus-visible {
+  outline: 3px solid rgba(72, 165, 140, 0.22);
+  outline-offset: 2px;
 }
 
 .field-block {

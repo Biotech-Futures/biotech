@@ -88,7 +88,11 @@
           <!-- 讨论区头部改为白色 -->
           <div class="chat-header">
             <h3 style="margin:0;">Discussion Board</h3>
+            <span v-if="isLoadingMessages" class="chat-status">Loading...</span>
+          </div>
 
+          <div v-if="chatError" class="chat-alert">
+            {{ chatError }}
           </div>
 
           <div class="chat-messages" ref="msgList">
@@ -122,10 +126,10 @@
                 @keydown.enter.exact.prevent="sendMessage"
               ></textarea>
               <div class="chat-actions">
-                <button class="chat-btn" title="Attach file">
+                <button class="chat-btn" title="Attach file" disabled>
                   <i class="fas fa-paperclip"></i>
                 </button>
-                <button class="chat-btn" @click="sendMessage" title="Send">
+                <button class="chat-btn" :disabled="isSendingMessage || !newMessage.trim()" @click="sendMessage" title="Send">
                   <i class="fas fa-paper-plane"></i>
                 </button>
               </div>
@@ -141,10 +145,14 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { mockGroups } from '../data/mock.js'
+import { useAuthStore } from '@/stores/auth'
+import { buildSessionHeaders } from '@/utils/csrf'
 
 const route = useRoute()
-const groupId = route.params.id
-const group = ref(mockGroups.find(g => g.id === groupId) || mockGroups[0])
+const auth = useAuthStore()
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const rawGroupId = route.params.id ? String(route.params.id) : ''
+const group = ref(mockGroups.find(g => String(g.id) === rawGroupId) || mockGroups[0])
 
 // 只保留 plan / discussion
 const activeTab = ref('plan')
@@ -177,8 +185,7 @@ const addTask = (m) => {
   m.tasks.push({ id: nextId, name: 'New Task', completed: false })
 }
 
-// 讨论区（每条消息增加 date 字段）
-const messages = ref([
+const mockMessages = [
   {
     id: 1,
     author: 'Anita Pickard',
@@ -195,13 +202,18 @@ const messages = ref([
     date: '2025-09-03',
     isOwn: true
   }
-])
+]
+
+const messages = ref([...mockMessages])
 
 const newMessage = ref('')
 const composer = ref(null)
 const msgList = ref(null)
+const isLoadingMessages = ref(false)
+const isSendingMessage = ref(false)
+const chatError = ref('')
 
-const getInitials = (name) => name.split(' ').map(n => n[0]).join('').toUpperCase()
+const getInitials = (name) => String(name || 'U').split(' ').map(n => n[0]).join('').toUpperCase()
 
 const formatDate = (d) => {
   const date = new Date(d)
@@ -209,27 +221,176 @@ const formatDate = (d) => {
   return date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-const sendMessage = async () => {
-  if (!newMessage.value.trim()) return
-  const now = new Date()
-  messages.value.push({
-    id: Date.now(),
-    author: 'You',
-    text: newMessage.value.trim(),
-    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    date: now.toISOString().slice(0, 10), // YYYY-MM-DD
-    isOwn: true
+const formatTime = (value) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+const extractCollectionItems = (data) => {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.results)) return data.results
+  if (Array.isArray(data?.items)) return data.items
+  return []
+}
+
+const requestJson = async (url, options = {}) => {
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers: buildSessionHeaders({
+      includeCSRF: options.method && options.method !== 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...(options.headers || {})
+      }
+    })
   })
-  newMessage.value = ''
+
+  const text = await response.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = null
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.detail || data?.error || data?.message || `Request failed: ${response.status}`)
+  }
+
+  return data
+}
+
+const normalizeGroup = (item) => {
+  return {
+    ...group.value,
+    ...item,
+    id: item?.id,
+    name: item?.group_name || item?.name || item?.title || group.value?.name || 'Untitled group',
+    members: Number(item?.members || item?.memberCount || group.value?.members || 0),
+    createdAt: item?.created_at || item?.createdAt || ''
+  }
+}
+
+const loadGroup = async () => {
+  try {
+    if (rawGroupId) {
+      const data = await requestJson(`${API_BASE_URL}/groups/groups/${rawGroupId}/`)
+      group.value = normalizeGroup(data)
+      return
+    }
+
+    const data = await requestJson(`${API_BASE_URL}/groups/groups/?page_size=1`)
+    const firstGroup = extractCollectionItems(data)[0]
+    if (firstGroup) {
+      group.value = normalizeGroup(firstGroup)
+    }
+  } catch (error) {
+    group.value = mockGroups.find(g => String(g.id) === rawGroupId) || mockGroups[0]
+  }
+}
+
+const normalizeMessage = (item) => {
+  const sentAt = item?.sent_at || item?.sent_datetime || item?.created_at || new Date().toISOString()
+  const senderId = Number(item?.sender_user || item?.sender_id || 0)
+  const currentUserId = Number(auth.user?.id || 0)
+  const isOwn = currentUserId > 0 && senderId === currentUserId
+  const author = isOwn
+    ? 'You'
+    : (item?.sender_name || item?.author || (senderId ? `User ${senderId}` : 'Team member'))
+
+  return {
+    id: item?.id || `${senderId}-${sentAt}`,
+    author,
+    text: item?.message_text || item?.text || '',
+    time: formatTime(sentAt),
+    date: sentAt,
+    isOwn
+  }
+}
+
+const scrollMessagesToBottom = async () => {
   await nextTick()
   if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
-  composer.value?.focus()
+}
+
+const loadMessages = async () => {
+  if (!group.value?.id) return
+
+  isLoadingMessages.value = true
+  chatError.value = ''
+
+  try {
+    const data = await requestJson(`${API_BASE_URL}/chat/groups/${group.value.id}/messages/?limit=50`)
+    const liveMessages = extractCollectionItems(data)
+      .map(normalizeMessage)
+      .reverse()
+
+    messages.value = liveMessages.length ? liveMessages : []
+  } catch (error) {
+    chatError.value = 'Live discussion is unavailable, showing local sample messages.'
+    messages.value = [...mockMessages]
+  } finally {
+    isLoadingMessages.value = false
+    await scrollMessagesToBottom()
+  }
+}
+
+const sendMessage = async () => {
+  const text = newMessage.value.trim()
+  if (!text || isSendingMessage.value) return
+
+  const now = new Date()
+  const draftMessage = {
+    id: `pending-${Date.now()}`,
+    author: 'You',
+    text,
+    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    date: now.toISOString(),
+    isOwn: true
+  }
+
+  messages.value.push(draftMessage)
+  newMessage.value = ''
+  await scrollMessagesToBottom()
+
+  if (!group.value?.id) {
+    composer.value?.focus()
+    return
+  }
+
+  isSendingMessage.value = true
+  chatError.value = ''
+
+  try {
+    const savedMessage = await requestJson(`${API_BASE_URL}/chat/groups/${group.value.id}/messages/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_text: text,
+        message_type: 'text'
+      })
+    })
+    const index = messages.value.findIndex(message => message.id === draftMessage.id)
+    if (index !== -1) {
+      messages.value.splice(index, 1, normalizeMessage(savedMessage))
+    }
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Message could not be sent.'
+    newMessage.value = text
+    messages.value = messages.value.filter(message => message.id !== draftMessage.id)
+  } finally {
+    isSendingMessage.value = false
+    await scrollMessagesToBottom()
+    composer.value?.focus()
+  }
 }
 
 const focusComposer = () => composer.value?.focus()
 
-onMounted(() => {
-  if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+onMounted(async () => {
+  await loadGroup()
+  await loadMessages()
 })
 </script>
 
@@ -315,6 +476,25 @@ onMounted(() => {
 }
 
 /* Discussion board: chat-container fills card, chat-messages scrolls */
+.chat-status {
+  color: #6c757d;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.chat-alert {
+  padding: 0.65rem 0.9rem;
+  color: #6c4b00;
+  background: #fff7d6;
+  border-bottom: 1px solid #f1dd97;
+  font-size: 0.9rem;
+}
+
+.chat-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .pane--discussion .chat-container {
   display: flex;
   flex-direction: column;
@@ -343,6 +523,9 @@ onMounted(() => {
 
 /* 讨论区头部改为白色（覆盖全局 .chat-header 绿色背景） */
 .pane--discussion .chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   background-color: var(--white) !important;
   color: var(--charcoal) !important;
   border-bottom: 1px solid var(--border-light);
