@@ -93,6 +93,7 @@ import { defineStore } from 'pinia'
 // 这里主要用于退出登录这种会修改后端状态的请求
 // 因为 Django 的 session 认证通常除了 cookie，还可能要求携带 CSRF 相关请求头
 import { buildSessionHeaders } from '@/utils/csrf'
+import { clearAuthTokens, getRefreshToken, saveAuthTokens } from '@/utils/authTokens'
 
 // 定义后端接口基础地址，优先读取 Vite 环境变量中的配置，如果没有配置，就默认使用本地 Django 开发服务器地址
 // 例如：开发环境下可能是 http://localhost:8000，部署环境下可能会在 .env 中配置成正式域名
@@ -158,6 +159,18 @@ interface User {
 
   // 导师成为导师的原因说明
   ment_reason?: string | null
+}
+
+async function parseResponseJson(response: Response): Promise<any> {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
+function resolveApiError(data: any, fallback: string): string {
+  return data?.detail || data?.error || data?.message || fallback
 }
 
 // 将后端返回的“原始角色”统一归一化，最终只会返回：admin、teacher、student
@@ -293,40 +306,80 @@ export const useAuthStore = defineStore('auth', {
     //   router.replace('/dashboard')
     // }
     // 调用接口
+    async refreshAccessToken() {
+      const refreshToken = getRefreshToken()
+      if (!refreshToken) {
+        return false
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/token/refresh/`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            refresh: refreshToken
+          })
+        })
+
+        const data = await parseResponseJson(response)
+        if (!response.ok || !data?.access) {
+          clearAuthTokens()
+          return false
+        }
+
+        saveAuthTokens({
+          access: data.access,
+          refresh: data.refresh || refreshToken
+        })
+        return true
+      } catch (error) {
+        console.error('Failed to refresh access token:', error)
+        clearAuthTokens()
+        return false
+      }
+    },
+
     async fetchUserData() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
-      credentials: 'include',
-    })
+      const requestCurrentUser = () => fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+        credentials: 'include',
+        headers: buildSessionHeaders()
+      })
 
-    console.log('GET /api/v1/users/me/ status:', response.status)
+      try {
+        let response = await requestCurrentUser()
 
-    let parsedData: any = null
+        if (response.status === 401 && await this.refreshAccessToken()) {
+          response = await requestCurrentUser()
+        }
 
-    try {
-      parsedData = await response.json()
-    } catch (parseError) {
-      console.error('Failed to parse /users/me/ response as JSON:', parseError)
-    }
+        console.log('GET /api/v1/users/me/ status:', response.status)
 
-    console.log('GET /api/v1/users/me/ payload:', parsedData)
+        const parsedData = await parseResponseJson(response)
+        console.log('GET /api/v1/users/me/ payload:', parsedData)
 
-    if (response.ok) {
-      this.user = parsedData
-      localStorage.setItem('auth.user', JSON.stringify(parsedData))
-      return parsedData
-    }
+        if (response.ok) {
+          this.user = parsedData
+          localStorage.setItem('auth.user', JSON.stringify(parsedData))
+          return parsedData
+        }
 
-    this.user = null
-    localStorage.removeItem('auth.user')
-  } catch (error) {
-    console.error('Failed to fetch user data:', error)
-    this.user = null
-    localStorage.removeItem('auth.user')
-  }
+        if (response.status === 401) {
+          clearAuthTokens()
+        }
 
-  return null
-},
+        this.user = null
+        localStorage.removeItem('auth.user')
+      } catch (error) {
+        console.error('Failed to fetch user data:', error)
+        this.user = null
+        localStorage.removeItem('auth.user')
+      }
+
+      return null
+    },
 
     async initializeAuth() {
       try {
@@ -343,6 +396,45 @@ export const useAuthStore = defineStore('auth', {
     // 应用例子：
     // 登录接口直接返回了用户信息：
     // authStore.loginWithUser(userData)
+    async loginWithPassword(email: string, password: string) {
+      clearAuthTokens()
+
+      const response = await fetch(`${API_BASE_URL}/api/token/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email,
+          password
+        })
+      })
+
+      const data = await parseResponseJson(response)
+      if (!response.ok) {
+        throw new Error(resolveApiError(data, 'Email or password is incorrect.'))
+      }
+
+      if (!data?.access) {
+        throw new Error('Login succeeded but no access token was returned.')
+      }
+
+      saveAuthTokens({
+        access: data.access,
+        refresh: data.refresh
+      })
+
+      const user = await this.fetchUserData()
+      if (!user) {
+        clearAuthTokens()
+        throw new Error('Login succeeded, but the current user profile could not be loaded.')
+      }
+
+      this.initialized = true
+      return user
+    },
+
     loginWithUser(userData: User) {
       // 更新当前响应式用户状态
       this.user = userData
@@ -389,6 +481,7 @@ export const useAuthStore = defineStore('auth', {
         // 无论后端请求成功还是失败，前端都清空当前用户状态
         this.user = null
         this.initialized = true
+        clearAuthTokens()
 
         try {
           // 删除浏览器本地缓存里的用户数据

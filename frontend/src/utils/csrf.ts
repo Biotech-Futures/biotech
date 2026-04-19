@@ -1,3 +1,5 @@
+import { getAccessToken } from '@/utils/authTokens'
+
 /**
  * @file csrf.ts
  * @description csrf.ts provides CSRF-related helper utilities for the frontend application. It is designed for Django session-based authentication and is responsible for reading the CSRF token from browser cookies and building request headers for authenticated API calls that require CSRF protection.
@@ -144,6 +146,11 @@ export function buildSessionHeaders(options: BuildHeadersOptions = {}): Headers 
   // 如果不是文件上传，也没有写Content-Type，就自动加，因为大多数普通接口提交的都是 JSON。
   if (!isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
+  }
+
+  const accessToken = getAccessToken()
+  if (accessToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${accessToken}`)
   }
 
   // 如果需要CSRF就按需添加

@@ -634,6 +634,7 @@ import {
 import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
+import { buildSessionHeaders } from '@/utils/csrf'
 import { DASHBOARD_BACKGROUND_KEY, safeLocalStorageGet } from '@/utils/storage'
 import { useThemeStore } from '@/stores/theme'
 import { getTimelineStatusClass, getAccentClass } from '@/utils/ui'
@@ -650,6 +651,15 @@ const {
   normalizedRole
 } = storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const DASHBOARD_ENDPOINTS = {
+  groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
+  groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
+  tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
+  resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
+  events: `${API_BASE_URL}/events/v1/?page_size=10`,
+  tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=false`,
+  milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`
+}
 
 const isLoading = ref(false)
 const loadError = ref('')
@@ -1073,13 +1083,195 @@ const checklistSectionTitle = computed(() => {
   return 'My Next Steps'
 })
 
+function getDefaultProgressSnapshot() {
+  return {
+    completionRate: 42,
+    completedTasks: 3,
+    totalTasks: 7,
+    currentWeek: 'Week 3',
+    nextMilestone: 'Check-in #1',
+    nextMilestoneDate: '2026-03-28'
+  }
+}
+
+function extractCollectionItems(data) {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.results)) return data.results
+  return []
+}
+
+function isValidDate(value) {
+  if (!value) return false
+  const date = value instanceof Date ? value : new Date(value)
+  return !Number.isNaN(date.getTime())
+}
+
+function formatEventTime(startValue, endValue) {
+  if (!isValidDate(startValue)) return ''
+
+  const options = {
+    hour: 'numeric',
+    minute: '2-digit'
+  }
+  const start = new Date(startValue).toLocaleTimeString('en-AU', options)
+
+  if (!isValidDate(endValue)) {
+    return start
+  }
+
+  const end = new Date(endValue).toLocaleTimeString('en-AU', options)
+  return `${start} - ${end}`
+}
+
+function resolveResourceIconType(value) {
+  const text = String(value || '').toLowerCase()
+
+  if (text.includes('pdf')) return 'pdf'
+  if (text.includes('video') || text.includes('recording')) return 'video'
+  if (text.includes('link') || text.includes('url')) return 'link'
+  if (text.includes('article') || text.includes('news')) return 'article'
+  return 'document'
+}
+
+function normalizeRoleName(value) {
+  const role = String(value || '').trim().toLowerCase()
+
+  if (!role) return ''
+  if (['all', 'public', 'everyone'].includes(role)) return 'all'
+  if (['administrator', 'admin', 'global_admin', 'local_admin'].includes(role)) return 'admin'
+  if (['teacher', 'mentor'].includes(role)) return 'mentor'
+  if (role === 'supervisor') return 'supervisor'
+  if (role === 'student') return 'student'
+  return role
+}
+
+function normalizeGroup(group, memberships = [], trackById = new Map()) {
+  const groupId = group?.id
+  const matchingMemberships = memberships.filter(item => String(item?.group) === String(groupId))
+  const trackLabel =
+    group?.track_name ||
+    trackById.get(Number(group?.track)) ||
+    (group?.track ? `Track ${group.track}` : group?.category)
+
+  return {
+    ...group,
+    id: groupId,
+    name: group?.group_name || group?.name || group?.title || 'Untitled group',
+    title: group?.group_name || group?.title || group?.name || 'Untitled group',
+    members: matchingMemberships.length || Number(group?.members || group?.memberCount || 0),
+    memberCount: matchingMemberships.length || Number(group?.members || group?.memberCount || 0),
+    status: group?.deleted_at ? 'archived' : group?.status || 'active',
+    mentor: group?.mentor || group?.lead || 'Mentor team',
+    track: trackLabel || 'General'
+  }
+}
+
+function normalizeResource(resource) {
+  const typeLabel =
+    resource?.resource_type_detail?.type_name ||
+    resource?.category ||
+    resource?.type ||
+    'General'
+  const visibleRoles = Array.isArray(resource?.visible_roles)
+    ? resource.visible_roles.map(role => role?.role_name)
+    : []
+  const audienceRoles = Array.isArray(resource?.audiences)
+    ? resource.audiences.map(rule => rule?.role_name)
+    : []
+  const roles = [...visibleRoles, ...audienceRoles]
+    .map(normalizeRoleName)
+    .filter(Boolean)
+  const scope = String(resource?.visibility_scope || '').toLowerCase()
+  const normalizedRoles = scope === 'public' || roles.length === 0 ? ['all'] : Array.from(new Set(roles))
+
+  return {
+    ...resource,
+    id: resource?.id,
+    title: resource?.resource_name || resource?.title || resource?.name || 'Untitled resource',
+    name: resource?.resource_name || resource?.name || resource?.title || 'Untitled resource',
+    type: resolveResourceIconType(typeLabel),
+    category: typeLabel,
+    updated: resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
+    role: normalizedRoles[0] || 'all',
+    roles: normalizedRoles
+  }
+}
+
+function normalizeEvent(event) {
+  const start = event?.start_datetime || event?.date || ''
+  const end = event?.ends_datetime || event?.end_datetime || event?.end || ''
+  const isVirtual = event?.is_virtual === true
+
+  return {
+    ...event,
+    id: event?.id,
+    title: event?.event_name || event?.title || event?.name || 'Untitled event',
+    date: start,
+    time: formatEventTime(start, end) || event?.time || '',
+    location: isVirtual ? 'Online' : event?.location || 'Location TBC',
+    mode: isVirtual ? 'Virtual event' : event?.mode || 'In-person event',
+    link: event?.humanitix_link || event?.link
+  }
+}
+
+function deriveDashboardSummary() {
+  dashboardSummary.value = {
+    activeGroups: groups.value.length,
+    upcomingEvents: events.value.length,
+    resources: resources.value.length,
+    announcements: announcements.value.length
+  }
+}
+
+function deriveProgressSnapshot(tasksData, milestonesData) {
+  const fallback = getDefaultProgressSnapshot()
+  const activeTasks = extractCollectionItems(tasksData).filter(task => task?.deleted_flag !== true)
+  const activeMilestones = extractCollectionItems(milestonesData).filter(milestone => milestone?.deleted_flag !== true)
+
+  if (!activeTasks.length && !activeMilestones.length) {
+    return fallback
+  }
+
+  const completedMilestoneIds = new Set(
+    activeMilestones
+      .filter(milestone => milestone?.completed === true)
+      .map(milestone => Number(milestone?.id))
+  )
+  const completedTasks = activeTasks.filter(task => completedMilestoneIds.has(Number(task?.milestone))).length
+  const fallbackCompleted = activeMilestones.filter(milestone => milestone?.completed === true).length
+  const totalTasks = activeTasks.length || activeMilestones.length || fallback.totalTasks
+  const doneTasks = activeTasks.length ? completedTasks : fallbackCompleted
+  const completionRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : fallback.completionRate
+  const nextMilestone =
+    activeMilestones.find(milestone => milestone?.completed !== true) ||
+    activeMilestones[0] ||
+    null
+  const nextTask =
+    activeTasks.find(task => Number(task?.milestone) === Number(nextMilestone?.id)) ||
+    [...activeTasks].sort((a, b) => new Date(a?.due_date || 0) - new Date(b?.due_date || 0))[0] ||
+    null
+
+  return {
+    completionRate,
+    completedTasks: doneTasks,
+    totalTasks,
+    currentWeek: activeMilestones.length
+      ? `${fallbackCompleted}/${activeMilestones.length} milestones`
+      : fallback.currentWeek,
+    nextMilestone: nextMilestone?.milestone_name || nextTask?.task_name || fallback.nextMilestone,
+    nextMilestoneDate: nextTask?.due_date || fallback.nextMilestoneDate
+  }
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     method: 'GET',
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json'
-    }
+    headers: buildSessionHeaders({
+      headers: {
+        Accept: 'application/json'
+      }
+    })
   })
 
   if (!response.ok) {
@@ -1094,17 +1286,17 @@ async function loadDashboardData() {
   loadError.value = ''
 
   try {
-    await Promise.all([
-      loadSummary(),
+    await Promise.allSettled([
       loadGroups(),
       loadResources(),
       loadAnnouncements(),
       loadEvents(),
       loadAdminWorkflow(),
-      loadProgress(),
-      loadActionCenter(),
-      loadChecklist(),
+      loadProgress()
     ])
+    loadSummary()
+    loadActionCenter()
+    loadChecklist()
   } catch (error) {
     console.error('Dashboard loading error:', error)
     loadError.value = 'Some live dashboard data could not be loaded. Mock fallback is being used where available.'
@@ -1113,36 +1305,33 @@ async function loadDashboardData() {
   }
 }
 
-async function loadSummary() {
-  try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/dashboard/summary/`)
-    dashboardSummary.value = {
-      activeGroups: Number(data?.active_groups ?? groups.value.length),
-      upcomingEvents: Number(data?.upcoming_events ?? events.value.length),
-      resources: Number(data?.resources ?? resources.value.length),
-      announcements: Number(data?.announcements ?? announcements.value.length)
-    }
-  } catch (error) {
-    dashboardSummary.value = {
-      activeGroups: groups.value.length,
-      upcomingEvents: events.value.length,
-      resources: resources.value.length,
-      announcements: announcements.value.length
-    }
-  }
+function loadSummary() {
+  deriveDashboardSummary()
 }
 
 async function loadGroups() {
   try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/groups/my/`)
-    if (Array.isArray(data)) {
-      groups.value = data
-      return
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.groups)
+    let memberships = []
+    let trackById = new Map()
+
+    try {
+      memberships = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.groupMembers))
+    } catch (error) {
+      memberships = []
     }
 
-    if (Array.isArray(data?.results)) {
-      groups.value = data.results
+    try {
+      const tracks = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.tracks))
+      trackById = new Map(tracks.map(track => [Number(track?.id), track?.track_name]).filter(item => item[1]))
+    } catch (error) {
+      trackById = new Map()
     }
+
+    const liveGroups = extractCollectionItems(data)
+    groups.value = liveGroups.length
+      ? liveGroups.map(group => normalizeGroup(group, memberships, trackById))
+      : (Array.isArray(mockGroups) ? [...mockGroups] : [])
   } catch (error) {
     groups.value = Array.isArray(mockGroups) ? [...mockGroups] : []
   }
@@ -1150,47 +1339,27 @@ async function loadGroups() {
 
 async function loadResources() {
   try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/resources/`)
-    if (Array.isArray(data)) {
-      resources.value = data
-      return
-    }
-
-    if (Array.isArray(data?.results)) {
-      resources.value = data.results
-    }
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.resources)
+    const liveResources = extractCollectionItems(data)
+    resources.value = liveResources.length
+      ? liveResources.map(normalizeResource)
+      : (Array.isArray(mockResources) ? [...mockResources] : [])
   } catch (error) {
     resources.value = Array.isArray(mockResources) ? [...mockResources] : []
   }
 }
 
 async function loadAnnouncements() {
-  try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/announcements/`)
-    if (Array.isArray(data)) {
-      announcements.value = data
-      return
-    }
-
-    if (Array.isArray(data?.results)) {
-      announcements.value = data.results
-    }
-  } catch (error) {
-    announcements.value = Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : []
-  }
+  announcements.value = Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : []
 }
 
 async function loadEvents() {
   try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/events/upcoming/`)
-    if (Array.isArray(data)) {
-      events.value = data
-      return
-    }
-
-    if (Array.isArray(data?.results)) {
-      events.value = data.results
-    }
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.events)
+    const liveEvents = extractCollectionItems(data)
+    events.value = liveEvents.length
+      ? liveEvents.map(normalizeEvent)
+      : (Array.isArray(mockEvents) ? [...mockEvents] : [])
   } catch (error) {
     events.value = Array.isArray(mockEvents) ? [...mockEvents] : []
   }
@@ -1199,104 +1368,37 @@ async function loadEvents() {
 async function loadAdminWorkflow() {
   if (!isAdmin.value) return
 
-  try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/admin/workflow/summary/`)
-    adminWorkflow.value = {
-      pendingMatches: Number(data?.pending_matches ?? 5),
-      pendingReassignments: Number(data?.pending_reassignments ?? 2),
-      pendingApprovals: Number(data?.pending_approvals ?? 4),
-      draftBulkMessages: Number(data?.draft_bulk_messages ?? 1)
-    }
-  } catch (error) {
-    adminWorkflow.value = {
-      pendingMatches: 5,
-      pendingReassignments: 2,
-      pendingApprovals: 4,
-      draftBulkMessages: 1
-    }
+  adminWorkflow.value = {
+    pendingMatches: 5,
+    pendingReassignments: 2,
+    pendingApprovals: 4,
+    draftBulkMessages: 1
   }
 }
 
 async function loadProgress() {
   try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/dashboard/progress/`)
-    progressSnapshot.value = {
-      completionRate: Number(data?.completion_rate ?? 42),
-      completedTasks: Number(data?.completed_tasks ?? 3),
-      totalTasks: Number(data?.total_tasks ?? 7),
-      currentWeek: data?.current_week || 'Week 3',
-      nextMilestone: data?.next_milestone || 'Check-in #1',
-      nextMilestoneDate: data?.next_milestone_date || '2026-03-28'
-    }
+    const [tasksData, milestonesData] = await Promise.all([
+      fetchJson(DASHBOARD_ENDPOINTS.tasks),
+      fetchJson(DASHBOARD_ENDPOINTS.milestones)
+    ])
+
+    progressSnapshot.value = deriveProgressSnapshot(tasksData, milestonesData)
   } catch (error) {
-    progressSnapshot.value = {
-      completionRate: 42,
-      completedTasks: 3,
-      totalTasks: 7,
-      currentWeek: 'Week 3',
-      nextMilestone: 'Check-in #1',
-      nextMilestoneDate: '2026-03-28'
-    }
+    progressSnapshot.value = getDefaultProgressSnapshot()
   }
 }
 
-async function loadActionCenter() {
-  try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/dashboard/action-center/`)
-    if (Array.isArray(data)) {
-      actionCenter.value = data
-      return
-    }
-
-    if (Array.isArray(data?.results)) {
-      actionCenter.value = data.results
-      return
-    }
-
-    actionCenter.value = buildFallbackActionCenter()
-  } catch (error) {
-    actionCenter.value = buildFallbackActionCenter()
-  }
+function loadActionCenter() {
+  actionCenter.value = buildFallbackActionCenter()
 }
 
-async function loadChecklist() {
-  try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/dashboard/checklist/`)
-    if (Array.isArray(data)) {
-      checklistItems.value = data
-      return
-    }
-
-    if (Array.isArray(data?.results)) {
-      checklistItems.value = data.results
-      return
-    }
-
-    checklistItems.value = buildFallbackChecklist()
-  } catch (error) {
-    checklistItems.value = buildFallbackChecklist()
-  }
+function loadChecklist() {
+  checklistItems.value = buildFallbackChecklist()
 }
 
 async function loadBiotechShowcase() {
-  try {
-    const data = await fetchJson(`${API_BASE_URL}/api/v1/public/biotech-showcase/`)
-
-    if (Array.isArray(data) && data.length) {
-      biotechShowcaseItems.value = data
-      activeShowcaseIndex.value = 0
-      restartShowcaseAutoplay()
-      return
-    }
-
-    if (Array.isArray(data?.results) && data.results.length) {
-      biotechShowcaseItems.value = data.results
-      activeShowcaseIndex.value = 0
-      restartShowcaseAutoplay()
-    }
-  } catch (error) {
-    restartShowcaseAutoplay()
-  }
+  restartShowcaseAutoplay()
 }
 
 
@@ -1516,12 +1618,14 @@ function filterResourcesByRole(items) {
   const role = normalizedRole.value
 
   return items.filter(item => {
-    const resourceRole = String(item?.role || 'all').toLowerCase()
+    const resourceRoles = Array.isArray(item?.roles) && item.roles.length
+      ? item.roles.map(normalizeRoleName)
+      : [normalizeRoleName(item?.role || 'all')]
 
-    if (resourceRole === 'all') return true
-    if (role === 'teacher' && ['mentor', 'supervisor'].includes(resourceRole)) return true
-    if (role === 'admin' && resourceRole === 'admin') return true
-    if (role === 'student' && resourceRole === 'student') return true
+    if (resourceRoles.includes('all')) return true
+    if (role === 'teacher' && resourceRoles.some(resourceRole => ['mentor', 'supervisor'].includes(resourceRole))) return true
+    if (role === 'admin' && resourceRoles.includes('admin')) return true
+    if (role === 'student' && resourceRoles.includes('student')) return true
     if (role === 'admin') return true
 
     return false
@@ -1549,7 +1653,7 @@ function getResourceMeta(item) {
 }
 
 function getResourceCategory(item) {
-  return item?.type || item?.category || item?.tag || 'General'
+  return item?.category || item?.typeLabel || item?.tag || item?.type || 'General'
 }
 
 function getGroupName(group) {

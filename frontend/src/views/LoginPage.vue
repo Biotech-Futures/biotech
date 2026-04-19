@@ -361,7 +361,7 @@
         <!-- 顶部工具条，包含信任标签与语言切换器。 -->
         <div class="auth-topbar">
           <div class="top-badges">
-            <span class="top-badge">{{ t('passwordless') }}</span>
+            <span class="top-badge">{{ t('secureAccess') }}</span>
             <span class="top-badge">{{ t('enterpriseReady') }}</span>
           </div>
 
@@ -392,14 +392,14 @@
           <!-- Two-step progress indicator. -->
           <!-- 两步式认证进度指示器。 -->
           <div class="auth-progress" aria-label="Authentication progress">
-            <div class="progress-item" :class="{ active: currentStepIndex >= 1, current: currentStepIndex === 1 }">
+            <div class="progress-item active current">
               <span class="progress-dot">1</span>
               <span class="progress-label">{{ t('emailStep') }}</span>
             </div>
-            <div class="progress-line" :class="{ active: currentStepIndex === 2 }"></div>
-            <div class="progress-item" :class="{ active: currentStepIndex >= 2, current: currentStepIndex === 2 }">
+            <div class="progress-line active"></div>
+            <div class="progress-item active">
               <span class="progress-dot">2</span>
-              <span class="progress-label">{{ t('otpStep') }}</span>
+              <span class="progress-label">{{ t('passwordStep') }}</span>
             </div>
           </div>
 
@@ -422,7 +422,7 @@
 
                 <!-- Meta chips for selected identity and auth method. -->
                 <div class="meta-row">
-                  <span class="meta-chip meta-chip--neutral">{{ t('secureOtp') }}</span>
+                  <span class="meta-chip meta-chip--neutral">{{ t('passwordSignIn') }}</span>
                 </div>
               </header>
 
@@ -450,14 +450,31 @@
                   <small class="field-help">{{ emailStepHelper }}</small>
                 </div>
 
+                <div class="field-block">
+                  <label class="field-label" for="login-password">{{ t('passwordLabel') }}</label>
+
+                  <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
+                    <input
+                      id="login-password"
+                      ref="passwordInputRef"
+                      v-model="password"
+                      type="password"
+                      class="field-input"
+                      :placeholder="t('passwordPlaceholder')"
+                      :aria-invalid="Boolean(error)"
+                      autocomplete="current-password"
+                      required
+                    />
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   class="primary-button"
-                  :disabled="sendingCode || resendCountdown > 0"
+                  :disabled="sendingCode"
                 >
                   <span v-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
-                  <span v-else-if="resendCountdown > 0">{{ t('resendIn') }} {{ resendCountdown }}s</span>
-                  <span v-else>{{ t('sendVerificationCode') }}</span>
+                  <span v-else>{{ t('signIn') }}</span>
                 </button>
               </form>
 
@@ -639,6 +656,7 @@ const rolePreviewContent = LOGIN_ROLE_PREVIEW_CONTENT
   Auth flow state.
 */
 const email = ref('')
+const password = ref('')
 const currentStep = ref('email')
 const error = ref('')
 const statusMessage = ref('')
@@ -670,6 +688,7 @@ const prefersReducedMotion = ref(false)
   DOM refs.
 */
 const emailInputRef = ref(null)
+const passwordInputRef = ref(null)
 const loginShellRef = ref(null)
 const inkCanvasRef = ref(null)
 
@@ -924,7 +943,7 @@ const authHeading = computed(() => t('signIn'))
 
 const authSubtitle = computed(() => t('welcomeSubtitle'))
 
-const emailStepHelper = computed(() => t('emailHelper'))
+const emailStepHelper = computed(() => t('passwordHelper'))
 
 const activeRoleTitle = computed(() => activeRoleData.value?.title || activeRoleLabel.value)
 const activeRoleSummary = computed(() => activeRoleData.value?.summary || '')
@@ -944,7 +963,7 @@ const showcaseStats = computed(() => [
     label: t('statsWeeks')
   },
   {
-    value: 'OTP',
+    value: 'JWT',
     label: t('statsSecureAccess')
   }
 ])
@@ -1433,6 +1452,7 @@ const goBackToEmailStep = async () => {
 */
 const handleLogin = async () => {
   const normalizedEmail = email.value.trim().toLowerCase()
+  const enteredPassword = password.value
 
   clearMessages()
 
@@ -1446,44 +1466,41 @@ const handleLogin = async () => {
     return
   }
 
+  if (!enteredPassword) {
+    error.value = t('errorEnterPassword')
+    await nextTick()
+    passwordInputRef.value?.focus()
+    return
+  }
+
   if (sendingCode.value) {
-    return
-  }
-
-  if (resendCountdown.value > 0) {
-    statusMessage.value = `${t('resendIn')} ${resendCountdown.value}s`
-    return
-  }
-
-  const csrfReady = await ensureCsrfReady()
-  if (!csrfReady) {
-    error.value = t('errorCsrfFailed')
-    statusMessage.value = ''
     return
   }
 
   email.value = normalizedEmail
   sendingCode.value = true
+  statusMessage.value = t('signingIn')
 
   try {
-    const response = await postJson('/services/send-login-code/', {
-    email: normalizedEmail,
-    redirect_url: buildCallbackUrl()
-  })
+    await auth.loginWithPassword(normalizedEmail, enteredPassword)
 
-  if (!response.ok) {
-    error.value = await parseErrorMessage(response, t('errorSendLink'))
-    return
-  }
+    if (!auth.user) {
+      error.value = t('errorUserLoadFailed')
+      statusMessage.value = ''
+      return
+    }
 
-  previewLoginRoleKey.value = ''
-  currentStep.value = 'otp'
-  statusMessage.value = t('sendingSuccess')
-  await resetOtpState()
-  startResendCountdown()
+    previewLoginRoleKey.value = ''
+
+    try {
+      await router.replace('/dashboard')
+    } catch {
+      window.location.href = '/#/dashboard'
+    }
   } catch (requestError) {
     console.error('Login error:', requestError)
-    error.value = t('errorNetworkLogin')
+    statusMessage.value = ''
+    error.value = requestError instanceof Error ? requestError.message : t('errorNetworkLogin')
   } finally {
     sendingCode.value = false
   }
