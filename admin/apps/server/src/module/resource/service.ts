@@ -262,14 +262,20 @@ async function nextResourceIdFromDb() {
   const row = await db
     .select({ maxId: sql<number>`coalesce(max(${resources.id}), 0)` })
     .from(resources);
-  return (row[0]?.maxId ?? 0) + 1;
+  const rawMaxId = row[0]?.maxId;
+  const maxId =
+    typeof rawMaxId === "number" ? rawMaxId : Number(rawMaxId ?? 0);
+  return (Number.isFinite(maxId) ? maxId : 0) + 1;
 }
 
 async function nextAudienceIdFromDb() {
   const row = await db
     .select({ maxId: sql<number>`coalesce(max(${resourceAudience.id}), 0)` })
     .from(resourceAudience);
-  return (row[0]?.maxId ?? 0) + 1;
+  const rawMaxId = row[0]?.maxId;
+  const maxId =
+    typeof rawMaxId === "number" ? rawMaxId : Number(rawMaxId ?? 0);
+  return (Number.isFinite(maxId) ? maxId : 0) + 1;
 }
 
 async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
@@ -736,6 +742,88 @@ export async function uploadResource(payload: {
 
   return queryResourceById(id).then((result) => ({
     msg: "Resource uploaded successfully",
+    data: result.data,
+  }));
+}
+
+export async function replaceResourceFile(
+  id: number,
+  payload: {
+    file_name: string;
+    file_size: number;
+    file_mime_type?: string;
+    file_bytes: ArrayBuffer;
+  },
+) {
+  const existing = await queryResourceById(id);
+  if (!existing.data) {
+    return {
+      msg: "Resource not found",
+      data: null,
+    };
+  }
+
+  if (existing.data.resource_kind === "page") {
+    return {
+      msg: "HTML page resource cannot replace file",
+      data: null,
+    };
+  }
+
+  const nextStorageKey = buildStorageKey(id, payload.file_name);
+
+  if (useResourceDemoData()) {
+    const index = demoRows.findIndex((item) => item.id === id && !item.deleted_at);
+    if (index === -1) {
+      return { msg: "Resource not found", data: null };
+    }
+
+    const previousKey = demoRows[index].storage_key;
+    demoRows[index] = {
+      ...demoRows[index],
+      file_name: payload.file_name,
+      file_mime_type: payload.file_mime_type || "application/octet-stream",
+      file_size: payload.file_size,
+      storage_key: nextStorageKey,
+    };
+
+    if (previousKey && previousKey !== nextStorageKey) {
+      demoUploadedFiles.delete(previousKey);
+    }
+    demoUploadedFiles.set(nextStorageKey, {
+      file_name: payload.file_name,
+      mime_type: payload.file_mime_type || "application/octet-stream",
+      bytes: payload.file_bytes,
+    });
+
+    return {
+      msg: "Resource file replaced successfully",
+      data: buildResourceFromDemoRow(demoRows[index]),
+    };
+  }
+
+  await uploadBlobFile(
+    nextStorageKey,
+    payload.file_bytes,
+    payload.file_mime_type || "application/octet-stream",
+  );
+
+  await db
+    .update(resources)
+    .set({
+      fileName: payload.file_name,
+      fileMimeType: payload.file_mime_type || "application/octet-stream",
+      fileSize: payload.file_size,
+      storageKey: nextStorageKey,
+    })
+    .where(eq(resources.id, id));
+
+  if (existing.data.storage_key && existing.data.storage_key !== nextStorageKey) {
+    await deleteBlobFile(existing.data.storage_key);
+  }
+
+  return queryResourceById(id).then((result) => ({
+    msg: "Resource file replaced successfully",
     data: result.data,
   }));
 }

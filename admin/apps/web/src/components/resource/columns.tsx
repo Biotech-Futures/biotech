@@ -27,6 +27,14 @@ function getVisibleRoleSlugs(resource: Resource) {
   return Array.from(new Set(slugs));
 }
 
+function parseResourceDate(value: string | null | undefined) {
+  if (!value) return Number.NaN;
+  const withT = value.includes("T") ? value : value.replace(" ", "T");
+  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(withT);
+  const normalized = hasTimezone ? withT : `${withT}Z`;
+  return Date.parse(normalized);
+}
+
 export function createResourceColumns({
   onViewDetail,
   onEdit,
@@ -90,7 +98,7 @@ export function createResourceColumns({
       accessorKey: "uploaded_at",
       header: "Uploaded",
       cell: ({ row }) => {
-        const parsed = Date.parse(row.original.uploaded_at ?? "");
+        const parsed = parseResourceDate(row.original.uploaded_at);
         if (Number.isNaN(parsed)) return <span className="text-muted-foreground">N/A</span>;
         return new Date(parsed).toLocaleString();
       },

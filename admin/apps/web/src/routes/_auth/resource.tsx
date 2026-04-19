@@ -81,7 +81,10 @@ function ResourcePage() {
   const resources = useMemo(() => {
     const items = [...(data?.data.items ?? [])];
     const getSortTimestamp = (resource: Resource) => {
-      const parsed = Date.parse(resource.uploaded_at ?? "");
+      const raw = resource.uploaded_at ?? "";
+      const withT = raw.includes("T") ? raw : raw.replace(" ", "T");
+      const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(withT);
+      const parsed = Date.parse(hasTimezone ? withT : `${withT}Z`);
       if (!Number.isNaN(parsed)) return parsed;
 
       const idNumber = Number.parseInt(

@@ -36,7 +36,7 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
   const [resourceName, setResourceName] = useState("");
   const [resourceDescription, setResourceDescription] = useState("");
   const [resourceKind, setResourceKind] = useState<ResourceKind>("file");
-  const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>("global");
+  const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>("role_based");
   const [resourceType, setResourceType] = useState<ResourceTypeName | "">("");
   const [trackId, setTrackId] = useState<string>("");
   const [roleIds, setRoleIds] = useState<number[]>([]);
@@ -60,7 +60,7 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     setResourceName("");
     setResourceDescription("");
     setResourceKind("file");
-    setVisibilityMode("global");
+    setVisibilityMode("role_based");
     setResourceType("");
     setTrackId("");
     setRoleIds([]);
@@ -105,11 +105,6 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
       window.alert("Track is required.");
       return;
     }
-    if (roleIds.length === 0) {
-      window.alert("Please select at least one role.");
-      return;
-    }
-
     const finalTrackId = Number(trackId);
     const finalRoleIds = roleIds;
 

@@ -26,7 +26,11 @@ import {
   RESOURCE_TRACKS,
   RESOURCE_TYPES,
 } from "@/type/resource";
-import { useQueryResourceRoles, useUpdateResource } from "@/query/resource";
+import {
+  useQueryResourceRoles,
+  useReplaceResourceFile,
+  useUpdateResource,
+} from "@/query/resource";
 import { updateResourceSchema } from "@/schema/resource";
 
 type VisibilityMode = "global" | "track_based" | "role_based";
@@ -48,7 +52,9 @@ export function ResourceDetailDrawer({
   onSwitchToEdit,
   onDownload,
 }: ResourceDetailDrawerProps) {
-  const { mutate: updateResource, isPending } = useUpdateResource();
+  const { mutateAsync: updateResourceAsync, isPending } = useUpdateResource();
+  const { mutateAsync: replaceResourceFileAsync, isPending: isReplacingFile } =
+    useReplaceResourceFile();
   const { data: rolesData } = useQueryResourceRoles();
 
   const allRoles = rolesData?.data ?? [];
@@ -67,13 +73,14 @@ export function ResourceDetailDrawer({
     resource_name: "",
     resource_description: "",
     resource_kind: "file",
-    visibility_mode: "global",
+    visibility_mode: "role_based",
     track_id: null,
     resource_type: null,
     content_html: "",
     role_ids: [],
   });
   const [htmlFileName, setHtmlFileName] = useState("");
+  const [replacementFile, setReplacementFile] = useState<File | null>(null);
   const [showHtmlEditor, setShowHtmlEditor] = useState(false);
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
@@ -101,7 +108,7 @@ export function ResourceDetailDrawer({
             ? "role_based"
             : resource.track_id !== null
               ? "track_based"
-              : "global",
+              : "role_based",
       track_id: resource.track_id,
       resource_type: resource.resource_type,
       content_html: resource.content_html ?? "",
@@ -114,22 +121,18 @@ export function ResourceDetailDrawer({
       ),
     });
     setHtmlFileName("");
+    setReplacementFile(null);
     setShowHtmlEditor(false);
     setShowHtmlPreview(false);
   }, [resource]);
 
   if (!resource) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (editData.track_id === null) {
       window.alert("Track is required.");
       return;
     }
-    if (editData.role_ids.length === 0) {
-      window.alert("Please select at least one role.");
-      return;
-    }
-
     const finalTrackId = editData.track_id;
     const finalRoleIds = editData.role_ids;
 
@@ -150,17 +153,25 @@ export function ResourceDetailDrawer({
       return;
     }
 
-    updateResource(
-      {
+    try {
+      await updateResourceAsync({
         id: resource.id,
         updates: parsed.data,
-      },
-      {
-        onSuccess: () => {
-          onOpenChange(false);
-        },
-      },
-    );
+      });
+
+      if (replacementFile && editData.resource_kind === "file") {
+        const formData = new FormData();
+        formData.append("file", replacementFile);
+        await replaceResourceFileAsync({
+          id: resource.id,
+          payload: formData,
+        });
+      }
+
+      onOpenChange(false);
+    } catch {
+      window.alert("Save failed. Please try again.");
+    }
   };
 
   const handleChooseHtmlFile = async (selectedFile: File | null) => {
@@ -483,7 +494,27 @@ export function ResourceDetailDrawer({
                       </div>
                     ) : null}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-resource-file">Replace File</Label>
+                    <Input
+                      id="edit-resource-file"
+                      type="file"
+                      onChange={(event) =>
+                        setReplacementFile(event.target.files?.[0] ?? null)
+                      }
+                    />
+                    {replacementFile ? (
+                      <p className="text-xs text-muted-foreground">
+                        New file: {replacementFile.name}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty to keep the current file.
+                      </p>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -557,9 +588,9 @@ export function ResourceDetailDrawer({
                 <XIcon className="size-4 mr-1" />
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={isPending}>
+              <Button onClick={handleSave} disabled={isPending || isReplacingFile}>
                 <SaveIcon className="size-4 mr-1" />
-                {isPending ? "Saving..." : "Save Changes"}
+                {isPending || isReplacingFile ? "Saving..." : "Save Changes"}
               </Button>
             </div>
           )}

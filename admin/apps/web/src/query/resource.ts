@@ -133,6 +133,24 @@ export function useUpdateResource() {
   });
 }
 
+export function useReplaceResourceFile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { id: number; payload: FormData }) => {
+      const res = await myFetch.post<{ msg: string; data: Resource | null }>(
+        `/resource/${data.id}/upload`,
+        data.payload,
+      );
+      return res.data;
+    },
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["resources"] });
+      queryClient.invalidateQueries({ queryKey: ["resource", id] });
+    },
+  });
+}
+
 export function useDeleteResource() {
   const queryClient = useQueryClient();
 

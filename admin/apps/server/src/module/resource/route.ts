@@ -13,6 +13,7 @@ import {
   uploadResource,
   downloadResource,
   updateResource,
+  replaceResourceFile,
   deleteResource,
   assignRoleToResource,
   removeRoleFromResource,
@@ -144,6 +145,32 @@ resourceRoute.post("/upload", async (c) => {
     uploader: c.get("user") as AuthUploader | undefined,
   });
 
+  return c.json(result);
+});
+
+resourceRoute.post("/:id/upload", async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === null) {
+    return c.json({ msg: "Invalid resource id", data: null }, 400);
+  }
+
+  const body = await c.req.parseBody({ all: true });
+  const fileField = body.file;
+  const file = Array.isArray(fileField) ? fileField[0] : fileField;
+  if (!(file instanceof File)) {
+    return c.json({ msg: "Please select a file to upload", data: null }, 400);
+  }
+
+  const result = await replaceResourceFile(id, {
+    file_name: file.name,
+    file_size: file.size,
+    file_mime_type: file.type,
+    file_bytes: await file.arrayBuffer(),
+  });
+
+  if (!result.data) {
+    return c.json(result, 404);
+  }
   return c.json(result);
 });
 
