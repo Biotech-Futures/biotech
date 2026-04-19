@@ -275,6 +275,44 @@ function resolveDropContainer(
   return findContainerId(overId, containers);
 }
 
+function normalizeInterestKey(interest: string): string {
+  return interest.trim().toLowerCase();
+}
+
+function hasSharedInterest(
+  student: MovableStudent,
+  group: MatchingGroup,
+  movedStudentIds: string[],
+  studentsById: Record<string, MovableStudent>,
+): boolean {
+  const studentInterests = new Set(
+    student.interests.map(normalizeInterestKey).filter(Boolean),
+  );
+
+  if (studentInterests.size === 0) {
+    return false;
+  }
+
+  const groupInterests = new Set(
+    [
+      ...group.existingStudents.flatMap((member) => member.interests),
+      ...movedStudentIds.flatMap(
+        (studentId) => studentsById[studentId]?.interests ?? [],
+      ),
+    ]
+      .map(normalizeInterestKey)
+      .filter(Boolean),
+  );
+
+  for (const interest of studentInterests) {
+    if (groupInterests.has(interest)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function StudentCard({
   student,
   isRecommendedInCurrentGroup,
@@ -568,7 +606,6 @@ export function MatchingBoard({
   );
   const [containers, setContainers] = useState<Record<string, string[]>>({});
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
-  const [dragError, setDragError] = useState<string | null>(null);
   const [groupSearch, setGroupSearch] = useState("");
   const [trackFilter, setTrackFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
@@ -622,13 +659,20 @@ export function MatchingBoard({
   ]);
 
   const availableTracks = useMemo(() => {
+    const studentTracks = Object.values(boardData.studentsById)
+      .map((student) => student.track)
+      .filter(Boolean);
+
     return [
       "all",
       ...new Set(
-        groupSummaries.map((item) => item.group.track).filter(Boolean),
+        [
+          ...groupSummaries.map((item) => item.group.track).filter(Boolean),
+          ...studentTracks,
+        ].sort((a, b) => a.localeCompare(b)),
       ),
     ];
-  }, [groupSummaries]);
+  }, [boardData.studentsById, groupSummaries]);
 
   const filteredGroupSummaries = useMemo(() => {
     const query = groupSearch.trim().toLowerCase();
@@ -663,14 +707,23 @@ export function MatchingBoard({
       .sort((a, b) => a.group.name.localeCompare(b.group.name));
   }, [groupFilter, groupSearch, groupSummaries, trackFilter]);
 
+  const waitingStudentIds = effectiveContainers[WAITING_CONTAINER_ID] ?? [];
+  const visibleWaitingStudentIds = useMemo(() => {
+    if (trackFilter === "all") {
+      return waitingStudentIds;
+    }
+
+    return waitingStudentIds.filter(
+      (studentId) => boardData.studentsById[studentId]?.track === trackFilter,
+    );
+  }, [boardData.studentsById, trackFilter, waitingStudentIds]);
+
   useEffect(() => {
     setContainers(boardData.containers);
-    setDragError(null);
   }, [boardData.containers]);
 
   function resetBoardFromRecommendations() {
     setContainers(boardData.containers);
-    setDragError(null);
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -713,19 +766,40 @@ export function MatchingBoard({
 
       if (targetContainerId !== WAITING_CONTAINER_ID) {
         const targetGroup = boardData.groupsByContainerId[targetContainerId];
+        const draggedStudent = boardData.studentsById[activeId];
         if (targetGroup) {
+          if (draggedStudent?.track !== targetGroup.track) {
+            toast.error(
+              `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: track ${draggedStudent?.track || "N/A"} does not match ${targetGroup.track || "N/A"}.`,
+            );
+            return currentContainers;
+          }
+
+          if (
+            !draggedStudent ||
+            !hasSharedInterest(
+              draggedStudent,
+              targetGroup,
+              currentContainers[targetContainerId] ?? [],
+              boardData.studentsById,
+            )
+          ) {
+            toast.error(
+              `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: no shared interest with the group.`,
+            );
+            return currentContainers;
+          }
+
           const existingCount = targetGroup.existingStudents.length;
           const currentMovedCount = currentContainers[targetContainerId].length;
           if (existingCount + currentMovedCount >= targetGroup.maxSize) {
-            setDragError(
+            toast.error(
               `${targetGroup.name} is full (${targetGroup.maxSize}/${targetGroup.maxSize}).`,
             );
             return currentContainers;
           }
         }
       }
-
-      setDragError(null);
 
       const sourceItems = [...currentContainers[sourceContainerId]];
       const sourceIndex = sourceItems.indexOf(activeId);
@@ -866,11 +940,6 @@ export function MatchingBoard({
           </div>
         </div>
 
-        {dragError ? (
-          <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {dragError}
-          </p>
-        ) : null}
       </div>
 
       {recommendations.length === 0 ? (
@@ -933,13 +1002,14 @@ export function MatchingBoard({
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-base font-semibold">Waiting Area</h3>
                   <Badge variant="outline">
-                    {effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0}{" "}
-                    students
+                    {trackFilter === "all"
+                      ? `${waitingStudentIds.length} students`
+                      : `${visibleWaitingStudentIds.length}/${waitingStudentIds.length} students`}
                   </Badge>
                 </div>
                 <DroppableStudentList
                   containerId={WAITING_CONTAINER_ID}
-                  studentIds={effectiveContainers[WAITING_CONTAINER_ID] ?? []}
+                  studentIds={visibleWaitingStudentIds}
                   studentsById={boardData.studentsById}
                   recommendedGroupId={null}
                   emptyText="Drop students here to keep them waiting."
