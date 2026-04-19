@@ -85,9 +85,10 @@ export function useDeleteEvent() {
       const res = await myFetch.delete<ApiResponse<Event | null>>(`/event/${id}`);
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-    },
+    onSuccess: (_, deletedId) => {
+  queryClient.invalidateQueries({ queryKey: ["events"] });
+  queryClient.invalidateQueries({ queryKey: ["event-rsvps", deletedId] });
+},
   });
 }
 

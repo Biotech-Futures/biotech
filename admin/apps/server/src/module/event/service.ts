@@ -11,28 +11,6 @@ import type {
 
 type EventUpdate = Partial<Omit<typeof events.$inferInsert, "id">>;
 
-/*async function getNextEventId() {
-  const rows = await db
-    .select({ id: events.id })
-    .from(events)
-    .orderBy(desc(events.id))
-    .limit(1);
-  const latestId = Number(rows[0]?.id ?? 0);
-
-  return latestId + 1;
-}
-
-async function getNextEventRsvpId() {
-  const rows = await db
-    .select({ id: eventRsvp.id })
-    .from(eventRsvp)
-    .orderBy(desc(eventRsvp.id))
-    .limit(1);
-  const latestId = Number(rows[0]?.id ?? 0);
-
-  return latestId + 1;
-}*/
-
 function toEventId(id: string) {
   const eventId = Number(id);
 
@@ -133,7 +111,6 @@ export async function createEvent(data: CreateEventInput) {
   const rows = await db
     .insert(events)
     .values({
-      id: Math.floor(Date.now() / 1000),
       hostUserId: data.hostUserId,
       trackId: data.trackId ?? null,
       eventType: data.eventType ?? null,
@@ -221,6 +198,7 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
   };
 }
 
+// ✅ Cascade delete: remove all RSVPs first, then delete the event
 export async function deleteEvent(id: string) {
   const eventId = toEventId(id);
 
@@ -231,6 +209,10 @@ export async function deleteEvent(id: string) {
     };
   }
 
+  // Delete all RSVPs for this event first
+  await db.delete(eventRsvp).where(eq(eventRsvp.eventId, eventId));
+
+  // Then delete the event
   const rows = await db
     .delete(events)
     .where(eq(events.id, eventId))
@@ -282,6 +264,11 @@ export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
       rsvpStatus: data.rsvpStatus,
     } as typeof eventRsvp.$inferInsert)
     .returning();
+
+  return {
+    msg: "Event RSVP created successfully",
+    data: rows[0] ?? null,
+  };
 }
 
 export async function updateEventRsvp(
