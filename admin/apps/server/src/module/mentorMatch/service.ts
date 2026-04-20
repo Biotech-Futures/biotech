@@ -5,19 +5,18 @@ import {
   type MentorSource,
 } from "@/algorithm/mentor.js";
 import db from "@/lib/db.js";
-import { and, desc, eq, inArray, isNull, notExists } from "drizzle-orm";
+import { and, eq, inArray, notExists } from "drizzle-orm";
 import {
   areasOfInterest,
-  groupMembership,
+  groupMembers,
   groups,
   matchRun,
-  mentorInterest,
   mentorProfile,
   studentInterest,
   studentProfile,
   tracks,
   users,
-} from "@/old/drizzle/schema.js";
+} from "@/schema/index.js";
 import type { ConfirmMentorAssignmentInput, ReplaceMentorInput } from "./schema.js";
 import { demoGroups, demoMentors, initialDemoMatchedGroups, type DemoMatchedGroup } from "./demo.js";
 
@@ -47,7 +46,6 @@ export async function matchMentor(
   adminUserId: string,
   mode: MatchMode = "balanced",
 ) {
-  // Demo mode: skip DB, run algorithm on static demo data
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
     const matchedGroupIds = new Set(demoMatchedGroups.map((g) => g.groupId));
     const unmatchedDemoGroups = demoGroups.filter(
@@ -56,29 +54,24 @@ export async function matchMentor(
     return matchMentors(unmatchedDemoGroups, demoMentors, mode);
   }
 
-  // 1. Find groups that have no active mentor membership
+  // 1. Find groups that have no mentor member
   const groupsWithoutMentor = await db
     .select({
       groupId: groups.id,
       groupName: groups.groupName,
-      groupTrackCode: tracks.trackCode,
+      groupTrackCode: tracks.trackName,
     })
     .from(groups)
     .innerJoin(tracks, eq(tracks.id, groups.trackId))
     .where(
       and(
-        isNull(groups.deletedAt),
+        eq(groups.deletedFlag, false),
         notExists(
           db
-            .select({ id: groupMembership.id })
-            .from(groupMembership)
-            .where(
-              and(
-                eq(groupMembership.groupId, groups.id),
-                eq(groupMembership.membershipRole, "mentor"),
-                isNull(groupMembership.leftAt),
-              ),
-            ),
+            .select({ one: groupMembers.id })
+            .from(groupMembers)
+            .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
+            .where(eq(groupMembers.groupId, groups.id)),
         ),
       ),
     );
@@ -89,41 +82,27 @@ export async function matchMentor(
 
   const groupIds = groupsWithoutMentor.map((g) => g.groupId);
 
-  // 2. Collect student interests per group (union of all members)
+  // 2. Collect student interests per group
   const memberInterestRows = await db
     .select({
-      groupId: groupMembership.groupId,
+      groupId: groupMembers.groupId,
       interest: areasOfInterest.interestDesc,
     })
-    .from(groupMembership)
-    .innerJoin(
-      studentInterest,
-      eq(studentInterest.studentUserId, groupMembership.userId),
-    )
-    .innerJoin(
-      areasOfInterest,
-      eq(areasOfInterest.id, studentInterest.interestId),
-    )
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .from(groupMembers)
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
+    .innerJoin(studentInterest, eq(studentInterest.userId, groupMembers.userId))
+    .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
+    .where(inArray(groupMembers.groupId, groupIds));
 
   const interestsByGroupId = groupInterestsByKey(
     memberInterestRows.map((r) => ({ key: r.groupId, interest: r.interest })),
   );
 
   const memberCountRows = await db
-    .select({ groupId: groupMembership.groupId })
-    .from(groupMembership)
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .select({ groupId: groupMembers.groupId })
+    .from(groupMembers)
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
+    .where(inArray(groupMembers.groupId, groupIds));
 
   const memberCountByGroupId = new Map<number, number>();
   for (const row of memberCountRows) {
@@ -141,16 +120,11 @@ export async function matchMentor(
     studentCount: memberCountByGroupId.get(g.groupId) ?? 0,
   }));
 
-  // 3. Fetch active mentors — count capacity from groupMembership
+  // 3. Fetch active mentors
   const acceptedCountRows = await db
-    .select({ mentorUserId: groupMembership.userId })
-    .from(groupMembership)
-    .where(
-      and(
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .select({ mentorUserId: groupMembers.userId })
+    .from(groupMembers)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId));
 
   const acceptedCountByMentor = new Map<number, number>();
   for (const row of acceptedCountRows) {
@@ -166,8 +140,8 @@ export async function matchMentor(
       firstName: users.firstName,
       lastName: users.lastName,
       institution: mentorProfile.institution,
-      maxGroupCount: mentorProfile.maxGroupCount,
-      trackCode: tracks.trackCode,
+      maxGrpCnt: mentorProfile.maxGrpCnt,
+      trackCode: tracks.trackName,
     })
     .from(mentorProfile)
     .innerJoin(users, eq(users.id, mentorProfile.userId))
@@ -181,15 +155,12 @@ export async function matchMentor(
       ? []
       : await db
           .select({
-            key: mentorInterest.mentorUserId,
+            key: studentInterest.userId,
             interest: areasOfInterest.interestDesc,
           })
-          .from(mentorInterest)
-          .innerJoin(
-            areasOfInterest,
-            eq(areasOfInterest.id, mentorInterest.interestId),
-          )
-          .where(inArray(mentorInterest.mentorUserId, mentorIds));
+          .from(studentInterest)
+          .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
+          .where(inArray(studentInterest.userId, mentorIds));
 
   const interestsByMentorId = groupInterestsByKey(mentorInterestRows);
 
@@ -200,7 +171,7 @@ export async function matchMentor(
     institution: m.institution,
     trackCode: m.trackCode,
     interests: interestsByMentorId.get(m.mentorId) ?? [],
-    maxGroupCount: m.maxGroupCount,
+    maxGroupCount: m.maxGrpCnt,
     currentAcceptedCount: acceptedCountByMentor.get(m.mentorId) ?? 0,
   }));
 
@@ -208,14 +179,7 @@ export async function matchMentor(
   const recommendations = matchMentors(groupSources, mentorSources, mode);
 
   // 5. Save matchRun record
-  const latestMatchRun = await db
-    .select({ id: matchRun.id })
-    .from(matchRun)
-    .orderBy(desc(matchRun.id))
-    .limit(1);
-
   await db.insert(matchRun).values({
-    id: (latestMatchRun[0]?.id ?? 0) + 1,
     adminUserId: adminUserId,
     runType: "mentor-match",
     payload: groupSources,
@@ -225,8 +189,6 @@ export async function matchMentor(
 
   return recommendations;
 }
-
-// ─── getUnmatchedGroups ──────────────────────────────────────────────────────
 
 // ─── getMentors ─────────────────────────────────────────────────────────────
 
@@ -245,14 +207,9 @@ export async function getMentors() {
   }
 
   const acceptedCountRows = await db
-    .select({ mentorUserId: groupMembership.userId })
-    .from(groupMembership)
-    .where(
-      and(
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .select({ mentorUserId: groupMembers.userId })
+    .from(groupMembers)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId));
 
   const acceptedCountByMentor = new Map<number, number>();
   for (const row of acceptedCountRows) {
@@ -268,8 +225,8 @@ export async function getMentors() {
       firstName: users.firstName,
       lastName: users.lastName,
       institution: mentorProfile.institution,
-      maxGroupCount: mentorProfile.maxGroupCount,
-      trackCode: tracks.trackCode,
+      maxGrpCnt: mentorProfile.maxGrpCnt,
+      trackCode: tracks.trackName,
     })
     .from(mentorProfile)
     .innerJoin(users, eq(users.id, mentorProfile.userId))
@@ -283,15 +240,12 @@ export async function getMentors() {
       ? []
       : await db
           .select({
-            key: mentorInterest.mentorUserId,
+            key: studentInterest.userId,
             interest: areasOfInterest.interestDesc,
           })
-          .from(mentorInterest)
-          .innerJoin(
-            areasOfInterest,
-            eq(areasOfInterest.id, mentorInterest.interestId),
-          )
-          .where(inArray(mentorInterest.mentorUserId, mentorIds));
+          .from(studentInterest)
+          .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
+          .where(inArray(studentInterest.userId, mentorIds));
 
   const interestsByMentorId = groupInterestsByKey(mentorInterestRows);
 
@@ -303,9 +257,9 @@ export async function getMentors() {
       trackCode: m.trackCode,
       institution: m.institution,
       interests: interestsByMentorId.get(m.mentorId) ?? [],
-      maxGroupCount: m.maxGroupCount,
+      maxGroupCount: m.maxGrpCnt,
       currentAcceptedCount,
-      remainingCapacity: m.maxGroupCount - currentAcceptedCount,
+      remainingCapacity: m.maxGrpCnt - currentAcceptedCount,
     };
   });
 }
@@ -313,7 +267,6 @@ export async function getMentors() {
 // ─── getUnmatchedGroups ──────────────────────────────────────────────────────
 
 export async function getUnmatchedGroups() {
-  // Demo mode: return full group data including student details
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
     const matchedGroupIds = new Set(demoMatchedGroups.map((g) => g.groupId));
     return demoGroups
@@ -332,24 +285,19 @@ export async function getUnmatchedGroups() {
     .select({
       groupId: groups.id,
       groupName: groups.groupName,
-      trackCode: tracks.trackCode,
+      trackCode: tracks.trackName,
     })
     .from(groups)
     .innerJoin(tracks, eq(tracks.id, groups.trackId))
     .where(
       and(
-        isNull(groups.deletedAt),
+        eq(groups.deletedFlag, false),
         notExists(
           db
-            .select({ id: groupMembership.id })
-            .from(groupMembership)
-            .where(
-              and(
-                eq(groupMembership.groupId, groups.id),
-                eq(groupMembership.membershipRole, "mentor"),
-                isNull(groupMembership.leftAt),
-              ),
-            ),
+            .select({ one: groupMembers.id })
+            .from(groupMembers)
+            .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
+            .where(eq(groupMembers.groupId, groups.id)),
         ),
       ),
     );
@@ -363,25 +311,15 @@ export async function getUnmatchedGroups() {
   // Student interests keyed by both groupId (union) and userId (per-student)
   const memberInterestRows = await db
     .select({
-      groupId: groupMembership.groupId,
-      userId: groupMembership.userId,
+      groupId: groupMembers.groupId,
+      userId: groupMembers.userId,
       interest: areasOfInterest.interestDesc,
     })
-    .from(groupMembership)
-    .innerJoin(
-      studentInterest,
-      eq(studentInterest.studentUserId, groupMembership.userId),
-    )
-    .innerJoin(
-      areasOfInterest,
-      eq(areasOfInterest.id, studentInterest.interestId),
-    )
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .from(groupMembers)
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
+    .innerJoin(studentInterest, eq(studentInterest.userId, groupMembers.userId))
+    .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
+    .where(inArray(groupMembers.groupId, groupIds));
 
   const interestsByGroupId = new Map<number, string[]>();
   const interestsByUserId = new Map<number, string[]>();
@@ -394,23 +332,18 @@ export async function getUnmatchedGroups() {
     interestsByUserId.set(row.userId, ui);
   }
 
-  // Student names — inner join with studentProfile to include students only
+  // Student names
   const studentNameRows = await db
     .select({
-      groupId: groupMembership.groupId,
+      groupId: groupMembers.groupId,
       userId: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
     })
-    .from(groupMembership)
-    .innerJoin(users, eq(users.id, groupMembership.userId))
-    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .from(groupMembers)
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
+    .where(inArray(groupMembers.groupId, groupIds));
 
   const studentsByGroupId = new Map<number, Array<{ userId: number; name: string }>>();
   for (const row of studentNameRows) {
@@ -444,7 +377,7 @@ export async function getMatchedGroups() {
 
   const rows = await db
     .select({
-      membershipId: groupMembership.id,
+      membershipId: groupMembers.id,
       groupId: groups.id,
       groupName: groups.groupName,
       groupTrackId: groups.trackId,
@@ -455,17 +388,11 @@ export async function getMatchedGroups() {
       institution: mentorProfile.institution,
       mentorTrackId: users.trackId,
     })
-    .from(groupMembership)
-    .innerJoin(groups, eq(groups.id, groupMembership.groupId))
-    .innerJoin(users, eq(users.id, groupMembership.userId))
-    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
-    .where(
-      and(
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-        isNull(groups.deletedAt),
-      ),
-    );
+    .from(groupMembers)
+    .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .where(eq(groups.deletedFlag, false));
 
   if (rows.length === 0) return [];
 
@@ -474,47 +401,42 @@ export async function getMatchedGroups() {
   const allTrackIds = [
     ...new Set([
       ...rows.map((r) => r.groupTrackId),
-      ...rows.map((r) => r.mentorTrackId),
+      ...rows.map((r) => r.mentorTrackId).filter((id): id is number => id !== null),
     ]),
   ];
 
   const trackRows = await db
-    .select({ id: tracks.id, trackCode: tracks.trackCode })
+    .select({ id: tracks.id, trackName: tracks.trackName })
     .from(tracks)
     .where(inArray(tracks.id, allTrackIds));
 
-  const trackCodeById = new Map(trackRows.map((t) => [t.id, t.trackCode]));
+  const trackNameById = new Map(trackRows.map((t) => [t.id, t.trackName]));
 
-  // Fetch student names per group
+  // Student names per group
   const studentNameRows = await db
     .select({
-      groupId: groupMembership.groupId,
+      groupId: groupMembers.groupId,
       userId: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
     })
-    .from(groupMembership)
-    .innerJoin(users, eq(users.id, groupMembership.userId))
-    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
-    .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)));
+    .from(groupMembers)
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
+    .where(inArray(groupMembers.groupId, groupIds));
 
-  // Fetch student interests per group (students only — exclude mentor memberships)
+  // Student interests per group
   const memberInterestRows = await db
     .select({
-      groupId: groupMembership.groupId,
-      userId: groupMembership.userId,
+      groupId: groupMembers.groupId,
+      userId: groupMembers.userId,
       interest: areasOfInterest.interestDesc,
     })
-    .from(groupMembership)
-    .innerJoin(studentInterest, eq(studentInterest.studentUserId, groupMembership.userId))
+    .from(groupMembers)
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
+    .innerJoin(studentInterest, eq(studentInterest.userId, groupMembers.userId))
     .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        eq(groupMembership.membershipRole, "student"),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .where(inArray(groupMembers.groupId, groupIds));
 
   const interestsByUserId = new Map<number, string[]>();
   for (const row of memberInterestRows) {
@@ -526,7 +448,10 @@ export async function getMatchedGroups() {
   const studentsByGroupId = new Map<number, Array<{ name: string; interests: string[] }>>();
   for (const row of studentNameRows) {
     const list = studentsByGroupId.get(row.groupId) ?? [];
-    list.push({ name: `${row.firstName} ${row.lastName}`.trim(), interests: interestsByUserId.get(row.userId) ?? [] });
+    list.push({
+      name: `${row.firstName} ${row.lastName}`.trim(),
+      interests: interestsByUserId.get(row.userId) ?? [],
+    });
     studentsByGroupId.set(row.groupId, list);
   }
 
@@ -536,14 +461,14 @@ export async function getMatchedGroups() {
       membershipId: r.membershipId,
       groupId: r.groupId,
       groupName: r.groupName,
-      trackCode: trackCodeById.get(r.groupTrackId) ?? "",
+      trackCode: trackNameById.get(r.groupTrackId) ?? "",
       studentCount: students.length,
       students,
       mentor: {
         mentorId: r.mentorId,
         name: `${r.mentorFirstName} ${r.mentorLastName}`.trim(),
         isActive: r.isActive,
-        trackCode: trackCodeById.get(r.mentorTrackId) ?? "",
+        trackCode: r.mentorTrackId !== null ? (trackNameById.get(r.mentorTrackId) ?? "") : "",
         institution: r.institution,
       },
     };
@@ -571,31 +496,18 @@ export async function replaceMentor(input: ReplaceMentorInput) {
     return { replaced: 1 };
   }
 
-  const now = new Date().toISOString();
-
   await db
-    .update(groupMembership)
-    .set({ leftAt: now })
+    .delete(groupMembers)
     .where(
       and(
-        eq(groupMembership.id, input.membershipId),
-        eq(groupMembership.groupId, input.groupId),
+        eq(groupMembers.id, input.membershipId),
+        eq(groupMembers.groupId, input.groupId),
       ),
     );
 
-  const latest = await db
-    .select({ id: groupMembership.id })
-    .from(groupMembership)
-    .orderBy(desc(groupMembership.id))
-    .limit(1);
-
-  await db.insert(groupMembership).values({
-    id: (latest[0]?.id ?? 0) + 1,
+  await db.insert(groupMembers).values({
     groupId: input.groupId,
     userId: input.newMentorUserId,
-    membershipRole: "mentor",
-    joinedAt: now,
-    leftAt: null,
   });
 
   return { replaced: 1 };
@@ -610,26 +522,18 @@ export async function bulkReplaceInactiveMentors() {
     return { removedCount: before - demoMatchedGroups.length };
   }
 
-  const now = new Date().toISOString();
-
   const inactive = await db
-    .select({ id: groupMembership.id })
-    .from(groupMembership)
-    .innerJoin(users, eq(users.id, groupMembership.userId))
-    .where(
-      and(
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-        eq(users.isActive, false),
-      ),
-    );
+    .select({ id: groupMembers.id })
+    .from(groupMembers)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .where(eq(users.isActive, false));
 
   if (inactive.length === 0) return { removedCount: 0 };
 
   await db
-    .update(groupMembership)
-    .set({ leftAt: now })
-    .where(inArray(groupMembership.id, inactive.map((m) => m.id)));
+    .delete(groupMembers)
+    .where(inArray(groupMembers.id, inactive.map((m) => m.id)));
 
   return { removedCount: inactive.length };
 }
@@ -653,7 +557,6 @@ export async function confirmMentorAssignments(
     return { confirmedCount: 0 };
   }
 
-  // Demo mode: update in-memory state instead of writing to DB
   if (process.env.MATCH_USE_DEMO_DATA === "true") {
     const maxId = demoMatchedGroups.reduce(
       (max, g) => Math.max(max, g.membershipId),
@@ -665,10 +568,7 @@ export async function confirmMentorAssignments(
       const group = demoGroups.find((g) => g.groupId === groupId);
       const mentor = demoMentors.find((m) => m.mentorId === mentorUserId);
       if (!group || !mentor) continue;
-      // Remove any existing match for this group first
-      demoMatchedGroups = demoMatchedGroups.filter(
-        (g) => g.groupId !== groupId,
-      );
+      demoMatchedGroups = demoMatchedGroups.filter((g) => g.groupId !== groupId);
       demoMatchedGroups.push({
         membershipId: nextMembershipId++,
         groupId: group.groupId,
@@ -692,54 +592,45 @@ export async function confirmMentorAssignments(
     return { confirmedCount };
   }
 
-  const now = new Date().toISOString();
   const groupIds = assignments.map((a) => a.groupId);
 
-  // Soft-delete any existing active mentor membership for these groups
-  // to prevent duplicate active mentor assignments
-  await db
-    .update(groupMembership)
-    .set({ leftAt: now })
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+  // Hard-delete any existing mentor membership for these groups
+  const existingMentorRows = await db
+    .select({ id: groupMembers.id })
+    .from(groupMembers)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
+    .where(inArray(groupMembers.groupId, groupIds));
 
-  const latestMembership = await db
-    .select({ id: groupMembership.id })
-    .from(groupMembership)
-    .orderBy(desc(groupMembership.id))
-    .limit(1);
+  if (existingMentorRows.length > 0) {
+    await db
+      .delete(groupMembers)
+      .where(inArray(groupMembers.id, existingMentorRows.map((r) => r.id)));
+  }
 
-  let nextId = (latestMembership[0]?.id ?? 0) + 1;
-  const rows = assignments.map((item) => ({
-    id: nextId++,
-    groupId: item.groupId,
-    userId: item.mentorUserId,
-    membershipRole: "mentor",
-    joinedAt: now,
-    leftAt: null as string | null,
-  }));
-
-  await db.insert(groupMembership).values(rows);
+  await db.insert(groupMembers).values(
+    assignments.map((item) => ({
+      groupId: item.groupId,
+      userId: item.mentorUserId,
+    })),
+  );
 
   return { confirmedCount: assignments.length };
 }
 
+// ─── unassignMentors ──────────────────────────────────────────────────────────
+
 export async function unassignMentors(groupIds: number[]) {
-  const now = new Date().toISOString();
+  const mentorRows = await db
+    .select({ id: groupMembers.id })
+    .from(groupMembers)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
+    .where(inArray(groupMembers.groupId, groupIds));
+
+  if (mentorRows.length === 0) return { unassignedCount: 0 };
+
   await db
-    .update(groupMembership)
-    .set({ leftAt: now })
-    .where(
-      and(
-        inArray(groupMembership.groupId, groupIds),
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-      ),
-    );
-  return { unassignedCount: groupIds.length };
+    .delete(groupMembers)
+    .where(inArray(groupMembers.id, mentorRows.map((r) => r.id)));
+
+  return { unassignedCount: mentorRows.length };
 }

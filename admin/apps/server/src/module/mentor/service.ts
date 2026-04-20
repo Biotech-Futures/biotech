@@ -1,29 +1,24 @@
 import db from "@/lib/db.js";
 import { and, eq, isNull, max, sql } from "drizzle-orm";
 import {
-  groupMembership,
-  mentorInterest,
-  areasOfInterest,
+  groupMembers,
   mentorProfile,
-  mentorAvailability,
   mentorCertificate,
   certificateType,
   messages,
   tracks,
   users,
-} from "@/old/drizzle/schema.js";
+  background,
+  studentInterest,
+  areasOfInterest,
+} from "@/schema/index.js";
 
 export async function getMentorList() {
   // 1. Count currently assigned groups per mentor
   const assignedCountRows = await db
-    .select({ mentorUserId: groupMembership.userId })
-    .from(groupMembership)
-    .where(
-      and(
-        eq(groupMembership.membershipRole, "mentor"),
-        isNull(groupMembership.leftAt),
-      ),
-    );
+    .select({ mentorUserId: groupMembers.userId })
+    .from(groupMembers)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId));
 
   const assignedCountByMentor = new Map<number, number>();
   for (const row of assignedCountRows) {
@@ -42,12 +37,14 @@ export async function getMentorList() {
       email: users.email,
       isActive: users.isActive,
       institution: mentorProfile.institution,
-      maxGroupCount: mentorProfile.maxGroupCount,
-      trackCode: tracks.trackCode,
+      maxGrpCnt: mentorProfile.maxGrpCnt,
+      trackCode: tracks.trackName,
+      backgroundDesc: background.backgroundDescUniqueField,
     })
     .from(mentorProfile)
     .innerJoin(users, eq(users.id, mentorProfile.userId))
-    .innerJoin(tracks, eq(tracks.id, users.trackId));
+    .innerJoin(tracks, eq(tracks.id, users.trackId))
+    .innerJoin(background, eq(background.id, mentorProfile.backgroundId));
 
   if (mentorRows.length === 0) return [];
 
@@ -72,56 +69,17 @@ export async function getMentorList() {
     lastMessageRows.map((r) => [r.senderUserId, r.lastMessageAt]),
   );
 
-  // 4. Interests per mentor
-  const interestRows = await db
-    .select({
-      mentorUserId: mentorInterest.mentorUserId,
-      interest: areasOfInterest.interestDesc,
-    })
-    .from(mentorInterest)
-    .innerJoin(areasOfInterest, eq(areasOfInterest.id, mentorInterest.interestId))
-    .where(
-      sql`${mentorInterest.mentorUserId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
-    );
-
-  const interestsByMentor = new Map<number, string[]>();
-  for (const row of interestRows) {
-    const list = interestsByMentor.get(row.mentorUserId) ?? [];
-    list.push(row.interest);
-    interestsByMentor.set(row.mentorUserId, list);
-  }
-
-  // 5. Availability per mentor
-  const availabilityRows = await db
-    .select({
-      mentorUserId: mentorAvailability.mentorUserId,
-      weekday: mentorAvailability.weekday,
-      startTime: mentorAvailability.startTime,
-      endTime: mentorAvailability.endTime,
-    })
-    .from(mentorAvailability)
-    .where(
-      sql`${mentorAvailability.mentorUserId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
-    );
-
-  const availabilityByMentor = new Map<number, Array<{ weekday: number; startTime: string; endTime: string }>>();
-  for (const row of availabilityRows) {
-    const list = availabilityByMentor.get(row.mentorUserId) ?? [];
-    list.push({ weekday: row.weekday, startTime: row.startTime, endTime: row.endTime });
-    availabilityByMentor.set(row.mentorUserId, list);
-  }
-
-  // 6. Certificates per mentor
+  // 4. Certificates per mentor
   const certificateRows = await db
     .select({
       mentorProfileId: mentorCertificate.mentorProfileId,
-      certificateTypeName: certificateType.name,
+      certificateTypeName: certificateType.certificateType,
       certificateNumber: mentorCertificate.certificateNumber,
       issuedBy: mentorCertificate.issuedBy,
       issuedAt: mentorCertificate.issuedAt,
       expiresAt: mentorCertificate.expiresAt,
       fileUrl: mentorCertificate.fileUrl,
-      verifiedAt: mentorCertificate.verifiedAt,
+      verified: mentorCertificate.verified,
     })
     .from(mentorCertificate)
     .innerJoin(certificateType, eq(certificateType.id, mentorCertificate.certificateTypeId))
@@ -136,6 +94,25 @@ export async function getMentorList() {
     certificatesByMentor.set(row.mentorProfileId, list);
   }
 
+  // 5. Interests per mentor
+  const interestRows = await db
+    .select({
+      userId: studentInterest.userId,
+      interestDesc: areasOfInterest.interestDesc,
+    })
+    .from(studentInterest)
+    .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
+    .where(
+      sql`${studentInterest.userId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
+    );
+
+  const interestsByMentor = new Map<number, string[]>();
+  for (const row of interestRows) {
+    const list = interestsByMentor.get(row.userId) ?? [];
+    list.push(row.interestDesc);
+    interestsByMentor.set(row.userId, list);
+  }
+
   return mentorRows.map((m) => {
     const currentAssignedCount = assignedCountByMentor.get(m.mentorId) ?? 0;
     return {
@@ -147,12 +124,13 @@ export async function getMentorList() {
       isActive: m.isActive,
       institution: m.institution,
       trackCode: m.trackCode,
-      maxGroupCount: m.maxGroupCount,
+      background: m.backgroundDesc,
+      maxGroupCount: m.maxGrpCnt,
       currentAssignedCount,
-      remainingCapacity: m.maxGroupCount - currentAssignedCount,
+      remainingCapacity: m.maxGrpCnt - currentAssignedCount,
       interests: interestsByMentor.get(m.mentorId) ?? [],
       lastMessageAt: lastMessageByMentor.get(m.mentorId) ?? null,
-      availability: availabilityByMentor.get(m.mentorId) ?? [],
+      availability: [],
       certificates: certificatesByMentor.get(m.mentorId) ?? [],
     };
   });
