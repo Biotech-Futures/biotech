@@ -6,6 +6,7 @@ class StudentProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     pg_first_name = models.CharField(max_length=255)
     pg_last_name = models.CharField(max_length=255)
+    pg_email = models.EmailField(blank=True, null=True)
     parent_guardian_flag = models.BooleanField(default=False) 
     supervisor = models.ForeignKey('SupervisorProfile', on_delete=models.SET_NULL, blank=True, null=True)
     school_name = models.CharField(max_length=255)

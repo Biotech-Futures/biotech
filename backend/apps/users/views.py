@@ -7,7 +7,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
+from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
 from apps.events.models import Events
@@ -194,7 +194,7 @@ class UserRegisterView(APIView):
         )
 
         #interest
-        si = StudentInterest.objects.create(
+        si = UserInterest.objects.create(
             interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
             user=user
         )

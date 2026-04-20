@@ -5,9 +5,13 @@ from django.utils import timezone
 
 
 class GroupMembership(models.Model):
+    class MembershipRoleChoices(models.TextChoices):
+        MENTOR = "mentor", "Mentor"
+        STUDENT = "student", "Student"
+
     group = models.ForeignKey('Groups', on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    membership_role = models.CharField(max_length=50, blank=True)
+    membership_role = models.CharField(max_length=50, choices=MembershipRoleChoices.choices, blank=True)
     joined_at = models.DateTimeField(default=timezone.now)
     left_at = models.DateTimeField(null=True, blank=True)
 
