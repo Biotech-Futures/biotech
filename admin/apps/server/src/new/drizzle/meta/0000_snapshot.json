@@ -1,5 +1,5 @@
 {
-  "id": "15dba216-d934-4831-84c3-494356a4affa",
+  "id": "d08a7831-9c35-4c8f-b6aa-5f32d167dcfb",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -476,25 +476,63 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.alert": {
-      "name": "alert",
+    "public.admin_profile": {
+      "name": "admin_profile",
+      "schema": "",
+      "columns": {
+        "admin_id": {
+          "name": "admin_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "admin_profile_admin_id_d55c5f00_fk_users_id": {
+          "name": "admin_profile_admin_id_d55c5f00_fk_users_id",
+          "tableFrom": "admin_profile",
+          "tableTo": "users",
+          "columnsFrom": [
+            "admin_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.alerts": {
+      "name": "alerts",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "alerts_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "session_id": {
-          "name": "session_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(6)",
+        "alert_timestamp": {
+          "name": "alert_timestamp",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
         },
@@ -510,19 +548,84 @@
           "primaryKey": false,
           "notNull": true
         },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp(6)",
+        "session_id": {
+          "name": "session_id",
+          "type": "bigint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "alerts_alert_t_e3b260_idx": {
+          "name": "alerts_alert_t_e3b260_idx",
+          "columns": [
+            {
+              "expression": "alert_timestamp",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "alerts_resolve_915a53_idx": {
+          "name": "alerts_resolve_915a53_idx",
+          "columns": [
+            {
+              "expression": "resolved",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "bool_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "alerts_session_6b4a0a_idx": {
+          "name": "alerts_session_6b4a0a_idx",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "alerts_session_id_286fb9cc": {
+          "name": "alerts_session_id_286fb9cc",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "alert_session_id_fkey": {
-          "name": "alert_session_id_fkey",
-          "tableFrom": "alert",
-          "tableTo": "user_session",
+        "alerts_session_id_286fb9cc_fk_sessions_id": {
+          "name": "alerts_session_id_286fb9cc_fk_sessions_id",
+          "tableFrom": "alerts",
+          "tableTo": "sessions",
           "columnsFrom": [
             "session_id"
           ],
@@ -534,162 +637,24 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "unique_alert_user_session": {
+          "name": "unique_alert_user_session",
+          "nullsNotDistinct": false,
+          "columns": [
+            "alert_timestamp",
+            "error_reason",
+            "session_id"
+          ]
+        }
+      },
       "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.announcement_audience": {
-      "name": "announcement_audience",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "announcement_id": {
-          "name": "announcement_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role_id": {
-          "name": "role_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
+      "checkConstraints": {
+        "alert_reason_not_empty": {
+          "name": "alert_reason_not_empty",
+          "value": "NOT ((error_reason)::text = ''::text)"
         }
       },
-      "indexes": {},
-      "foreignKeys": {
-        "announcement_audience_announcement_id_fkey": {
-          "name": "announcement_audience_announcement_id_fkey",
-          "tableFrom": "announcement_audience",
-          "tableTo": "announcements",
-          "columnsFrom": [
-            "announcement_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "announcement_audience_role_id_fkey": {
-          "name": "announcement_audience_role_id_fkey",
-          "tableFrom": "announcement_audience",
-          "tableTo": "roles",
-          "columnsFrom": [
-            "role_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "announcement_audience_track_id_fkey": {
-          "name": "announcement_audience_track_id_fkey",
-          "tableFrom": "announcement_audience",
-          "tableTo": "tracks",
-          "columnsFrom": [
-            "track_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.announcements": {
-      "name": "announcements",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "author_user_id": {
-          "name": "author_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "visibility_scope": {
-          "name": "visibility_scope",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "archived_at": {
-          "name": "archived_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "announcements_author_user_id_fkey": {
-          "name": "announcements_author_user_id_fkey",
-          "tableFrom": "announcements",
-          "tableTo": "users",
-          "columnsFrom": [
-            "author_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "announcements_track_id_fkey": {
-          "name": "announcements_track_id_fkey",
-          "tableFrom": "announcements",
-          "tableTo": "tracks",
-          "columnsFrom": [
-            "track_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.areas_of_interest": {
@@ -700,7 +665,18 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "areas_of_interest_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "interest_desc": {
           "name": "interest_desc",
@@ -712,12 +688,65 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.auth_group": {
+      "name": "auth_group",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "auth_group_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(150)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "auth_group_name_a6ea08ec_like": {
+          "name": "auth_group_name_a6ea08ec_like",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "areas_of_interest_interest_desc_key": {
-          "name": "areas_of_interest_interest_desc_key",
+        "auth_group_name_key": {
+          "name": "auth_group_name_key",
           "nullsNotDistinct": false,
           "columns": [
-            "interest_desc"
+            "name"
           ]
         }
       },
@@ -725,67 +754,94 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.audit_log": {
-      "name": "audit_log",
+    "public.auth_group_permissions": {
+      "name": "auth_group_permissions",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "auth_group_permissions_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "entity_type": {
-          "name": "entity_type",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "action": {
-          "name": "action",
-          "type": "varchar(100)",
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "before_state": {
-          "name": "before_state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "after_state": {
-          "name": "after_state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(6)",
+        "permission_id": {
+          "name": "permission_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "auth_group_permissions_group_id_b120cbf9": {
+          "name": "auth_group_permissions_group_id_b120cbf9",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int4_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "auth_group_permissions_permission_id_84c5c92e": {
+          "name": "auth_group_permissions_permission_id_84c5c92e",
+          "columns": [
+            {
+              "expression": "permission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int4_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "audit_log_actor_user_id_fkey": {
-          "name": "audit_log_actor_user_id_fkey",
-          "tableFrom": "audit_log",
-          "tableTo": "users",
+        "auth_group_permissio_permission_id_84c5c92e_fk_auth_perm": {
+          "name": "auth_group_permissio_permission_id_84c5c92e_fk_auth_perm",
+          "tableFrom": "auth_group_permissions",
+          "tableTo": "auth_permission",
           "columnsFrom": [
-            "actor_user_id"
+            "permission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "auth_group_permissions_group_id_b120cbf9_fk_auth_group_id": {
+          "name": "auth_group_permissions_group_id_b120cbf9_fk_auth_group_id",
+          "tableFrom": "auth_group_permissions",
+          "tableTo": "auth_group",
+          "columnsFrom": [
+            "group_id"
           ],
           "columnsTo": [
             "id"
@@ -794,6 +850,139 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_group_permissions_group_id_permission_id_0cd325b0_uniq": {
+          "name": "auth_group_permissions_group_id_permission_id_0cd325b0_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "group_id",
+            "permission_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.auth_permission": {
+      "name": "auth_permission",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "auth_permission_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type_id": {
+          "name": "content_type_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "codename": {
+          "name": "codename",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "auth_permission_content_type_id_2f476e4b": {
+          "name": "auth_permission_content_type_id_2f476e4b",
+          "columns": [
+            {
+              "expression": "content_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int4_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "auth_permission_content_type_id_2f476e4b_fk_django_co": {
+          "name": "auth_permission_content_type_id_2f476e4b_fk_django_co",
+          "tableFrom": "auth_permission",
+          "tableTo": "django_content_type",
+          "columnsFrom": [
+            "content_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "auth_permission_content_type_id_codename_01ab375a_uniq": {
+          "name": "auth_permission_content_type_id_codename_01ab375a_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "content_type_id",
+            "codename"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.background": {
+      "name": "background",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "background_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "background_desc_unique_field": {
+          "name": "background_desc_unique_field",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -808,10 +997,21 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "certificate_type_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "name": {
-          "name": "name",
+        "certificate_type": {
+          "name": "certificate_type",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
@@ -829,15 +1029,48 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "certificate_certifi_187256_idx": {
+          "name": "certificate_certifi_187256_idx",
+          "columns": [
+            {
+              "expression": "certificate_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "certificate_type_certificate_type_dc054d41_like": {
+          "name": "certificate_type_certificate_type_dc054d41_like",
+          "columns": [
+            {
+              "expression": "certificate_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "certificate_type_name_key": {
-          "name": "certificate_type_name_key",
+        "certificate_type_certificate_type_key": {
+          "name": "certificate_type_certificate_type_key",
           "nullsNotDistinct": false,
           "columns": [
-            "name"
+            "certificate_type"
           ]
         }
       },
@@ -853,7 +1086,18 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "countries_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "country_name": {
           "name": "country_name",
@@ -862,18 +1106,27 @@
           "notNull": true
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "countries_country_name_key": {
-          "name": "countries_country_name_key",
-          "nullsNotDistinct": false,
+      "indexes": {
+        "countries_country_6f41c3_idx": {
+          "name": "countries_country_6f41c3_idx",
           "columns": [
-            "country_name"
-          ]
+            {
+              "expression": "country_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -886,6 +1139,23 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "country_states_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "state_name": {
+          "name": "state_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
           "notNull": true
         },
         "country_id": {
@@ -893,18 +1163,29 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
-        },
-        "state_name": {
-          "name": "state_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "country_states_country_id_c84f5fb5": {
+          "name": "country_states_country_id_c84f5fb5",
+          "columns": [
+            {
+              "expression": "country_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "country_states_country_id_fkey": {
-          "name": "country_states_country_id_fkey",
+        "country_states_country_id_c84f5fb5_fk_countries_id": {
+          "name": "country_states_country_id_c84f5fb5_fk_countries_id",
           "tableFrom": "country_states",
           "tableTo": "countries",
           "columnsFrom": [
@@ -918,13 +1199,210 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "unique_state_per_country": {
+          "name": "unique_state_per_country",
+          "nullsNotDistinct": false,
+          "columns": [
+            "state_name",
+            "country_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.event_rsvp": {
-      "name": "event_rsvp",
+    "public.django_admin_log": {
+      "name": "django_admin_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "django_admin_log_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "action_time": {
+          "name": "action_time",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "object_id": {
+          "name": "object_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "object_repr": {
+          "name": "object_repr",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action_flag": {
+          "name": "action_flag",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "change_message": {
+          "name": "change_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type_id": {
+          "name": "content_type_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "django_admin_log_content_type_id_c4bce8eb": {
+          "name": "django_admin_log_content_type_id_c4bce8eb",
+          "columns": [
+            {
+              "expression": "content_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int4_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "django_admin_log_user_id_c564eba6": {
+          "name": "django_admin_log_user_id_c564eba6",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "django_admin_log_content_type_id_c4bce8eb_fk_django_co": {
+          "name": "django_admin_log_content_type_id_c4bce8eb_fk_django_co",
+          "tableFrom": "django_admin_log",
+          "tableTo": "django_content_type",
+          "columnsFrom": [
+            "content_type_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "django_admin_log_user_id_c564eba6_fk_users_id": {
+          "name": "django_admin_log_user_id_c564eba6_fk_users_id",
+          "tableFrom": "django_admin_log",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "django_admin_log_action_flag_check": {
+          "name": "django_admin_log_action_flag_check",
+          "value": "action_flag >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.django_content_type": {
+      "name": "django_content_type",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "django_content_type_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "app_label": {
+          "name": "app_label",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "django_content_type_app_label_model_76bd3d3b_uniq": {
+          "name": "django_content_type_app_label_model_76bd3d3b_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "app_label",
+            "model"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.django_migrations": {
+      "name": "django_migrations",
       "schema": "",
       "columns": {
         "id": {
@@ -933,8 +1411,290 @@
           "primaryKey": true,
           "notNull": true,
           "identity": {
-            "type": "always",
-            "name": "event_rsvp_id_seq",
+            "type": "byDefault",
+            "name": "django_migrations_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "app": {
+          "name": "app",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied": {
+          "name": "applied",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.django_session": {
+      "name": "django_session",
+      "schema": "",
+      "columns": {
+        "session_key": {
+          "name": "session_key",
+          "type": "varchar(40)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "session_data": {
+          "name": "session_data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expire_date": {
+          "name": "expire_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "django_session_expire_date_a5c62663": {
+          "name": "django_session_expire_date_a5c62663",
+          "columns": [
+            {
+              "expression": "expire_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "django_session_session_key_c0390e0f_like": {
+          "name": "django_session_session_key_c0390e0f_like",
+          "columns": [
+            {
+              "expression": "session_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.event_invite": {
+      "name": "event_invite",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "event_invite_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "sent_datetime": {
+          "name": "sent_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attendance_status": {
+          "name": "attendance_status",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rsvp_status": {
+          "name": "rsvp_status",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "event_invit_event_i_c093b3_idx": {
+          "name": "event_invit_event_i_c093b3_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_invit_user_id_db0358_idx": {
+          "name": "event_invit_user_id_db0358_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_invite_event_id_d0229d7f": {
+          "name": "event_invite_event_id_d0229d7f",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_invite_user_id_5c26a2a6": {
+          "name": "event_invite_user_id_5c26a2a6",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_invite_event_id_d0229d7f_fk_events_id": {
+          "name": "event_invite_event_id_d0229d7f_fk_events_id",
+          "tableFrom": "event_invite",
+          "tableTo": "events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "event_invite_user_id_5c26a2a6_fk_users_id": {
+          "name": "event_invite_user_id_5c26a2a6_fk_users_id",
+          "tableFrom": "event_invite",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "unique_event_user": {
+          "name": "unique_event_user",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "event_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "check_attendance_requires_rsvp": {
+          "name": "check_attendance_requires_rsvp",
+          "value": "(NOT attendance_status) OR rsvp_status"
+        },
+        "check_invite_sent_datetime_not_future": {
+          "name": "check_invite_sent_datetime_not_future",
+          "value": "sent_datetime <= statement_timestamp()"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.event_target_group": {
+      "name": "event_target_group",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "event_target_group_id_seq",
             "schema": "public",
             "increment": "1",
             "startWith": "1",
@@ -950,31 +1710,83 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "group_id": {
+          "name": "group_id",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
-        },
-        "rsvp_status": {
-          "name": "rsvp_status",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "event_targe_event_i_d53a84_idx": {
+          "name": "event_targe_event_i_d53a84_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_targe_group_i_29198c_idx": {
+          "name": "event_targe_group_i_29198c_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_target_group_event_id_3102faf9": {
+          "name": "event_target_group_event_id_3102faf9",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_target_group_group_id_9b0af69c": {
+          "name": "event_target_group_group_id_9b0af69c",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "event_rsvp_event_id_fkey": {
-          "name": "event_rsvp_event_id_fkey",
-          "tableFrom": "event_rsvp",
+        "event_target_group_event_id_3102faf9_fk_events_id": {
+          "name": "event_target_group_event_id_3102faf9_fk_events_id",
+          "tableFrom": "event_target_group",
           "tableTo": "events",
           "columnsFrom": [
             "event_id"
@@ -985,12 +1797,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "event_rsvp_user_id_fkey": {
-          "name": "event_rsvp_user_id_fkey",
-          "tableFrom": "event_rsvp",
-          "tableTo": "users",
+        "event_target_group_group_id_9b0af69c_fk_groups_id": {
+          "name": "event_target_group_group_id_9b0af69c_fk_groups_id",
+          "tableFrom": "event_target_group",
+          "tableTo": "groups",
           "columnsFrom": [
-            "user_id"
+            "group_id"
           ],
           "columnsTo": [
             "id"
@@ -1000,60 +1812,95 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "unique_event_group": {
+          "name": "unique_event_group",
+          "nullsNotDistinct": false,
+          "columns": [
+            "event_id",
+            "group_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.events": {
-      "name": "events",
+    "public.event_target_role": {
+      "name": "event_target_role",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "event_target_role_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "host_user_id": {
-          "name": "host_user_id",
+        "event_id": {
+          "name": "event_id",
           "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "event_type": {
-          "name": "event_type",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "start_at": {
-          "name": "start_at",
-          "type": "timestamp(6)",
           "primaryKey": false,
           "notNull": true
         },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "timestamp(6)",
+        "role_id": {
+          "name": "role_id",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "event_target_role_event_id_62145d19": {
+          "name": "event_target_role_event_id_62145d19",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_target_role_role_id_f7baea72": {
+          "name": "event_target_role_role_id_f7baea72",
+          "columns": [
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "events_host_user_id_fkey": {
-          "name": "events_host_user_id_fkey",
-          "tableFrom": "events",
-          "tableTo": "users",
+        "event_target_role_event_id_62145d19_fk_events_id": {
+          "name": "event_target_role_event_id_62145d19_fk_events_id",
+          "tableFrom": "event_target_role",
+          "tableTo": "events",
           "columnsFrom": [
-            "host_user_id"
+            "event_id"
           ],
           "columnsTo": [
             "id"
@@ -1061,9 +1908,120 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "events_track_id_fkey": {
-          "name": "events_track_id_fkey",
-          "tableFrom": "events",
+        "event_target_role_role_id_f7baea72_fk_roles_id": {
+          "name": "event_target_role_role_id_f7baea72_fk_roles_id",
+          "tableFrom": "event_target_role",
+          "tableTo": "roles",
+          "columnsFrom": [
+            "role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "unique_event_role": {
+          "name": "unique_event_role",
+          "nullsNotDistinct": false,
+          "columns": [
+            "event_id",
+            "role_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.event_target_track": {
+      "name": "event_target_track",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "event_target_track_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "track_id": {
+          "name": "track_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "event_target_track_event_id_d4858886": {
+          "name": "event_target_track_event_id_d4858886",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "event_target_track_track_id_1163cca1": {
+          "name": "event_target_track_track_id_1163cca1",
+          "columns": [
+            {
+              "expression": "track_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "event_target_track_event_id_d4858886_fk_events_id": {
+          "name": "event_target_track_event_id_d4858886_fk_events_id",
+          "tableFrom": "event_target_track",
+          "tableTo": "events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "event_target_track_track_id_1163cca1_fk_tracks_id": {
+          "name": "event_target_track_track_id_1163cca1_fk_tracks_id",
+          "tableFrom": "event_target_track",
           "tableTo": "tracks",
           "columnsFrom": [
             "track_id"
@@ -1076,26 +2034,212 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "unique_event_track": {
+          "name": "unique_event_track",
+          "nullsNotDistinct": false,
+          "columns": [
+            "event_id",
+            "track_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.group_membership": {
-      "name": "group_membership",
+    "public.events": {
+      "name": "events",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "events_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "group_id": {
-          "name": "group_id",
-          "type": "bigint",
+        "event_name": {
+          "name": "event_name",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_datetime": {
+          "name": "start_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_datetime": {
+          "name": "ends_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "humanitix_link": {
+          "name": "humanitix_link",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_datetime": {
+          "name": "deleted_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "event_image(IMG)": {
+          "name": "event_image(IMG)",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_virtual": {
+          "name": "is_virtual",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "host_user_id": {
+          "name": "host_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "events_host_us_34c951_idx": {
+          "name": "events_host_us_34c951_idx",
+          "columns": [
+            {
+              "expression": "host_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "events_host_user_id_f7fc239c": {
+          "name": "events_host_user_id_f7fc239c",
+          "columns": [
+            {
+              "expression": "host_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "events_start_d_2ddaa0_idx": {
+          "name": "events_start_d_2ddaa0_idx",
+          "columns": [
+            {
+              "expression": "start_datetime",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "events_host_user_id_f7fc239c_fk_users_id": {
+          "name": "events_host_user_id_f7fc239c_fk_users_id",
+          "tableFrom": "events",
+          "tableTo": "users",
+          "columnsFrom": [
+            "host_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "check_deleted_flag_and_datetime": {
+          "name": "check_deleted_flag_and_datetime",
+          "value": "(NOT deleted_flag) OR (deleted_flag AND (deleted_datetime IS NOT NULL))"
+        },
+        "check_event_end_after_start": {
+          "name": "check_event_end_after_start",
+          "value": "ends_datetime > start_datetime"
+        },
+        "check_virtual_location_null": {
+          "name": "check_virtual_location_null",
+          "value": "(NOT is_virtual) OR (location IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.group_members": {
+      "name": "group_members",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "group_members_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "user_id": {
           "name": "user_id",
@@ -1103,30 +2247,83 @@
           "primaryKey": false,
           "notNull": true
         },
-        "membership_role": {
-          "name": "membership_role",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "joined_at": {
-          "name": "joined_at",
-          "type": "timestamp(6)",
+        "group_id": {
+          "name": "group_id",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
-        },
-        "left_at": {
-          "name": "left_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "group_membe_group_i_d2cebc_idx": {
+          "name": "group_membe_group_i_d2cebc_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "group_membe_user_id_88c209_idx": {
+          "name": "group_membe_user_id_88c209_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "group_members_group_id_68d06a36": {
+          "name": "group_members_group_id_68d06a36",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "group_members_user_id_cffc0595": {
+          "name": "group_members_user_id_cffc0595",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "group_membership_group_id_fkey": {
-          "name": "group_membership_group_id_fkey",
-          "tableFrom": "group_membership",
+        "group_members_group_id_68d06a36_fk_groups_id": {
+          "name": "group_members_group_id_68d06a36_fk_groups_id",
+          "tableFrom": "group_members",
           "tableTo": "groups",
           "columnsFrom": [
             "group_id"
@@ -1137,9 +2334,9 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "group_membership_user_id_fkey": {
-          "name": "group_membership_user_id_fkey",
-          "tableFrom": "group_membership",
+        "group_members_user_id_cffc0595_fk_users_id": {
+          "name": "group_members_user_id_cffc0595_fk_users_id",
+          "tableFrom": "group_members",
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
@@ -1152,7 +2349,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "unique_group_user": {
+          "name": "unique_group_user",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "group_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1165,7 +2371,18 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "groups_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "group_name": {
           "name": "group_name",
@@ -1173,29 +2390,100 @@
           "primaryKey": false,
           "notNull": true
         },
+        "creation_datetime": {
+          "name": "creation_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_datetime": {
+          "name": "deleted_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "track_id": {
           "name": "track_id",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "groups_creatio_f6499a_idx": {
+          "name": "groups_creatio_f6499a_idx",
+          "columns": [
+            {
+              "expression": "creation_datetime",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "groups_deleted_f0201e_idx": {
+          "name": "groups_deleted_f0201e_idx",
+          "columns": [
+            {
+              "expression": "deleted_flag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "bool_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "groups_track_i_093220_idx": {
+          "name": "groups_track_i_093220_idx",
+          "columns": [
+            {
+              "expression": "track_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "groups_track_id_f29fde9a": {
+          "name": "groups_track_id_f29fde9a",
+          "columns": [
+            {
+              "expression": "track_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "groups_track_id_fkey": {
-          "name": "groups_track_id_fkey",
+        "groups_track_id_f29fde9a_fk_tracks_id": {
+          "name": "groups_track_id_f29fde9a_fk_tracks_id",
           "tableFrom": "groups",
           "tableTo": "tracks",
           "columnsFrom": [
@@ -1209,57 +2497,172 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "unique_group_name_per_track": {
+          "name": "unique_group_name_per_track",
+          "nullsNotDistinct": false,
+          "columns": [
+            "group_name",
+            "track_id"
+          ]
+        }
+      },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "deleted_after_creation": {
+          "name": "deleted_after_creation",
+          "value": "(deleted_datetime >= creation_datetime) OR (deleted_datetime IS NULL)"
+        },
+        "group_creation_not_future": {
+          "name": "group_creation_not_future",
+          "value": "creation_datetime <= statement_timestamp()"
+        },
+        "group_deleted_flag_datetime_consistent": {
+          "name": "group_deleted_flag_datetime_consistent",
+          "value": "(deleted_flag AND (deleted_datetime IS NOT NULL)) OR ((NOT deleted_flag) AND (deleted_datetime IS NULL))"
+        },
+        "group_name_not_empty": {
+          "name": "group_name_not_empty",
+          "value": "NOT ((group_name)::text ~ '^s*$'::text)"
+        }
+      },
       "isRLSEnabled": false
     },
-    "public.mentor_availability": {
-      "name": "mentor_availability",
+    "public.login_tokens": {
+      "name": "login_tokens",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "login_tokens_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(6)",
+          "primaryKey": false,
           "notNull": true
         },
-        "mentor_user_id": {
-          "name": "mentor_user_id",
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "used": {
+          "name": "used",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
           "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "weekday": {
-          "name": "weekday",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "start_time": {
-          "name": "start_time",
-          "type": "time(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "end_time": {
-          "name": "end_time",
-          "type": "time(6)",
           "primaryKey": false,
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "login_token_created_7a566c_idx": {
+          "name": "login_token_created_7a566c_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "login_token_expires_133cb3_idx": {
+          "name": "login_token_expires_133cb3_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "login_token_user_id_e66ea4_idx": {
+          "name": "login_token_user_id_e66ea4_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops"
+            },
+            {
+              "expression": "token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "login_tokens_user_id_7f12777f": {
+          "name": "login_tokens_user_id_7f12777f",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "mentor_availability_mentor_user_id_fkey": {
-          "name": "mentor_availability_mentor_user_id_fkey",
-          "tableFrom": "mentor_availability",
-          "tableTo": "mentor_profile",
+        "login_tokens_user_id_7f12777f_fk_users_id": {
+          "name": "login_tokens_user_id_7f12777f_fk_users_id",
+          "tableFrom": "login_tokens",
+          "tableTo": "users",
           "columnsFrom": [
-            "mentor_user_id"
+            "user_id"
           ],
           "columnsTo": [
-            "user_id"
+            "id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -1279,19 +2682,18 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
-        },
-        "mentor_profile_id": {
-          "name": "mentor_profile_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "certificate_type_id": {
-          "name": "certificate_type_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "mentor_certificate_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "certificate_number": {
           "name": "certificate_number",
@@ -1303,7 +2705,7 @@
           "name": "issued_by",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "issued_at": {
           "name": "issued_at",
@@ -1323,23 +2725,85 @@
           "primaryKey": false,
           "notNull": false
         },
-        "verified_at": {
-          "name": "verified_at",
-          "type": "timestamp(6)",
+        "verified": {
+          "name": "verified",
+          "type": "boolean",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "verified_by_user_id": {
-          "name": "verified_by_user_id",
+        "certificate_type_id": {
+          "name": "certificate_type_id",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
+        },
+        "mentor_profile_id": {
+          "name": "mentor_profile_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "mentor_cert_mentor__f7358b_idx": {
+          "name": "mentor_cert_mentor__f7358b_idx",
+          "columns": [
+            {
+              "expression": "mentor_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            },
+            {
+              "expression": "certificate_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "mentor_certificate_certificate_type_id_090af26f": {
+          "name": "mentor_certificate_certificate_type_id_090af26f",
+          "columns": [
+            {
+              "expression": "certificate_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "mentor_certificate_mentor_profile_id_61bbc118": {
+          "name": "mentor_certificate_mentor_profile_id_61bbc118",
+          "columns": [
+            {
+              "expression": "mentor_profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "mentor_certificate_certificate_type_id_fkey": {
-          "name": "mentor_certificate_certificate_type_id_fkey",
+        "mentor_certificate_certificate_type_id_090af26f_fk_certifica": {
+          "name": "mentor_certificate_certificate_type_id_090af26f_fk_certifica",
           "tableFrom": "mentor_certificate",
           "tableTo": "certificate_type",
           "columnsFrom": [
@@ -1351,8 +2815,8 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "mentor_certificate_mentor_profile_id_fkey": {
-          "name": "mentor_certificate_mentor_profile_id_fkey",
+        "mentor_certificate_mentor_profile_id_61bbc118_fk_mentor_pr": {
+          "name": "mentor_certificate_mentor_profile_id_61bbc118_fk_mentor_pr",
           "tableFrom": "mentor_certificate",
           "tableTo": "mentor_profile",
           "columnsFrom": [
@@ -1363,83 +2827,27 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "mentor_certificate_verified_by_user_id_fkey": {
-          "name": "mentor_certificate_verified_by_user_id_fkey",
-          "tableFrom": "mentor_certificate",
-          "tableTo": "users",
-          "columnsFrom": [
-            "verified_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.mentor_interest": {
-      "name": "mentor_interest",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "mentor_user_id": {
-          "name": "mentor_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "interest_id": {
-          "name": "interest_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
+      "uniqueConstraints": {
+        "unique_certificate_per_mentor": {
+          "name": "unique_certificate_per_mentor",
+          "nullsNotDistinct": false,
+          "columns": [
+            "certificate_number",
+            "certificate_type_id",
+            "mentor_profile_id"
+          ]
         }
       },
-      "indexes": {},
-      "foreignKeys": {
-        "mentor_interest_interest_id_fkey": {
-          "name": "mentor_interest_interest_id_fkey",
-          "tableFrom": "mentor_interest",
-          "tableTo": "areas_of_interest",
-          "columnsFrom": [
-            "interest_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "mentor_interest_mentor_user_id_fkey": {
-          "name": "mentor_interest_mentor_user_id_fkey",
-          "tableFrom": "mentor_interest",
-          "tableTo": "mentor_profile",
-          "columnsFrom": [
-            "mentor_user_id"
-          ],
-          "columnsTo": [
-            "user_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+      "policies": {},
+      "checkConstraints": {
+        "cannot_verify_expired_certificate": {
+          "name": "cannot_verify_expired_certificate",
+          "value": "(expires_at IS NULL) OR (expires_at >= statement_timestamp()) OR (NOT verified)"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.mentor_profile": {
@@ -1452,23 +2860,522 @@
           "primaryKey": true,
           "notNull": true
         },
-        "institution": {
-          "name": "institution",
+        "Institution": {
+          "name": "Institution",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "max_group_count": {
-          "name": "max_group_count",
+        "mentor_reason": {
+          "name": "mentor_reason",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "max_grp_cnt": {
+          "name": "max_grp_cnt",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "background_id": {
+          "name": "background_id",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
+      "indexes": {
+        "mentor_profile_background_id_000edd98": {
+          "name": "mentor_profile_background_id_000edd98",
+          "columns": [
+            {
+              "expression": "background_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "mentor_profile_background_id_000edd98_fk_background_id": {
+          "name": "mentor_profile_background_id_000edd98_fk_background_id",
+          "tableFrom": "mentor_profile",
+          "tableTo": "background",
+          "columnsFrom": [
+            "background_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "mentor_profile_user_id_a4034c13_fk_users_id": {
+          "name": "mentor_profile_user_id_a4034c13_fk_users_id",
+          "tableFrom": "mentor_profile",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "mentor_max_grp_non_negative": {
+          "name": "mentor_max_grp_non_negative",
+          "value": "max_grp_cnt >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.message_attachments": {
+      "name": "message_attachments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "message_attachments_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "attachment_id": {
+          "name": "attachment_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attachment_filename": {
+          "name": "attachment_filename",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "message_att_message_2a1fa5_idx": {
+          "name": "message_att_message_2a1fa5_idx",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_attachments_attachment_id_29f38e70_like": {
+          "name": "message_attachments_attachment_id_29f38e70_like",
+          "columns": [
+            {
+              "expression": "attachment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_attachments_message_id_c7a3e22d": {
+          "name": "message_attachments_message_id_c7a3e22d",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "message_attachments_message_id_c7a3e22d_fk_messages_id": {
+          "name": "message_attachments_message_id_c7a3e22d_fk_messages_id",
+          "tableFrom": "message_attachments",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "message_attachments_attachment_id_key": {
+          "name": "message_attachments_attachment_id_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "attachment_id"
+          ]
+        },
+        "unique_filename_per_message": {
+          "name": "unique_filename_per_message",
+          "nullsNotDistinct": false,
+          "columns": [
+            "attachment_filename",
+            "message_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.message_resources": {
+      "name": "message_resources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "message_resources_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "message_res_message_8048ce_idx": {
+          "name": "message_res_message_8048ce_idx",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_res_resourc_d3776f_idx": {
+          "name": "message_res_resourc_d3776f_idx",
+          "columns": [
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_resources_message_id_e0b74b54": {
+          "name": "message_resources_message_id_e0b74b54",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_resources_resource_id_7bf8fbc9": {
+          "name": "message_resources_resource_id_7bf8fbc9",
+          "columns": [
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "message_resources_message_id_e0b74b54_fk_messages_id": {
+          "name": "message_resources_message_id_e0b74b54_fk_messages_id",
+          "tableFrom": "message_resources",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "message_resources_resource_id_7bf8fbc9_fk_resources_id": {
+          "name": "message_resources_resource_id_7bf8fbc9_fk_resources_id",
+          "tableFrom": "message_resources",
+          "tableTo": "resources",
+          "columnsFrom": [
+            "resource_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "message_resources_message_id_resource_id_9a04fab7_uniq": {
+          "name": "message_resources_message_id_resource_id_9a04fab7_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "message_id",
+            "resource_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.message_status": {
+      "name": "message_status",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "message_status_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "message_status_message_id_7d8e74e7": {
+          "name": "message_status_message_id_7d8e74e7",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "message_status_user_id_0673798e": {
+          "name": "message_status_user_id_0673798e",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "msg_status_message_idx": {
+          "name": "msg_status_message_idx",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "msg_status_user_status_idx": {
+          "name": "msg_status_user_status_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "message_status_message_id_7d8e74e7_fk_messages_id": {
+          "name": "message_status_message_id_7d8e74e7_fk_messages_id",
+          "tableFrom": "message_status",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "message_status_user_id_0673798e_fk_users_id": {
+          "name": "message_status_user_id_0673798e_fk_users_id",
+          "tableFrom": "message_status",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "message_status_message_id_user_id_e0eb32f9_uniq": {
+          "name": "message_status_message_id_user_id_e0eb32f9_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "message_id",
+            "user_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1481,6 +3388,29 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "messages_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "message_text": {
+          "name": "message_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
           "notNull": true
         },
         "group_id": {
@@ -1495,35 +3425,156 @@
           "primaryKey": false,
           "notNull": true
         },
-        "message_text": {
-          "name": "message_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sent_at": {
-          "name": "sent_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
         "edited_at": {
           "name": "edited_at",
-          "type": "timestamp(6)",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamp(6)",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "message_type": {
+          "name": "message_type",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "messages_deleted_at_idx": {
+          "name": "messages_deleted_at_idx",
+          "columns": [
+            {
+              "expression": "deleted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_group_i_a65c01_idx": {
+          "name": "messages_group_i_a65c01_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            },
+            {
+              "expression": "sent_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_group_id_0fd96228": {
+          "name": "messages_group_id_0fd96228",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_group_sent_idx": {
+          "name": "messages_group_sent_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            },
+            {
+              "expression": "sent_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_sender__199d51_idx": {
+          "name": "messages_sender__199d51_idx",
+          "columns": [
+            {
+              "expression": "sender_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_sender_idx": {
+          "name": "messages_sender_idx",
+          "columns": [
+            {
+              "expression": "sender_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "messages_sender_user_id_b1b10099": {
+          "name": "messages_sender_user_id_b1b10099",
+          "columns": [
+            {
+              "expression": "sender_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "messages_group_id_fkey": {
-          "name": "messages_group_id_fkey",
+        "messages_group_id_0fd96228_fk_groups_id": {
+          "name": "messages_group_id_0fd96228_fk_groups_id",
           "tableFrom": "messages",
           "tableTo": "groups",
           "columnsFrom": [
@@ -1535,8 +3586,8 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "messages_sender_user_id_fkey": {
-          "name": "messages_sender_user_id_fkey",
+        "messages_sender_user_id_b1b10099_fk_users_id": {
+          "name": "messages_sender_user_id_b1b10099_fk_users_id",
           "tableFrom": "messages",
           "tableTo": "users",
           "columnsFrom": [
@@ -1552,18 +3603,232 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "message_deleted_after_sent": {
+          "name": "message_deleted_after_sent",
+          "value": "(deleted_at IS NULL) OR (deleted_at >= sent_at)"
+        },
+        "message_edited_after_sent": {
+          "name": "message_edited_after_sent",
+          "value": "(edited_at IS NULL) OR (edited_at >= sent_at)"
+        }
+      },
       "isRLSEnabled": false
     },
-    "public.resource_audience": {
-      "name": "resource_audience",
+    "public.milestone": {
+      "name": "milestone",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "milestone_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "milestone_name": {
+          "name": "milestone_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
           "notNull": true
+        },
+        "completed": {
+          "name": "completed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "milestone_complet_c0474d_idx": {
+          "name": "milestone_complet_c0474d_idx",
+          "columns": [
+            {
+              "expression": "completed",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "bool_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "milestone_deleted_5a70fc_idx": {
+          "name": "milestone_deleted_5a70fc_idx",
+          "columns": [
+            {
+              "expression": "deleted_flag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "bool_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "milestone_group_i_aa2495_idx": {
+          "name": "milestone_group_i_aa2495_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "milestone_group_id_11a6a79d": {
+          "name": "milestone_group_id_11a6a79d",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "milestone_group_id_11a6a79d_fk_groups_id": {
+          "name": "milestone_group_id_11a6a79d_fk_groups_id",
+          "tableFrom": "milestone",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.relationship_type": {
+      "name": "relationship_type",
+      "schema": "",
+      "columns": {
+        "relationship_type_id": {
+          "name": "relationship_type_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "relationship_type_relationship_type_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "relationship_type": {
+          "name": "relationship_type",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "relationship_type_relationship_type_be3ed616_like": {
+          "name": "relationship_type_relationship_type_be3ed616_like",
+          "columns": [
+            {
+              "expression": "relationship_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "relationship_type_relationship_type_key": {
+          "name": "relationship_type_relationship_type_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "relationship_type"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.resource_roles": {
+      "name": "resource_roles",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "resource_roles_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "resource_id": {
           "name": "resource_id",
@@ -1575,20 +3840,63 @@
           "name": "role_id",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": false
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "resource_ro_role_id_190238_idx": {
+          "name": "resource_ro_role_id_190238_idx",
+          "columns": [
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resource_roles_resource_id_158c512b": {
+          "name": "resource_roles_resource_id_158c512b",
+          "columns": [
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resource_roles_role_id_5ce2ab8a": {
+          "name": "resource_roles_role_id_5ce2ab8a",
+          "columns": [
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "resource_audience_resource_id_fkey": {
-          "name": "resource_audience_resource_id_fkey",
-          "tableFrom": "resource_audience",
+        "resource_roles_resource_id_158c512b_fk_resources_id": {
+          "name": "resource_roles_resource_id_158c512b_fk_resources_id",
+          "tableFrom": "resource_roles",
           "tableTo": "resources",
           "columnsFrom": [
             "resource_id"
@@ -1599,9 +3907,9 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "resource_audience_role_id_fkey": {
-          "name": "resource_audience_role_id_fkey",
-          "tableFrom": "resource_audience",
+        "resource_roles_role_id_5ce2ab8a_fk_roles_id": {
+          "name": "resource_roles_role_id_5ce2ab8a_fk_roles_id",
+          "tableFrom": "resource_roles",
           "tableTo": "roles",
           "columnsFrom": [
             "role_id"
@@ -1611,23 +3919,86 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "resource_audience_track_id_fkey": {
-          "name": "resource_audience_track_id_fkey",
-          "tableFrom": "resource_audience",
-          "tableTo": "tracks",
-          "columnsFrom": [
-            "track_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "pk_resource_role": {
+          "name": "pk_resource_role",
+          "nullsNotDistinct": false,
+          "columns": [
+            "resource_id",
+            "role_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.resource_types": {
+      "name": "resource_types",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "resource_types_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "type_name": {
+          "name": "type_name",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type_description": {
+          "name": "type_description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "resource_types_type_name_368352d8_like": {
+          "name": "resource_types_type_name_368352d8_like",
+          "columns": [
+            {
+              "expression": "type_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "resource_types_type_name_key": {
+          "name": "resource_types_type_name_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "type_name"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1640,37 +4011,18 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
-        },
-        "uploader_user_id": {
-          "name": "uploader_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "visibility_scope": {
-          "name": "visibility_scope",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "uploaded_at": {
-          "name": "uploaded_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "resources_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "resource_name": {
           "name": "resource_name",
@@ -1680,61 +4032,98 @@
         },
         "resource_description": {
           "name": "resource_description",
-          "type": "varchar(1000)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resource_type": {
-          "name": "resource_type",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resource_kind": {
-          "name": "resource_kind",
-          "type": "varchar(20)",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         },
-        "content_html": {
-          "name": "content_html",
-          "type": "text",
+        "upload_datetime": {
+          "name": "upload_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_datetime": {
+          "name": "deleted_datetime",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
-        "file_name": {
-          "name": "file_name",
-          "type": "varchar(255)",
+        "uploader_user_id_id": {
+          "name": "uploader_user_id_id",
+          "type": "bigint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "file_mime_type": {
-          "name": "file_mime_type",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "file_size": {
-          "name": "file_size",
+        "resource_type_id": {
+          "name": "resource_type_id",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
-        },
-        "storage_key": {
-          "name": "storage_key",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "resources_resource_type_id_8ca31a8a": {
+          "name": "resources_resource_type_id_8ca31a8a",
+          "columns": [
+            {
+              "expression": "resource_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resources_uploade_68f1ef_idx": {
+          "name": "resources_uploade_68f1ef_idx",
+          "columns": [
+            {
+              "expression": "uploader_user_id_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resources_uploader_user_id_id_f9418bc1": {
+          "name": "resources_uploader_user_id_id_f9418bc1",
+          "columns": [
+            {
+              "expression": "uploader_user_id_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "resources_track_id_fkey": {
-          "name": "resources_track_id_fkey",
+        "resources_resource_type_id_8ca31a8a_fk_resource_types_id": {
+          "name": "resources_resource_type_id_8ca31a8a_fk_resource_types_id",
           "tableFrom": "resources",
-          "tableTo": "tracks",
+          "tableTo": "resource_types",
           "columnsFrom": [
-            "track_id"
+            "resource_type_id"
           ],
           "columnsTo": [
             "id"
@@ -1742,12 +4131,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "resources_uploader_user_id_fkey": {
-          "name": "resources_uploader_user_id_fkey",
+        "resources_uploader_user_id_id_f9418bc1_fk_users_id": {
+          "name": "resources_uploader_user_id_id_f9418bc1_fk_users_id",
           "tableFrom": "resources",
           "tableTo": "users",
           "columnsFrom": [
-            "uploader_user_id"
+            "uploader_user_id_id"
           ],
           "columnsTo": [
             "id"
@@ -1759,7 +4148,185 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "deleted_after_upload": {
+          "name": "deleted_after_upload",
+          "value": "(deleted_datetime >= upload_datetime) OR (deleted_datetime IS NULL)"
+        },
+        "deleted_flag_true_if_deleted_datetime": {
+          "name": "deleted_flag_true_if_deleted_datetime",
+          "value": "(deleted_datetime IS NULL) OR deleted_flag"
+        },
+        "resource_description_not_empty": {
+          "name": "resource_description_not_empty",
+          "value": "NOT ((resource_description)::text = ''::text)"
+        },
+        "resource_upload_not_future": {
+          "name": "resource_upload_not_future",
+          "value": "upload_datetime <= statement_timestamp()"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.role_assignment_history": {
+      "name": "role_assignment_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "role_assignment_history_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role_id": {
+          "name": "role_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "role_assign_role_id_e11f96_idx": {
+          "name": "role_assign_role_id_e11f96_idx",
+          "columns": [
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "role_assign_user_id_4edae0_idx": {
+          "name": "role_assign_user_id_4edae0_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "role_assignment_history_role_id_807250dc": {
+          "name": "role_assignment_history_role_id_807250dc",
+          "columns": [
+            {
+              "expression": "role_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "role_assignment_history_user_id_1b78a336": {
+          "name": "role_assignment_history_user_id_1b78a336",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "role_assignment_history_role_id_807250dc_fk_roles_id": {
+          "name": "role_assignment_history_role_id_807250dc_fk_roles_id",
+          "tableFrom": "role_assignment_history",
+          "tableTo": "roles",
+          "columnsFrom": [
+            "role_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "role_assignment_history_user_id_1b78a336_fk_users_id": {
+          "name": "role_assignment_history_user_id_1b78a336_fk_users_id",
+          "tableFrom": "role_assignment_history",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "unique_user_role_start": {
+          "name": "unique_user_role_start",
+          "nullsNotDistinct": false,
+          "columns": [
+            "valid_from",
+            "user_id",
+            "role_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "valid_to_after_valid_from": {
+          "name": "valid_to_after_valid_from",
+          "value": "valid_to >= valid_from"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.roles": {
@@ -1770,29 +4337,187 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "roles_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "slug": {
-          "name": "slug",
-          "type": "varchar(100)",
+        "role_name": {
+          "name": "role_name",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "roles_role_name_2c8c2fcd_like": {
+          "name": "roles_role_name_2c8c2fcd_like",
+          "columns": [
+            {
+              "expression": "role_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "roles_slug_key": {
-          "name": "roles_slug_key",
+        "roles_role_name_key": {
+          "name": "roles_role_name_key",
           "nullsNotDistinct": false,
           "columns": [
-            "slug"
+            "role_name"
           ]
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "role_name_not_empty": {
+          "name": "role_name_not_empty",
+          "value": "NOT ((role_name)::text = ''::text)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.sessions": {
+      "name": "sessions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "sessions_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "access_datetime": {
+          "name": "access_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "isLoggedin": {
+          "name": "isLoggedin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "sessions_access__0097e9_idx": {
+          "name": "sessions_access__0097e9_idx",
+          "columns": [
+            {
+              "expression": "access_datetime",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sessions_user_id_05e26f4a": {
+          "name": "sessions_user_id_05e26f4a",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sessions_user_id_7acd24_idx": {
+          "name": "sessions_user_id_7acd24_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "sessions_user_id_05e26f4a_fk_users_id": {
+          "name": "sessions_user_id_05e26f4a_fk_users_id",
+          "tableFrom": "sessions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "unique_user_session": {
+          "name": "unique_user_session",
+          "nullsNotDistinct": false,
+          "columns": [
+            "access_datetime",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "access_not_in_future": {
+          "name": "access_not_in_future",
+          "value": "access_datetime <= statement_timestamp()"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.student_interest": {
@@ -1803,25 +4528,101 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
-        },
-        "student_user_id": {
-          "name": "student_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "student_interest_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "interest_id": {
           "name": "interest_id",
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "student_int_interes_fc51c3_idx": {
+          "name": "student_int_interes_fc51c3_idx",
+          "columns": [
+            {
+              "expression": "interest_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_int_user_id_9467fc_idx": {
+          "name": "student_int_user_id_9467fc_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_interest_interest_id_7f538900": {
+          "name": "student_interest_interest_id_7f538900",
+          "columns": [
+            {
+              "expression": "interest_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_interest_user_id_a32699eb": {
+          "name": "student_interest_user_id_a32699eb",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "student_interest_interest_id_fkey": {
-          "name": "student_interest_interest_id_fkey",
+        "student_interest_interest_id_7f538900_fk_areas_of_interest_id": {
+          "name": "student_interest_interest_id_7f538900_fk_areas_of_interest_id",
           "tableFrom": "student_interest",
           "tableTo": "areas_of_interest",
           "columnsFrom": [
@@ -1833,22 +4634,31 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "student_interest_student_user_id_fkey": {
-          "name": "student_interest_student_user_id_fkey",
+        "student_interest_user_id_a32699eb_fk_users_id": {
+          "name": "student_interest_user_id_a32699eb_fk_users_id",
           "tableFrom": "student_interest",
-          "tableTo": "student_profile",
+          "tableTo": "users",
           "columnsFrom": [
-            "student_user_id"
+            "user_id"
           ],
           "columnsTo": [
-            "user_id"
+            "id"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "pk_student_interest": {
+          "name": "pk_student_interest",
+          "nullsNotDistinct": false,
+          "columns": [
+            "interest_id",
+            "user_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1863,42 +4673,347 @@
           "primaryKey": true,
           "notNull": true
         },
-        "supervisor_user_id": {
-          "name": "supervisor_user_id",
-          "type": "bigint",
+        "pg_first_name": {
+          "name": "pg_first_name",
+          "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
+        },
+        "pg_last_name": {
+          "name": "pg_last_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_guardian_flag": {
+          "name": "parent_guardian_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
         },
         "school_name": {
           "name": "school_name",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "year_level": {
-          "name": "year_level",
-          "type": "smallint",
+        "year_lvl": {
+          "name": "year_lvl",
+          "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "join_permission_received": {
-          "name": "join_permission_received",
+        "has_join_permission": {
+          "name": "has_join_permission",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true
         },
-        "join_permission_response_id": {
-          "name": "join_permission_response_id",
+        "interest_id": {
+          "name": "interest_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "supervisor_id": {
+          "name": "supervisor_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "joinperm_responseID": {
+          "name": "joinperm_responseID",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "student_pro_interes_58353d_idx": {
+          "name": "student_pro_interes_58353d_idx",
+          "columns": [
+            {
+              "expression": "interest_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_pro_supervi_0372b3_idx": {
+          "name": "student_pro_supervi_0372b3_idx",
+          "columns": [
+            {
+              "expression": "supervisor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_profile_interest_id_fe594703": {
+          "name": "student_profile_interest_id_fe594703",
+          "columns": [
+            {
+              "expression": "interest_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_profile_supervisor_id_4bc6991c": {
+          "name": "student_profile_supervisor_id_4bc6991c",
+          "columns": [
+            {
+              "expression": "supervisor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "student_profile_supervisor_user_id_fkey": {
-          "name": "student_profile_supervisor_user_id_fkey",
+        "student_profile_interest_id_fe594703_fk_areas_of_interest_id": {
+          "name": "student_profile_interest_id_fe594703_fk_areas_of_interest_id",
           "tableFrom": "student_profile",
+          "tableTo": "areas_of_interest",
+          "columnsFrom": [
+            "interest_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "student_profile_supervisor_id_4bc6991c_fk_superviso": {
+          "name": "student_profile_supervisor_id_4bc6991c_fk_superviso",
+          "tableFrom": "student_profile",
+          "tableTo": "supervisor_profile",
+          "columnsFrom": [
+            "supervisor_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "student_profile_user_id_15556aa0_fk_users_id": {
+          "name": "student_profile_user_id_15556aa0_fk_users_id",
+          "tableFrom": "student_profile",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "permission_requires_parent_guardian": {
+          "name": "permission_requires_parent_guardian",
+          "value": "(NOT has_join_permission) OR parent_guardian_flag"
+        },
+        "student_first_name_not_empty": {
+          "name": "student_first_name_not_empty",
+          "value": "NOT ((pg_first_name)::text = ''::text)"
+        },
+        "student_last_name_not_empty": {
+          "name": "student_last_name_not_empty",
+          "value": "NOT ((pg_last_name)::text = ''::text)"
+        },
+        "student_school_name_not_empty": {
+          "name": "student_school_name_not_empty",
+          "value": "NOT ((school_name)::text = ''::text)"
+        },
+        "student_year_lvl_valid": {
+          "name": "student_year_lvl_valid",
+          "value": "(year_lvl)::text = ANY ((ARRAY['9'::character varying, '10'::character varying, '11'::character varying, '12'::character varying])::text[])"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.student_supervisor": {
+      "name": "student_supervisor",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "student_supervisor_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "relationship_type_id": {
+          "name": "relationship_type_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "student_user_id": {
+          "name": "student_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "supervisor_user_id": {
+          "name": "supervisor_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "student_sup_student_0afdc5_idx": {
+          "name": "student_sup_student_0afdc5_idx",
+          "columns": [
+            {
+              "expression": "student_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_sup_supervi_51462f_idx": {
+          "name": "student_sup_supervi_51462f_idx",
+          "columns": [
+            {
+              "expression": "supervisor_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_supervisor_relationship_type_id_18e3edd0": {
+          "name": "student_supervisor_relationship_type_id_18e3edd0",
+          "columns": [
+            {
+              "expression": "relationship_type_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_supervisor_student_user_id_fb056317": {
+          "name": "student_supervisor_student_user_id_fb056317",
+          "columns": [
+            {
+              "expression": "student_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "student_supervisor_supervisor_user_id_8a5fb4d1": {
+          "name": "student_supervisor_supervisor_user_id_8a5fb4d1",
+          "columns": [
+            {
+              "expression": "supervisor_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "student_supervisor_relationship_type_id_18e3edd0_fk_relations": {
+          "name": "student_supervisor_relationship_type_id_18e3edd0_fk_relations",
+          "tableFrom": "student_supervisor",
+          "tableTo": "relationship_type",
+          "columnsFrom": [
+            "relationship_type_id"
+          ],
+          "columnsTo": [
+            "relationship_type_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "student_supervisor_student_user_id_fb056317_fk_student_p": {
+          "name": "student_supervisor_student_user_id_fb056317_fk_student_p",
+          "tableFrom": "student_supervisor",
+          "tableTo": "student_profile",
+          "columnsFrom": [
+            "student_user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "student_supervisor_supervisor_user_id_8a5fb4d1_fk_superviso": {
+          "name": "student_supervisor_supervisor_user_id_8a5fb4d1_fk_superviso",
+          "tableFrom": "student_supervisor",
           "tableTo": "supervisor_profile",
           "columnsFrom": [
             "supervisor_user_id"
@@ -1911,9 +5026,31 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "pk_student_supervisor": {
+          "name": "pk_student_supervisor",
+          "nullsNotDistinct": false,
+          "columns": [
+            "student_user_id",
+            "supervisor_user_id"
+          ]
+        }
+      },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "no_self_supervision": {
+          "name": "no_self_supervision",
+          "value": "(supervisor_user_id IS NULL) OR (NOT ((student_user_id = supervisor_user_id) AND (supervisor_user_id IS NOT NULL)))"
+        },
+        "relationship_type_not_null": {
+          "name": "relationship_type_not_null",
+          "value": "NOT (relationship_type_id IS NULL)"
+        },
+        "student_user_not_null": {
+          "name": "student_user_not_null",
+          "value": "NOT (student_user_id IS NULL)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.supervisor_profile": {
@@ -1934,7 +5071,349 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "supervisor_profile_user_id_40ae74c6_fk_users_id": {
+          "name": "supervisor_profile_user_id_40ae74c6_fk_users_id",
+          "tableFrom": "supervisor_profile",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.task_assignees": {
+      "name": "task_assignees",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "task_assignees_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "assigned_datetime": {
+          "name": "assigned_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "ta_active_by_task": {
+          "name": "ta_active_by_task",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "where": "(NOT deleted_flag)",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ta_active_by_user": {
+          "name": "ta_active_by_user",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "where": "(NOT deleted_flag)",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_assign_assigne_94a93f_idx": {
+          "name": "task_assign_assigne_94a93f_idx",
+          "columns": [
+            {
+              "expression": "assigned_datetime",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_assign_task_id_39473c_idx": {
+          "name": "task_assign_task_id_39473c_idx",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_assign_user_id_504562_idx": {
+          "name": "task_assign_user_id_504562_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_assignees_task_id_dfd06a60": {
+          "name": "task_assignees_task_id_dfd06a60",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "task_assignees_user_id_6b1c6501": {
+          "name": "task_assignees_user_id_6b1c6501",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "task_assignees_task_id_dfd06a60_fk_tasks_id": {
+          "name": "task_assignees_task_id_dfd06a60_fk_tasks_id",
+          "tableFrom": "task_assignees",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "task_assignees_user_id_6b1c6501_fk_users_id": {
+          "name": "task_assignees_user_id_6b1c6501_fk_users_id",
+          "tableFrom": "task_assignees",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "unique_task_user": {
+          "name": "unique_task_user",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "task_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.tasks": {
+      "name": "tasks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "tasks_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "task_name": {
+          "name": "task_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_description": {
+          "name": "task_description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "milestone_id": {
+          "name": "milestone_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "tasks_due_dat_0359a9_idx": {
+          "name": "tasks_due_dat_0359a9_idx",
+          "columns": [
+            {
+              "expression": "due_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_milesto_5735eb_idx": {
+          "name": "tasks_milesto_5735eb_idx",
+          "columns": [
+            {
+              "expression": "milestone_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tasks_milestone_id_bdae7b7f": {
+          "name": "tasks_milestone_id_bdae7b7f",
+          "columns": [
+            {
+              "expression": "milestone_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "tasks_milestone_id_bdae7b7f_fk_milestone_id": {
+          "name": "tasks_milestone_id_bdae7b7f_fk_milestone_id",
+          "tableFrom": "tasks",
+          "tableTo": "milestone",
+          "columnsFrom": [
+            "milestone_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1949,11 +5428,22 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "tracks_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "track_code": {
-          "name": "track_code",
-          "type": "varchar(100)",
+        "track_name": {
+          "name": "track_name",
+          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1964,10 +5454,75 @@
           "notNull": true
         }
       },
-      "indexes": {},
+      "indexes": {
+        "tracks_state_i_8ee9cb_idx": {
+          "name": "tracks_state_i_8ee9cb_idx",
+          "columns": [
+            {
+              "expression": "state_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tracks_state_id_46f6a1ec": {
+          "name": "tracks_state_id_46f6a1ec",
+          "columns": [
+            {
+              "expression": "state_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tracks_track_n_60cf86_idx": {
+          "name": "tracks_track_n_60cf86_idx",
+          "columns": [
+            {
+              "expression": "track_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "text_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tracks_track_name_cf9addea_like": {
+          "name": "tracks_track_name_cf9addea_like",
+          "columns": [
+            {
+              "expression": "track_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "tracks_state_id_fkey": {
-          "name": "tracks_state_id_fkey",
+        "tracks_state_id_46f6a1ec_fk_country_states_id": {
+          "name": "tracks_state_id_46f6a1ec_fk_country_states_id",
           "tableFrom": "tracks",
           "tableTo": "country_states",
           "columnsFrom": [
@@ -1982,153 +5537,14 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "tracks_track_code_key": {
-          "name": "tracks_track_code_key",
+        "tracks_track_name_key": {
+          "name": "tracks_track_name_key",
           "nullsNotDistinct": false,
           "columns": [
-            "track_code"
+            "track_name"
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.user_role_assignment": {
-      "name": "user_role_assignment",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role_id": {
-          "name": "role_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "valid_from": {
-          "name": "valid_from",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "valid_to": {
-          "name": "valid_to",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "user_role_assignment_role_id_fkey": {
-          "name": "user_role_assignment_role_id_fkey",
-          "tableFrom": "user_role_assignment",
-          "tableTo": "roles",
-          "columnsFrom": [
-            "role_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "user_role_assignment_user_id_fkey": {
-          "name": "user_role_assignment_user_id_fkey",
-          "tableFrom": "user_role_assignment",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.user_session": {
-      "name": "user_session",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_activity_at": {
-          "name": "last_activity_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "user_session_user_id_fkey": {
-          "name": "user_session_user_id_fkey",
-          "tableFrom": "user_session",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2141,11 +5557,34 @@
           "name": "id",
           "type": "bigint",
           "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "users_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "password": {
+          "name": "password",
+          "type": "varchar(128)",
+          "primaryKey": false,
           "notNull": true
         },
-        "email": {
-          "name": "email",
-          "type": "varchar(255)",
+        "last_login": {
+          "name": "last_login",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_superuser": {
+          "name": "is_superuser",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true
         },
@@ -2161,39 +5600,159 @@
           "primaryKey": false,
           "notNull": true
         },
+        "is_staff": {
+          "name": "is_staff",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true
         },
+        "date_joined": {
+          "name": "date_joined",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(254)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state_id": {
+          "name": "state_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
         "track_id": {
           "name": "track_id",
           "type": "bigint",
           "primaryKey": false,
-          "notNull": true
-        },
-        "account_status": {
-          "name": "account_status",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "invited_at": {
-          "name": "invited_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "activated_at": {
-          "name": "activated_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
           "notNull": false
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
+      "indexes": {
+        "users_email_0ea73cca_like": {
+          "name": "users_email_0ea73cca_like",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "varchar_pattern_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "users_state_i_69ebd8_idx": {
+          "name": "users_state_i_69ebd8_idx",
+          "columns": [
+            {
+              "expression": "state_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "users_state_id_0521d641": {
+          "name": "users_state_id_0521d641",
+          "columns": [
+            {
+              "expression": "state_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "users_track_i_1a6677_idx": {
+          "name": "users_track_i_1a6677_idx",
+          "columns": [
+            {
+              "expression": "track_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "users_track_id_e7963e8d": {
+          "name": "users_track_id_e7963e8d",
+          "columns": [
+            {
+              "expression": "track_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "users_state_id_0521d641_fk_country_states_id": {
+          "name": "users_state_id_0521d641_fk_country_states_id",
+          "tableFrom": "users",
+          "tableTo": "country_states",
+          "columnsFrom": [
+            "state_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "users_track_id_e7963e8d_fk_tracks_id": {
+          "name": "users_track_id_e7963e8d_fk_tracks_id",
+          "tableFrom": "users",
+          "tableTo": "tracks",
+          "columnsFrom": [
+            "track_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "users_email_key": {
@@ -2208,59 +5767,66 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.verification": {
-      "name": "verification",
+    "public.users_groups": {
+      "name": "users_groups",
       "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "bigint",
           "primaryKey": true,
-          "notNull": true
-        },
-        "identifier": {
-          "name": "identifier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "value": {
-          "name": "value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(6)",
-          "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "identity": {
+            "type": "byDefault",
+            "name": "users_groups_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(6)",
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
           "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {
-        "verification_identifier_idx": {
-          "name": "verification_identifier_idx",
+        "users_groups_group_id_2f3517aa": {
+          "name": "users_groups_group_id_2f3517aa",
           "columns": [
             {
-              "expression": "identifier",
+              "expression": "group_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last",
-              "opclass": "text_ops"
+              "opclass": "int4_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "users_groups_user_id_f500bee5": {
+          "name": "users_groups_user_id_f500bee5",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
             }
           ],
           "isUnique": false,
@@ -2269,7 +5835,469 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "users_groups_group_id_2f3517aa_fk_auth_group_id": {
+          "name": "users_groups_group_id_2f3517aa_fk_auth_group_id",
+          "tableFrom": "users_groups",
+          "tableTo": "auth_group",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "users_groups_user_id_f500bee5_fk_users_id": {
+          "name": "users_groups_user_id_f500bee5_fk_users_id",
+          "tableFrom": "users_groups",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_groups_user_id_group_id_fc7788e8_uniq": {
+          "name": "users_groups_user_id_group_id_fc7788e8_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "group_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users_user_permissions": {
+      "name": "users_user_permissions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "users_user_permissions_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "permission_id": {
+          "name": "permission_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "users_user_permissions_permission_id_6d08dcd2": {
+          "name": "users_user_permissions_permission_id_6d08dcd2",
+          "columns": [
+            {
+              "expression": "permission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int4_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "users_user_permissions_user_id_92473840": {
+          "name": "users_user_permissions_user_id_92473840",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "users_user_permissio_permission_id_6d08dcd2_fk_auth_perm": {
+          "name": "users_user_permissio_permission_id_6d08dcd2_fk_auth_perm",
+          "tableFrom": "users_user_permissions",
+          "tableTo": "auth_permission",
+          "columnsFrom": [
+            "permission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "users_user_permissions_user_id_92473840_fk_users_id": {
+          "name": "users_user_permissions_user_id_92473840_fk_users_id",
+          "tableFrom": "users_user_permissions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_user_permissions_user_id_permission_id_3b86cbdf_uniq": {
+          "name": "users_user_permissions_user_id_permission_id_3b86cbdf_uniq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "permission_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workshop_attendance": {
+      "name": "workshop_attendance",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "workshop_attendance_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "responded": {
+          "name": "responded",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workshop_id": {
+          "name": "workshop_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "workshop_attendance_user_id_c7587c90": {
+          "name": "workshop_attendance_user_id_c7587c90",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workshop_attendance_workshop_id_15b47095": {
+          "name": "workshop_attendance_workshop_id_15b47095",
+          "columns": [
+            {
+              "expression": "workshop_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workshop_attendance_user_id_c7587c90_fk_users_id": {
+          "name": "workshop_attendance_user_id_c7587c90_fk_users_id",
+          "tableFrom": "workshop_attendance",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workshop_attendance_workshop_id_15b47095_fk_workshops": {
+          "name": "workshop_attendance_workshop_id_15b47095_fk_workshops",
+          "tableFrom": "workshop_attendance",
+          "tableTo": "workshops",
+          "columnsFrom": [
+            "workshop_id"
+          ],
+          "columnsTo": [
+            "workshop_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "pk_workshop_attendance": {
+          "name": "pk_workshop_attendance",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "workshop_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.workshops": {
+      "name": "workshops",
+      "schema": "",
+      "columns": {
+        "workshop_id": {
+          "name": "workshop_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "byDefault",
+            "name": "workshops_workshop_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "workshop_name": {
+          "name": "workshop_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_datetime": {
+          "name": "start_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "duration": {
+          "name": "duration",
+          "type": "interval",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "zoom_link": {
+          "name": "zoom_link",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_flag": {
+          "name": "deleted_flag",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_datetime": {
+          "name": "deleted_datetime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "host_user_id": {
+          "name": "host_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "workshops_group_i_f53249_idx": {
+          "name": "workshops_group_i_f53249_idx",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workshops_group_id_452b7f33": {
+          "name": "workshops_group_id_452b7f33",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workshops_host_us_e187e4_idx": {
+          "name": "workshops_host_us_e187e4_idx",
+          "columns": [
+            {
+              "expression": "host_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workshops_host_user_id_c0c274b0": {
+          "name": "workshops_host_user_id_c0c274b0",
+          "columns": [
+            {
+              "expression": "host_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "int8_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "workshops_start_d_ee3d73_idx": {
+          "name": "workshops_start_d_ee3d73_idx",
+          "columns": [
+            {
+              "expression": "start_datetime",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workshops_group_id_452b7f33_fk_groups_id": {
+          "name": "workshops_group_id_452b7f33_fk_groups_id",
+          "tableFrom": "workshops",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "workshops_host_user_id_c0c274b0_fk_users_id": {
+          "name": "workshops_host_user_id_c0c274b0_fk_users_id",
+          "tableFrom": "workshops",
+          "tableTo": "users",
+          "columnsFrom": [
+            "host_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2278,7 +6306,9 @@
     }
   },
   "enums": {},
-  "schemas": {},
+  "schemas": {
+    "admin": "admin"
+  },
   "sequences": {},
   "roles": {},
   "policies": {},

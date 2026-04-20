@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "./db.js";
 
-const adminSchema = pgSchema("admin");
+export const adminSchema = pgSchema("admin");
 
 export const adminUser = adminSchema.table("user", {
   id: text("id").primaryKey(),
