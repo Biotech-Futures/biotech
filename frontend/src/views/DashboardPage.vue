@@ -3,11 +3,11 @@
   <div
     ref="dashboardShellRef"
     class="content-area dashboard-page-shell"
-    :class="isDayMode ? 'is-day-mode' : 'is-night-mode'"
+    :class="[isDayMode ? 'is-day-mode' : 'is-night-mode', { 'is-fx-disabled': !isDashboardFxRunningAllowed }]"
     :style="dashboardThemeStyle"
   >
 
-    
+
     <div class="dashboard-page-inner">
       <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
 
@@ -15,13 +15,13 @@
       <div class="dashboard-backdrop-orb orb-two" aria-hidden="true"></div>
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-      
+
       <section class="dashboard-hero-shell">
 
-        
+
         <div class="dashboard-hero-card interactive-surface">
 
-          
+
           <div class="dashboard-theme-rail">
             <button
               type="button"
@@ -33,27 +33,38 @@
               <i :class="isDayMode ? 'fas fa-sun' : 'fas fa-moon'"></i>
               <span>{{ currentSurfaceModeLabel }}</span>
             </button>
+            <button
+              type="button"
+              class="theme-rail-trigger fx-rail-trigger"
+              :class="{ 'is-muted': !isDashboardFxRunningAllowed }"
+              :aria-pressed="isDashboardFxRunningAllowed"
+              :title="dashboardFxToggleTitle"
+              @click.stop="toggleDashboardFx"
+            >
+              <i :class="isDashboardFxRunningAllowed ? 'fas fa-bolt' : 'fas fa-battery-half'"></i>
+              <span>{{ dashboardFxToggleLabel }}</span>
+            </button>
           </div>
 
-          
+
           <div class="dashboard-hero-main">
 
-            
+
             <div class="dashboard-hero-copy">
 
-              
+
               <div class="hero-eyebrow-row">
 
-                
+
                 <span class="hero-eyebrow">{{ heroEyebrow }}</span>
 
-                
+
               </div>
 
-              
+
               <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
 
-              
+
               <div class="hero-meta-row">
                 <span
                   v-for="chip in heroMetaChips"
@@ -74,7 +85,7 @@
                 {{ heroMessage }}
               </p>
 
-              
+
               <div class="hero-highlight-wrap">
                 <span
                   v-for="item in headerHighlights"
@@ -85,32 +96,32 @@
                 </span>
               </div>
 
-              
+
             </div>
 
-            
+
             <div class="dashboard-hero-aside">
 
-              
+
               <div
                 v-if="activeShowcaseItem"
                 class="showcase-card interactive-surface"
                 @mouseenter="stopShowcaseAutoplay"
                 @mouseleave="startShowcaseAutoplay"
               >
-                
 
-                
+
+
                 <div class="showcase-heading-row">
                   <div>
-                    
+
                     <div class="showcase-kicker">BIOTECH HIGHLIGHTS</div>
 
-                    
+
                     <div class="showcase-mini-label">Official-style image and info rotation</div>
                   </div>
 
-                  
+
                   <div class="showcase-controls">
                     <button type="button" class="showcase-nav-btn" @click="goToPrevShowcase">
                       <i class="fas fa-chevron-left"></i>
@@ -121,33 +132,33 @@
                   </div>
                 </div>
 
-                
+
                 <transition name="showcase-fade" mode="out-in">
 
-                  
+
                   <div :key="activeShowcaseItem.id" class="showcase-body">
 
-                    
+
                     <div
                       class="showcase-image"
                       :style="{ backgroundImage: `url(${activeShowcaseItem.image})` }"
                     >
-                      
+
                       <div class="showcase-image-overlay"></div>
                     </div>
 
-                    
+
                     <div class="showcase-copy">
 
-                      
+
                       <h3 class="showcase-title">{{ activeShowcaseItem.title }}</h3>
 
-                      
+
                       <p class="showcase-summary">{{ activeShowcaseItem.summary }}</p>
 
                       <div class="showcase-footer">
 
-                        
+
                         <div class="showcase-dots">
                           <button
                             v-for="(item, index) in biotechShowcaseItems"
@@ -159,7 +170,7 @@
                           ></button>
                         </div>
 
-                        
+
                         <button
                           type="button"
                           class="showcase-link-btn"
@@ -179,17 +190,17 @@
         </div>
       </section>
 
-      
+
       <div v-if="loadError" class="dashboard-alert">
         <i class="fas fa-circle-info"></i>
         <span>{{ loadError }}</span>
       </div>
 
-      
+
       <section class="dashboard-section">
         <div class="dashboard-section-grid summary-grid">
 
-          
+
           <article
             v-for="item in summaryWidgets"
             :key="item.key"
@@ -209,7 +220,7 @@
         </div>
       </section>
 
-      
+
       <section class="dashboard-section">
           <article class="surface-card feature-card progress-card">
             <div class="surface-card-header">
@@ -221,7 +232,7 @@
 
             <div class="progress-layout">
 
-              
+
               <div class="progress-ring-shell">
                 <div class="progress-ring-aura"></div>
                 <div class="progress-ring-track"></div>
@@ -233,44 +244,44 @@
                 <div class="progress-ring" :style="progressCircleStyle">
                   <div class="progress-ring-inner">
 
-                    
+
                     <div class="progress-value">{{ progressSnapshot.completionRate }}%</div>
 
-                    
+
                     <div class="progress-label">Completion</div>
                     <div class="progress-caption">{{ progressStatusCaption }}</div>
                   </div>
                 </div>
               </div>
 
-              
+
               <div class="progress-details">
 
-                
+
                 <div class="progress-detail-row">
                   <span>Tasks</span>
                   <strong>{{ progressSnapshot.completedTasks }}/{{ progressSnapshot.totalTasks }}</strong>
                 </div>
 
-                
+
                 <div class="progress-detail-row">
                   <span>Current stage</span>
                   <strong>{{ progressSnapshot.currentWeek }}</strong>
                 </div>
 
-                
+
                 <div class="progress-detail-row">
                   <span>Next milestone</span>
                   <strong>{{ progressSnapshot.nextMilestone }}</strong>
                 </div>
 
-                
+
                 <div class="progress-detail-row">
                   <span>Due</span>
                   <strong>{{ formatDateAU(progressSnapshot.nextMilestoneDate) || 'TBC' }}</strong>
                 </div>
 
-                
+
                 <div class="progress-bar-shell">
                   <div class="progress-bar-fill" :style="progressPercentStyle"></div>
                 </div>
@@ -279,7 +290,7 @@
           </article>
       </section>
 
-      
+
       <section class="dashboard-section">
         <div class="dashboard-section-grid two-col-layout">
 
@@ -290,35 +301,35 @@
                 <h3 class="surface-card-title">Next Event</h3>
               </div>
 
-              
+
               <RouterLink to="/events" class="surface-link">Open calendar</RouterLink>
             </div>
 
-            
+
             <div v-if="nextEvent" class="event-detail-card">
 
-              
+
               <div class="event-date-badge">
                 <span class="event-date-day">{{ nextEventDateParts.day }}</span>
                 <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
               </div>
 
               <div class="event-content">
-                
+
                 <div class="event-title">{{ nextEvent.title }}</div>
 
-                
+
                 <div class="event-meta-row">
                   <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
                   <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
                 </div>
 
-                
+
                 <div class="event-meta-row location-row">
                   <span><i class="fas fa-location-dot"></i>{{ nextEvent.location || 'Location TBC' }}</span>
                 </div>
 
-                
+
                 <div class="event-actions">
                   <RouterLink to="/events" class="primary-chip">
                     {{ isAdmin ? 'Manage event' : isTeacher ? 'Open session' : 'View event' }}
@@ -327,26 +338,26 @@
               </div>
             </div>
 
-            
+
             <div v-else class="empty-state">
               <i class="fas fa-calendar-xmark"></i>
               <p>No upcoming event is available yet.</p>
             </div>
           </article>
 
-          
+
           <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
                 <p class="surface-kicker">Updates</p>
 
-                
+
                 <h3 class="surface-card-title">{{ announcementsSectionTitle }}</h3>
               </div>
               <RouterLink to="/announcements" class="surface-link">View all</RouterLink>
             </div>
 
-            
+
             <div v-if="announcementsPreview.length" class="list-stack">
               <RouterLink
                 v-for="announcement in announcementsPreview"
@@ -359,13 +370,13 @@
                 </div>
 
                 <div class="list-row-content">
-                  
+
                   <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
 
-                  
+
                   <div class="list-row-meta">{{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}</div>
 
-                  
+
                   <div class="list-row-description">{{ getAnnouncementSnippet(announcement) }}</div>
                 </div>
 
@@ -375,7 +386,7 @@
               </RouterLink>
             </div>
 
-            
+
             <div v-else class="empty-state">
               <i class="fas fa-bell-slash"></i>
               <p>No recent announcements are available yet.</p>
@@ -384,7 +395,7 @@
         </div>
       </section>
 
-      
+
       <section class="dashboard-section">
         <article class="surface-card interactive-surface">
           <div class="surface-card-header">
@@ -395,7 +406,7 @@
             <RouterLink to="/groups" class="surface-link">View all</RouterLink>
           </div>
 
-          
+
           <div v-if="groupsPreview.length" class="groups-grid">
             <RouterLink
               v-for="group in groupsPreview"
@@ -405,21 +416,21 @@
             >
               <div class="group-card-surface interactive-surface">
 
-                
+
                 <div class="group-card-top">
                   <div class="group-avatars">
 
-                    
+
                     <div class="group-avatar primary-avatar">
                       {{ getInitials(getGroupName(group)) }}
                     </div>
 
-                    
+
                     <div class="group-avatar secondary-avatar">
                       {{ getGroupSecondaryLabel(group) }}
                     </div>
 
-                    
+
                     <div class="group-avatar tertiary-avatar">
                       +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
                     </div>
@@ -430,16 +441,16 @@
                   </span>
                 </div>
 
-                
+
                 <div class="group-name">{{ getGroupName(group) }}</div>
 
-                
+
                 <div class="group-meta">{{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}</div>
               </div>
             </RouterLink>
           </div>
 
-          
+
           <div v-else class="empty-state">
             <i class="fas fa-users-slash"></i>
             <p>No group is available yet.</p>
@@ -447,11 +458,11 @@
         </article>
       </section>
 
-      
+
       <section class="dashboard-section">
         <div class="dashboard-section-grid two-col-layout">
 
-          
+
           <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
@@ -461,7 +472,7 @@
               <RouterLink to="/resources" class="surface-link">View all</RouterLink>
             </div>
 
-            
+
             <div v-if="resourcesPreview.length" class="resource-grid">
               <RouterLink
                 v-for="resource in resourcesPreview"
@@ -471,16 +482,16 @@
               >
                 <div class="resource-card-surface interactive-surface">
 
-                  
+
                   <div class="resource-icon">
                     <i :class="getResourceIcon(resource.type)"></i>
                   </div>
 
                   <div class="resource-content">
-                    
+
                     <div class="resource-title">{{ getResourceTitle(resource) }}</div>
 
-                    
+
                     <div class="resource-meta">
                       {{ getResourceCategory(resource) }} · Updated {{ getResourceMeta(resource) }}
                     </div>
@@ -489,7 +500,7 @@
               </RouterLink>
             </div>
 
-            
+
             <div v-else class="empty-state">
               <i class="fas fa-folder-open"></i>
               <p>No resource is available yet.</p>
@@ -530,7 +541,7 @@ import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/util
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
-import { DASHBOARD_BACKGROUND_KEY, safeLocalStorageGet } from '@/utils/storage'
+import { safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
 import { useThemeStore } from '@/stores/theme'
 import { getAccentClass } from '@/utils/ui'
 
@@ -547,6 +558,7 @@ const {
   user
 } = storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const DASHBOARD_FX_ENABLED_KEY = 'dashboard-fx-enabled'
 const DASHBOARD_ENDPOINTS = {
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
   groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
@@ -612,6 +624,13 @@ function toggleSurfaceMode() {
 const dashboardShellRef = ref(null)
 const dashboardFxCanvasRef = ref(null)
 const prefersReducedMotion = ref(false)
+const isDashboardFxEnabled = ref(safeLocalStorageGet(DASHBOARD_FX_ENABLED_KEY, 'true') !== 'false')
+const isDashboardFxRunningAllowed = computed(() => isDashboardFxEnabled.value && !prefersReducedMotion.value)
+const dashboardFxToggleLabel = computed(() => isDashboardFxRunningAllowed.value ? 'FX On' : 'FX Off')
+const dashboardFxToggleTitle = computed(() => {
+  if (prefersReducedMotion.value) return 'Animated background is disabled by system reduced-motion preference'
+  return isDashboardFxEnabled.value ? 'Turn off animated background' : 'Turn on animated background'
+})
 
 let reduceMotionQuery = null
 let dashboardResizeRaf = null
@@ -1634,8 +1653,19 @@ function handleReduceMotionChange(event) {
   }
 }
 
+function toggleDashboardFx() {
+  isDashboardFxEnabled.value = !isDashboardFxEnabled.value
+  safeLocalStorageSet(DASHBOARD_FX_ENABLED_KEY, isDashboardFxEnabled.value ? 'true' : 'false')
+
+  if (isDashboardFxEnabled.value) {
+    nextTick(() => initDashboardFx())
+  } else {
+    disposeDashboardFx()
+  }
+}
+
 function initDashboardFx() {
-  if (!dashboardFxCanvasRef.value || prefersReducedMotion.value || dashboardFxState.renderer) return
+  if (!dashboardFxCanvasRef.value || !isDashboardFxEnabled.value || prefersReducedMotion.value || dashboardFxState.renderer) return
 
   const shell = dashboardShellRef.value
   if (!shell) return
@@ -1648,7 +1678,7 @@ function initDashboardFx() {
     antialias: true,
     powerPreference: 'high-performance'
   })
-  dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
   dashboardFxState.renderer.setSize(rect.width, rect.height, false)
   dashboardFxState.renderer.setClearColor(0x000000, 0)
 
@@ -1684,7 +1714,7 @@ function resizeDashboardFx() {
     dashboardResizeRaf = null
 
     const rect = dashboardShellRef.value.getBoundingClientRect()
-    dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
     dashboardFxState.renderer.setSize(rect.width, rect.height, false)
     dashboardFxState.material.uniforms.uResolution.value.set(rect.width, rect.height)
   })
@@ -1866,6 +1896,11 @@ onBeforeUnmount(() => {
   opacity: var(--dashboard-fx-opacity, 0.92);
 }
 
+.dashboard-page-shell.is-fx-disabled .dashboard-fx-canvas {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .dashboard-backdrop-orb {
   position: absolute;
   border-radius: 999px;
@@ -1976,8 +2011,8 @@ onBeforeUnmount(() => {
   top: 1.1rem; right: 1.1rem;
   z-index: 5;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.6rem;
 }
 
@@ -2003,6 +2038,11 @@ onBeforeUnmount(() => {
   transform: translateY(-2px);
   border-color: var(--border-strong);
   background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
+}
+
+.fx-rail-trigger.is-muted {
+  color: var(--text-muted);
+  border-color: color-mix(in srgb, var(--accent-amber) 18%, var(--border-default));
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -3670,7 +3710,7 @@ onBeforeUnmount(() => {
   .summary-grid, .groups-grid, .resource-grid { grid-template-columns: 1fr; }
   .event-detail-card { flex-direction: column; }
   .event-date-badge { width: 100%; min-height: 72px; flex-direction: row; justify-content: flex-start; align-items: center; gap: 0.72rem; }
-  .dashboard-theme-rail { position: static; align-items: stretch; margin-bottom: 1rem; }
+  .dashboard-theme-rail { position: static; flex-direction: column; align-items: stretch; margin-bottom: 1rem; }
   .theme-rail-trigger { width: 100%; justify-content: center; }
   .dashboard-hero-main { padding-top: 0; }
   .dashboard-hero-copy,
