@@ -543,7 +543,8 @@ const {
   displayTrack,
   organizationLabel,
   roleLabel,
-  normalizedRole
+  normalizedRole,
+  user
 } = storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const DASHBOARD_ENDPOINTS = {
@@ -551,9 +552,11 @@ const DASHBOARD_ENDPOINTS = {
   groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
   tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
+  announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
-  tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=false`,
-  milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`
+  tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=False`,
+  milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`,
+  adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`
 }
 
 const isLoading = ref(false)
@@ -577,6 +580,8 @@ const adminWorkflow = ref({
   pendingApprovals: 4,
   draftBulkMessages: 1
 })
+
+const adminOperationsSummary = ref(null)
 
 const progressSnapshot = ref({
   completionRate: 42,
@@ -976,6 +981,25 @@ function extractCollectionItems(data) {
   return []
 }
 
+function getCurrentUserId() {
+  return user.value?.id ?? auth.user?.id ?? null
+}
+
+function toNumberSet(items) {
+  return new Set(
+    items
+      .map(item => Number(item))
+      .filter(item => Number.isFinite(item))
+  )
+}
+
+function truncateText(value, maxLength = 160) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength - 1).trim()}...`
+}
+
 function isValidDate(value) {
   if (!value) return false
   const date = value instanceof Date ? value : new Date(value)
@@ -1024,6 +1048,10 @@ function normalizeRoleName(value) {
 function normalizeGroup(group, memberships = [], trackById = new Map()) {
   const groupId = group?.id
   const matchingMemberships = memberships.filter(item => String(item?.group) === String(groupId))
+  const activeMentors = matchingMemberships.filter(item => {
+    const role = String(item?.membership_role || '').toLowerCase()
+    return role.includes('mentor') || role.includes('supervisor')
+  })
   const trackLabel =
     group?.track_name ||
     trackById.get(Number(group?.track)) ||
@@ -1037,9 +1065,24 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
     members: matchingMemberships.length || Number(group?.members || group?.memberCount || 0),
     memberCount: matchingMemberships.length || Number(group?.members || group?.memberCount || 0),
     status: group?.deleted_at ? 'archived' : group?.status || 'active',
-    mentor: group?.mentor || group?.lead || 'Mentor team',
+    mentor: group?.mentor || group?.lead || (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
     track: trackLabel || 'General'
   }
+}
+
+function filterGroupsForDashboard(items, memberships = []) {
+  if (isAdmin.value) return items
+
+  const currentUserId = getCurrentUserId()
+  if (!currentUserId || !Array.isArray(memberships)) return items
+
+  const groupIds = toNumberSet(
+    memberships
+      .filter(item => String(item?.user) === String(currentUserId))
+      .map(item => item?.group)
+  )
+
+  return items.filter(group => groupIds.has(Number(group?.id)))
 }
 
 function normalizeResource(resource) {
@@ -1073,6 +1116,31 @@ function normalizeResource(resource) {
   }
 }
 
+function normalizeAnnouncement(announcement) {
+  const body = announcement?.body || announcement?.summary || announcement?.description || ''
+  const audienceRoles = Array.isArray(announcement?.audiences)
+    ? announcement.audiences.map(rule => rule?.role_name)
+    : []
+  const normalizedRoles = audienceRoles.map(normalizeRoleName).filter(Boolean)
+  const visibilityScope = normalizeRoleName(announcement?.visibility_scope)
+  const audience = visibilityScope === 'public'
+    ? 'all'
+    : (normalizedRoles[0] || visibilityScope || 'all')
+
+  return {
+    ...announcement,
+    id: announcement?.id,
+    title: announcement?.title || announcement?.name || 'Untitled announcement',
+    summary: truncateText(body),
+    description: body,
+    content: body,
+    date: announcement?.published_at || announcement?.date || announcement?.created_at,
+    updated: announcement?.published_at || announcement?.updated || announcement?.created_at,
+    author: announcement?.author_email || announcement?.author || 'Program Team',
+    audience
+  }
+}
+
 function normalizeEvent(event) {
   const start = event?.start_datetime || event?.date || ''
   const end = event?.ends_datetime || event?.end_datetime || event?.end || ''
@@ -1091,6 +1159,16 @@ function normalizeEvent(event) {
 }
 
 function deriveDashboardSummary() {
+  if (isAdmin.value && adminOperationsSummary.value) {
+    dashboardSummary.value = {
+      activeGroups: Number(adminOperationsSummary.value.active_groups || groups.value.length),
+      upcomingEvents: Number(adminOperationsSummary.value.upcoming_events || events.value.length),
+      resources: resources.value.length,
+      announcements: announcements.value.length
+    }
+    return
+  }
+
   dashboardSummary.value = {
     activeGroups: groups.value.length,
     upcomingEvents: events.value.length,
@@ -1101,8 +1179,23 @@ function deriveDashboardSummary() {
 
 function deriveProgressSnapshot(tasksData, milestonesData) {
   const fallback = getDefaultProgressSnapshot()
-  const activeTasks = extractCollectionItems(tasksData).filter(task => task?.deleted_flag !== true)
-  const activeMilestones = extractCollectionItems(milestonesData).filter(milestone => milestone?.deleted_flag !== true)
+  const visibleGroupIds = toNumberSet(groups.value.map(group => group?.id))
+  let activeMilestones = extractCollectionItems(milestonesData).filter(milestone => milestone?.deleted_flag !== true)
+
+  if (!isAdmin.value && !visibleGroupIds.size) {
+    return fallback
+  }
+
+  if (visibleGroupIds.size) {
+    activeMilestones = activeMilestones.filter(milestone => visibleGroupIds.has(Number(milestone?.group)))
+  }
+
+  const visibleMilestoneIds = toNumberSet(activeMilestones.map(milestone => milestone?.id))
+  let activeTasks = extractCollectionItems(tasksData).filter(task => task?.deleted_flag !== true)
+
+  if (visibleMilestoneIds.size) {
+    activeTasks = activeTasks.filter(task => visibleMilestoneIds.has(Number(task?.milestone)))
+  }
 
   if (!activeTasks.length && !activeMilestones.length) {
     return fallback
@@ -1167,9 +1260,9 @@ async function loadDashboardData() {
       loadResources(),
       loadAnnouncements(),
       loadEvents(),
-      loadAdminWorkflow(),
-      loadProgress()
+      loadAdminWorkflow()
     ])
+    await loadProgress()
     loadSummary()
   } catch (error) {
     console.error('Dashboard loading error:', error)
@@ -1186,13 +1279,13 @@ function loadSummary() {
 async function loadGroups() {
   try {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.groups)
-    let memberships = []
+    let memberships = null
     let trackById = new Map()
 
     try {
       memberships = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.groupMembers))
     } catch (error) {
-      memberships = []
+      memberships = null
     }
 
     try {
@@ -1202,10 +1295,12 @@ async function loadGroups() {
       trackById = new Map()
     }
 
-    const liveGroups = extractCollectionItems(data)
-    groups.value = liveGroups.length
-      ? liveGroups.map(group => normalizeGroup(group, memberships, trackById))
-      : (Array.isArray(mockGroups) ? [...mockGroups] : [])
+    if (!isAdmin.value && memberships === null) {
+      throw new Error('Group memberships unavailable')
+    }
+
+    const liveGroups = filterGroupsForDashboard(extractCollectionItems(data), memberships || [])
+    groups.value = liveGroups.map(group => normalizeGroup(group, memberships || [], trackById))
   } catch (error) {
     groups.value = Array.isArray(mockGroups) ? [...mockGroups] : []
   }
@@ -1215,25 +1310,27 @@ async function loadResources() {
   try {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.resources)
     const liveResources = extractCollectionItems(data)
-    resources.value = liveResources.length
-      ? liveResources.map(normalizeResource)
-      : (Array.isArray(mockResources) ? [...mockResources] : [])
+    resources.value = liveResources.map(normalizeResource)
   } catch (error) {
     resources.value = Array.isArray(mockResources) ? [...mockResources] : []
   }
 }
 
 async function loadAnnouncements() {
-  announcements.value = Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : []
+  try {
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.announcements)
+    const liveAnnouncements = extractCollectionItems(data)
+    announcements.value = liveAnnouncements.map(normalizeAnnouncement)
+  } catch (error) {
+    announcements.value = Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : []
+  }
 }
 
 async function loadEvents() {
   try {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.events)
     const liveEvents = extractCollectionItems(data)
-    events.value = liveEvents.length
-      ? liveEvents.map(normalizeEvent)
-      : (Array.isArray(mockEvents) ? [...mockEvents] : [])
+    events.value = liveEvents.map(normalizeEvent)
   } catch (error) {
     events.value = Array.isArray(mockEvents) ? [...mockEvents] : []
   }
@@ -1242,11 +1339,23 @@ async function loadEvents() {
 async function loadAdminWorkflow() {
   if (!isAdmin.value) return
 
-  adminWorkflow.value = {
-    pendingMatches: 5,
-    pendingReassignments: 2,
-    pendingApprovals: 4,
-    draftBulkMessages: 1
+  try {
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.adminSummary)
+    adminOperationsSummary.value = data
+    adminWorkflow.value = {
+      pendingMatches: Number(data?.unassigned_match_recommendations || 0),
+      pendingReassignments: Number(data?.groups_without_mentor || 0),
+      pendingApprovals: Number(data?.invited_or_pending_users || 0),
+      draftBulkMessages: 0
+    }
+  } catch (error) {
+    adminOperationsSummary.value = null
+    adminWorkflow.value = {
+      pendingMatches: 5,
+      pendingReassignments: 2,
+      pendingApprovals: 4,
+      draftBulkMessages: 1
+    }
   }
 }
 
@@ -1896,48 +2005,6 @@ onBeforeUnmount(() => {
   background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
 }
 
-.theme-rail-panel {
-  min-width: 168px;
-  padding: 0.5rem;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: linear-gradient(160deg, rgba(8, 16, 38, 0.95), rgba(10, 16, 30, 0.90));
-  box-shadow: 0 24px 56px rgba(0, 3, 18, 0.46);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
-.theme-rail-list { display: flex; flex-direction: column; gap: 0.28rem; }
-
-.theme-rail-item {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.82rem;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
-  font-size: 0.87rem;
-  font-weight: 600;
-  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
-}
-
-.theme-rail-item:hover,
-.theme-rail-item.active {
-  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
-  border-color: color-mix(in srgb, var(--accent-blue) 22%, transparent);
-  transform: translateX(4px);
-}
-
-.theme-rail-panel-enter-active,
-.theme-rail-panel-leave-active { transition: opacity 0.22s ease, transform 0.22s ease; }
-.theme-rail-panel-enter-from,
-.theme-rail-panel-leave-to { opacity: 0; transform: translateY(-6px) scale(0.97); }
-
 /* ──────────────────────────────────────────────────────────────
    § 7  HERO CONTENT
    ────────────────────────────────────────────────────────────── */
@@ -1994,8 +2061,7 @@ onBeforeUnmount(() => {
   margin-bottom: 0.95rem;
 }
 
-.hero-eyebrow,
-.hero-org {
+.hero-eyebrow {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -2026,24 +2092,6 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
   transform: skewX(-18deg);
   animation: heroSheen 7s linear infinite;
-}
-
-.hero-org {
-  color: #bbf7d0;
-  border-radius: 14px 999px 999px 14px;
-  border: 1px solid rgba(74, 222, 128, 0.24);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(10, 20, 18, 0.5));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 24px rgba(5, 150, 105, 0.10);
-}
-
-.hero-org::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  margin-right: 0.55rem;
-  border-radius: 999px;
-  background: #6ee7b7;
-  box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.12), 0 0 16px rgba(110, 231, 183, 0.45);
 }
 
 .hero-title {
@@ -2379,26 +2427,6 @@ onBeforeUnmount(() => {
   line-height: 1.72;
 }
 
-.showcase-insight-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.95rem;
-}
-
-.showcase-insight-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 0.34rem 0.78rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
-  color: var(--text-secondary);
-  font-size: 0.76rem;
-  font-weight: 800;
-}
-
 .showcase-footer {
   margin-top: auto;
   padding-top: 1rem;
@@ -2651,82 +2679,6 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 12  ACTION CENTER  (cyberpunk terminal aesthetic)
    ────────────────────────────────────────────────────────────── */
-.action-card { border-color: rgba(45, 212, 191, 0.16); }
-
-/* Subtle scanline overlay */
-.action-card::before {
-  content: '';
-  position: absolute; inset: 0;
-  border-radius: inherit;
-  pointer-events: none; z-index: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent, transparent 3px,
-    rgba(45, 212, 191, 0.014) 3px,
-    rgba(45, 212, 191, 0.014) 4px
-  );
-}
-
-.action-center-list { display: flex; flex-direction: column; gap: 0.72rem; position: relative; z-index: 1; }
-
-.action-center-item {
-  position: relative;
-  overflow: hidden;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  text-align: left;
-  padding: 0.9rem 1rem;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.03);
-  color: inherit;
-  cursor: pointer;
-  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
-}
-
-/* Left neon bar on hover */
-.action-center-item::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 14px; bottom: 14px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, #2dd4bf, #38bdf8);
-  opacity: 0;
-  transform: scaleY(0.3);
-  transition: opacity var(--t-fast), transform var(--t-base) var(--ease-out);
-}
-
-.action-center-item:nth-child(2)::before { background: linear-gradient(180deg, #60a5fa, #818cf8); }
-.action-center-item:nth-child(3)::before { background: linear-gradient(180deg, #a78bfa, #f472b6); }
-
-.action-center-item:hover { transform: translateX(6px) translateY(-2px); border-color: rgba(45, 212, 191, 0.24); background: rgba(45, 212, 191, 0.06); box-shadow: var(--shadow-sm); }
-.action-center-item:nth-child(2):hover { border-color: rgba(96, 165, 250, 0.24);  background: rgba(96, 165, 250, 0.06); }
-.action-center-item:nth-child(3):hover { border-color: rgba(167, 139, 250, 0.24); background: rgba(167, 139, 250, 0.06); }
-.action-center-item:hover::before { opacity: 1; transform: scaleY(1); }
-
-.action-center-content { min-width: 0; display: flex; flex-direction: column; }
-.action-center-main    { color: var(--text-primary); font-weight: 800; font-size: 0.96rem; }
-.action-center-helper  { margin-top: 0.25rem; color: var(--text-secondary); font-size: 0.88rem; line-height: 1.5; }
-
-.action-center-arrow {
-  width: 36px; height: 36px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: rgba(45, 212, 191, 0.12);
-  color: #5eead4;
-  border: 1px solid rgba(45, 212, 191, 0.20);
-  transition: transform var(--t-fast), background var(--t-fast);
-}
-
-.action-center-item:hover .action-center-arrow { transform: translateX(3px); background: rgba(45, 212, 191, 0.22); }
-
 /* ──────────────────────────────────────────────────────────────
    § 13  PROGRESS CARD  (orbital ring display)
    ────────────────────────────────────────────────────────────── */
@@ -2907,7 +2859,7 @@ onBeforeUnmount(() => {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   § 15  LISTS  (announcements, checklist)
+   § 15  LISTS  (announcements)
    ────────────────────────────────────────────────────────────── */
 .list-stack { display: flex; flex-direction: column; gap: 0.70rem; }
 
@@ -2922,7 +2874,6 @@ onBeforeUnmount(() => {
 }
 
 .premium-row:hover { transform: translateX(5px); border-color: rgba(251, 191, 36, 0.22); background: rgba(251, 191, 36, 0.05); }
-.checklist-row:hover { border-color: rgba(45, 212, 191, 0.22); background: rgba(45, 212, 191, 0.05); }
 
 .list-row-icon {
   width: 40px; height: 40px;
@@ -2937,10 +2888,8 @@ onBeforeUnmount(() => {
 }
 
 .announcement-icon { background: rgba(251, 191, 36, 0.12); color: #fcd34d; }
-.checklist-icon    { background: rgba(45, 212, 191, 0.12); color: #5eead4; }
 
 .premium-row:hover .announcement-icon { transform: scale(1.08) rotate(-8deg); box-shadow: 0 10px 22px rgba(251, 191, 36, 0.22); }
-.checklist-row:hover .checklist-icon  { transform: scale(1.08); box-shadow: 0 10px 22px rgba(45, 212, 191, 0.22); }
 
 .list-row-content { min-width: 0; flex: 1; }
 .list-row-title       { color: var(--text-primary); font-weight: 800; line-height: 1.45; }
@@ -3097,71 +3046,6 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 18  TIMELINE  (sci-fi roadmap with connecting line)
    ────────────────────────────────────────────────────────────── */
-.timeline-list { display: flex; flex-direction: column; gap: 0; position: relative; }
-
-/* Vertical neon connecting line */
-.timeline-list::before {
-  content: '';
-  position: absolute;
-  left: 55px; top: 28px; bottom: 28px;
-  width: 2px;
-  background: linear-gradient(180deg,
-    rgba(96, 165, 250, 0.0) 0%,
-    rgba(96, 165, 250, 0.44) 18%,
-    rgba(45, 212, 191, 0.42) 50%,
-    rgba(167, 139, 250, 0.44) 82%,
-    rgba(167, 139, 250, 0.0) 100%
-  );
-  border-radius: 999px;
-}
-
-.timeline-item {
-  position: relative;
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: 0.9rem;
-  align-items: center;
-  padding: 0.82rem 1rem 0.82rem 0.82rem;
-  border-radius: 18px;
-  border: 1px solid transparent;
-  background: transparent;
-  margin-bottom: 0.56rem;
-  transition: transform var(--t-base) var(--ease-out), background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
-}
-
-.timeline-item:hover { transform: translateX(8px); background: rgba(255, 255, 255, 0.04); border-color: rgba(96, 165, 250, 0.18); box-shadow: 0 14px 32px rgba(0, 3, 18, 0.20); }
-
-.timeline-rail-line { display: none; }
-
-.timeline-badge {
-  position: relative; z-index: 1;
-  margin-left: 0.55rem;
-  display: inline-flex; align-items: center; justify-content: center;
-  min-height: 34px;
-  padding: 0.36rem 0.72rem;
-  border-radius: var(--radius-chip);
-  font-size: 0.79rem; font-weight: 800;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  transition: transform var(--t-fast), box-shadow var(--t-fast);
-}
-
-.timeline-item:hover .timeline-badge { transform: scale(1.06); }
-
-.timeline-content { min-width: 0; }
-.timeline-title   { color: var(--text-primary); font-weight: 800; }
-.timeline-status  { margin-top: 0.20rem; color: var(--text-secondary); font-size: 0.85rem; text-transform: capitalize; }
-
-.timeline-item.is-completed .timeline-badge { background: rgba(16, 185, 129, 0.18); color: #86efac; border-color: rgba(52, 211, 153, 0.26); box-shadow: 0 0 16px rgba(52, 211, 153, 0.16); }
-.timeline-item.is-current   .timeline-badge { background: rgba(59, 130, 246, 0.22); color: #93c5fd; border-color: rgba(96, 165, 250, 0.30); animation: badge-pulse 2.5s ease-in-out infinite; }
-.timeline-item.is-upcoming  .timeline-badge { background: rgba(148, 163, 184, 0.10); color: #94a3b8; border-color: rgba(148, 163, 184, 0.18); }
-
-@keyframes badge-pulse {
-  0%, 100% { box-shadow: 0 0 12px rgba(96, 165, 250, 0.22); }
-  50%       { box-shadow: 0 0 26px rgba(96, 165, 250, 0.46); }
-}
-
 /* ──────────────────────────────────────────────────────────────
    § 19  ALERT, LOADING, EMPTY STATE
    ────────────────────────────────────────────────────────────── */
@@ -3254,10 +3138,7 @@ onBeforeUnmount(() => {
 
 .dashboard-page-shell.is-day-mode .showcase-controls,
 .dashboard-page-shell.is-day-mode .showcase-nav-btn,
-.dashboard-page-shell.is-day-mode .showcase-insight-pill,
 .dashboard-page-shell.is-day-mode .theme-rail-trigger,
-.dashboard-page-shell.is-day-mode .theme-rail-panel,
-.dashboard-page-shell.is-day-mode .theme-rail-item,
 .dashboard-page-shell.is-day-mode .group-open-indicator,
 .dashboard-page-shell.is-day-mode .premium-row,
 .dashboard-page-shell.is-day-mode .progress-ring-inner {
@@ -3278,7 +3159,6 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-page-shell.is-day-mode .announcement-icon { color: #a56418; }
-.dashboard-page-shell.is-day-mode .checklist-icon { color: #1f7f70; }
 
 .dashboard-page-shell.is-day-mode .primary-chip {
   color: #755019;
@@ -3341,18 +3221,6 @@ onBeforeUnmount(() => {
   border-color: rgba(60, 110, 20, 0.24);
   background: linear-gradient(135deg, rgba(100, 160, 40, 0.16), rgba(188, 216, 158, 0.60));
   box-shadow: inset 0 0 0 1px rgba(120, 180, 60, 0.12), 0 8px 20px rgba(50, 100, 20, 0.12);
-}
-
-.dashboard-page-shell.is-day-mode .hero-org {
-  color: #1a4c1a;
-  border-color: rgba(40, 120, 50, 0.24);
-  background: linear-gradient(135deg, rgba(40, 120, 50, 0.14), rgba(192, 220, 162, 0.56));
-  box-shadow: inset 0 0 0 1px rgba(60, 160, 70, 0.10), 0 8px 20px rgba(30, 100, 40, 0.10);
-}
-
-.dashboard-page-shell.is-day-mode .hero-org::before {
-  background: #38a050;
-  box-shadow: 0 0 0 5px rgba(52, 160, 80, 0.14), 0 0 12px rgba(52, 160, 80, 0.32);
 }
 
 .dashboard-page-shell.is-day-mode .hero-title {
@@ -3581,64 +3449,6 @@ onBeforeUnmount(() => {
   background: rgba(60, 140, 40, 0.12);
 }
 
-/* --- 22.6  Action center ----------------------------------- */
-.dashboard-page-shell.is-day-mode .action-card::before {
-  background: repeating-linear-gradient(
-    0deg,
-    transparent, transparent 3px,
-    rgba(60, 120, 30, 0.018) 3px,
-    rgba(60, 120, 30, 0.018) 4px
-  );
-}
-
-.dashboard-page-shell.is-day-mode .action-card {
-  border-color: rgba(30, 140, 90, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item {
-  border-color: rgba(90, 148, 40, 0.14);
-  background: rgba(140, 196, 90, 0.08);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item:hover {
-  border-color: rgba(30, 140, 90, 0.30);
-  background: rgba(30, 140, 90, 0.10);
-  box-shadow: 0 8px 22px rgba(30, 70, 14, 0.12);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item:nth-child(2):hover {
-  border-color: rgba(40, 120, 60, 0.28);
-  background: rgba(40, 120, 60, 0.10);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item:nth-child(3):hover {
-  border-color: rgba(124, 92, 176, 0.26);
-  background: rgba(124, 92, 176, 0.09);
-}
-
-/* Left accent bars */
-.dashboard-page-shell.is-day-mode .action-center-item::before {
-  background: linear-gradient(180deg, #2a8c5a, #2a8c7a);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item:nth-child(2)::before {
-  background: linear-gradient(180deg, #2a6848, #48a068);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item:nth-child(3)::before {
-  background: linear-gradient(180deg, #7c5cb0, #a06090);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-arrow {
-  background: rgba(30, 140, 90, 0.14);
-  color: #145c38;
-  border-color: rgba(30, 140, 90, 0.24);
-}
-
-.dashboard-page-shell.is-day-mode .action-center-item:hover .action-center-arrow {
-  background: rgba(30, 140, 90, 0.26);
-}
-
 /* --- 22.7  Progress card ----------------------------------- */
 .dashboard-page-shell.is-day-mode .progress-card {
   border-color: rgba(124, 92, 176, 0.18);
@@ -3687,9 +3497,8 @@ onBeforeUnmount(() => {
 .dashboard-page-shell.is-day-mode .event-date-day  { color: #0a4020; }
 .dashboard-page-shell.is-day-mode .event-date-rest { color: rgba(16, 70, 40, 0.82); }
 
-/* --- 22.9  Lists (announcements / checklist) --------------- */
-.dashboard-page-shell.is-day-mode .premium-row,
-.dashboard-page-shell.is-day-mode .checklist-row {
+/* --- 22.9  Lists (announcements) --------------------------- */
+.dashboard-page-shell.is-day-mode .premium-row {
   border-color: rgba(90, 148, 40, 0.14);
   background: rgba(140, 196, 90, 0.08);
 }
@@ -3699,29 +3508,14 @@ onBeforeUnmount(() => {
   background: rgba(100, 160, 40, 0.10);
 }
 
-.dashboard-page-shell.is-day-mode .checklist-row:hover {
-  border-color: rgba(30, 140, 90, 0.26);
-  background: rgba(30, 140, 90, 0.09);
-}
-
 .dashboard-page-shell.is-day-mode .announcement-icon {
   background: rgba(100, 160, 40, 0.14);
   color: #4a7010;
   border-color: rgba(80, 140, 30, 0.18);
 }
 
-.dashboard-page-shell.is-day-mode .checklist-icon {
-  background: rgba(30, 140, 90, 0.14);
-  color: #0e5830;
-  border-color: rgba(30, 140, 80, 0.18);
-}
-
 .dashboard-page-shell.is-day-mode .premium-row:hover .announcement-icon {
   box-shadow: 0 8px 18px rgba(100, 160, 40, 0.22);
-}
-
-.dashboard-page-shell.is-day-mode .checklist-row:hover .checklist-icon {
-  box-shadow: 0 8px 18px rgba(30, 140, 90, 0.22);
 }
 
 /* --- 22.10  Groups grid ------------------------------------ */
@@ -3808,54 +3602,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 12px 24px rgba(40, 130, 60, 0.18);
 }
 
-/* --- 22.12  Timeline --------------------------------------- */
-.dashboard-page-shell.is-day-mode .timeline-list::before {
-  background: linear-gradient(180deg,
-    rgba(60, 160, 60, 0.0)  0%,
-    rgba(60, 160, 60, 0.44) 18%,
-    rgba(30, 140, 100, 0.40) 50%,
-    rgba(124, 92, 176, 0.42) 82%,
-    rgba(124, 92, 176, 0.0)  100%
-  );
-}
-
-.dashboard-page-shell.is-day-mode .timeline-item:hover {
-  background: rgba(100, 160, 50, 0.10);
-  border-color: rgba(40, 130, 60, 0.22);
-  box-shadow: 0 12px 28px rgba(30, 70, 14, 0.14);
-}
-
-.dashboard-page-shell.is-day-mode .timeline-badge {
-  background: rgba(100, 160, 50, 0.14);
-  color: var(--text-primary);
-  border-color: rgba(80, 148, 40, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .timeline-item.is-completed .timeline-badge {
-  background: rgba(30, 150, 70, 0.18);
-  color: #0e5020;
-  border-color: rgba(30, 150, 70, 0.28);
-  box-shadow: 0 0 12px rgba(30, 150, 70, 0.14);
-}
-
-.dashboard-page-shell.is-day-mode .timeline-item.is-current .timeline-badge {
-  background: rgba(40, 130, 60, 0.20);
-  color: #1a5228;
-  border-color: rgba(40, 130, 60, 0.32);
-  animation: badge-pulse-day 2.5s ease-in-out infinite;
-}
-
-.dashboard-page-shell.is-day-mode .timeline-item.is-upcoming .timeline-badge {
-  background: rgba(100, 150, 60, 0.12);
-  color: #3a5e2c;
-  border-color: rgba(80, 140, 40, 0.20);
-}
-
-@keyframes badge-pulse-day {
-  0%, 100% { box-shadow: 0 0 10px rgba(40, 130, 60, 0.18); }
-  50%       { box-shadow: 0 0 22px rgba(40, 130, 60, 0.38); }
-}
-
 /* --- 22.13  Alert / loading / empty state ------------------ */
 .dashboard-page-shell.is-day-mode .dashboard-alert {
   background: rgba(100, 160, 40, 0.10);
@@ -3922,14 +3668,10 @@ onBeforeUnmount(() => {
 @media (max-width: 880px) {
   .dashboard-page-shell { padding: 1rem 0.8rem 2rem; }
   .summary-grid, .groups-grid, .resource-grid { grid-template-columns: 1fr; }
-  .timeline-item { grid-template-columns: 1fr; }
-  .timeline-badge { margin-left: 0.4rem; width: fit-content; }
-  .timeline-list::before { display: none; }
   .event-detail-card { flex-direction: column; }
   .event-date-badge { width: 100%; min-height: 72px; flex-direction: row; justify-content: flex-start; align-items: center; gap: 0.72rem; }
   .dashboard-theme-rail { position: static; align-items: stretch; margin-bottom: 1rem; }
   .theme-rail-trigger { width: 100%; justify-content: center; }
-  .theme-rail-panel { width: 100%; }
   .dashboard-hero-main { padding-top: 0; }
   .dashboard-hero-copy,
   .dashboard-hero-aside { display: block; }
@@ -3952,10 +3694,7 @@ onBeforeUnmount(() => {
   .group-card-link:hover .group-card-surface,
   .resource-card-link:hover .resource-card-surface,
   .summary-card:hover,
-  .action-center-item:hover,
-  .timeline-item:hover,
   .hero-meta-chip:hover,
-  .hero-metric:hover,
   .event-detail-card:hover .event-date-badge,
   .event-detail-card:hover .event-content,
   .progress-card:hover .progress-ring { transform: none; }
@@ -3964,16 +3703,12 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .orb-one, .orb-two,
   .progress-ring::before, .progress-ring::after,
-  .surface-kicker::before,
-  .timeline-item.is-current .timeline-badge { animation: none !important; }
+  .surface-kicker::before { animation: none !important; }
 
   .group-card-link:hover .group-card-surface,
   .resource-card-link:hover .resource-card-surface,
   .summary-card:hover,
-  .action-center-item:hover,
-  .timeline-item:hover,
   .hero-meta-chip:hover,
-  .hero-metric:hover,
   .event-detail-card:hover .event-date-badge,
   .event-detail-card:hover .event-content,
   .progress-card:hover .progress-ring,
@@ -4001,7 +3736,6 @@ onBeforeUnmount(() => {
 .surface-card,
 .summary-card,
 .showcase-card,
-.theme-rail-panel,
 .dashboard-loading,
 .dashboard-alert {
   box-shadow: var(--shadow-md);
@@ -4030,38 +3764,30 @@ onBeforeUnmount(() => {
 .group-meta,
 .list-row-meta,
 .list-row-description,
-.timeline-status,
 .surface-link,
 .theme-rail-trigger,
-.theme-rail-item,
 .showcase-mini-label,
 .event-meta-row,
 .empty-state,
 .dashboard-alert,
 .dashboard-loading,
 .hero-meta-chip-label,
-.showcase-insight-pill,
 .summary-label,
 .status-pill,
-.hero-eyebrow,
-.hero-org {
+.hero-eyebrow {
   color: var(--text-secondary);
 }
 
 .hero-eyebrow,
-.hero-org,
 .hero-meta-chip,
 .status-pill,
-.showcase-insight-pill,
 .summary-card,
 .surface-card,
 .showcase-card,
 .group-card-surface,
 .resource-card-surface,
 .list-row,
-.timeline-item,
 .theme-rail-trigger,
-.theme-rail-panel,
 .dashboard-loading {
   border-color: var(--border-default);
 }
@@ -4072,14 +3798,10 @@ onBeforeUnmount(() => {
 .group-card-surface,
 .resource-card-surface,
 .list-row,
-.timeline-item,
 .hero-meta-chip,
 .status-pill,
 .theme-rail-trigger,
-.theme-rail-panel,
-.hero-eyebrow,
-.hero-org,
-.showcase-insight-pill {
+.hero-eyebrow {
   background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 88%, transparent), color-mix(in srgb, var(--surface-base) 94%, transparent));
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -4092,7 +3814,6 @@ onBeforeUnmount(() => {
 .group-card-link:hover .group-card-surface,
 .resource-card-link:hover .resource-card-surface,
 .list-row:hover,
-.timeline-item:hover,
 .showcase-card:hover {
   transform: translateY(-4px);
   border-color: var(--border-strong);
@@ -4225,13 +3946,11 @@ onBeforeUnmount(() => {
 .summary-card:nth-child(2) { border-radius: 18px 30px 18px 24px; }
 .summary-card:nth-child(3) { border-radius: 24px 18px 30px 18px; }
 .summary-card:nth-child(4) { border-radius: 18px 24px 18px 30px; }
-.action-card { border-radius: 30px 20px 34px 20px; }
 .progress-card { border-radius: 22px 34px 22px 34px; }
 .event-detail-card { border-radius: 26px 22px 30px 22px; }
 .list-row { border-radius: 18px 14px 18px 14px; }
 .group-card-surface { border-radius: 26px 20px 32px 18px; }
 .resource-card-surface { border-radius: 20px 28px 18px 28px; }
-.timeline-item { border-radius: 16px 28px 16px 28px; }
 
 .hero-meta-chip--neutral { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 8%, transparent); }
 .hero-meta-chip--cyan { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-teal) 18%, transparent); }
@@ -4300,7 +4019,6 @@ onBeforeUnmount(() => {
 .event-title,
 .progress-value,
 .hero-meta-chip-value,
-.timeline-title,
 .list-row-title {
   font-family: var(--font-display);
   letter-spacing: -0.03em;
@@ -4317,7 +4035,6 @@ onBeforeUnmount(() => {
 .resource-title,
 .showcase-title,
 .event-title,
-.timeline-title,
 .list-row-title {
   color: var(--text-primary);
   font-weight: 780;
@@ -4336,7 +4053,6 @@ onBeforeUnmount(() => {
 .showcase-kicker,
 .summary-label,
 .hero-meta-chip-label,
-.timeline-badge,
 .progress-label,
 .progress-caption,
 .status-pill,
@@ -4362,7 +4078,6 @@ onBeforeUnmount(() => {
 .list-row-description,
 .resource-meta,
 .group-meta,
-.timeline-status,
 .event-meta-row,
 .empty-state,
 .dashboard-alert,
@@ -4389,7 +4104,6 @@ onBeforeUnmount(() => {
 .group-card-surface,
 .resource-card-surface,
 .list-row,
-.timeline-item,
 .theme-rail-trigger,
 .event-detail-card,
 .dashboard-alert,
@@ -4427,14 +4141,6 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--accent-blue) 18%, var(--border-default));
 }
 
-.action-center-main {
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 0.92rem;
-  font-weight: 740;
-}
-
-.action-center-helper,
 .list-row-meta,
 .progress-label,
 .progress-caption,
@@ -4442,11 +4148,6 @@ onBeforeUnmount(() => {
 .summary-label,
 .showcase-mini-label {
   color: var(--text-muted);
-}
-
-.action-center-helper {
-  font-family: var(--font-label);
-  font-size: 0.62rem;
 }
 
 .progress-detail-row strong,
@@ -4458,7 +4159,6 @@ onBeforeUnmount(() => {
 .list-row-description,
 .resource-meta,
 .group-meta,
-.timeline-status,
 .event-meta-row {
   color: var(--text-secondary);
 }
@@ -4487,8 +4187,7 @@ onBeforeUnmount(() => {
 .dashboard-page-shell.is-day-mode .showcase-card,
 .dashboard-page-shell.is-day-mode .group-card-surface,
 .dashboard-page-shell.is-day-mode .resource-card-surface,
-.dashboard-page-shell.is-day-mode .list-row,
-.dashboard-page-shell.is-day-mode .timeline-item {
+.dashboard-page-shell.is-day-mode .list-row {
   box-shadow: 0 16px 36px rgba(18, 31, 21, 0.08);
 }
 
@@ -4497,8 +4196,7 @@ onBeforeUnmount(() => {
 .dashboard-page-shell.is-night-mode .showcase-card,
 .dashboard-page-shell.is-night-mode .group-card-surface,
 .dashboard-page-shell.is-night-mode .resource-card-surface,
-.dashboard-page-shell.is-night-mode .list-row,
-.dashboard-page-shell.is-night-mode .timeline-item {
+.dashboard-page-shell.is-night-mode .list-row {
   box-shadow: 0 18px 42px rgba(0, 8, 3, 0.26);
 }
 
