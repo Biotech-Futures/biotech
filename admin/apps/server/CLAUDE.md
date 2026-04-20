@@ -2,153 +2,109 @@
 
 ## Project Overview
 
-This is a Hono-based backend API server using Node.js with TypeScript. The server runs on port 3003 and provides RESTful API endpoints.
+Backend API built with Hono + TypeScript, using Drizzle ORM with PostgreSQL and better-auth.
 
 ## Tech Stack
 
-- **Framework**: Hono (lightweight web framework)
-- **Runtime**: Node.js with TypeScript
-- **Validation**: Zod v4 with @hono/standard-validator
-- **Database**: PostgreSQL with Drizzle ORM
-- **Auth**: better-auth with Drizzle adapter
-- **Testing**: Vitest
+- Framework: Hono
+- Runtime: Node.js + TypeScript
+- Database: PostgreSQL + Drizzle ORM
+- Auth: better-auth + Drizzle adapter
+- Validation: Zod v4 + `@hono/standard-validator`
+- Tests: Vitest
 
 ## Project Structure
 
-```
+```txt
 src/
-├── index.ts              # Application entry point, server setup
-├── middleware/
-│   └── myCors.ts         # CORS configuration
-├── db/
-│   └── schema/           # Drizzle database schemas
-│       ├── auth.ts       # Auth-related schema
-│       └── chat.ts       # Chat-related schema
+├── index.ts                  # App entry, routes, middleware wiring
 ├── lib/
-│   ├── auth.ts           # Authentication utilities
-│   └── db.ts             # Database connection
-├── algorithm/
-│   ├── student.ts        # Student matching algorithm
-│   └── tutor.ts          # Tutor matching algorithm
-└── module/               # Feature modules (each module contains:)
-    ├── demo/             # Example module
-    │   ├── route.ts       # HTTP route definitions
-    │   ├── schema.ts      # Zod validation schemas
-    │   └── service.ts     # Business logic
-    ├── match/            # Matching feature module
-    └── group/            # Group feature module
+│   ├── db.ts                 # Drizzle DB client
+│   └── auth.ts               # better-auth setup
+├── schema/
+│   ├── index.ts              # Barrel export for schema
+│   ├── db.ts                 # Public schema tables
+│   └── admin.ts              # Admin schema tables (pgSchema("admin"))
+├── module/
+│   └── <feature>/
+│       ├── route.ts          # Hono routes
+│       ├── schema.ts         # Zod request/response contracts
+│       └── service.ts        # Business logic + DB access
+└── middleware/
+    ├── auth.ts
+    └── myCors.ts
 ```
+
+## Database Schema Rules
+
+When referencing database schema in docs/code, use `src/schema`.
+
+- Canonical schema files:
+  - `src/schema/db.ts`
+  - `src/schema/admin.ts`
+  - `src/schema/index.ts`
+- Do not reference `src/db/schema/*` in new docs or new code.
+- Prefer importing from `@/schema/index.js` (or `@/schema/db.js` / `@/schema/admin.js` when you need explicit scope).
+
+Example:
+
+```ts
+import db from "@/lib/db.js";
+import { users, tracks } from "@/schema/index.js";
+```
+
+## Current Schema Surface
+
+`src/schema/db.ts` contains the core public tables, including:
+
+- identity/auth support: `verification`, `users`, `userSession`, `userRoleAssignment`, `roles`
+- matching/grouping: `groups`, `groupMembership`, `matchRun`
+- profile domain: `studentProfile`, `mentorProfile`, `supervisorProfile`, `mentorAvailability`
+- reference domain: `countries`, `countryStates`, `tracks`, `areasOfInterest`, `certificateType`
+- join/link tables: `studentInterest`, `mentorInterest`, `mentorCertificate`
+- content/comms: `announcements`, `announcementAudience`, `resources`, `resourceAudience`, `events`, `eventRsvp`, `messages`, `alert`, `auditLog`
+
+`src/schema/admin.ts` contains admin-auth tables under `admin` schema:
+
+- `adminUser`
+- `adminSession`
+- `adminAccount`
+- `adminVerification`
+- `matchRun`
+
+## Drizzle Configuration
+
+- Config file: `drizzle.config.ts`
+- Schema entry: `./src/schema/index.ts`
+- Included schemas: `public`, `admin`
+- Migration output: `./src/new/drizzle`
 
 ## Module Pattern
 
-Each feature module follows a consistent 3-file pattern:
+Each feature module should follow:
 
-### `route.ts` - HTTP Route Definitions
+1. `schema.ts`: Zod input/output contracts.
+2. `service.ts`: DB queries and business logic (no HTTP concerns).
+3. `route.ts`: Route definitions and validation wiring.
 
-Defines Hono routes and maps HTTP requests to service functions.
+## API Conventions
 
-- Creates a new Hono instance for the module
-- Uses `sValidator` for request validation
-- Delegates business logic to service functions
-- Returns JSON responses
+- Base API prefix: `/api/v1`
+- Auth routes: `/api/auth/*`
+- Protected routes use `authRequirement` middleware.
+- Prefer consistent JSON responses:
 
-```typescript
-import { Hono } from "hono";
-import { sValidator } from "@hono/standard-validator";
-import { createDemoSchema } from "./schema.js";
-import { createDemo, queryDemo } from "./service.js";
-
-export const demoRoute = new Hono();
-
-demoRoute.get("/", (c) => {
-  const data = queryDemo();
-  return c.json(data);
-});
-
-demoRoute.post("/", sValidator("json", createDemoSchema), (c) => {
-  const data = c.req.valid("json");
-  const res = createDemo(data);
-  return c.json(res);
-});
-```
-
-### `schema.ts` - Zod Validation Schemas
-
-Defines Zod schemas for request validation.
-
-- Exports Zod schemas for each endpoint's input
-- Used by `sValidator` in route.ts
-
-```typescript
-import z from "zod";
-
-export const createDemoSchema = z.object({
-  name: z.string(),
-  age: z.number(),
-});
-```
-
-### `service.ts` - Business Logic
-
-Contains the core business logic and data operations.
-
-- Pure functions that handle business logic
-- Returns data in standard API response format
-
-```typescript
-export function queryDemo() {
-  return {
-    msg: "Demo data retrieved successfully",
-    data: { name: "demo", age: 18 },
-  };
-}
-
-export function createDemo(data: { name: string; age: number }) {
-  return {
-    msg: "Demo created successfully",
-    data,
-  };
-}
-```
-
-## API Response Format
-
-All API endpoints **MUST** return responses in this standard format:
-
-```typescript
-{
-  msg: string,    // Message describing the result
-  data: any,      // Response data (object, array, or null)
-  ...             // Additional optional fields (e.g., status, error)
-}
-```
-
-Examples:
-
-```typescript
-// Success response
-{ msg: "Demo created successfully", data: { id: 1, name: "test" } }
-
-// Error response
-{ msg: "Validation failed", data: null, error: "Invalid input" }
+```ts
+{ msg: string, data: unknown }
 ```
 
 ## Common Commands
 
 ```bash
-pnpm dev       # Start development server with hot reload
-pnpm build     # Build TypeScript to dist/
-pnpm start     # Run production build
-pnpm test      # Run tests with Vitest
+pnpm dev       # Run dev server (tsx watch)
+pnpm build     # TypeScript build
+pnpm start     # Run dist build
+pnpm test      # Vitest watch
+pnpm test:run  # Vitest single run
+pnpm db:pull   # Pull schema from database into Drizzle artifacts
 ```
-
-## API Base Path
-
-All API routes are prefixed with `/api/v1`
-
-Current routes:
-
-- `GET /` - Health check
-- `/api/v1/demo` - Demo endpoints
-- `/api/v1/match` - Match endpoints
-- `/api/v1/group` - Group endpoints
