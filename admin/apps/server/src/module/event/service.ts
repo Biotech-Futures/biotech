@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, type SQL } from "drizzle-orm";
-import { eventRsvp, events } from "@/drizzle/schema.js";
+import { eventRsvp, events } from "@/old/drizzle/schema.js";
 import db from "@/lib/db.js";
 import type {
   CreateEventInput,

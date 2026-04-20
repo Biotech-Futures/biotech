@@ -57,7 +57,7 @@ export const adminSession = adminSchema.table(
   (table) => [index("session_userId_idx").on(table.userId)],
 );
 
-export const adminCount = adminSchema.table(
+export const adminAccount = adminSchema.table(
   "account",
   {
     id: text("id").primaryKey(),

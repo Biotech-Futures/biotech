@@ -17,7 +17,7 @@ import {
   studentProfile,
   tracks,
   users,
-} from "@/drizzle/schema.js";
+} from "@/old/drizzle/schema.js";
 import type { ConfirmMentorAssignmentInput, ReplaceMentorInput } from "./schema.js";
 import { demoGroups, demoMentors, initialDemoMatchedGroups, type DemoMatchedGroup } from "./demo.js";
 

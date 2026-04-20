@@ -10,7 +10,7 @@ import {
   resourceAudience,
   roles,
   tracks,
-} from "@/drizzle/schema.js";
+} from "@/old/drizzle/schema.js";
 import {
   and,
   asc,

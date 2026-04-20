@@ -11,7 +11,7 @@ import {
   messages,
   tracks,
   users,
-} from "@/drizzle/schema.js";
+} from "@/old/drizzle/schema.js";
 
 export async function getMentorList() {
   // 1. Count currently assigned groups per mentor

@@ -20,7 +20,7 @@ import {
   studentProfile,
   tracks,
   users,
-} from "@/drizzle/schema.js";
+} from "@/old/drizzle/schema.js";
 
 type StudentListItem = {
   id: number;

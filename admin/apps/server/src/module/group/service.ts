@@ -17,7 +17,7 @@ import {
   messages,
   tracks,
   users,
-} from "@/drizzle/schema.js";
+} from "@/old/drizzle/schema.js";
 import type {
   QueryGroupMessagesInput,
   QueryGroupsInput,
