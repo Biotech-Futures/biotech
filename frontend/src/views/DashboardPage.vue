@@ -211,45 +211,6 @@
 
       
       <section class="dashboard-section">
-        <div class="dashboard-section-grid two-col-layout">
-
-          
-          <article class="surface-card feature-card action-card">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Priority</p>
-
-                
-                <h3 class="surface-card-title">{{ actionCenterTitle }}</h3>
-              </div>
-            </div>
-
-            
-            <div class="action-center-list">
-              <button
-                v-for="action in actionCenter"
-                :key="action.key"
-                type="button"
-                class="action-center-item"
-                @click="handleActionClick(action)"
-              >
-                <span class="action-center-content">
-
-                  
-                  <span class="action-center-main">{{ action.label }}</span>
-
-                  
-                  <span class="action-center-helper">{{ action.helper }}</span>
-                </span>
-
-                <span class="action-center-arrow">
-                  <i class="fas fa-arrow-right"></i>
-                </span>
-              </button>
-            </div>
-          </article>
-
-          
           <article class="surface-card feature-card progress-card">
             <div class="surface-card-header">
               <div>
@@ -316,14 +277,12 @@
               </div>
             </div>
           </article>
-        </div>
       </section>
 
       
       <section class="dashboard-section">
         <div class="dashboard-section-grid two-col-layout">
 
-          
           <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
@@ -536,72 +495,9 @@
               <p>No resource is available yet.</p>
             </div>
           </article>
-
-          
-          <article class="surface-card interactive-surface">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Checklist</p>
-                <h3 class="surface-card-title">{{ checklistSectionTitle }}</h3>
-              </div>
-            </div>
-
-            
-            <div class="list-stack">
-              <RouterLink
-                v-for="item in checklistItems"
-                :key="item.key"
-                :to="item.to"
-                class="list-row premium-row checklist-row"
-              >
-                <div class="list-row-icon checklist-icon">
-                  <i class="fas fa-list-check"></i>
-                </div>
-
-                <div class="list-row-content">
-                  <div class="list-row-title">{{ item.title }}</div>
-                  <div class="list-row-meta">{{ item.meta }}</div>
-                </div>
-
-                <div class="list-row-tail">
-                  <i class="fas fa-chevron-right"></i>
-                </div>
-              </RouterLink>
-            </div>
-          </article>
         </div>
       </section>
 
-      
-      <section class="dashboard-section">
-        <article class="surface-card interactive-surface">
-          <div class="surface-card-header">
-            <div>
-              <p class="surface-kicker">Roadmap</p>
-              <h3 class="surface-card-title">Program Timeline</h3>
-            </div>
-          </div>
-
-          
-          <div class="timeline-list">
-            <div
-              v-for="item in timelineItems"
-              :key="item.key"
-              class="timeline-item"
-              :class="getTimelineStatusClass(item.status)"
-            >
-              <div class="timeline-rail-line"></div>
-              <div class="timeline-badge">{{ item.label }}</div>
-              <div class="timeline-content">
-                <div class="timeline-title">{{ item.title }}</div>
-                <div class="timeline-status">{{ item.status }}</div>
-              </div>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      
       <div v-if="isLoading" class="dashboard-loading">
         <div class="loading-ring"></div>
         <span>Loading dashboard...</span>
@@ -627,7 +523,6 @@ import {
   mockResources,
   mockAnnouncements,
   mockEvents,
-  mockDashboardTimeline,
   mockBiotechShowcaseItems
 } from '@/data/mock'
 
@@ -637,7 +532,7 @@ import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { DASHBOARD_BACKGROUND_KEY, safeLocalStorageGet } from '@/utils/storage'
 import { useThemeStore } from '@/stores/theme'
-import { getTimelineStatusClass, getAccentClass } from '@/utils/ui'
+import { getAccentClass } from '@/utils/ui'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -700,13 +595,6 @@ const nextEventDateParts = computed(() => {
     rest: parts.slice(1).join(' ')
   }
 })
-
-const actionCenter = ref([])
-const checklistItems = ref([])
-
-const timelineItems = ref(
-  Array.isArray(mockDashboardTimeline) ? [...mockDashboardTimeline] : []
-)
 
 const themeStore = useThemeStore()
 const isDayMode = computed(() => themeStore.isDayMode)
@@ -1071,18 +959,6 @@ const announcementsSectionTitle = computed(() => {
   return 'Recent Announcements'
 })
 
-const actionCenterTitle = computed(() => {
-  if (isAdmin.value) return 'Action Center'
-  if (isTeacher.value) return 'Mentor Action Center'
-  return 'My Action Center'
-})
-
-const checklistSectionTitle = computed(() => {
-  if (isAdmin.value) return 'Admin Queue'
-  if (isTeacher.value) return 'Mentoring Checklist'
-  return 'My Next Steps'
-})
-
 function getDefaultProgressSnapshot() {
   return {
     completionRate: 42,
@@ -1295,8 +1171,6 @@ async function loadDashboardData() {
       loadProgress()
     ])
     loadSummary()
-    loadActionCenter()
-    loadChecklist()
   } catch (error) {
     console.error('Dashboard loading error:', error)
     loadError.value = 'Some live dashboard data could not be loaded. Mock fallback is being used where available.'
@@ -1389,14 +1263,6 @@ async function loadProgress() {
   }
 }
 
-function loadActionCenter() {
-  actionCenter.value = buildFallbackActionCenter()
-}
-
-function loadChecklist() {
-  checklistItems.value = buildFallbackChecklist()
-}
-
 async function loadBiotechShowcase() {
   restartShowcaseAutoplay()
 }
@@ -1441,165 +1307,6 @@ function restartShowcaseAutoplay() {
   startShowcaseAutoplay()
 }
 
-function buildFallbackActionCenter() {
-  if (isAdmin.value) {
-    return [
-      {
-        key: 'review-matches',
-        label: 'Review pending matches',
-        helper: `${adminWorkflow.value.pendingMatches} items waiting`,
-        type: 'route',
-        to: '/groups'
-      },
-      {
-        key: 'process-approvals',
-        label: 'Process approvals',
-        helper: `${adminWorkflow.value.pendingApprovals} approvals open`,
-        type: 'route',
-        to: '/groups'
-      },
-      {
-        key: 'open-reassignments',
-        label: 'Open reassignment queue',
-        helper: `${adminWorkflow.value.pendingReassignments} requests`,
-        type: 'route',
-        to: '/groups'
-      }
-    ]
-  }
-
-  if (isTeacher.value) {
-    return [
-      {
-        key: 'open-session',
-        label: 'Open next session',
-        helper: nextEvent.value ? nextEvent.value.title : 'No session scheduled',
-        type: 'route',
-        to: '/events'
-      },
-      {
-        key: 'open-groups',
-        label: 'Review my groups',
-        helper: `${groupsCount.value} groups assigned`,
-        type: 'route',
-        to: '/groups'
-      },
-      {
-        key: 'open-mentor-resources',
-        label: 'Open mentor resources',
-        helper: `${resourcesCount.value} resources available`,
-        type: 'route',
-        to: '/resources'
-      }
-    ]
-  }
-
-  return [
-    {
-      key: 'join-event',
-      label: 'Open next event',
-      helper: nextEvent.value ? nextEvent.value.title : 'No event scheduled',
-      type: 'route',
-      to: '/events'
-    },
-    {
-      key: 'open-group',
-      label: 'Open my active group',
-      helper: `${groupsCount.value} groups available`,
-      type: 'route',
-      to: '/groups'
-    },
-    {
-      key: 'continue-task',
-      label: 'Continue my next task',
-      helper: `${progressSnapshot.value.nextMilestone} ahead`,
-      type: 'route',
-      to: '/resources'
-    }
-  ]
-}
-
-function buildFallbackChecklist() {
-  if (isAdmin.value) {
-    return [
-      {
-        key: 'matches',
-        title: 'Mentor matching queue',
-        meta: `${adminWorkflow.value.pendingMatches} items need review`,
-        to: '/groups'
-      },
-      {
-        key: 'approvals',
-        title: 'Open approval requests',
-        meta: `${adminWorkflow.value.pendingApprovals} records pending`,
-        to: '/groups'
-      },
-      {
-        key: 'messages',
-        title: 'Broadcast communication drafts',
-        meta: `${adminWorkflow.value.draftBulkMessages} draft messages available`,
-        to: '/announcements'
-      }
-    ]
-  }
-
-  if (isTeacher.value) {
-    return [
-      {
-        key: 'session',
-        title: 'Confirm next mentoring session',
-        meta: nextEvent.value ? `${nextEvent.value.title} · ${formatDateAU(nextEvent.value.date) || 'TBC'}` : 'No event scheduled',
-        to: '/events'
-      },
-      {
-        key: 'groups',
-        title: 'Check recent group activity',
-        meta: `${groupsCount.value} groups assigned to you`,
-        to: '/groups'
-      },
-      {
-        key: 'resources',
-        title: 'Review support materials',
-        meta: `${resourcesCount.value} mentor resources available`,
-        to: '/resources'
-      }
-    ]
-  }
-
-  return [
-    {
-      key: 'event',
-      title: 'Prepare for your next event',
-      meta: nextEvent.value ? `${nextEvent.value.title} · ${formatDateAU(nextEvent.value.date) || 'TBC'}` : 'No event scheduled',
-      to: '/events'
-    },
-    {
-      key: 'group',
-      title: 'Check your group space',
-      meta: `${groupsCount.value} active group spaces`,
-      to: '/groups'
-    },
-    {
-      key: 'resource',
-      title: 'Continue your current milestone task',
-      meta: `${progressSnapshot.value.nextMilestone} is the next milestone`,
-      to: '/resources'
-    }
-  ]
-}
-
-function handleActionClick(action) {
-  if (!action) return
-
-  if (action.type === 'route' && action.to) {
-    router.push(action.to)
-    return
-  }
-
-  if (action.type === 'link' && action.url) {
-    window.open(action.url, '_blank', 'noopener')
-  }
-}
 
 function openShowcaseLink(item) {
   if (!item) return
