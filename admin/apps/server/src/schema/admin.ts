@@ -1,4 +1,3 @@
-import { users } from "@/schema/db.js";
 import {
   pgTable,
   text,
@@ -12,6 +11,7 @@ import {
   bigint,
   pgSchema,
 } from "drizzle-orm/pg-core";
+import { users } from "./db.js";
 
 const adminSchema = pgSchema("admin");
 
@@ -37,7 +37,7 @@ export const adminUser = adminSchema.table("user", {
     }),
 });
 
-export const session = adminSchema.table(
+export const adminSession = adminSchema.table(
   "session",
   {
     id: text("id").primaryKey(),
@@ -57,7 +57,7 @@ export const session = adminSchema.table(
   (table) => [index("session_userId_idx").on(table.userId)],
 );
 
-export const account = adminSchema.table(
+export const adminCount = adminSchema.table(
   "account",
   {
     id: text("id").primaryKey(),
@@ -81,7 +81,7 @@ export const account = adminSchema.table(
   (table) => [index("account_userId_idx").on(table.userId)],
 );
 
-export const verification = adminSchema.table(
+export const adminVerification = adminSchema.table(
   "verification",
   {
     id: text("id").primaryKey(),

@@ -5,7 +5,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:pull": "drizzle-kit pull --schemaFilters=public,admin_user",
+    "db:pull": "drizzle-kit pull --schemaFilters=public,admin",
     "test": "vitest",
     "test:run": "vitest run"
   },
