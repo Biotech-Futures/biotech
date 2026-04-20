@@ -49,6 +49,7 @@ class User(AbstractUser):
     last_name  = models.CharField(max_length=255, blank=False)
     track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT,
                               null=True, blank=True, related_name='users')
+    state = models.ForeignKey('groups.CountryStates', on_delete=models.SET_NULL, null=True, blank=True, related_name='users_in_state')
     is_active = models.BooleanField(default=False)
     account_status = models.CharField(
         max_length=50,
