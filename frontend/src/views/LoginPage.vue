@@ -48,73 +48,12 @@
    * Last Modified: 2026-04-10
    * Modified By: CS17-1 Frontend Team
    *
-   * @文件 LoginPage.vue
-   * @描述 LoginPage.vue 是 BIOTech Futures 导师平台的统一入口页面。
-   * @作者 Shiqi Fang
-   * @作者 Jiachen Ding
-   * @作者 Qin Chen
-   * @版本 1.4.0
-   *
-   * 项目名称: Group Based 5703 Capstone Project
-   * 小组编号: CS17-1
-   * 负责方向: CS17-1 Frontend Team
-   *
-   * 组件类型: 前端页面组件
-   * 文件角色: 统一的角色引导式登录入口页
-   * 主要用途: 为学生、导师、监督老师和管理员提供一个结构清晰、易于理解的登录入口，在进入系统前先完成角色感知、平台理解和邮箱 OTP 验证。
-   * 作用范围: 覆盖左侧展示区、角色选择与预览、多语言切换、邮箱提交、OTP 校验、验证码重发以及登录后跳转。
-   *
-   * 核心职责:
-   * - 展示平台品牌、角色化访问入口与平台概览信息
-   * - 支持 LTR 与 RTL 的多语言登录体验
-   * - 处理完整的邮箱到 OTP 的无密码登录流程
-   * - 为不同身份提供角色化登录文案与提示
-   * - 统一登录反馈、加载状态与 OTP 输入交互体验
-   *
-   * 主要依赖:
-   * - Vue 3 Composition API
-   * - Vue Router
-   * - Pinia auth store
-   * - 登录语言配置数据
-   * - 登录背景配置数据
-   * - CSRF 请求头辅助工具
-   * - 字符串与本地存储工具
-   *
-   * 修改统计:
-   * - 大改次数: 5
-   * - 小改次数: 5
-   *
-   * 最后修改时间: 2026-04-10
-   * 修改人: CS17-1 Frontend Team
    -----------------------------------------------------------------------------------------------------------------------------
    -->
 
 
 
   <!-- Page shell and two-column layout. -->
-  <!-- 页面总容器
-    1..login-shell {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
-        min-height: 100vh;
-        background: ...;
-      }
-      说明这个容器负责：整体双栏布局，整页高度撑满屏幕，页面底色和渐变背景
-
-    2.ref="loginShellRef" 是为了获取鼠标坐标而给DOM命名作为搭载节点。
-
-    3.dir和class动态绑定HTML的dir属性，即文字方向属性，为了适配阿拉伯语言
-
-    4.通过isShellpointerInside判断鼠标是否在内，动态添加class：login-shell pointer-inside
-
-    5.两个方法用于监听鼠标在整个容器的移动和离开。
-      pointermove：锁定鼠标指针，持续触发，通过计算坐标激活跟随性的光斑
-      pointerleave：指针离开元素时触发一次
-      event是系统变量，事件触发时，浏览器自动传输进来的，@pointermove，意思就是监听，只要鼠标动了就传输这个动的事件
-
-      总之效果就是：根据鼠标在某个元素里的位置，实时给这个元素写入一组 CSS 变量，
-      用来驱动“跟随光效 + 轻微倾斜 + 发光强度变化”的交互效果。
-      -->
   <div
     ref="loginShellRef"
     class="login-shell"
@@ -317,14 +256,11 @@
     </section>
 
     <!-- Right auth pane: badges, language, email step, OTP step. -->
-    <!-- 右侧认证区：顶部标签、语言切换、邮箱步骤、OTP 步骤。 -->
     <section class="auth-pane" @mousemove="handleInkMouseMove" @mouseleave="handleInkMouseLeave">
       <!-- Chinese ink ripple canvas — sits behind all auth content. -->
-      <!-- 中国水墨波纹画布，位于认证内容层之下。 -->
       <canvas ref="inkCanvasRef" class="ink-canvas" aria-hidden="true"></canvas>
       <div class="auth-shell">
         <!-- Top bar with trust badges and language switcher. -->
-        <!-- 顶部工具条，包含信任标签与语言切换器。 -->
         <div class="auth-topbar">
           <div class="top-badges">
             <span class="top-badge">{{ t('secureAccess') }}</span>
@@ -346,7 +282,6 @@
         </div>
 
         <!-- Auth card container. -->
-        <!-- 登录卡片容器。 -->
         <div
           class="auth-card interactive-surface"
           @pointermove="handleCardPointerMove"
@@ -356,7 +291,6 @@
           <div class="auth-card-noise"></div>
 
           <!-- Two-step progress indicator. -->
-          <!-- 两步式认证进度指示器。 -->
           <div class="auth-progress" aria-label="Authentication progress">
             <div class="progress-item active current">
               <span class="progress-dot">1</span>
@@ -468,7 +402,6 @@
               </form>
 
               <!-- Step feedback messages. -->
-              <!-- 当前步骤的反馈消息。 -->
               <transition name="message-slide">
                 <p v-if="statusMessage" class="status-message" aria-live="polite">
                   {{ statusMessage }}
@@ -483,7 +416,6 @@
             </div>
 
             <!-- OTP step panel. -->
-            <!-- OTP 验证步骤。 -->
             <div v-else key="otp" class="step-panel step-panel--otp">
               <header class="auth-header auth-header--compact">
                 <div class="auth-logo-wrap">
@@ -500,7 +432,6 @@
                 <p class="auth-subtitle">{{ t('codeSentTo') }} {{ maskedEmail }}</p>
 
                 <!-- Meta row keeps role context visible during OTP verification. -->
-                <!-- OTP 步骤继续保留当前角色语境。 -->
                 <div class="meta-row meta-row--stack">
                   <button type="button" class="text-link" @click="goBackToEmailStep">
                     {{ t('changeEmail') }}
@@ -509,9 +440,7 @@
               </header>
 
               <!-- OTP box. -->
-              <!-- OTP 输入区。 -->
               <!-- Each box binds to one digit, while input, keyboard, focus, and paste are centrally handled in script helpers. -->
-              <!-- 每个输入框只绑定一位数字，输入、键盘、聚焦和粘贴交互统一由 script 中的辅助函数处理。 -->
               <div class="otp-box" :class="{ 'has-error': otpErrorActive, 'is-complete': isOtpComplete && !otpErrorActive, shaking: otpShake }">
                 <input
                   v-for="(digit, index) in otpDigits"
@@ -537,7 +466,6 @@
               </div>
 
               <!-- OTP primary and secondary actions. -->
-              <!-- OTP 主次操作区。 -->
               <div class="otp-action-stack">
                 <button
                   type="button"
@@ -574,7 +502,6 @@
               </transition>
 
               <!-- Support link row. -->
-              <!-- 帮助与支持入口。 -->
               <div class="support-row">
                 <span>{{ t('needHelp') }}</span>
                 <a href="mailto:support@biotechfutures.org">{{ t('contactSupport') }}</a>
@@ -1380,7 +1307,6 @@ const ensureCsrfReady = async () => {
 
 /*
   Shared JSON POST request helper.
-  通用 JSON POST 请求辅助函数。
 */
 const postJson = async (path, payload) => {
   const controller = new AbortController()
@@ -1403,7 +1329,6 @@ const postJson = async (path, payload) => {
 
 /*
   Resend countdown logic.
-  重发验证码倒计时逻辑。
 */
 const startResendCountdown = () => {
   resendCountdown.value = RESEND_SECONDS
@@ -1426,7 +1351,6 @@ const startResendCountdown = () => {
 
 /*
   OTP error feedback.
-  OTP 错误反馈动画。
 */
 const triggerOtpErrorFeedback = async () => {
   clearOtpAnimationTimers()
@@ -1447,7 +1371,6 @@ const triggerOtpErrorFeedback = async () => {
 
 /*
   Step navigation helper.
-  步骤回退辅助函数。
 */
 const goBackToEmailStep = async () => {
   currentStep.value = 'email'
@@ -1462,7 +1385,6 @@ const goBackToEmailStep = async () => {
 
 /*
   Authentication flow: send code.
-  认证主流程：发送验证码。
 */
 const handleLogin = async () => {
   const normalizedEmail = email.value.trim().toLowerCase()
@@ -1542,7 +1464,6 @@ const handleLogin = async () => {
 
 /*
   Authentication flow: verify OTP.
-  认证主流程：校验 OTP。
 */
 const verifyOTP = async () => {
   const code = otpDigits.value.join('')
@@ -1603,7 +1524,6 @@ const verifyOTP = async () => {
 
 /*
   Authentication flow: resend code.
-  认证主流程：重发验证码。
 */
 const resendCode = async () => {
   if (!email.value) {
@@ -1645,7 +1565,6 @@ const resendCode = async () => {
 
 /*
   Document language and direction sync.
-  文档语言与方向同步。
 */
 watch(
   locale,
@@ -1659,7 +1578,6 @@ watch(
 
 /*
   Step focus sync.
-  步骤切换后的焦点同步。
 */
 watch(currentStep, async (step) => {
   await nextTick()
@@ -1690,7 +1608,6 @@ watch(
 
 /*
   Restore saved language.
-  恢复上次保存的语言设置。
 */
 const savedLanguage = safeLocalStorageGet(LOGIN_LANGUAGE_KEY, 'en')
 if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
@@ -1699,7 +1616,6 @@ if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage
 
 /*
   Ink effect: init, resize, drop creation, mouse handlers, dispose.
-  水墨效果：初始化、缩放、墨滴生成、鼠标事件处理与资源释放。
 */
 function initInkEffect() {
   if (!inkCanvasRef.value || prefersReducedMotion.value) return
@@ -1817,7 +1733,6 @@ function disposeInkEffect() {
 
 /*
   Lifecycle: initial focus.
-  生命周期：初始化聚焦。
 */
 onMounted(async () => {
   ensureCsrfReady().catch((error) => {
@@ -1841,7 +1756,6 @@ onMounted(async () => {
 
 /*
   Lifecycle: cleanup timers.
-  生命周期：清理定时器。
 */
 onBeforeUnmount(() => {
   clearOtpAnimationTimers()
@@ -1869,29 +1783,8 @@ onBeforeUnmount(() => {
 <style scoped>
 /*
   Module 1: page tokens and global two-column shell.
-  模块一：页面设计变量与双栏外层布局。
 */
 
-/*
-  1.display: grid;把这个容器变成 Grid 网格布局容器。
-  一旦一个元素设成 grid，它的直接子元素就会按照网格规则来排，不再只是普通块级元素从上到下堆叠。
-  login-shell 的直接子元素就是：hero-pane 和 auth-pane
-
-  2.grid-template-columns 这个 grid 容器有几列，每一列多宽。
-  第 1 列：minmax(0, 1.1fr)、
-  第 2 列：minmax(420px, 540px)
-
-  3.开头定义的一堆颜色，为了后续容器中的样式可以直接复用：color: var(--stone-900);
-  emerald 绿色主题，950最深，400最浅，主要用于设置渐变颜色......
-
-  4.white-soft和border是应用于毛玻璃效果
-
-  5.shadow是应用于卡片阴影样式
-
-  6.min-height: 100vh;  viewport height，表示容器最小高度至少等于整个浏览器视口高度
-
-  7.background那部分是分别在左上角和右下角放置圆形渐变光斑，让背景从纯白变成渐变色
-*/
 .login-shell {
   --emerald-950: #081714;
   --emerald-900: #0d241f;
@@ -1926,7 +1819,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 2: hero pane, background stage, and visual effects.
-  模块二：左侧展示区、背景舞台与视觉效果。
 */
 .hero-pane {
   position: relative;
@@ -1994,7 +1886,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 3: hero foreground layout, brand block, and cards.
-  模块三：左侧前景布局、品牌区与卡片结构。
 */
 .hero-content {
   position: relative;
@@ -2164,7 +2055,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 4: role selector and role detail presentation.
-  模块四：角色选择器与角色详情展示。
 */
 .role-selector {
   display: flex;
@@ -2319,7 +2209,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 5: hero overview stats and footer actions.
-  模块五：左侧概览统计与底部操作区。
 */
 .hero-stats {
   display: grid;
@@ -2462,7 +2351,6 @@ onBeforeUnmount(() => {
 }
 
 
-/* 功能卡片升级（核心） */
 .capability-card {
   position: relative;
   display: grid;
@@ -2519,7 +2407,6 @@ onBeforeUnmount(() => {
 }
 
 
-/* 模式按钮升级 */
 .mode-switch {
   position: relative;
   display: inline-flex;
@@ -2555,7 +2442,6 @@ onBeforeUnmount(() => {
 }
 
 
-/* 官网按钮升级（高级 outline） */
 .hero-link {
   position: relative;
   display: inline-flex;
@@ -2598,7 +2484,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 6: auth pane shell, top bar, and card container.
-  模块六：右侧认证区外层、顶部工具条与卡片容器。
 */
 .auth-pane {
   display: flex;
@@ -2609,7 +2494,6 @@ onBeforeUnmount(() => {
 }
 
 /* Ink canvas: fills the auth-pane, lives behind all content. */
-/* 水墨画布：铺满认证区，层叠在所有内容之下。 */
 .ink-canvas {
   position: absolute;
   inset: 0;
@@ -2701,7 +2585,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 7: auth progress and shared header presentation.
-  模块七：认证进度条与步骤头部展示。
 */
 .auth-progress {
   position: relative;
@@ -2848,7 +2731,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 8: form fields and action buttons.
-  模块八：表单字段与操作按钮。
 */
 .auth-form {
   width: 100%;
@@ -2996,7 +2878,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 9: OTP inputs, feedback blocks, and support row.
-  模块九：OTP 输入区、反馈消息与支持区域。
 */
 .otp-footer-copy p,
 .support-row {
@@ -3098,7 +2979,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 10: role theme utilities and transition effects.
-  模块十：角色主题工具类与过渡动画。
 */
 .role-theme--student {
   color: #6fc6ff;
@@ -3181,7 +3061,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 11: responsive behavior.
-  模块十一：响应式适配。
 */
 @media (max-width: 1200px) {
   .login-shell {
@@ -3244,7 +3123,6 @@ onBeforeUnmount(() => {
 
 /*
   Module 12: reduced-motion accessibility support.
-  模块十二：降低动画偏好支持。
 */
 @media (prefers-reduced-motion: reduce) {
   .hero-slide-image,
@@ -3270,35 +3148,14 @@ onBeforeUnmount(() => {
 
 /*
   Module 13: immersive motion polish and premium interaction upgrades.
-  模块十三：沉浸式动效强化与高级交互升级。
 */
 
-/*
-    --pointer分别表示鼠标横向以及纵向的位置，50%也就是容器中间。32%就是容器靠上部分
-    isolate相当于给这片区域单独开一个图层
-*/
 .login-shell {
   --pointer-x: 50%;
   --pointer-y: 32%;
   isolation: isolate;
 }
 
-/*
-    虚拟子元素，表示浏览器会在login-shell DOM 元素前后额外生成两个装饰用的盒子
-    before是在前面插入，after是在后面插入
-
-    <div class="login-shell">
-      <pseudo-before></pseudo-before>
-      <div class="login-card">...</div>
-      <pseudo-after></pseudo-after>
-    </div>
-
-    这里是两个为元素的公共样式
-    为元素必须有content才可以生成
-
-    ::before 的作用：做一个会根据鼠标位置变化、并且在鼠标进入时才显示的动态发光层。
-    ::after 的作用：做一个固定在右下角、一直存在的静态背景发光层。
-*/
 .login-shell::before,
 .login-shell::after {
   content: '';
