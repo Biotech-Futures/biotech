@@ -3,8 +3,8 @@
   --------------------------------------------------------------------------------------------------------------
    * @file LoginPage.vue
    *
-   * @description LoginPage.vue is the unified entry page for the BIOTech Futures mentoring platform. 
-   It combines role-guided access selection, passwordless email-to-OTP authentication, multilingual support, 
+   * @description LoginPage.vue is the unified entry page for the BIOTech Futures mentoring platform.
+   It combines role-guided access selection, passwordless email-to-OTP authentication, multilingual support,
    and branded platform presentation in one structured login experience.
    *
    * @author Shiqi Fang
@@ -19,10 +19,10 @@
    * Component Type: Frontend Page Component
    * File Role: Unified role-guided login entry page
    *
-   * Purpose: Provide a structured and user-friendly entry point for students, mentors, supervisors, 
+   * Purpose: Provide a structured and user-friendly entry point for students, mentors, supervisors,
    and administrators to sign in with email OTP while understanding the platform context before entering the system.
    *
-   * Scope: Covers the left hero showcase, role selection and preview, language switching, email submission, 
+   * Scope: Covers the left hero showcase, role selection and preview, language switching, email submission,
    OTP verification, resend flow, and post-login navigation.
    *
    * Responsibilities:
@@ -106,12 +106,12 @@
     3.dir和class动态绑定HTML的dir属性，即文字方向属性，为了适配阿拉伯语言
 
     4.通过isShellpointerInside判断鼠标是否在内，动态添加class：login-shell pointer-inside
-    
+
     5.两个方法用于监听鼠标在整个容器的移动和离开。
       pointermove：锁定鼠标指针，持续触发，通过计算坐标激活跟随性的光斑
       pointerleave：指针离开元素时触发一次
       event是系统变量，事件触发时，浏览器自动传输进来的，@pointermove，意思就是监听，只要鼠标动了就传输这个动的事件
-      
+
       总之效果就是：根据鼠标在某个元素里的位置，实时给这个元素写入一组 CSS 变量，
       用来驱动“跟随光效 + 轻微倾斜 + 发光强度变化”的交互效果。
       -->
@@ -126,28 +126,16 @@
     @pointerleave="handleShellPointerLeave"
   >
     <div class="shell-aurora" aria-hidden="true">
-
-      <!-- 添加三个不同的光团，实现更高级的移动混合光效果 -->
       <span class="shell-aurora-orb shell-aurora-orb--one"></span>
       <span class="shell-aurora-orb shell-aurora-orb--two"></span>
       <span class="shell-aurora-orb shell-aurora-orb--three"></span>
       <span class="shell-mesh"></span>
-
-
     </div>
     <!-- Left hero pane: background stage, role selection, and platform overview. -->
-    <!-- 左侧展示区：背景舞台、角色选择与平台概览。 -->
     <section class="hero-pane">
       <!-- Background stage with slideshow and emerald mode. -->
-      <!-- 背景舞台，承载图片轮播和绿色模式。 -->
       <div class="hero-stage" aria-hidden="true">
         <!-- Slideshow scene. -->
-        <!-- 图片轮播场景。 
-              1.active，Vue的动态绑定，hero-scene的opacity是0，只有这个背景激活，即hero-scene.active才是opacity=1可见
-              2.:src即source,访问的是存在image变量里的值，也就是地址，才能获取到真实图片
-                类比一下静态写法：<img src="/images/fixed-banner.jpg" />
-              3.alt是给用户无障碍阅读用的，这里没有意义所以就不写
-              4.style动态行内样式，每个图片错开时间展示-->
         <div class="hero-scene hero-scene--slideshow" :class="{ active: activeLeftBackground === 'original' }">
           <img
             v-for="(image, index) in backgroundImages"
@@ -162,19 +150,16 @@
         </div>
 
         <!-- Emerald visual mode scene. -->
-        <!-- 绿色视觉模式场景。 -->
         <div class="hero-scene hero-scene--emerald" :class="{ active: activeLeftBackground === 'green' }">
           <div class="hero-green-image" :style="{ backgroundImage: `url(${backgroundImages2})` }"></div>
         </div>
 
         <!-- Readability overlay and subtle texture. -->
-        <!-- 提升可读性的遮罩层与轻纹理。 -->
         <div class="hero-overlay"></div>
         <div class="hero-noise"></div>
       </div>
 
       <!-- Foreground hero content. -->
-      <!-- 前景展示内容。和上面的背景层是一层，为的就是把内容覆盖上去 -->
       <div class="hero-content">
         <!-- Brand block. -->
         <div class="hero-brand-row">
@@ -189,10 +174,8 @@
         </div>
 
         <!-- Main hero card grid. -->
-        <!-- 左侧主体卡片网格。依旧是同一层 -->
         <div class="hero-grid">
           <!-- Role-guided access card. -->
-          <!-- 角色引导式访问卡片。 -->
           <article
             class="hero-card hero-card--primary interactive-surface"
             @pointermove="handleCardPointerMove"
@@ -205,23 +188,11 @@
             </div>
 
             <!-- Role selector. -->
-            <!-- 角色选择器。 -->
             <!-- Click selects the login identity. Hover or focus previews the role content. -->
-            <!-- 点击用于确定登录身份，悬停或聚焦用于预览角色内容。 -->
             <div
               class="role-selector"
               aria-label="Portal roles"
             >
-
-            <!-- 循环生成按钮，且引用的是外部数据形成的数组{key，labelKey} -->
-            <!-- 1.:class里面的selected或者active生效的化就是 .selected .active这样;
-                  搭配前面的class一起使用： role-pill.active......
-                2.item.key代表点击的是哪一个按钮，比如如果是student，那就是'student'，selectLoginRole('student')
-                3.@keydown就是元素处于焦点并按下键盘时，比如左右键+回车选中
-                4.@mouseenter鼠标悬停,展示对应弹窗
-                5.@mouseleave鼠标离开，清理弹窗
-                6.@focus获得焦点时，展示弹窗服务于键盘，@mouseenter服务于鼠标
-                7.@blur失去焦点时，清理弹窗-->
               <button
                 v-for="(item, index) in rolePreviewItems"
                 :key="item.key"
@@ -244,7 +215,6 @@
                 @blur="clearPreviewRole"
               >
                 <span class="role-pill-dot"></span>
-                <!-- button的class：role-pill 控制字体 -->
                 <span>{{ t(item.labelKey) }}</span>
               </button>
             </div>
@@ -257,7 +227,6 @@
                 :key="activeDisplayRoleKey"
                 class="role-detail-card"
               >
-              <!-- 卡片背景对角打光 -->
                 <div class="role-detail-glow" aria-hidden="true"></div>
                 <div class="role-detail-header">
                   <div class="role-detail-badge" :class="roleThemeClass(activeDisplayRoleKey)"></div>
@@ -282,7 +251,6 @@
           </article>
 
           <!-- Platform overview card. -->
-          <!-- 平台概览卡片。 -->
           <article
             class="hero-card hero-card--secondary interactive-surface"
             @pointermove="handleCardPointerMove"
@@ -295,7 +263,6 @@
             </div>
 
             <!-- Showcase metrics. -->
-            <!-- 展示型指标卡。 -->
             <div class="hero-stats">
               <div v-for="stat in showcaseStats" :key="stat.label" class="stat-card">
                 <span class="stat-value">{{ stat.value }}</span>
@@ -315,7 +282,6 @@
             </div>
 
             <!-- Background mode switch and official website link. -->
-            <!-- 背景模式切换与官网入口。 -->
             <div class="hero-footer">
               <div class="mode-switch" role="group" :aria-label="t('visualMode')">
                 <button
@@ -456,7 +422,7 @@
 
                   <!-- Field shell highlights focus and error state at container level. -->
                   <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
-                   
+
                     <input
                       id="login-email"
                       ref="emailInputRef"
@@ -1113,7 +1079,7 @@ const resetPointerVariables = (element) => {
   element.style.setProperty('--glow-opacity', '0')
 }
 
-// 
+//
 const updatePointerVariables = (element, clientX, clientY) => {
   if (!element) {
     return
@@ -1279,7 +1245,6 @@ const fillOtpFromText = async (value, startIndex = 0) => {
 
 /*
   OTP input handlers.
-  OTP 输入交互处理。
 */
 const handleOTPInput = async (event, index) => {
   otpErrorActive.value = false
@@ -1311,7 +1276,6 @@ const handleOTPKeydown = (event, index) => {
 
   /*
     Allow common system shortcuts such as Ctrl/Cmd + C/V/A/X.
-    允许常见系统快捷键，例如 Ctrl 或 Cmd 加 C、V、A、X。
   */
   if (event.ctrlKey || event.metaKey) {
     return
