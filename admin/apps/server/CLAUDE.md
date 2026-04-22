@@ -74,9 +74,11 @@ import { users, tracks } from "@/schema/index.js";
 
 ## Drizzle Configuration
 
-- Config file: `drizzle.config.ts`
+- Push config: `drizzle.config.ts` (admin schema only)
+- Pull config: `drizzle.pull.config.ts` (public + admin)
 - Schema entry: `./src/schema/index.ts`
-- Included schemas: `public`, `admin`
+- Push schema filter: `admin`
+- Pull schema filter: `public`, `admin`
 - Migration output: `./src/new/drizzle`
 
 ## Module Pattern
@@ -106,5 +108,6 @@ pnpm build     # TypeScript build
 pnpm start     # Run dist build
 pnpm test      # Vitest watch
 pnpm test:run  # Vitest single run
-pnpm db:pull   # Pull schema from database into Drizzle artifacts
+pnpm db:pull   # Pull public + admin from database into Drizzle artifacts
+pnpm db:push   # Push admin schema changes only
 ```

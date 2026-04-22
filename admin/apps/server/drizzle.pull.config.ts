@@ -5,8 +5,8 @@ export default defineConfig({
   out: "./src/new/drizzle",
   schema: "./src/schema/index.ts",
   dialect: "postgresql",
-  // Team-owned schema only. Safe to use with `drizzle-kit push`.
-  schemaFilter: ["admin"],
+  // Introspect both schemas from DB. Do not use this config for push.
+  schemaFilter: ["public", "admin"],
   dbCredentials: {
     url: process.env.DATABASE_URL!,
   },
