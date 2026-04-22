@@ -76,7 +76,7 @@ export function UserBulkUploadSheet({
         <SheetHeader>
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
-            Upload a CSV with columns `name,email,role,track,status`.
+            Upload a CSV with columns `firstName,lastName,email,role,track,status`.
           </SheetDescription>
         </SheetHeader>
 
@@ -113,7 +113,7 @@ export function UserBulkUploadSheet({
                       className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
                     >
                       <div>
-                        <p className="font-medium">{row.name}</p>
+                        <p className="font-medium">{`${row.firstName} ${row.lastName}`.trim()}</p>
                         <p className="text-xs text-muted-foreground">{row.email}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">

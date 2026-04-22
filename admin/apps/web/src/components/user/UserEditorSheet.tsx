@@ -40,7 +40,8 @@ interface UserEditorSheetProps {
 }
 
 const initialValues: UserFormValues = {
-  name: "",
+  firstName: "",
+  lastName: "",
   email: "",
   role: "student",
   track: null,
@@ -79,7 +80,8 @@ export function UserEditorSheet({
 
     if (mode === "edit" && user) {
       setValues({
-        name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         role: user.role,
         track: user.track,
@@ -96,8 +98,12 @@ export function UserEditorSheet({
   }, [mode, open, user]);
 
   const handleSubmit = async () => {
-    if (!values.name.trim()) {
-      window.alert("Name is required.");
+    if (!values.firstName.trim()) {
+      window.alert("First name is required.");
+      return;
+    }
+    if (!values.lastName.trim()) {
+      window.alert("Last name is required.");
       return;
     }
     if (!values.email.trim()) {
@@ -108,8 +114,8 @@ export function UserEditorSheet({
       window.alert("Invalid email format.");
       return;
     }
-    if (!values.name.trim().includes(" ")) {
-      window.alert("Please enter both first and last name.");
+    if (values.role !== "admin" && !values.track) {
+      window.alert("Track is required for non-admin users.");
       return;
     }
     if (values.role === "student") {
@@ -129,7 +135,8 @@ export function UserEditorSheet({
 
     await onSubmit({
       ...values,
-      name: values.name.trim(),
+      firstName: values.firstName.trim(),
+      lastName: values.lastName.trim(),
       email: values.email.trim(),
       schoolName: values.schoolName.trim(),
     });
@@ -147,14 +154,26 @@ export function UserEditorSheet({
 
         <div className="space-y-4 px-4">
           <div className="space-y-1.5">
-            <Label htmlFor="user-name">Name</Label>
+            <Label htmlFor="user-first-name">First Name</Label>
             <Input
-              id="user-name"
-              value={values.name}
+              id="user-first-name"
+              value={values.firstName}
               onChange={(event) =>
-                setValues((current) => ({ ...current, name: event.target.value }))
+                setValues((current) => ({ ...current, firstName: event.target.value }))
               }
-              placeholder="Jane Doe"
+              placeholder="Jane"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="user-last-name">Last Name</Label>
+            <Input
+              id="user-last-name"
+              value={values.lastName}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, lastName: event.target.value }))
+              }
+              placeholder="Doe"
             />
           </div>
 

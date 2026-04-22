@@ -226,12 +226,18 @@ export function normalizeServerUser(
     joinPermissionReceived?: boolean | null;
   },
 ): UserAccount {
+  const resolvedFirstName = (user.firstName ?? "").trim();
+  const resolvedLastName = (user.lastName ?? "").trim();
+  const fallbackName = (user.name ?? "").trim();
   const name =
-    `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.name || "";
+    `${resolvedFirstName} ${resolvedLastName}`.trim() || fallbackName;
+  const [fallbackFirstName, fallbackLastName] = splitFullName(fallbackName);
 
   return {
     id: String(user.id ?? ""),
     name,
+    firstName: resolvedFirstName || fallbackFirstName,
+    lastName: resolvedLastName || fallbackLastName,
     email: user.email ?? "",
     role: (user.role ?? "student") as UserRole,
     track: user.track ?? null,
@@ -252,9 +258,12 @@ export function normalizeServerUser(
 
 export function makeLocalUser(values: UserFormValues): UserAccount {
   const timestamp = new Date().toISOString();
+  const name = `${values.firstName} ${values.lastName}`.trim();
   return {
     id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: values.name.trim(),
+    name,
+    firstName: values.firstName.trim(),
+    lastName: values.lastName.trim(),
     email: values.email.trim(),
     role: values.role,
     track: values.track,
@@ -302,7 +311,7 @@ export function parseCsvUsers(text: string) {
     headers.map((header, index) => [header, index]),
   );
 
-  const requiredHeaders = ["name", "email", "role"];
+  const requiredHeaders = ["firstname", "lastname", "email", "role"];
   const missing = requiredHeaders.filter((header) => headerIndex[header] === undefined);
   if (missing.length) {
     throw new Error(`Missing CSV columns: ${missing.join(", ")}`);
@@ -322,7 +331,8 @@ export function parseCsvUsers(text: string) {
 
       return {
         id: `csv-${rowIndex + 1}`,
-        name: (row[headerIndex.name] ?? "").trim(),
+        firstName: (row[headerIndex.firstname] ?? "").trim(),
+        lastName: (row[headerIndex.lastname] ?? "").trim(),
         email: (row[headerIndex.email] ?? "").trim(),
         role,
         track,
@@ -361,19 +371,15 @@ export function parseInterestList(input: string) {
   );
 }
 
-export function splitName(name: string) {
+function splitFullName(name: string): [string, string] {
   const trimmed = name.trim();
   if (!trimmed) {
-    return { firstName: "", lastName: "" };
+    return ["", ""];
   }
 
   const parts = trimmed.split(/\s+/);
   const firstName = parts.shift() ?? "";
-
-  return {
-    firstName,
-    lastName: parts.join(" "),
-  };
+  return [firstName, parts.join(" ")];
 }
 
 function parseCsvRows(text: string) {

@@ -289,7 +289,12 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
     .where(eq(users.email, input.email));
   if (existing.length > 0) return { msg: "Email already exists", data: null };
 
-  if (!input.track) return { msg: "Track is required", data: null };
+  const normalizedTrack = input.track?.trim();
+  const resolvedTrackCode =
+    normalizedTrack || (input.role === "admin" ? "GLOBAL" : undefined);
+
+  if (!resolvedTrackCode) return { msg: "Track is required", data: null };
+
   if (input.role === "student") {
     if (!input.schoolName?.trim()) {
       return { msg: "School is required for student users", data: null };
@@ -311,9 +316,9 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   const trackRow = await db
     .select({ id: tracks.id })
     .from(tracks)
-    .where(eq(tracks.trackCode, input.track));
+    .where(eq(tracks.trackCode, resolvedTrackCode));
   if (trackRow.length === 0)
-    return { msg: `Track "${input.track}" not found`, data: null };
+    return { msg: `Track "${resolvedTrackCode}" not found`, data: null };
 
   const roleRow = await db
     .select({ id: roles.id })

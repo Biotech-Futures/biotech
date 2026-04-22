@@ -7,6 +7,8 @@ export type UserSource = "server" | "local";
 export type UserAccount = {
   id: string;
   name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   role: UserRole;
   track: UserTrack | null;
@@ -36,7 +38,8 @@ export type UserPaginatedResponse = {
 };
 
 export type UserFormValues = {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   role: UserRole;
   track: UserTrack | null;

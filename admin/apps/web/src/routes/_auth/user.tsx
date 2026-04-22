@@ -10,7 +10,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { PlusIcon, UploadIcon } from "lucide-react";
 import {
-  splitName,
   useQueryTracks,
   useBulkCreateUsers,
   useCreateUser,
@@ -124,10 +123,9 @@ function UserManagementPage() {
   const handleSaveUser = async (values: UserFormValues) => {
     if (editorMode === "create") {
       try {
-        const { firstName, lastName } = splitName(values.name);
         const response = await createUser.mutateAsync({
-          firstName,
-          lastName,
+          firstName: values.firstName,
+          lastName: values.lastName,
           email: values.email,
           role: values.role,
           track: values.track ?? undefined,
@@ -154,12 +152,11 @@ function UserManagementPage() {
     if (!selectedUser) return;
 
     try {
-      const { firstName, lastName } = splitName(values.name);
       const response = await updateUser.mutateAsync({
         id: selectedUser.id,
         updates: {
-          firstName,
-          lastName,
+          firstName: values.firstName,
+          lastName: values.lastName,
           email: values.email,
           role: values.role,
           track: values.track,
@@ -234,7 +231,8 @@ function UserManagementPage() {
     try {
       const response = await bulkCreateUsers.mutateAsync({
         users: rows.map((row) => ({
-          ...splitName(row.name),
+          firstName: row.firstName,
+          lastName: row.lastName,
           email: row.email,
           role: row.role,
           track: row.track ?? undefined,
