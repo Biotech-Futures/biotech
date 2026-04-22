@@ -50,7 +50,6 @@ export type TrackOption = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Use high-resolution timestamp to generate unique bigint IDs for admin-scale writes
 const generateId = () => Date.now() * 1000 + Math.floor(Math.random() * 999);
 
 const normalizeInterestDescriptions = (interests: string[] | undefined) =>
@@ -96,12 +95,13 @@ async function resolveInterestIds(
       continue;
     }
 
-    const id = generateId();
-    await executor.insert(areasOfInterest).values({
-      id,
-      interestDesc: description,
-    });
-    ids.push(id);
+    const inserted = await executor
+      .insert(areasOfInterest)
+      .values({
+        interestDesc: description,
+      })
+      .returning({ id: areasOfInterest.id });
+    ids.push(inserted[0].id);
   }
 
   return ids;
@@ -121,7 +121,6 @@ async function syncStudentInterests(
 
   await executor.insert(studentInterest).values(
     interestIds.map((interestId) => ({
-      id: generateId(),
       userId: userId,
       interestId,
     })),
@@ -373,16 +372,27 @@ export async function createUser(input: CreateUserInput) {
     });
 
     if (input.role === "admin") {
-      const newAdminUserId = String(generateId());
-      await tx.insert(adminUser).values({
-        id: newAdminUserId,
-        name: `${input.firstName} ${input.lastName}`.trim(),
-        email: input.email,
-        emailVerified: true,
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-        userid: userId,
+      const createdAuthUser = await auth.api.createUser({
+        body: {
+          email: input.email,
+          name: `${input.firstName} ${input.lastName}`.trim(),
+          role: "admin",
+        },
       });
+      const createdAuthUserId =
+        (createdAuthUser as any)?.user?.id ?? (createdAuthUser as any)?.id;
+
+      if (!createdAuthUserId) {
+        throw new Error("Failed to create auth user");
+      }
+
+      await tx
+        .update(adminUser)
+        .set({
+          emailVerified: true,
+          userid: userId,
+        })
+        .where(eq(adminUser.id, String(createdAuthUserId)));
     }
 
     await tx.insert(roleAssignmentHistory).values({
@@ -505,7 +515,6 @@ export async function updateUser(id: string, input: UpdateUserInput) {
           );
 
         await tx.insert(roleAssignmentHistory).values({
-          id: generateId(),
           userId,
           roleId,
           validFrom: now,
@@ -580,37 +589,4 @@ export async function deleteUser(id: string) {
   await db.delete(users).where(eq(users.id, userId));
 
   return { msg: "User deleted successfully", data: null };
-}
-
-async function bulkCreateAdminUsers(users: CreateUserInput[]) {
-  const success = [];
-  const failed = [];
-  const others = [];
-  for (const user of users) {
-    if (user.role === "admin") {
-      try {
-        const newUser = await auth.api.createUser({
-          body: {
-            email: user.email,
-            name: `${user.firstName} ${user.lastName}`.trim(),
-          },
-        });
-        if (newUser) {
-          success.push(user);
-        } else {
-          failed.push(user);
-        }
-      } catch (error) {
-        failed.push(user);
-      }
-    } else {
-      others.push(user);
-    }
-  }
-
-  return {
-    success,
-    failed,
-    others,
-  };
 }
