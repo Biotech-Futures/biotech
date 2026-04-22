@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'apps.user_sessions',
     'apps.matching_runtime',
     'apps.tasks',
+    'apps.dashboard',
     'apps.workshops',
     'apps.certificates',
     'apps.services',
@@ -85,6 +86,9 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API Documentation for the New BIOTech Futures Mentoring Platform',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'ENUM_NAME_OVERRIDES': {
+        'RsvpStatusEnum': 'apps.events.models.EventRsvp.RsvpStatus',
+    },
 }
 
 MIDDLEWARE = [

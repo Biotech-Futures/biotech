@@ -39,6 +39,8 @@ urlpatterns = [
     path("integrations/", include("apps.integrations.urls")),
     path("certificates/", include("apps.certificates.urls")),
 
+    path("dashboard/", include("apps.dashboard.urls")),
+
     # Services (auth, email, etc)
     path("services/", include("apps.services.urls")),
     path('api-auth/', include('rest_framework.urls')), # for browsable API login

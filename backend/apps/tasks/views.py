@@ -2,17 +2,33 @@ from django.shortcuts import render, get_object_or_404
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from rest_framework.pagination import PageNumberPagination
-from .models import Tasks, Milestone
+from rest_framework.exceptions import ValidationError
+from .models import Tasks, Milestone, TaskAssignees
 from .serializers import TaskSerializer, MilestoneSerializer, TaskCreateSerializer, DeleteTaskResponseSerializer
 from rest_framework.views import APIView
 from django.db import transaction
 from drf_spectacular.utils import extend_schema
 
-# Create your views here.
+
+def _parse_bool_param(value: str) -> bool:
+    """Parse common boolean query string representations.
+
+    Accepts: true/True/1/yes → True  |  false/False/0/no → False
+    Raises ValidationError (HTTP 400) for any other value.
+    """
+    normalised = value.strip().lower()
+    if normalised in ('true', '1', 'yes'):
+        return True
+    if normalised in ('false', '0', 'no'):
+        return False
+    raise ValidationError('Invalid deleted value. Expected true or false.')
+
+
 class TaskRetrieveview(generics.RetrieveAPIView):
     queryset = Tasks.objects.select_related("milestone")
     serializer_class = TaskSerializer
     permission_classes = [permissions.AllowAny]
+
 
 class TaskRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     queryset = Tasks.objects.select_related("milestone")
@@ -20,10 +36,10 @@ class TaskRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 
     def get_serializer_class(self):
         return TaskSerializer
-    
+
     def patch(self, request, *args, **kwargs):
         task = self.get_object()
-        data=request.data
+        data = request.data
         if "task_name" in data:
             task.task_name = data["task_name"]
             task.save(update_fields=["task_name"])
@@ -37,43 +53,86 @@ class TaskRetrieveUpdateView(generics.RetrieveUpdateAPIView):
             task.milestone = milestone
             task.save(update_fields=["milestone"])
 
+        if "completed" in data:
+            task.completed = bool(data["completed"])
+            new_status = Tasks.Status.DONE if task.completed else Tasks.Status.TODO
+            task.status = new_status
+            task.save(update_fields=["completed", "status"])
+
+        if "status" in data:
+            task.status = data["status"]
+            task.completed = data["status"] == Tasks.Status.DONE
+            task.save(update_fields=["status", "completed"])
+
         return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
-    
+
+
 class TaskPagePagination(PageNumberPagination):
     page_size = 10
     page_query_param = "page"
     page_size_query_param = "page_size"
     max_page_size = 100
-    
+
+
 class MilestoneListHTMLView(generics.ListAPIView):
-    queryset = Milestone.objects.all()
     serializer_class = MilestoneSerializer
     permission_classes = [permissions.AllowAny]
-
     pagination_class = TaskPagePagination
+
+    def get_queryset(self):
+        queryset = Milestone.objects.all().order_by('sort_order', 'id')
+        group_id = self.request.query_params.get('group_id')
+        if group_id is not None:
+            queryset = queryset.filter(group_id=group_id)
+        deleted_param = self.request.query_params.get('deleted')
+        if deleted_param is not None:
+            queryset = queryset.filter(deleted_flag=_parse_bool_param(deleted_param))
+        return queryset
+
 
 class TaskCreateView(generics.CreateAPIView):
     queryset = Tasks.objects.select_related("milestone")
     serializer_class = TaskCreateSerializer
     permission_classes = [permissions.AllowAny]
 
+
 class TaskListHTMLView(generics.ListAPIView):
-    # queryset = Tasks.objects.select_related("milestone")
     serializer_class = TaskSerializer
     permission_classes = [permissions.AllowAny]
-
     pagination_class = TaskPagePagination
 
     def get_queryset(self):
-        queryset = Tasks.objects.all()
+        queryset = Tasks.objects.select_related(
+            'milestone__group'
+        ).prefetch_related(
+            'assignments__user'
+        )
+
         milestone_param = self.request.query_params.get("milestone")
         if milestone_param is not None:
             queryset = queryset.filter(milestone=milestone_param)
+
+        group_id = self.request.query_params.get("group_id")
+        if group_id is not None:
+            queryset = queryset.filter(milestone__group_id=group_id)
+
+        # Robust boolean handling — fixes the 500 on lowercase "false"
         delete_param = self.request.query_params.get("deleted")
         if delete_param is not None:
-            queryset = queryset.filter(deleted_flag=delete_param)
+            queryset = queryset.filter(deleted_flag=_parse_bool_param(delete_param))
+
+        # Filter by the requesting user's assignee records
+        assigned_to = self.request.query_params.get("assigned_to")
+        if assigned_to == "me" and self.request.user.is_authenticated:
+            task_ids = TaskAssignees.objects.filter(
+                user=self.request.user,
+                deleted_flag=False,
+            ).values_list("task_id", flat=True)
+            queryset = queryset.filter(id__in=task_ids)
+
         return queryset
-    
+
+
 class DeleteTaskView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -84,9 +143,7 @@ class DeleteTaskView(APIView):
     @transaction.atomic
     def delete(self, request, *args, **kwargs):
         task_id = kwargs.get("pk")
-
         task = get_object_or_404(Tasks, pk=task_id)
         task.deleted_flag = True
         task.save()
-
         return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)

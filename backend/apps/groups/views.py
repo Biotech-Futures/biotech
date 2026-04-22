@@ -1,3 +1,4 @@
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -85,10 +86,44 @@ class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
 
     def get_queryset(self):
-        raw = (self.request.query_params.get('include_deleted') or '').lower().strip()
-        if raw == 'true' and self.request.user.is_staff:
-            return Groups.objects.order_by("group_name", "id")
-        return Groups.objects.filter(deleted_at__isnull=True).order_by("group_name", "id")
+        include_deleted = (self.request.query_params.get('include_deleted') or '').lower().strip()
+        if include_deleted == 'true' and self.request.user.is_staff:
+            queryset = Groups.objects.order_by("group_name", "id")
+        else:
+            queryset = Groups.objects.filter(deleted_at__isnull=True).order_by("group_name", "id")
+
+        # Annotate member count and prefetch mentor memberships for lead_user/lead_name
+        queryset = queryset.select_related('track').annotate(
+            member_count=Count(
+                'groupmembership',
+                filter=Q(groupmembership__left_at__isnull=True),
+            )
+        ).prefetch_related(
+            Prefetch(
+                'groupmembership_set',
+                queryset=GroupMembership.objects.filter(
+                    membership_role__iexact=MENTOR_MEMBERSHIP_ROLE,
+                    left_at__isnull=True,
+                ).select_related('user'),
+                to_attr='mentor_memberships',
+            )
+        )
+
+        # Filter to the current user's groups only
+        mine = (self.request.query_params.get('mine') or '').lower().strip()
+        if mine == 'true':
+            user_group_ids = GroupMembership.objects.filter(
+                user=self.request.user,
+                left_at__isnull=True,
+            ).values_list('group_id', flat=True)
+            queryset = queryset.filter(id__in=user_group_ids)
+
+        # Optional track filter
+        track_id = self.request.query_params.get('track_id')
+        if track_id:
+            queryset = queryset.filter(track_id=track_id)
+
+        return queryset
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:

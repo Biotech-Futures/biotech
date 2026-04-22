@@ -10,15 +10,19 @@ class Milestone(models.Model):
     milestone_name = models.CharField(max_length=255)
     completed = models.BooleanField(default=False)
     deleted_flag = models.BooleanField(default=False)
+    start_date = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateTimeField(null=True, blank=True)
+    sort_order = models.IntegerField(default=0)
 
     class Meta:
         db_table = 'milestone'
         verbose_name = "Milestone"
         indexes = [
-            # regular indexes
             models.Index(fields=['group']),
             models.Index(fields=['completed']),
             models.Index(fields=['deleted_flag']),
+            models.Index(fields=['sort_order']),
+            models.Index(fields=['due_date']),
         ]
         
     def __str__(self):
@@ -66,23 +70,34 @@ class TaskAssignees(models.Model):
         return f"TaskAssignee: {self.user} assigned to {self.task} at {self.assigned_datetime}"
 
 class Tasks(models.Model):
+    class Status(models.TextChoices):
+        TODO = 'todo', 'To Do'
+        IN_PROGRESS = 'in_progress', 'In Progress'
+        DONE = 'done', 'Done'
+
     task_name = models.CharField(max_length=255)
     due_date = models.DateTimeField()
     deleted_flag = models.BooleanField(default=False)
-    # maybe a task can exist without being attached to a milestone? and if milestne deleted then set null
     milestone = models.ForeignKey('Milestone', null=True, blank=True, on_delete=models.SET_NULL)
     task_description = models.CharField(max_length=255, blank=True, null=True)
+    completed = models.BooleanField(default=False)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.TODO,
+    )
 
     class Meta:
         db_table = 'tasks'
         verbose_name = "Tasks"
         ordering = ["-due_date"]
         indexes = [
-            # index for maybe grouping by due date?
             models.Index(fields=['due_date']),
-            # index for grouping by milestone
-            models.Index(fields=['milestone'])
+            models.Index(fields=['milestone']),
+            models.Index(fields=['completed']),
+            models.Index(fields=['status']),
         ]
+
     def __str__(self):
         return f"Task: {self.task_name} (Due: {self.due_date})"
         
