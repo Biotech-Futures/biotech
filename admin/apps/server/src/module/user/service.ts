@@ -3,17 +3,17 @@ import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
   adminUser,
   areasOfInterest,
-  groupMembership,
+  groupMembers,
   groups,
   mentorProfile,
+  roleAssignmentHistory,
   roles,
   studentInterest,
   studentProfile,
   supervisorProfile,
   tracks,
-  userRoleAssignment,
   users,
-} from "@/old/drizzle/schema.js";
+} from "@/schema/index.js";
 import type {
   BulkCreateUsersInput,
   CreateUserInput,
@@ -58,6 +58,24 @@ const normalizeInterestDescriptions = (interests: string[] | undefined) =>
     new Set((interests ?? []).map((item) => item.trim()).filter(Boolean)),
   );
 
+async function resolveRoleId(executor: any, roleName: string): Promise<number> {
+  const normalizedRole = roleName.trim();
+  const existing = await executor
+    .select({ id: roles.id })
+    .from(roles)
+    .where(sql`lower(${roles.roleName}) = lower(${normalizedRole})`)
+    .limit(1);
+
+  if (existing[0]) return existing[0].id;
+
+  const inserted = await executor
+    .insert(roles)
+    .values({ roleName: normalizedRole })
+    .returning({ id: roles.id });
+
+  return inserted[0].id;
+}
+
 async function resolveInterestIds(
   executor: any,
   interests: string[] | undefined,
@@ -96,7 +114,7 @@ async function syncStudentInterests(
 ) {
   await executor
     .delete(studentInterest)
-    .where(eq(studentInterest.studentUserId, userId));
+    .where(eq(studentInterest.userId, userId));
 
   const interestIds = await resolveInterestIds(executor, interests);
   if (!interestIds.length) return;
@@ -104,7 +122,7 @@ async function syncStudentInterests(
   await executor.insert(studentInterest).values(
     interestIds.map((interestId) => ({
       id: generateId(),
-      studentUserId: userId,
+      userId: userId,
       interestId,
     })),
   );
@@ -113,6 +131,8 @@ async function syncStudentInterests(
 async function upsertStudentProfile(
   executor: any,
   userId: number,
+  firstName: string,
+  lastName: string,
   input: Pick<
     CreateUserInput | UpdateUserInput,
     "schoolName" | "yearLevel" | "joinPermissionReceived"
@@ -124,10 +144,14 @@ async function upsertStudentProfile(
     .where(eq(studentProfile.userId, userId));
 
   const values = {
-    schoolName: input.schoolName?.trim() || null,
-    yearLevel: input.yearLevel ?? null,
-    joinPermissionReceived: input.joinPermissionReceived ?? false,
-    joinPermissionResponseId: null,
+    pgFirstName: firstName,
+    pgLastName: lastName,
+    parentGuardianFlag: true,
+    schoolName: input.schoolName?.trim() || "",
+    yearLvl: String(input.yearLevel ?? ""),
+    hasJoinPermission: input.joinPermissionReceived ?? false,
+    joinpermResponseId: null,
+    supervisorId: null,
   };
 
   if (existing[0]) {
@@ -140,7 +164,6 @@ async function upsertStudentProfile(
 
   await executor.insert(studentProfile).values({
     userId,
-    supervisorUserId: null,
     ...values,
   });
 }
@@ -148,7 +171,7 @@ async function upsertStudentProfile(
 async function deleteStudentDetails(executor: any, userId: number) {
   await executor
     .delete(studentInterest)
-    .where(eq(studentInterest.studentUserId, userId));
+    .where(eq(studentInterest.userId, userId));
   await executor
     .delete(studentProfile)
     .where(eq(studentProfile.userId, userId));
@@ -159,23 +182,21 @@ const userSelect = {
   firstName: users.firstName,
   lastName: users.lastName,
   email: users.email,
-  role: roles.slug,
-  track: tracks.trackCode,
+  role: roles.roleName,
+  track: tracks.trackName,
   groupName: groups.groupName,
   schoolName: sql<
     string | null
   >`COALESCE(${studentProfile.schoolName}, ${supervisorProfile.schoolName})`,
-  yearLevel: studentProfile.yearLevel,
-  joinPermissionReceived: studentProfile.joinPermissionReceived,
-  interests: sql<string[]>`COALESCE(
-    (SELECT array_agg(aoi.interest_desc) FROM student_interest si JOIN areas_of_interest aoi ON aoi.id = si.interest_id WHERE si.student_user_id = ${users.id}),
-    (SELECT array_agg(aoi.interest_desc) FROM mentor_interest mi JOIN areas_of_interest aoi ON aoi.id = mi.interest_id WHERE mi.mentor_user_id = ${users.id}),
-    ARRAY[]::text[]
-  )`,
+  yearLevel: sql<number | null>`NULLIF(${studentProfile.yearLvl}, '')::int`,
+  joinPermissionReceived: studentProfile.hasJoinPermission,
+  interests: sql<
+    string[]
+  >`COALESCE((SELECT array_agg(aoi.interest_desc) FROM student_interest si JOIN areas_of_interest aoi ON aoi.id = si.interest_id WHERE si.user_id = ${users.id}), ARRAY[]::text[])`,
   isActive: users.isActive,
-  accountStatus: users.accountStatus,
-  invitedAt: users.invitedAt,
-  activatedAt: users.activatedAt,
+  accountStatus: sql<string>`CASE WHEN ${users.isActive} THEN 'active' ELSE 'deactivated' END`,
+  invitedAt: users.dateJoined,
+  activatedAt: users.lastLogin,
 };
 
 function baseUserQuery() {
@@ -183,19 +204,16 @@ function baseUserQuery() {
     .select(userSelect)
     .from(users)
     .leftJoin(
-      userRoleAssignment,
+      roleAssignmentHistory,
       and(
-        eq(userRoleAssignment.userId, users.id),
-        isNull(userRoleAssignment.validTo),
+        eq(roleAssignmentHistory.userId, users.id),
+        isNull(roleAssignmentHistory.validTo),
       ),
     )
-    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(roles, eq(roles.id, roleAssignmentHistory.roleId))
     .leftJoin(tracks, eq(tracks.id, users.trackId))
-    .leftJoin(
-      groupMembership,
-      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
-    )
-    .leftJoin(groups, eq(groups.id, groupMembership.groupId))
+    .leftJoin(groupMembers, eq(groupMembers.userId, users.id))
+    .leftJoin(groups, eq(groups.id, groupMembers.groupId))
     .leftJoin(studentProfile, eq(studentProfile.userId, users.id))
     .leftJoin(supervisorProfile, eq(supervisorProfile.userId, users.id));
 }
@@ -221,8 +239,8 @@ export async function queryUsers(params: QueryUsersInput) {
       ),
     );
   }
-  if (role) conditions.push(eq(roles.slug, role));
-  if (track) conditions.push(eq(tracks.trackCode, track));
+  if (role) conditions.push(eq(roles.roleName, role));
+  if (track) conditions.push(eq(tracks.trackName, track));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -230,13 +248,13 @@ export async function queryUsers(params: QueryUsersInput) {
     .select({ count: sql<number>`cast(count(*) as int)` })
     .from(users)
     .leftJoin(
-      userRoleAssignment,
+      roleAssignmentHistory,
       and(
-        eq(userRoleAssignment.userId, users.id),
-        isNull(userRoleAssignment.validTo),
+        eq(roleAssignmentHistory.userId, users.id),
+        isNull(roleAssignmentHistory.validTo),
       ),
     )
-    .leftJoin(roles, eq(roles.id, userRoleAssignment.roleId))
+    .leftJoin(roles, eq(roles.id, roleAssignmentHistory.roleId))
     .leftJoin(tracks, eq(tracks.id, users.trackId));
 
   const [items, countResult] = await Promise.all([
@@ -269,10 +287,10 @@ export async function queryTracks() {
   const items = await db
     .select({
       id: tracks.id,
-      trackCode: tracks.trackCode,
+      trackCode: tracks.trackName,
     })
     .from(tracks)
-    .orderBy(asc(tracks.trackCode));
+    .orderBy(asc(tracks.trackName));
 
   return {
     msg: "Tracks retrieved successfully",
@@ -282,7 +300,7 @@ export async function queryTracks() {
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
-export async function createUser(input: CreateUserInput, adminUserId: string) {
+export async function createUser(input: CreateUserInput) {
   const existing = await db
     .select({ id: users.id })
     .from(users)
@@ -290,10 +308,9 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   if (existing.length > 0) return { msg: "Email already exists", data: null };
 
   const normalizedTrack = input.track?.trim();
-  const resolvedTrackCode =
-    normalizedTrack || (input.role === "admin" ? "GLOBAL" : undefined);
-
-  if (!resolvedTrackCode) return { msg: "Track is required", data: null };
+  if (input.role !== "admin" && !normalizedTrack) {
+    return { msg: "Track is required", data: null };
+  }
 
   if (input.role === "student") {
     if (!input.schoolName?.trim()) {
@@ -313,19 +330,18 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
     }
   }
 
-  const trackRow = await db
-    .select({ id: tracks.id })
-    .from(tracks)
-    .where(eq(tracks.trackCode, resolvedTrackCode));
-  if (trackRow.length === 0)
-    return { msg: `Track "${resolvedTrackCode}" not found`, data: null };
+  let trackId: number | null = null;
+  if (normalizedTrack) {
+    const trackRow = await db
+      .select({ id: tracks.id })
+      .from(tracks)
+      .where(eq(tracks.trackName, normalizedTrack));
+    if (trackRow.length === 0)
+      return { msg: `Track "${normalizedTrack}" not found`, data: null };
+    trackId = trackRow[0].id;
+  }
 
-  const roleRow = await db
-    .select({ id: roles.id })
-    .from(roles)
-    .where(eq(roles.slug, input.role));
-  if (roleRow.length === 0)
-    return { msg: `Role "${input.role}" not found`, data: null };
+  const roleId = await resolveRoleId(db, input.role);
 
   if (input.role === "admin") {
     const existingAdmin = await db
@@ -341,7 +357,20 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   const userId = generateId();
 
   await db.transaction(async (tx) => {
-    let resolvedAdminUserId = adminUserId;
+    await tx.insert(users).values({
+      id: userId,
+      password: "TEMP_PASSWORD_PLACEHOLDER",
+      isSuperuser: input.role === "admin",
+      isStaff: input.role === "admin",
+      email: input.email,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      isActive: input.active ?? true,
+      status: input.active ?? true,
+      dateJoined: now,
+      lastLogin: null,
+      trackId,
+    });
 
     if (input.role === "admin") {
       const newAdminUserId = String(generateId());
@@ -349,36 +378,29 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
         id: newAdminUserId,
         name: `${input.firstName} ${input.lastName}`.trim(),
         email: input.email,
-        role: "admin",
         emailVerified: true,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+        userid: userId,
       });
-      resolvedAdminUserId = newAdminUserId;
     }
 
-    await tx.insert(users).values({
-      id: userId,
-      email: input.email,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      isActive: input.active ?? true,
-      trackId: trackRow[0].id,
-      accountStatus: input.active === false ? "deactivated" : "active",
-      invitedAt: now,
-      adminUserId: resolvedAdminUserId,
-    });
-
-    await tx.insert(userRoleAssignment).values({
+    await tx.insert(roleAssignmentHistory).values({
       id: generateId(),
       userId,
-      roleId: roleRow[0].id,
+      roleId,
       validFrom: now,
       validTo: null,
     });
 
     if (input.role === "student") {
-      await upsertStudentProfile(tx, userId, input);
+      await upsertStudentProfile(
+        tx,
+        userId,
+        input.firstName,
+        input.lastName,
+        input,
+      );
       await syncStudentInterests(tx, userId, input.interests);
     }
   });
@@ -395,7 +417,7 @@ export async function bulkCreateUsers(
   const skipped: string[] = [];
 
   for (const u of input.users) {
-    const result = await createUser(u, adminUserId);
+    const result = await createUser(u);
     if (result.data) {
       created.push(result.data as User);
     } else {
@@ -445,16 +467,22 @@ export async function updateUser(id: string, input: UpdateUserInput) {
   }
 
   if (input.track !== undefined) {
-    if (input.track === null)
-      return { msg: "Track cannot be cleared", data: null };
+    if (nextRole === "admin") {
+      if (input.track === null) {
+        userUpdates.trackId = null;
+      }
+    } else {
+      if (input.track === null)
+        return { msg: "Track cannot be cleared", data: null };
 
-    const trackRow = await db
-      .select({ id: tracks.id })
-      .from(tracks)
-      .where(eq(tracks.trackCode, input.track));
-    if (trackRow.length === 0)
-      return { msg: `Track "${input.track}" not found`, data: null };
-    userUpdates.trackId = trackRow[0].id;
+      const trackRow = await db
+        .select({ id: tracks.id })
+        .from(tracks)
+        .where(eq(tracks.trackName, input.track));
+      if (trackRow.length === 0)
+        return { msg: `Track "${input.track}" not found`, data: null };
+      userUpdates.trackId = trackRow[0].id;
+    }
   }
 
   try {
@@ -464,40 +492,40 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       }
 
       if (input.role !== undefined && input.role !== existing.role) {
-        const roleRow = await tx
-          .select({ id: roles.id })
-          .from(roles)
-          .where(eq(roles.slug, input.role));
-        if (roleRow.length === 0) {
-          throw new Error(`Role "${input.role}" not found`);
-        }
+        const roleId = await resolveRoleId(tx, input.role);
 
         await tx
-          .update(userRoleAssignment)
+          .update(roleAssignmentHistory)
           .set({ validTo: now })
           .where(
             and(
-              eq(userRoleAssignment.userId, userId),
-              isNull(userRoleAssignment.validTo),
+              eq(roleAssignmentHistory.userId, userId),
+              isNull(roleAssignmentHistory.validTo),
             ),
           );
 
-        await tx.insert(userRoleAssignment).values({
+        await tx.insert(roleAssignmentHistory).values({
           id: generateId(),
           userId,
-          roleId: roleRow[0].id,
+          roleId,
           validFrom: now,
           validTo: null,
         });
       }
 
       if (nextRole === "student") {
-        await upsertStudentProfile(tx, userId, {
-          schoolName: input.schoolName ?? existing.schoolName,
-          yearLevel: input.yearLevel ?? existing.yearLevel,
-          joinPermissionReceived:
-            input.joinPermissionReceived ?? existing.joinPermissionReceived,
-        });
+        await upsertStudentProfile(
+          tx,
+          userId,
+          input.firstName ?? existing.firstName,
+          input.lastName ?? existing.lastName,
+          {
+            schoolName: input.schoolName ?? existing.schoolName,
+            yearLevel: input.yearLevel ?? existing.yearLevel,
+            joinPermissionReceived:
+              input.joinPermissionReceived ?? existing.joinPermissionReceived,
+          },
+        );
         await syncStudentInterests(
           tx,
           userId,
@@ -523,10 +551,9 @@ export async function updateStatus(id: string, input: UpdateStatusInput) {
   const existing = await fetchUserById(userId);
   if (!existing) return { msg: "User not found", data: null };
 
-  const accountStatus = input.isActive ? "active" : "deactivated";
   await db
     .update(users)
-    .set({ isActive: input.isActive, accountStatus })
+    .set({ isActive: input.isActive, status: input.isActive })
     .where(eq(users.id, userId));
 
   const updated = await fetchUserById(userId);
@@ -542,11 +569,9 @@ export async function deleteUser(id: string) {
   if (!existing) return { msg: "User not found", data: null };
 
   await db
-    .delete(userRoleAssignment)
-    .where(eq(userRoleAssignment.userId, userId));
-  await db
-    .delete(studentInterest)
-    .where(eq(studentInterest.studentUserId, userId));
+    .delete(roleAssignmentHistory)
+    .where(eq(roleAssignmentHistory.userId, userId));
+  await db.delete(studentInterest).where(eq(studentInterest.userId, userId));
   await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
   await db
     .delete(supervisorProfile)

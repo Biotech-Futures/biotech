@@ -51,7 +51,7 @@ export const users = pgTable(
     lastName: varchar("last_name", { length: 255 }).notNull(),
     isActive: boolean("is_active").notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    trackId: bigint("track_id", { mode: "number" }).notNull(),
+    trackId: bigint("track_id", { mode: "number" }),
     accountStatus: varchar("account_status", { length: 50 }).notNull(),
     invitedAt: timestamp("invited_at", { precision: 6, mode: "string" }),
     activatedAt: timestamp("activated_at", { precision: 6, mode: "string" }),
@@ -666,7 +666,8 @@ export const tracks = pgTable(
   {
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     id: bigint({ mode: "number" }).primaryKey().notNull(),
-    trackCode: varchar("track_code", { length: 100 }).notNull(),
+    // Keep `trackCode` accessor for compatibility; maps to renamed DB column `track_name`
+    trackCode: varchar("track_name", { length: 255 }).notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     stateId: bigint("state_id", { mode: "number" }).notNull(),
   },

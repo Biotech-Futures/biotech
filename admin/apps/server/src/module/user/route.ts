@@ -56,8 +56,7 @@ userRoute.get("/:id", async (c) => {
 // POST /api/v1/user - Create single user
 userRoute.post("/", sValidator("json", createUserSchema), async (c) => {
   const data = c.req.valid("json");
-  const admin = c.get("user") as { id: string };
-  const result = await createUser(data, admin.id);
+  const result = await createUser(data);
   return c.json(result);
 });
 
