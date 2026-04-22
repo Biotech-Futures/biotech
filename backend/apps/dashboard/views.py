@@ -1,22 +1,29 @@
 """
 Dashboard API views — new dedicated endpoints requested in DASHBOARD_API_REQUIREMENTS.pdf.
 
-#1  GET /dashboard/v1/progress/    — Progress Snapshot
-#2  GET /dashboard/v1/next-event/  — Personalized Next Event
+#1  GET /dashboard/v1/progress/       — Progress Snapshot
+#2  GET /dashboard/v1/next-event/     — Personalized Next Event
+#3  GET /dashboard/v1/groups-preview/ — Group Preview with embedded aggregates
 """
-from django.db.models import Q
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
-from rest_framework import status
+from rest_framework import generics, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.events.models import EventRsvp, EventTargetGroup, Events
-from apps.groups.models import GroupMembership
+from apps.groups.models import GroupMembership, Groups
+from apps.groups.services import MENTOR_MEMBERSHIP_ROLE
 from apps.tasks.models import Milestone, Tasks
 
-from .serializers import NextEventSerializer, ProgressSnapshotSerializer
+from .serializers import (
+    DashboardGroupPreviewSerializer,
+    NextEventSerializer,
+    ProgressSnapshotSerializer,
+)
 
 
 class ProgressSnapshotView(APIView):
@@ -243,3 +250,76 @@ class NextEventView(APIView):
             context={'rsvp_status': rsvp_status, 'group_id': group_id},
         )
         return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Pagination
+# ---------------------------------------------------------------------------
+
+class DashboardPagePagination(PageNumberPagination):
+    page_size = 10
+    page_query_param = 'page'
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+# ---------------------------------------------------------------------------
+# Groups Preview
+# ---------------------------------------------------------------------------
+
+class GroupsPreviewView(generics.ListAPIView):
+    """
+    GET /dashboard/v1/groups-preview/
+
+    Paginated group list with embedded aggregate fields designed for the dashboard
+    card grid. All heavy lifting is done in the database:
+
+    - member_count  : COUNT annotation — no Python-level loops.
+    - track_name    : resolved via select_related('track') JOIN — zero extra queries.
+    - lead_user/lead_name: resolved from a single prefetch_related batch that loads
+      all active mentor memberships for the returned page of groups at once.
+
+    Supported query params:
+      ?track_id=<int>   — filter groups by track
+      ?page_size=<int>  — override page size (max 100, default 10)
+      ?page=<int>       — page number
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = DashboardGroupPreviewSerializer
+    pagination_class = DashboardPagePagination
+
+    def get_queryset(self):
+        queryset = (
+            Groups.objects
+            .filter(deleted_at__isnull=True)
+            .select_related('track')
+            .annotate(
+                # Counts only active (not-yet-left) memberships so the number
+                # reflects current group size, not historical headcount.
+                member_count=Count(
+                    'groupmembership',
+                    filter=Q(groupmembership__left_at__isnull=True),
+                )
+            )
+            .prefetch_related(
+                # Fetches active mentor memberships for every group in this page
+                # in one additional query and attaches them as `mentor_memberships`
+                # on each Group instance, which the serializer reads directly.
+                Prefetch(
+                    'groupmembership_set',
+                    queryset=GroupMembership.objects.filter(
+                        membership_role__iexact=MENTOR_MEMBERSHIP_ROLE,
+                        left_at__isnull=True,
+                    ).select_related('user'),
+                    to_attr='mentor_memberships',
+                )
+            )
+            .order_by('group_name', 'id')
+        )
+
+        track_id = self.request.query_params.get('track_id')
+        if track_id:
+            queryset = queryset.filter(track_id=track_id)
+
+        return queryset
