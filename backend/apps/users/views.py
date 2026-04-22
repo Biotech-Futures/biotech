@@ -3,10 +3,14 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
+from django.contrib.auth import authenticate, login
+from django.core.cache import cache
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema
 from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
@@ -23,8 +27,37 @@ from .serializers import (
 )
 from .utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
 
-from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema
+class PasswordLoginBodySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField()
+
+class PasswordLoginView(APIView):
+    """ Unified Session-based Password Login with Brute-Force lockout """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    
+    @extend_schema(request=PasswordLoginBodySerializer, responses={200: UserSerializer})
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+        
+        # Clean Code: Guard against Brute-Force
+        cache_key = f"pwd_login_attempts:{email}"
+        attempts = cache.get(cache_key, 0)
+        if attempts >= 5:
+            return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
+        user = authenticate(request, username=email, password=password)
+        
+        if user is not None:
+            if user.account_status in ['suspended', 'deactivated']:
+                return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
+            login(request, user) # Initiates Django Session
+            cache.delete(cache_key)
+            return Response(UserSerializer(user).data)
+        else:
+            cache.set(cache_key, attempts + 1, 300) # 5 min lockout
+            return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
 
 # Create your views here.
 #Issue 41
