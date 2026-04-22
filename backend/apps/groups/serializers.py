@@ -4,6 +4,8 @@ from .models import Countries, GroupMembership, Tracks, Groups
 from apps.users.models import User
 
 
+# Added (#3): explicit schema shape for the lead_user nested object so that drf-spectacular
+# renders a full object definition rather than a generic "string" or "{}".
 class LeadUserSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
@@ -48,6 +50,10 @@ class TrackSerializer(serializers.ModelSerializer):
 
 
 class GroupSerializer(serializers.ModelSerializer):
+    # Added (#3): the dashboard previously needed three separate requests
+    # (GET /groups/groups/, GET /groups/group-members/, GET /groups/tracks/) and still
+    # could not display a mentor name because group-members only returned a user ID.
+    # These four fields collapse those round-trips into a single groups response.
     track_name = serializers.CharField(source='track.track_name', read_only=True)
     member_count = serializers.SerializerMethodField()
     lead_name = serializers.SerializerMethodField()
@@ -55,7 +61,13 @@ class GroupSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
 
     def _get_mentor_membership(self, obj):
-        """Return the first active mentor membership, using prefetch when available."""
+        """Return the first active mentor membership, using the prefetch when available.
+
+        GroupViewSet.get_queryset() attaches a `mentor_memberships` list via Prefetch,
+        so the common list/retrieve path costs zero extra queries. The fallback live query
+        handles any code path that calls the serializer without the prefetch (e.g. tests,
+        admin, or write actions).
+        """
         if hasattr(obj, 'mentor_memberships'):
             memberships = obj.mentor_memberships
             return memberships[0] if memberships else None
@@ -68,6 +80,8 @@ class GroupSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_member_count(self, obj):
+        # Reads the `member_count` annotation added by GroupViewSet.get_queryset()
+        # when available; falls back to a live count for non-annotated paths.
         if hasattr(obj, 'member_count'):
             return obj.member_count
         return obj.groupmembership_set.filter(left_at__isnull=True).count()

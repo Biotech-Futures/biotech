@@ -35,7 +35,7 @@ INSTALLED_APPS = [
     'apps.user_sessions',
     'apps.matching_runtime',
     'apps.tasks',
-    'apps.dashboard',
+    'apps.dashboard',  # New app for dashboard-specific endpoints (#1, #2)
     'apps.workshops',
     'apps.certificates',
     'apps.services',
@@ -86,6 +86,9 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API Documentation for the New BIOTech Futures Mentoring Platform',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # Without this override, drf-spectacular generates a hashed name (e.g. RsvpStatusF6eEnum)
+    # when the same choice set appears in multiple serializers (EventRsvpSerializer and
+    # NextEventSerializer both expose rsvp_status). This pins the canonical schema name.
     'ENUM_NAME_OVERRIDES': {
         'RsvpStatusEnum': 'apps.events.models.EventRsvp.RsvpStatus',
     },

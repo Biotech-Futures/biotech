@@ -92,7 +92,16 @@ class GroupViewSet(viewsets.ModelViewSet):
         else:
             queryset = Groups.objects.filter(deleted_at__isnull=True).order_by("group_name", "id")
 
-        # Annotate member count and prefetch mentor memberships for lead_user/lead_name
+        # Added (#3): the three ORM operations below make the new GroupSerializer fields
+        # efficient for the list action without introducing N+1 queries.
+        #
+        # select_related('track')  — satisfies track_name with a single JOIN (no extra query).
+        # annotate(member_count)   — computes the active-membership count in the same SQL
+        #                            query using a conditional COUNT, not Python iteration.
+        # prefetch_related(…)      — fetches all active mentor memberships for the returned
+        #                            groups in one additional query and stores them as
+        #                            `mentor_memberships` on each Group instance, which
+        #                            GroupSerializer._get_mentor_membership() reads directly.
         queryset = queryset.select_related('track').annotate(
             member_count=Count(
                 'groupmembership',
@@ -109,7 +118,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
         )
 
-        # Filter to the current user's groups only
+        # Added (#3): ?mine=true lets the dashboard request only the current user's groups
+        # so the frontend does not have to download all groups and filter client-side.
         mine = (self.request.query_params.get('mine') or '').lower().strip()
         if mine == 'true':
             user_group_ids = GroupMembership.objects.filter(
@@ -118,7 +128,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             ).values_list('group_id', flat=True)
             queryset = queryset.filter(id__in=user_group_ids)
 
-        # Optional track filter
+        # Added (#3): ?track_id= allows admins and mentors to scope the group list to a
+        # single track without a separate tracks request.
         track_id = self.request.query_params.get('track_id')
         if track_id:
             queryset = queryset.filter(track_id=track_id)

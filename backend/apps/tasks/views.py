@@ -10,6 +10,11 @@ from django.db import transaction
 from drf_spectacular.utils import extend_schema
 
 
+# Bug fix (#4): the previous implementation passed the raw query string value directly to
+# the ORM (e.g. filter(deleted_flag="false")), which caused a 500 on PostgreSQL for any
+# casing other than exactly "True"/"False" because the DB adapter failed to coerce the string.
+# This helper normalises all common boolean representations before they reach the ORM and
+# raises HTTP 400 (not 500) for anything unrecognisable.
 def _parse_bool_param(value: str) -> bool:
     """Parse common boolean query string representations.
 
@@ -53,6 +58,9 @@ class TaskRetrieveUpdateView(generics.RetrieveUpdateAPIView):
             task.milestone = milestone
             task.save(update_fields=["milestone"])
 
+        # Keep `completed` and `status` in sync so either field can be patched independently.
+        # Patching `completed=true` drives status to DONE; patching `status=done` drives
+        # completed to True. This avoids the two fields diverging over time.
         if "completed" in data:
             task.completed = bool(data["completed"])
             new_status = Tasks.Status.DONE if task.completed else Tasks.Status.TODO
@@ -80,13 +88,21 @@ class MilestoneListHTMLView(generics.ListAPIView):
     pagination_class = TaskPagePagination
 
     def get_queryset(self):
+        # Order by sort_order first so milestones respect their explicit sequence,
+        # then fall back to id for stable ordering when sort_order values are equal.
         queryset = Milestone.objects.all().order_by('sort_order', 'id')
+
+        # Added (#1): lets the dashboard and frontend filter milestones per group
+        # without fetching all milestones and filtering client-side.
         group_id = self.request.query_params.get('group_id')
         if group_id is not None:
             queryset = queryset.filter(group_id=group_id)
+
+        # Uses the shared boolean parser for consistency with the task list endpoint (#4).
         deleted_param = self.request.query_params.get('deleted')
         if deleted_param is not None:
             queryset = queryset.filter(deleted_flag=_parse_bool_param(deleted_param))
+
         return queryset
 
 
@@ -102,6 +118,10 @@ class TaskListHTMLView(generics.ListAPIView):
     pagination_class = TaskPagePagination
 
     def get_queryset(self):
+        # select_related('milestone__group') satisfies TaskSerializer.get_group() with a
+        # single JOIN instead of per-row queries.
+        # prefetch_related('assignments__user') satisfies TaskSerializer.get_assignees()
+        # in two batched queries regardless of how many tasks are returned.
         queryset = Tasks.objects.select_related(
             'milestone__group'
         ).prefetch_related(
@@ -112,16 +132,20 @@ class TaskListHTMLView(generics.ListAPIView):
         if milestone_param is not None:
             queryset = queryset.filter(milestone=milestone_param)
 
+        # Added (#1): allows the dashboard to fetch tasks for a specific group directly,
+        # traversing the task → milestone → group FK chain in the ORM.
         group_id = self.request.query_params.get("group_id")
         if group_id is not None:
             queryset = queryset.filter(milestone__group_id=group_id)
 
-        # Robust boolean handling — fixes the 500 on lowercase "false"
+        # Bug fix (#4): replaced the raw string pass-through with _parse_bool_param so that
+        # any casing variant (false, False, 0, no …) works and invalid values return HTTP 400.
         delete_param = self.request.query_params.get("deleted")
         if delete_param is not None:
             queryset = queryset.filter(deleted_flag=_parse_bool_param(delete_param))
 
-        # Filter by the requesting user's assignee records
+        # Added (#1): ?assigned_to=me lets the dashboard fetch only the current user's tasks
+        # without the frontend having to know task IDs or filter a large list client-side.
         assigned_to = self.request.query_params.get("assigned_to")
         if assigned_to == "me" and self.request.user.is_authenticated:
             task_ids = TaskAssignees.objects.filter(

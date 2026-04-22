@@ -1,3 +1,9 @@
+"""
+Dashboard API views — new dedicated endpoints requested in DASHBOARD_API_REQUIREMENTS.pdf.
+
+#1  GET /dashboard/v1/progress/    — Progress Snapshot
+#2  GET /dashboard/v1/next-event/  — Personalized Next Event
+"""
 from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -18,8 +24,22 @@ class ProgressSnapshotView(APIView):
     GET /dashboard/v1/progress/
 
     Returns a progress snapshot for the authenticated user.
-    - Students: aggregates tasks/milestones across their active groups.
-    - Mentors/supervisors/admins: supports an optional ?group_id= filter.
+
+    Why a dedicated endpoint instead of enhancing existing task/milestone APIs:
+    The existing APIs return flat lists that the frontend has to aggregate itself.
+    Role-aware progress (student vs mentor) cannot be expressed through a simple
+    filter on the task list, and the frontend was approximating completion rate
+    by guessing from milestones because Tasks had no `completed` field.
+
+    Logic:
+    - Infers the user's groups from active GroupMembership rows unless ?group_id= is given.
+    - Loads all non-deleted milestones for those groups, ordered by sort_order then due_date.
+    - Counts total and completed tasks across those milestones.
+    - Reports the first incomplete milestone as the current stage and as the next milestone.
+    - Returns HTTP 200 with zeroed counts if the user has no group memberships.
+
+    Supported query params:
+      ?group_id=<int>  — Limit the snapshot to a single group (useful for mentors/admins).
     """
 
     permission_classes = [IsAuthenticated]
@@ -42,6 +62,8 @@ class ProgressSnapshotView(APIView):
         if group_id_param:
             group_ids = [group_id_param]
         else:
+            # Derive groups from the user's active memberships so the endpoint is
+            # role-aware without needing an explicit role parameter.
             group_ids = list(
                 GroupMembership.objects.filter(user=user, left_at__isnull=True)
                 .values_list('group_id', flat=True)
@@ -65,6 +87,8 @@ class ProgressSnapshotView(APIView):
                 'updated_at': timezone.now(),
             })
 
+        # sort_order is the primary sequence; due_date and id are tie-breakers so the
+        # result is stable even when sort_order values are equal or unset.
         milestones = Milestone.objects.filter(
             group_id__in=group_ids,
             deleted_flag=False,
@@ -78,13 +102,17 @@ class ProgressSnapshotView(APIView):
         )
         total_tasks = tasks.count()
         completed_tasks = tasks.filter(completed=True).count()
+        # Guard against division by zero for groups that have milestones but no tasks yet.
         completion_rate = round((completed_tasks / total_tasks) * 100) if total_tasks else 0
 
-        # Current stage = first incomplete milestone name (or 'Complete')
+        # current_stage is the name of the first milestone that still has work to do.
+        # "Complete" signals that every milestone in scope is marked done.
         current_milestone = milestones.filter(completed=False).first()
         current_stage = current_milestone.milestone_name if current_milestone else 'Complete'
 
-        # Next milestone = first incomplete milestone that has a due date set
+        # next_milestone is the earliest incomplete milestone that has a due_date set.
+        # Milestones without a due_date are excluded so the frontend always gets a
+        # displayable date or null rather than an empty object.
         next_ms = milestones.filter(completed=False, due_date__isnull=False).first()
         next_milestone_data = None
         if next_ms:
@@ -94,6 +122,8 @@ class ProgressSnapshotView(APIView):
                 'due_date': next_ms.due_date,
             }
 
+        # Collapse group_id to a single int only when exactly one group is in scope so
+        # the frontend knows whether the snapshot represents one group or many.
         scope_group_id = int(group_ids[0]) if len(group_ids) == 1 else None
 
         return Response({
@@ -117,12 +147,21 @@ class NextEventView(APIView):
     GET /dashboard/v1/next-event/
 
     Returns the single next upcoming event most relevant to the authenticated user.
-    Relevance is determined by:
-      - Events targeting a group the user belongs to (EventTargetGroup)
-      - Events on the user's track (Events.track)
-      - Events the user has an RSVP record for
 
-    Returns HTTP 204 if no relevant upcoming event is found.
+    Why a dedicated endpoint instead of enhancing GET /events/v1/:
+    The existing event list returns all upcoming events platform-wide. The dashboard
+    needs one event personalised to the current user — a student should see their
+    group's next session, not an event for a different track. Without audience filtering,
+    the frontend may show a technically valid event that is irrelevant to the user.
+
+    Relevance is determined by three OR conditions (any match qualifies):
+      1. Events targeting a group the user is an active member of (EventTargetGroup).
+      2. Events assigned to the user's track (Events.track FK).
+      3. Events the user has an existing RSVP record for (direct invitation).
+
+    Admin/staff users bypass the relevance filter and receive the next platform-wide event.
+
+    Returns HTTP 204 if no relevant upcoming event exists (not an error condition).
     """
 
     permission_classes = [IsAuthenticated]
@@ -139,16 +178,19 @@ class NextEventView(APIView):
             ends_datetime__gte=now,
         ).order_by('start_datetime')
 
-        # Admins see the next platform-wide event
+        # Admins are not scoped to a group or track, so skip relevance filtering.
         if user.is_staff:
             event = base_qs.first()
             if event is None:
                 return Response(None, status=status.HTTP_204_NO_CONTENT)
             return self._build_response(event, user)
 
+        # Build relevance filter conditions as a list of Q objects that are OR-combined
+        # below. Using a list instead of a single growing Q() avoids accidentally passing
+        # an empty Q() to filter(), which would return every event.
         filter_conditions = []
 
-        # Events that target a group the user is active in
+        # Condition 1: events targeting any group the user is currently a member of.
         user_group_ids = list(
             GroupMembership.objects.filter(user=user, left_at__isnull=True)
             .values_list('group_id', flat=True)
@@ -159,11 +201,11 @@ class NextEventView(APIView):
             ).values_list('event_id', flat=True)
             filter_conditions.append(Q(id__in=group_event_ids))
 
-        # Events on the user's assigned track
+        # Condition 2: events whose track matches the user's assigned track.
         if user.track_id:
             filter_conditions.append(Q(track_id=user.track_id))
 
-        # Events the user has an RSVP for
+        # Condition 3: events the user has already been invited to or RSVPed for.
         rsvp_event_ids = EventRsvp.objects.filter(user=user).values_list('event_id', flat=True)
         if rsvp_event_ids:
             filter_conditions.append(Q(id__in=rsvp_event_ids))
@@ -182,12 +224,19 @@ class NextEventView(APIView):
         return self._build_response(event, user)
 
     def _build_response(self, event, user):
+        """Resolve per-user context fields and serialise the event."""
+        # Look up the user's RSVP for this specific event; default to 'pending' if none
+        # exists (the user is relevant to the event but has not responded yet).
         rsvp = EventRsvp.objects.filter(event=event, user=user).first()
         rsvp_status = rsvp.rsvp_status if rsvp else 'pending'
 
+        # Events.group is not a direct FK — events target groups via EventTargetGroup.
+        # Return the first target group's id so the frontend can display group context.
         first_target_group = EventTargetGroup.objects.filter(event=event).first()
         group_id = first_target_group.group_id if first_target_group else None
 
+        # Both context values are injected rather than queried inside the serializer
+        # to keep the serializer stateless and avoid extra queries per serialization call.
         serializer = NextEventSerializer(
             event,
             context={'rsvp_status': rsvp_status, 'group_id': group_id},

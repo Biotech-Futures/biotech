@@ -10,6 +10,11 @@ class Milestone(models.Model):
     milestone_name = models.CharField(max_length=255)
     completed = models.BooleanField(default=False)
     deleted_flag = models.BooleanField(default=False)
+    # Added for Dashboard Progress Snapshot (#1):
+    # start_date and due_date allow the API to report next_milestone.due_date and
+    # to order milestones chronologically rather than by insertion order.
+    # sort_order provides an explicit display/processing sequence when dates are absent.
+    # All three are nullable so existing milestone rows are unaffected after migration.
     start_date = models.DateTimeField(null=True, blank=True)
     due_date = models.DateTimeField(null=True, blank=True)
     sort_order = models.IntegerField(default=0)
@@ -24,9 +29,10 @@ class Milestone(models.Model):
             models.Index(fields=['sort_order']),
             models.Index(fields=['due_date']),
         ]
-        
+
     def __str__(self):
         return f"Milestone: {self.milestone_name} (Group: {self.group})"
+
 
 class TaskAssignees(models.Model):
     task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="assignments")
@@ -37,7 +43,7 @@ class TaskAssignees(models.Model):
     class Meta:
         db_table = 'task_assignees'
         verbose_name = "Task Assignees"
-    
+
         indexes = [
                 # regular indexes
                 models.Index(fields=['task']),
@@ -58,7 +64,7 @@ class TaskAssignees(models.Model):
                     condition=Q(deleted_flag=False)
                 ),
             ]
-    
+
         constraints = [
             models.UniqueConstraint(
                 fields=(['task', 'user']),
@@ -69,7 +75,14 @@ class TaskAssignees(models.Model):
     def __str__(self):
         return f"TaskAssignee: {self.user} assigned to {self.task} at {self.assigned_datetime}"
 
+
 class Tasks(models.Model):
+    # Added for Dashboard Progress Snapshot (#1):
+    # The frontend previously had no way to know whether a task was finished
+    # because neither a boolean flag nor a status field existed on this model.
+    # `completed` is the fast boolean used for COUNT queries in the progress endpoint.
+    # `status` is the richer three-state value exposed in the task list response.
+    # The two fields are kept in sync by TaskRetrieveUpdateView.patch().
     class Status(models.TextChoices):
         TODO = 'todo', 'To Do'
         IN_PROGRESS = 'in_progress', 'In Progress'
@@ -100,4 +113,3 @@ class Tasks(models.Model):
 
     def __str__(self):
         return f"Task: {self.task_name} (Due: {self.due_date})"
-        

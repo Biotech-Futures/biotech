@@ -39,6 +39,7 @@ urlpatterns = [
     path("integrations/", include("apps.integrations.urls")),
     path("certificates/", include("apps.certificates.urls")),
 
+    # New dashboard endpoints (#1 progress snapshot, #2 next event)
     path("dashboard/", include("apps.dashboard.urls")),
 
     # Services (auth, email, etc)
