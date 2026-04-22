@@ -17,18 +17,18 @@ class TaskAssigneeSerializer(serializers.ModelSerializer):
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    # Added for Dashboard Progress Snapshot (#1):
-    # `assignees` was missing from the task list response — the frontend had no way to
-    # know which users a task belonged to without a separate request per task.
-    # `group` is derived from task → milestone → group so the frontend can filter tasks
-    # by group without knowing the milestone hierarchy.
+    # `status` is now the single source of truth for completion.
+    # `completed` has been removed — consumers should treat status == 'done' as complete.
+    # `deleted_at` replaces `deleted_flag`; null means active, a timestamp means deleted.
+    # `assignees` and `group` were added for the Dashboard Progress Snapshot (#1).
     assignees = serializers.SerializerMethodField()
     group = serializers.SerializerMethodField()
 
     @extend_schema_field(TaskAssigneeSerializer(many=True))
     def get_assignees(self, obj):
-        # Filters out soft-deleted assignments; relies on prefetch_related('assignments__user')
-        # set in TaskListHTMLView.get_queryset() to avoid N+1 queries.
+        # Filters out soft-deleted assignments (TaskAssignees still uses deleted_flag).
+        # Relies on prefetch_related('assignments__user') in TaskListHTMLView.get_queryset()
+        # to avoid N+1 queries.
         active_assignments = [a for a in obj.assignments.all() if not a.deleted_flag]
         return [
             {
@@ -52,18 +52,18 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Tasks
         fields = [
             "id", "task_name", "task_description", "due_date",
-            "deleted_flag", "completed", "status",
+            "deleted_at", "status",
             "milestone", "group", "assignees",
         ]
 
 
 class MilestoneSerializer(serializers.ModelSerializer):
-    # Added start_date, due_date, sort_order to expose the new model fields (#1).
-    # The frontend previously had to guess milestone order and could not display due dates.
+    # deleted_at replaces deleted_flag. start_date, due_date, sort_order were added
+    # for the Dashboard Progress Snapshot (#1).
     class Meta:
         model = Milestone
         fields = [
-            "id", "group", "milestone_name", "completed", "deleted_flag",
+            "id", "group", "milestone_name", "completed", "deleted_at",
             "start_date", "due_date", "sort_order",
         ]
 
@@ -77,4 +77,4 @@ class TaskCreateSerializer(serializers.ModelSerializer):
 class DeleteTaskResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tasks
-        fields = ["id", "task_name", "due_date", "deleted_flag", "milestone", "task_description"]
+        fields = ["id", "task_name", "due_date", "deleted_at", "milestone", "task_description"]

@@ -8,13 +8,14 @@ from django.db.models import Q
 class Milestone(models.Model):
     group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE)
     milestone_name = models.CharField(max_length=255)
+    # completed is milestone-level completion (distinct from individual task status)
     completed = models.BooleanField(default=False)
-    deleted_flag = models.BooleanField(default=False)
-    # Added for Dashboard Progress Snapshot (#1):
-    # start_date and due_date allow the API to report next_milestone.due_date and
-    # to order milestones chronologically rather than by insertion order.
-    # sort_order provides an explicit display/processing sequence when dates are absent.
-    # All three are nullable so existing milestone rows are unaffected after migration.
+    # deleted_at replaces deleted_flag: a null value means active; a timestamp means
+    # soft-deleted. This is consistent with the Groups model and avoids boolean ambiguity.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    # Added for Dashboard Progress Snapshot (#1): start_date and due_date allow the API
+    # to report next_milestone.due_date and order milestones chronologically.
+    # sort_order provides an explicit display sequence when dates are absent.
     start_date = models.DateTimeField(null=True, blank=True)
     due_date = models.DateTimeField(null=True, blank=True)
     sort_order = models.IntegerField(default=0)
@@ -25,10 +26,14 @@ class Milestone(models.Model):
         indexes = [
             models.Index(fields=['group']),
             models.Index(fields=['completed']),
-            models.Index(fields=['deleted_flag']),
+            models.Index(fields=['deleted_at']),
             models.Index(fields=['sort_order']),
             models.Index(fields=['due_date']),
         ]
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
 
     def __str__(self):
         return f"Milestone: {self.milestone_name} (Group: {self.group})"
@@ -77,23 +82,24 @@ class TaskAssignees(models.Model):
 
 
 class Tasks(models.Model):
-    # Added for Dashboard Progress Snapshot (#1):
-    # The frontend previously had no way to know whether a task was finished
-    # because neither a boolean flag nor a status field existed on this model.
-    # `completed` is the fast boolean used for COUNT queries in the progress endpoint.
-    # `status` is the richer three-state value exposed in the task list response.
-    # The two fields are kept in sync by TaskRetrieveUpdateView.patch().
+    # `status` is the single source of truth for task completion (#1 refactor).
+    # The dashboard and all consumers should treat status == DONE as "completed".
+    # `blocked` was added to represent tasks that cannot progress due to a dependency.
+    # The previous `completed` BooleanField has been removed — it was redundant with status.
     class Status(models.TextChoices):
         TODO = 'todo', 'To Do'
         IN_PROGRESS = 'in_progress', 'In Progress'
+        BLOCKED = 'blocked', 'Blocked'
         DONE = 'done', 'Done'
 
     task_name = models.CharField(max_length=255)
     due_date = models.DateTimeField()
-    deleted_flag = models.BooleanField(default=False)
+    # deleted_at replaces deleted_flag: null = active, timestamp = soft-deleted.
+    # Using a timestamp is consistent with Groups and Milestone, and preserves
+    # when the deletion happened without needing a separate audit field.
+    deleted_at = models.DateTimeField(null=True, blank=True)
     milestone = models.ForeignKey('Milestone', null=True, blank=True, on_delete=models.SET_NULL)
     task_description = models.CharField(max_length=255, blank=True, null=True)
-    completed = models.BooleanField(default=False)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -107,9 +113,13 @@ class Tasks(models.Model):
         indexes = [
             models.Index(fields=['due_date']),
             models.Index(fields=['milestone']),
-            models.Index(fields=['completed']),
             models.Index(fields=['status']),
+            models.Index(fields=['deleted_at']),
         ]
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
 
     def __str__(self):
         return f"Task: {self.task_name} (Due: {self.due_date})"

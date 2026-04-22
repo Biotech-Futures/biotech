@@ -29,7 +29,7 @@ class ProgressSnapshotView(APIView):
     The existing APIs return flat lists that the frontend has to aggregate itself.
     Role-aware progress (student vs mentor) cannot be expressed through a simple
     filter on the task list, and the frontend was approximating completion rate
-    by guessing from milestones because Tasks had no `completed` field.
+    by guessing from milestones because Tasks had no `status` field.
 
     Logic:
     - Infers the user's groups from active GroupMembership rows unless ?group_id= is given.
@@ -91,17 +91,18 @@ class ProgressSnapshotView(APIView):
         # result is stable even when sort_order values are equal or unset.
         milestones = Milestone.objects.filter(
             group_id__in=group_ids,
-            deleted_flag=False,
+            deleted_at__isnull=True,
         ).order_by('sort_order', 'due_date', 'id')
 
         milestone_ids = list(milestones.values_list('id', flat=True))
 
         tasks = Tasks.objects.filter(
             milestone_id__in=milestone_ids,
-            deleted_flag=False,
+            deleted_at__isnull=True,
         )
         total_tasks = tasks.count()
-        completed_tasks = tasks.filter(completed=True).count()
+        # status == DONE is the single source of truth for task completion.
+        completed_tasks = tasks.filter(status=Tasks.Status.DONE).count()
         # Guard against division by zero for groups that have milestones but no tasks yet.
         completion_rate = round((completed_tasks / total_tasks) * 100) if total_tasks else 0
 

@@ -36,44 +36,42 @@ class TaskFixtureMixin:
             start_date=timezone.now(),
         )
 
+        # active_task: not deleted, status=todo
         self.active_task = Tasks.objects.create(
             task_name="Active task",
             due_date=timezone.now() + timezone.timedelta(days=3),
             milestone=self.milestone,
-            deleted_flag=False,
-            completed=False,
             status=Tasks.Status.TODO,
         )
+        # deleted_task: soft-deleted via deleted_at timestamp
         self.deleted_task = Tasks.objects.create(
             task_name="Deleted task",
             due_date=timezone.now() + timezone.timedelta(days=5),
             milestone=self.milestone,
-            deleted_flag=True,
-            completed=False,
-            status=Tasks.Status.TODO,
+            deleted_at=timezone.now(),
         )
+        # done_task: completed via status, not deleted
         self.done_task = Tasks.objects.create(
             task_name="Done task",
             due_date=timezone.now() + timezone.timedelta(days=1),
             milestone=self.milestone,
-            deleted_flag=False,
-            completed=True,
             status=Tasks.Status.DONE,
         )
 
 
 # ---------------------------------------------------------------------------
-# #4 – Boolean query parameter bug fix
+# #4 – Boolean query parameter (now drives deleted_at__isnull lookup)
 # ---------------------------------------------------------------------------
 
 class TaskBooleanFilterTests(TaskFixtureMixin, APITestCase):
     """
     Regression tests for the ?deleted= query parameter on GET /tasks/api/v1/tasks/.
 
-    Before the fix, passing lowercase 'false' caused a 500 because Django's
-    PostgreSQL adapter could not coerce an arbitrary string to boolean.
-    After the fix, all common casing variants are accepted and invalid values
-    return HTTP 400 instead of 500.
+    `deleted=false` → deleted_at__isnull=True  (active tasks only)
+    `deleted=true`  → deleted_at__isnull=False (soft-deleted tasks only)
+
+    Before the fix, passing any lowercase value caused a 500. After the fix,
+    all common casing variants are accepted and invalid values return HTTP 400.
     """
 
     def setUp(self):
@@ -85,10 +83,10 @@ class TaskBooleanFilterTests(TaskFixtureMixin, APITestCase):
         results = data.get("results", data) if isinstance(data, dict) else data
         return [row["id"] for row in results]
 
-    # --- Values that should resolve to deleted_flag=False ---
+    # --- Values that should return only active (not deleted) tasks ---
 
     def test_deleted_false_lowercase(self):
-        """?deleted=false (lowercase) must work — was the original 500 trigger."""
+        """?deleted=false must return only active tasks — was the original 500 trigger."""
         response = self.client.get(self.url, {"deleted": "false"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = self._ids(response)
@@ -96,7 +94,6 @@ class TaskBooleanFilterTests(TaskFixtureMixin, APITestCase):
         self.assertNotIn(self.deleted_task.id, ids)
 
     def test_deleted_False_capital(self):
-        """?deleted=False (original casing) must continue to work."""
         response = self.client.get(self.url, {"deleted": "False"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn(self.deleted_task.id, self._ids(response))
@@ -111,7 +108,7 @@ class TaskBooleanFilterTests(TaskFixtureMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn(self.deleted_task.id, self._ids(response))
 
-    # --- Values that should resolve to deleted_flag=True ---
+    # --- Values that should return only soft-deleted tasks ---
 
     def test_deleted_true_lowercase(self):
         response = self.client.get(self.url, {"deleted": "true"})
@@ -158,14 +155,16 @@ class TaskBooleanFilterTests(TaskFixtureMixin, APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# #1 – New task fields: completed, status, group, assignees
+# #1 – Task fields: status (single source of truth), group, assignees
 # ---------------------------------------------------------------------------
 
 class TaskNewFieldsTests(TaskFixtureMixin, APITestCase):
     """
-    Tests that TaskSerializer exposes the new fields added for the Progress
-    Snapshot requirement: completed, status, group (derived from milestone),
-    and assignees (from TaskAssignees).
+    Tests that TaskSerializer exposes the correct fields after the refactor:
+    - `status` is the single source of truth (completed boolean removed)
+    - `deleted_at` replaces `deleted_flag`
+    - `group` derived from milestone FK
+    - `assignees` list from TaskAssignees
     """
 
     def setUp(self):
@@ -178,23 +177,47 @@ class TaskNewFieldsTests(TaskFixtureMixin, APITestCase):
         results = data.get("results", data) if isinstance(data, dict) else data
         return next((r for r in results if r["id"] == task_id), None)
 
-    def test_response_includes_completed_field(self):
-        row = self._get_task(self.active_task.id)
-        self.assertIsNotNone(row)
-        self.assertIn("completed", row)
-        self.assertFalse(row["completed"])
-
     def test_response_includes_status_field(self):
         row = self._get_task(self.active_task.id)
+        self.assertIsNotNone(row)
+        self.assertIn("status", row)
         self.assertEqual(row["status"], Tasks.Status.TODO)
 
-    def test_done_task_has_correct_completed_and_status(self):
+    def test_completed_field_removed_from_response(self):
+        """The redundant `completed` boolean must no longer appear in the response."""
+        row = self._get_task(self.active_task.id)
+        self.assertNotIn("completed", row)
+
+    def test_deleted_flag_removed_from_response(self):
+        """deleted_flag must no longer appear; deleted_at takes its place."""
+        row = self._get_task(self.active_task.id)
+        self.assertNotIn("deleted_flag", row)
+
+    def test_deleted_at_present_and_null_for_active_task(self):
+        row = self._get_task(self.active_task.id)
+        self.assertIn("deleted_at", row)
+        self.assertIsNone(row["deleted_at"])
+
+    def test_deleted_at_present_and_set_for_deleted_task(self):
+        row = self._get_task(self.deleted_task.id)
+        self.assertIn("deleted_at", row)
+        self.assertIsNotNone(row["deleted_at"])
+
+    def test_done_task_has_status_done(self):
         row = self._get_task(self.done_task.id)
-        self.assertTrue(row["completed"])
         self.assertEqual(row["status"], Tasks.Status.DONE)
 
+    def test_blocked_status_is_a_valid_choice(self):
+        blocked = Tasks.objects.create(
+            task_name="Blocked task",
+            due_date=timezone.now() + timezone.timedelta(days=2),
+            milestone=self.milestone,
+            status=Tasks.Status.BLOCKED,
+        )
+        row = self._get_task(blocked.id)
+        self.assertEqual(row["status"], Tasks.Status.BLOCKED)
+
     def test_response_includes_group_derived_from_milestone(self):
-        """group field should contain the milestone's group id."""
         row = self._get_task(self.active_task.id)
         self.assertEqual(row["group"], self.group.id)
 
@@ -231,12 +254,11 @@ class TaskNewFieldsTests(TaskFixtureMixin, APITestCase):
 # ---------------------------------------------------------------------------
 
 class TaskListFilterTests(TaskFixtureMixin, APITestCase):
-    """Tests for the new ?assigned_to=me and ?group_id= filters."""
+    """Tests for the ?assigned_to=me and ?group_id= filters."""
 
     def setUp(self):
         self._create_fixtures()
         self.url = "/tasks/api/v1/tasks/"
-        # Assign active_task to self.user only
         TaskAssignees.objects.create(task=self.active_task, user=self.user)
 
     def _ids(self, response):
@@ -278,48 +300,75 @@ class TaskListFilterTests(TaskFixtureMixin, APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# #1 – PATCH keeps completed and status in sync
+# #1 – PATCH only updates status (no completed sync needed)
 # ---------------------------------------------------------------------------
 
-class TaskPatchSyncTests(TaskFixtureMixin, APITestCase):
+class TaskPatchStatusTests(TaskFixtureMixin, APITestCase):
     """
-    Patching `completed` must update `status` and vice versa so the two fields
-    never diverge in the database.
+    `status` is now the single source of truth. Patching it is the only
+    supported way to change task completion state.
     """
 
     def setUp(self):
         self._create_fixtures()
 
-    def test_patch_completed_true_sets_status_done(self):
-        url = f"/tasks/api/v1/tasks/{self.active_task.id}/"
-        response = self.client.patch(url, {"completed": True}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.active_task.refresh_from_db()
-        self.assertTrue(self.active_task.completed)
-        self.assertEqual(self.active_task.status, Tasks.Status.DONE)
-
-    def test_patch_completed_false_sets_status_todo(self):
-        url = f"/tasks/api/v1/tasks/{self.done_task.id}/"
-        response = self.client.patch(url, {"completed": False}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.done_task.refresh_from_db()
-        self.assertFalse(self.done_task.completed)
-        self.assertEqual(self.done_task.status, Tasks.Status.TODO)
-
-    def test_patch_status_done_sets_completed_true(self):
+    def test_patch_status_to_done(self):
         url = f"/tasks/api/v1/tasks/{self.active_task.id}/"
         response = self.client.patch(url, {"status": "done"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.active_task.refresh_from_db()
-        self.assertTrue(self.active_task.completed)
         self.assertEqual(self.active_task.status, Tasks.Status.DONE)
 
-    def test_patch_status_todo_sets_completed_false(self):
+    def test_patch_status_to_in_progress(self):
+        url = f"/tasks/api/v1/tasks/{self.done_task.id}/"
+        response = self.client.patch(url, {"status": "in_progress"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.done_task.refresh_from_db()
+        self.assertEqual(self.done_task.status, Tasks.Status.IN_PROGRESS)
+
+    def test_patch_status_to_blocked(self):
+        url = f"/tasks/api/v1/tasks/{self.active_task.id}/"
+        response = self.client.patch(url, {"status": "blocked"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.active_task.refresh_from_db()
+        self.assertEqual(self.active_task.status, Tasks.Status.BLOCKED)
+
+    def test_patch_status_to_todo(self):
         url = f"/tasks/api/v1/tasks/{self.done_task.id}/"
         response = self.client.patch(url, {"status": "todo"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.done_task.refresh_from_db()
-        self.assertFalse(self.done_task.completed)
+        self.assertEqual(self.done_task.status, Tasks.Status.TODO)
+
+    def test_response_does_not_contain_completed_field(self):
+        url = f"/tasks/api/v1/tasks/{self.active_task.id}/"
+        response = self.client.patch(url, {"status": "done"}, format="json")
+        self.assertNotIn("completed", response.json())
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete via deleted_at
+# ---------------------------------------------------------------------------
+
+class TaskSoftDeleteTests(TaskFixtureMixin, APITestCase):
+    """Verifies that the delete endpoint stamps deleted_at instead of toggling deleted_flag."""
+
+    def setUp(self):
+        self._create_fixtures()
+
+    def test_delete_stamps_deleted_at(self):
+        url = f"/tasks/api/v1/tasks/delete/{self.active_task.id}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.active_task.refresh_from_db()
+        self.assertIsNotNone(self.active_task.deleted_at)
+
+    def test_deleted_task_excluded_by_deleted_false_filter(self):
+        url_delete = f"/tasks/api/v1/tasks/delete/{self.active_task.id}/"
+        self.client.delete(url_delete)
+        response = self.client.get("/tasks/api/v1/tasks/", {"deleted": "false"})
+        ids = [r["id"] for r in response.json().get("results", response.json())]
+        self.assertNotIn(self.active_task.id, ids)
 
 
 # ---------------------------------------------------------------------------
@@ -328,8 +377,8 @@ class TaskPatchSyncTests(TaskFixtureMixin, APITestCase):
 
 class MilestoneTests(TaskFixtureMixin, APITestCase):
     """
-    Tests that MilestoneSerializer exposes start_date, due_date, sort_order
-    and that the ?group_id= filter works on the milestone list endpoint.
+    Tests that MilestoneSerializer exposes start_date, due_date, sort_order,
+    deleted_at and that the ?group_id= filter works on the milestone list endpoint.
     """
 
     def setUp(self):
@@ -354,6 +403,11 @@ class MilestoneTests(TaskFixtureMixin, APITestCase):
     def test_milestone_list_includes_sort_order(self):
         row = self._get_milestone(self.milestone.id)
         self.assertEqual(row["sort_order"], 10)
+
+    def test_milestone_response_uses_deleted_at_not_deleted_flag(self):
+        row = self._get_milestone(self.milestone.id)
+        self.assertIn("deleted_at", row)
+        self.assertNotIn("deleted_flag", row)
 
     def test_milestone_group_id_filter(self):
         other_group = Groups.objects.create(group_name="Other Group", track=self.track)
@@ -381,3 +435,13 @@ class MilestoneTests(TaskFixtureMixin, APITestCase):
         results = data.get("results", data) if isinstance(data, dict) else data
         ids = [r["id"] for r in results]
         self.assertLess(ids.index(ms_low.id), ids.index(ms_high.id))
+
+    def test_milestone_deleted_false_filter(self):
+        soft_deleted_ms = Milestone.objects.create(
+            group=self.group, milestone_name="Deleted MS",
+            sort_order=99, deleted_at=timezone.now()
+        )
+        response = self.client.get(self.url, {"deleted": "false"})
+        ids = [r["id"] for r in response.json().get("results", response.json())]
+        self.assertNotIn(soft_deleted_ms.id, ids)
+        self.assertIn(self.milestone.id, ids)

@@ -58,18 +58,17 @@ class DashboardFixtureMixin:
             due_date=timezone.now() + timezone.timedelta(days=14),
         )
 
+        # status is now the single source of truth — no completed field
         self.task_todo = Tasks.objects.create(
             task_name="Task A",
             due_date=timezone.now() + timezone.timedelta(days=3),
             milestone=self.milestone,
-            completed=False,
             status=Tasks.Status.TODO,
         )
         self.task_done = Tasks.objects.create(
             task_name="Task B",
             due_date=timezone.now() + timezone.timedelta(days=4),
             milestone=self.milestone,
-            completed=True,
             status=Tasks.Status.DONE,
         )
 
@@ -82,8 +81,9 @@ class ProgressSnapshotTests(DashboardFixtureMixin, APITestCase):
     """
     Tests for the new Progress Snapshot endpoint.
 
-    Covers authentication, group derivation, completion rate calculation,
-    next_milestone population, group_id parameter, and edge cases.
+    Covers authentication, group derivation, completion rate calculation
+    (using status==done as the completion signal), next_milestone population,
+    group_id parameter, and edge cases.
     """
 
     def setUp(self):
@@ -107,7 +107,7 @@ class ProgressSnapshotTests(DashboardFixtureMixin, APITestCase):
             self.assertIn(field, data, msg=f"Missing field: {field}")
 
     def test_completion_rate_calculated_correctly(self):
-        """1 of 2 tasks done → 50 %."""
+        """1 of 2 tasks with status=done → 50 %."""
         self.client.force_authenticate(user=self.user)
         data = self.client.get(self.url).json()
         self.assertEqual(data["completed_tasks"], 1)
@@ -182,10 +182,12 @@ class ProgressSnapshotTests(DashboardFixtureMixin, APITestCase):
             group=other_group, milestone_name="Other MS", sort_order=1,
             due_date=timezone.now() + timezone.timedelta(days=5),
         )
+        # Task with status=done in another group — must not bleed into scoped snapshot
         Tasks.objects.create(
             task_name="Other task",
             due_date=timezone.now() + timezone.timedelta(days=5),
-            milestone=other_ms, completed=True,
+            milestone=other_ms,
+            status=Tasks.Status.DONE,
         )
         GroupMembership.objects.create(
             group=other_group, user=self.user, membership_role="member"
@@ -204,16 +206,16 @@ class ProgressSnapshotTests(DashboardFixtureMixin, APITestCase):
         self.assertEqual(scope["track_id"], self.track.id)
 
     def test_deleted_tasks_excluded_from_counts(self):
+        """Tasks with deleted_at set must not count toward total_tasks."""
         Tasks.objects.create(
             task_name="Ghost task",
             due_date=timezone.now() + timezone.timedelta(days=1),
             milestone=self.milestone,
-            completed=False,
-            deleted_flag=True,
+            deleted_at=timezone.now(),
         )
         self.client.force_authenticate(user=self.user)
         data = self.client.get(self.url).json()
-        # Deleted task must not inflate total_tasks
+        # Soft-deleted task must not inflate total_tasks beyond the 2 active ones
         self.assertEqual(data["total_tasks"], 2)
 
 

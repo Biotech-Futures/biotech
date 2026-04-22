@@ -1,4 +1,5 @@
 from django.shortcuts import render, get_object_or_404
+from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from rest_framework.pagination import PageNumberPagination
@@ -12,9 +13,10 @@ from drf_spectacular.utils import extend_schema
 
 # Bug fix (#4): the previous implementation passed the raw query string value directly to
 # the ORM (e.g. filter(deleted_flag="false")), which caused a 500 on PostgreSQL for any
-# casing other than exactly "True"/"False" because the DB adapter failed to coerce the string.
-# This helper normalises all common boolean representations before they reach the ORM and
-# raises HTTP 400 (not 500) for anything unrecognisable.
+# casing other than exactly "True"/"False".
+# Now that Tasks and Milestone use deleted_at (a DateTimeField), the parsed boolean drives
+# a __isnull lookup instead: True → deleted_at__isnull=False (deleted), False → isnull=True.
+# This helper stays in place to normalise and validate all common string representations.
 def _parse_bool_param(value: str) -> bool:
     """Parse common boolean query string representations.
 
@@ -58,19 +60,10 @@ class TaskRetrieveUpdateView(generics.RetrieveUpdateAPIView):
             task.milestone = milestone
             task.save(update_fields=["milestone"])
 
-        # Keep `completed` and `status` in sync so either field can be patched independently.
-        # Patching `completed=true` drives status to DONE; patching `status=done` drives
-        # completed to True. This avoids the two fields diverging over time.
-        if "completed" in data:
-            task.completed = bool(data["completed"])
-            new_status = Tasks.Status.DONE if task.completed else Tasks.Status.TODO
-            task.status = new_status
-            task.save(update_fields=["completed", "status"])
-
+        # status is the single source of truth — no completed field to sync.
         if "status" in data:
             task.status = data["status"]
-            task.completed = data["status"] == Tasks.Status.DONE
-            task.save(update_fields=["status", "completed"])
+            task.save(update_fields=["status"])
 
         return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
 
@@ -98,10 +91,12 @@ class MilestoneListHTMLView(generics.ListAPIView):
         if group_id is not None:
             queryset = queryset.filter(group_id=group_id)
 
-        # Uses the shared boolean parser for consistency with the task list endpoint (#4).
+        # ?deleted=false → deleted_at__isnull=True (active records only)
+        # ?deleted=true  → deleted_at__isnull=False (soft-deleted records only)
         deleted_param = self.request.query_params.get('deleted')
         if deleted_param is not None:
-            queryset = queryset.filter(deleted_flag=_parse_bool_param(deleted_param))
+            is_deleted = _parse_bool_param(deleted_param)
+            queryset = queryset.filter(deleted_at__isnull=not is_deleted)
 
         return queryset
 
@@ -138,11 +133,12 @@ class TaskListHTMLView(generics.ListAPIView):
         if group_id is not None:
             queryset = queryset.filter(milestone__group_id=group_id)
 
-        # Bug fix (#4): replaced the raw string pass-through with _parse_bool_param so that
-        # any casing variant (false, False, 0, no …) works and invalid values return HTTP 400.
+        # Bug fix (#4) + refactor: ?deleted=false → deleted_at__isnull=True (active only).
+        # Accepts all common boolean string variants; returns HTTP 400 for invalid values.
         delete_param = self.request.query_params.get("deleted")
         if delete_param is not None:
-            queryset = queryset.filter(deleted_flag=_parse_bool_param(delete_param))
+            is_deleted = _parse_bool_param(delete_param)
+            queryset = queryset.filter(deleted_at__isnull=not is_deleted)
 
         # Added (#1): ?assigned_to=me lets the dashboard fetch only the current user's tasks
         # without the frontend having to know task IDs or filter a large list client-side.
@@ -168,6 +164,7 @@ class DeleteTaskView(APIView):
     def delete(self, request, *args, **kwargs):
         task_id = kwargs.get("pk")
         task = get_object_or_404(Tasks, pk=task_id)
-        task.deleted_flag = True
-        task.save()
+        # Soft-delete by stamping the current time; deleted_at__isnull=True means active.
+        task.deleted_at = timezone.now()
+        task.save(update_fields=["deleted_at"])
         return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
