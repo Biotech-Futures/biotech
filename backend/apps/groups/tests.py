@@ -409,6 +409,191 @@ class GroupMemberApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+# ---------------------------------------------------------------------------
+# #3 – Group preview enhancements: new serializer fields + mine/track_id filters
+# ---------------------------------------------------------------------------
+
+class GroupPreviewFieldsTests(TestCase):
+    """
+    Tests for the new fields added to GroupSerializer:
+      track_name, member_count, lead_name, lead_user, status.
+    These fields remove the need for the frontend to make separate requests to
+    /groups/tracks/ and /groups/group-members/ just to build the group list.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            email="preview@test.com", password="pass", first_name="Preview", last_name="User"
+        )
+        self.mentor_user = get_user_model().objects.create_user(
+            email="mentor@test.com", password="pass", first_name="Anna", last_name="Mentor"
+        )
+        from apps.users.models import MentorProfile
+        MentorProfile.objects.create(
+            user=self.mentor_user, institution="Uni", mentor_reason="Help", max_group_count=2
+        )
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="VIC")
+        self.track = Tracks.objects.create(track_name="AUS-VIC", state=self.state)
+        self.group = Groups.objects.create(group_name="Preview Group", track=self.track)
+
+        # Add a regular member and a mentor
+        GroupMembership.objects.create(
+            group=self.group, user=self.user, membership_role="member"
+        )
+        GroupMembership.objects.create(
+            group=self.group, user=self.mentor_user, membership_role="mentor"
+        )
+        self.url = reverse("groups-list")
+
+    def _get_group_row(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+        data = response.json()
+        results = data.get("results", data) if isinstance(data, dict) else data
+        return next((r for r in results if r["id"] == self.group.id), None)
+
+    def test_track_name_is_present_in_response(self):
+        row = self._get_group_row()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["track_name"], "AUS-VIC")
+
+    def test_member_count_reflects_active_memberships(self):
+        row = self._get_group_row()
+        # Two active memberships (member + mentor)
+        self.assertEqual(row["member_count"], 2)
+
+    def test_member_count_excludes_left_members(self):
+        left_user = get_user_model().objects.create_user(
+            email="left@test.com", password="pass", first_name="Left", last_name="User"
+        )
+        # joined_at must be strictly before left_at to satisfy the DB check constraint
+        # "group_membership_left_after_joined" (left_at >= joined_at).
+        GroupMembership.objects.create(
+            group=self.group, user=left_user, membership_role="member",
+            joined_at=timezone.now() - timezone.timedelta(seconds=1),
+            left_at=timezone.now(),
+        )
+        row = self._get_group_row()
+        # left_user must not be counted
+        self.assertEqual(row["member_count"], 2)
+
+    def test_lead_name_returns_mentor_full_name(self):
+        row = self._get_group_row()
+        self.assertEqual(row["lead_name"], "Anna Mentor")
+
+    def test_lead_user_returns_mentor_object(self):
+        row = self._get_group_row()
+        lead = row["lead_user"]
+        self.assertIsNotNone(lead)
+        self.assertEqual(lead["id"], self.mentor_user.id)
+        self.assertEqual(lead["email"], self.mentor_user.email)
+        self.assertEqual(lead["role"], "Mentor")
+
+    def test_lead_name_and_lead_user_null_when_no_mentor(self):
+        no_mentor_group = Groups.objects.create(
+            group_name="No Mentor Group", track=self.track
+        )
+        GroupMembership.objects.create(
+            group=no_mentor_group, user=self.user, membership_role="member"
+        )
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+        data = response.json()
+        results = data.get("results", data) if isinstance(data, dict) else data
+        row = next((r for r in results if r["id"] == no_mentor_group.id), None)
+        self.assertIsNotNone(row)
+        self.assertIsNone(row["lead_name"])
+        self.assertIsNone(row["lead_user"])
+
+    def test_status_active_for_non_deleted_group(self):
+        row = self._get_group_row()
+        self.assertEqual(row["status"], "active")
+
+    def test_status_deleted_for_soft_deleted_group(self):
+        admin = get_user_model().objects.create_user(
+            email="admin2@test.com", password="pass", is_staff=True
+        )
+        self.group.deleted_at = timezone.now()
+        self.group.save(update_fields=["deleted_at"])
+        self.client.force_authenticate(user=admin)
+        response = self.client.get(self.url + "?include_deleted=true")
+        data = response.json()
+        results = data.get("results", data) if isinstance(data, dict) else data
+        row = next((r for r in results if r["id"] == self.group.id), None)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "deleted")
+
+
+class GroupMineFilterTests(TestCase):
+    """Tests for the new ?mine=true query parameter on GET /groups/groups/."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = get_user_model().objects.create_user(
+            email="mine@test.com", password="pass", first_name="Mine", last_name="User"
+        )
+        self.other_user = get_user_model().objects.create_user(
+            email="other@test.com", password="pass", first_name="Other", last_name="User"
+        )
+
+        country = Countries.objects.create(country_name="Brazil")
+        state = CountryStates.objects.create(country=country, state_name="Brazil")
+        self.track = Tracks.objects.create(track_name="Brazil", state=state)
+
+        self.my_group = Groups.objects.create(group_name="My Group", track=self.track)
+        self.other_group = Groups.objects.create(group_name="Other Group", track=self.track)
+
+        GroupMembership.objects.create(group=self.my_group, user=self.user, membership_role="member")
+        GroupMembership.objects.create(group=self.other_group, user=self.other_user, membership_role="member")
+        self.url = reverse("groups-list")
+
+    def _ids(self, response):
+        data = response.json()
+        results = data.get("results", data) if isinstance(data, dict) else data
+        return [r["id"] for r in results]
+
+    def test_mine_true_returns_only_users_groups(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url, {"mine": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = self._ids(response)
+        self.assertIn(self.my_group.id, ids)
+        self.assertNotIn(self.other_group.id, ids)
+
+    def test_without_mine_returns_all_groups(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = self._ids(response)
+        self.assertIn(self.my_group.id, ids)
+        self.assertIn(self.other_group.id, ids)
+
+    def test_mine_true_excludes_groups_user_has_left(self):
+        """A membership with left_at set must not be returned by mine=true."""
+        GroupMembership.objects.filter(
+            group=self.my_group, user=self.user
+        ).update(left_at=timezone.now())
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url, {"mine": "true"})
+        self.assertNotIn(self.my_group.id, self._ids(response))
+
+    def test_track_id_filter(self):
+        country2 = Countries.objects.create(country_name="Canada")
+        state2 = CountryStates.objects.create(country=country2, state_name="Canada")
+        other_track = Tracks.objects.create(track_name="Canada", state=state2)
+        other_track_group = Groups.objects.create(group_name="Canada Group", track=other_track)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url, {"track_id": self.track.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = self._ids(response)
+        self.assertIn(self.my_group.id, ids)
+        self.assertNotIn(other_track_group.id, ids)
+
+
 class TrackApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
