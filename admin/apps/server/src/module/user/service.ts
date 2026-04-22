@@ -1,6 +1,7 @@
 import db from "@/lib/db.js";
 import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
+  adminUser,
   areasOfInterest,
   groupMembership,
   groups,
@@ -57,7 +58,10 @@ const normalizeInterestDescriptions = (interests: string[] | undefined) =>
     new Set((interests ?? []).map((item) => item.trim()).filter(Boolean)),
   );
 
-async function resolveInterestIds(executor: any, interests: string[] | undefined) {
+async function resolveInterestIds(
+  executor: any,
+  interests: string[] | undefined,
+) {
   const descriptions = normalizeInterestDescriptions(interests);
   const ids: number[] = [];
 
@@ -65,7 +69,9 @@ async function resolveInterestIds(executor: any, interests: string[] | undefined
     const existing = await executor
       .select({ id: areasOfInterest.id })
       .from(areasOfInterest)
-      .where(sql`lower(${areasOfInterest.interestDesc}) = lower(${description})`);
+      .where(
+        sql`lower(${areasOfInterest.interestDesc}) = lower(${description})`,
+      );
 
     if (existing[0]) {
       ids.push(existing[0].id);
@@ -143,7 +149,9 @@ async function deleteStudentDetails(executor: any, userId: number) {
   await executor
     .delete(studentInterest)
     .where(eq(studentInterest.studentUserId, userId));
-  await executor.delete(studentProfile).where(eq(studentProfile.userId, userId));
+  await executor
+    .delete(studentProfile)
+    .where(eq(studentProfile.userId, userId));
 }
 
 const userSelect = {
@@ -154,7 +162,9 @@ const userSelect = {
   role: roles.slug,
   track: tracks.trackCode,
   groupName: groups.groupName,
-  schoolName: sql<string | null>`COALESCE(${studentProfile.schoolName}, ${supervisorProfile.schoolName})`,
+  schoolName: sql<
+    string | null
+  >`COALESCE(${studentProfile.schoolName}, ${supervisorProfile.schoolName})`,
   yearLevel: studentProfile.yearLevel,
   joinPermissionReceived: studentProfile.joinPermissionReceived,
   interests: sql<string[]>`COALESCE(
@@ -183,10 +193,7 @@ function baseUserQuery() {
     .leftJoin(tracks, eq(tracks.id, users.trackId))
     .leftJoin(
       groupMembership,
-      and(
-        eq(groupMembership.userId, users.id),
-        isNull(groupMembership.leftAt),
-      ),
+      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
     )
     .leftJoin(groups, eq(groups.id, groupMembership.groupId))
     .leftJoin(studentProfile, eq(studentProfile.userId, users.id))
@@ -288,10 +295,16 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
       return { msg: "School is required for student users", data: null };
     }
     if (!input.yearLevel) {
-      return { msg: "Age / year level is required for student users", data: null };
+      return {
+        msg: "Age / year level is required for student users",
+        data: null,
+      };
     }
     if (!input.interests?.length) {
-      return { msg: "At least one interest is required for student users", data: null };
+      return {
+        msg: "At least one interest is required for student users",
+        data: null,
+      };
     }
   }
 
@@ -309,10 +322,36 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
   if (roleRow.length === 0)
     return { msg: `Role "${input.role}" not found`, data: null };
 
+  if (input.role === "admin") {
+    const existingAdmin = await db
+      .select({ id: adminUser.id })
+      .from(adminUser)
+      .where(eq(adminUser.email, input.email));
+    if (existingAdmin.length > 0) {
+      return { msg: "Admin account email already exists", data: null };
+    }
+  }
+
   const now = new Date().toISOString();
   const userId = generateId();
 
   await db.transaction(async (tx) => {
+    let resolvedAdminUserId = adminUserId;
+
+    if (input.role === "admin") {
+      const newAdminUserId = String(generateId());
+      await tx.insert(adminUser).values({
+        id: newAdminUserId,
+        name: `${input.firstName} ${input.lastName}`.trim(),
+        email: input.email,
+        role: "admin",
+        emailVerified: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      resolvedAdminUserId = newAdminUserId;
+    }
+
     await tx.insert(users).values({
       id: userId,
       email: input.email,
@@ -322,7 +361,7 @@ export async function createUser(input: CreateUserInput, adminUserId: string) {
       trackId: trackRow[0].id,
       accountStatus: input.active === false ? "deactivated" : "active",
       invitedAt: now,
-      adminUserId,
+      adminUserId: resolvedAdminUserId,
     });
 
     await tx.insert(userRoleAssignment).values({
@@ -387,10 +426,16 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       return { msg: "School is required for student users", data: null };
     }
     if (!nextYearLevel) {
-      return { msg: "Age / year level is required for student users", data: null };
+      return {
+        msg: "Age / year level is required for student users",
+        data: null,
+      };
     }
     if (!nextInterests?.length) {
-      return { msg: "At least one interest is required for student users", data: null };
+      return {
+        msg: "At least one interest is required for student users",
+        data: null,
+      };
     }
   }
 
@@ -448,7 +493,11 @@ export async function updateUser(id: string, input: UpdateUserInput) {
           joinPermissionReceived:
             input.joinPermissionReceived ?? existing.joinPermissionReceived,
         });
-        await syncStudentInterests(tx, userId, input.interests ?? existing.interests);
+        await syncStudentInterests(
+          tx,
+          userId,
+          input.interests ?? existing.interests,
+        );
       } else if (existing.role === "student") {
         await deleteStudentDetails(tx, userId);
       }
@@ -490,7 +539,9 @@ export async function deleteUser(id: string) {
   await db
     .delete(userRoleAssignment)
     .where(eq(userRoleAssignment.userId, userId));
-  await db.delete(studentInterest).where(eq(studentInterest.studentUserId, userId));
+  await db
+    .delete(studentInterest)
+    .where(eq(studentInterest.studentUserId, userId));
   await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
   await db
     .delete(supervisorProfile)

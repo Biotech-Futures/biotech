@@ -24,7 +24,7 @@ export const auth = betterAuth({
   plugins: [
     admin(),
     magicLink({
-      // disableSignUp: true,
+      disableSignUp: true,
       sendMagicLink: async ({ email, token, url, metadata }, ctx) => {
         const html = `
           <div style="background:#f4f7fb;padding:32px 16px;font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
