@@ -1,0 +1,136 @@
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
+from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.users.models import AdminScope
+
+
+User = get_user_model()
+
+
+class DashboardNextEventApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.primary_track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
+        self.secondary_track = Tracks.objects.create(track_name="AUS-ALT", state=self.state)
+        self.student_role = Roles.objects.create(role_name="student")
+        self.mentor_role = Roles.objects.create(role_name="mentor")
+        self.supervisor_role = Roles.objects.create(role_name="supervisor")
+        self.url = reverse("dashboard-next-event")
+
+    def _assign_role(self, user, role):
+        now = timezone.now()
+        RoleAssignmentHistory.objects.create(
+            user=user,
+            role=role,
+            valid_from=now - timedelta(minutes=5),
+            valid_to=now + timedelta(days=30),
+        )
+
+    def _create_event(self, name, *, start_in_days, track=None, is_virtual=True):
+        start = timezone.now() + timedelta(days=start_in_days)
+        return Events.objects.create(
+            event_name=name,
+            track=track,
+            start_datetime=start,
+            ends_datetime=start + timedelta(hours=1),
+            is_virtual=is_virtual,
+        )
+
+    def test_student_skips_mentor_only_event_and_returns_group_event(self):
+        student = User.objects.create_user(
+            email="student@test.com",
+            password="pass123",
+            first_name="Stu",
+            last_name="Dent",
+            track=self.primary_track,
+        )
+        self._assign_role(student, self.student_role)
+        group = Groups.objects.create(group_name="BTF046", track=self.primary_track)
+        GroupMembership.objects.create(group=group, user=student, membership_role="student")
+
+        mentor_only = self._create_event("Mentor Sync", start_in_days=1, track=self.primary_track)
+        EventTargetRole.objects.create(event=mentor_only, role=self.mentor_role)
+
+        group_event = self._create_event("Group Check-in", start_in_days=2, track=self.primary_track)
+        EventTargetGroup.objects.create(event=group_event, group=group)
+
+        self.client.force_authenticate(user=student)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["event_name"], "Group Check-in")
+        self.assertEqual(sorted(response.data.keys()), ["event_name", "id", "is_virtual", "link", "location", "start_datetime"])
+
+    def test_mentor_invite_overrides_track_and_group_targeting(self):
+        mentor = User.objects.create_user(
+            email="mentor@test.com",
+            password="pass123",
+            first_name="Men",
+            last_name="Tor",
+            track=self.primary_track,
+        )
+        self._assign_role(mentor, self.mentor_role)
+        group = Groups.objects.create(group_name="Mentor Group", track=self.primary_track)
+        GroupMembership.objects.create(group=group, user=mentor, membership_role="mentor")
+
+        invited_event = self._create_event("Special Invite", start_in_days=1, track=self.secondary_track)
+        EventRsvp.objects.create(event=invited_event, user=mentor, rsvp_status=EventRsvp.RsvpStatus.PENDING)
+
+        group_event = self._create_event("Regular Group Event", start_in_days=2, track=self.primary_track)
+        EventTargetGroup.objects.create(event=group_event, group=group)
+
+        self.client.force_authenticate(user=mentor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["event_name"], "Special Invite")
+        self.assertEqual(response.data["id"], invited_event.id)
+
+    def test_track_scoped_admin_sees_platform_wide_event_before_other_track_event(self):
+        admin = User.objects.create_user(
+            email="scoped-admin@test.com",
+            password="pass123",
+            first_name="Scoped",
+            last_name="Admin",
+        )
+        AdminScope.objects.create(user=admin, track=self.primary_track, is_global=False)
+
+        self._create_event("Other Track Event", start_in_days=1, track=self.secondary_track)
+        platform_event = self._create_event("Platform Event", start_in_days=2, track=None)
+        self._create_event("Primary Track Event", start_in_days=3, track=self.primary_track)
+
+        self.client.force_authenticate(user=admin)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["event_name"], platform_event.event_name)
+        self.assertIsNone(response.data["location"])
+
+    def test_returns_204_when_user_has_no_relevant_upcoming_event(self):
+        supervisor = User.objects.create_user(
+            email="supervisor@test.com",
+            password="pass123",
+            first_name="Super",
+            last_name="Visor",
+            track=self.primary_track,
+        )
+        self._assign_role(supervisor, self.supervisor_role)
+
+        other_track_event = self._create_event("Other Track Event", start_in_days=1, track=self.secondary_track)
+        EventTargetRole.objects.create(event=other_track_event, role=self.mentor_role)
+
+        self.client.force_authenticate(user=supervisor)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     'apps.announcements',
     'apps.audit',
     'apps.integrations',
+    'apps.dashboard',
     'apps.events',
     'apps.user_sessions',
     'apps.matching_runtime',
