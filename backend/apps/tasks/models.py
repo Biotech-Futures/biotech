@@ -27,7 +27,7 @@ class TaskAssignees(models.Model):
     task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="assignments")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_assignees")
     assigned_datetime = models.DateTimeField(default=timezone.now)
-    deleted_flag = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'task_assignees'
@@ -40,12 +40,12 @@ class TaskAssignees(models.Model):
             models.Index(
                 name='ta_active_by_task',
                 fields=['task'],
-                condition=Q(deleted_flag=False)
+                condition=Q(deleted_at__isnull=True)
             ),
             models.Index(
                 name='ta_active_by_user',
                 fields=['user'],
-                condition=Q(deleted_flag=False)
+                condition=Q(deleted_at__isnull=True)
             ),
         ]
 

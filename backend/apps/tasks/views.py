@@ -5,6 +5,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from django.db import transaction
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 
 from .filters import MilestoneFilter, TaskFilter
@@ -86,6 +87,6 @@ class DeleteTaskView(APIView):
     def delete(self, request, *args, **kwargs):
         task_id = kwargs.get("pk")
         task = get_object_or_404(Tasks, pk=task_id)
-        task.deleted_flag = True
-        task.save()
+        task.deleted_at = timezone.now()
+        task.save(update_fields=["deleted_at"])
         return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
