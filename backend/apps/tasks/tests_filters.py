@@ -40,7 +40,7 @@ class _TaskFixture:
         self.deleted_task = Tasks.objects.create(
             task_name="Deleted", milestone=self.milestone,
             due_date=timezone.now() + timezone.timedelta(days=2),
-            deleted_flag=True,
+            deleted_at=timezone.now(),
         )
 
 
@@ -53,8 +53,8 @@ class FlexibleDeletedFilterUnitTests(TestCase):
     Tests FlexibleDeletedFilter.filter() in isolation — no HTTP, no views.
 
     Verifies three contract points:
-      a) truthy variants   → deleted_flag=True
-      b) falsy variants    → deleted_flag=False
+      a) truthy variants   → deleted_at__isnull=False
+      b) falsy variants    → deleted_at__isnull=True
       c) invalid strings   → raises ValidationError (would become HTTP 400)
     """
 
@@ -71,46 +71,46 @@ class FlexibleDeletedFilterUnitTests(TestCase):
         Tasks.objects.create(
             task_name="Deleted", milestone=ms,
             due_date=timezone.now() + timezone.timedelta(days=2),
-            deleted_flag=True,
+            deleted_at=timezone.now(),
         )
-        self.f = FlexibleDeletedFilter(field_name='deleted_flag')
+        self.f = FlexibleDeletedFilter(field_name='deleted_at')
         self.qs = Tasks.objects.all()
 
     # --- truthy variants → show only deleted rows ---
 
     def test_true_returns_deleted_only(self):
         result = self.f.filter(self.qs, 'true')
-        self.assertTrue(all(t.deleted_flag is True for t in result))
+        self.assertTrue(all(t.deleted_at is not None for t in result))
 
     def test_True_capital_returns_deleted_only(self):
         result = self.f.filter(self.qs, 'True')
-        self.assertTrue(all(t.deleted_flag is True for t in result))
+        self.assertTrue(all(t.deleted_at is not None for t in result))
 
     def test_1_returns_deleted_only(self):
         result = self.f.filter(self.qs, '1')
-        self.assertTrue(all(t.deleted_flag is True for t in result))
+        self.assertTrue(all(t.deleted_at is not None for t in result))
 
     def test_yes_returns_deleted_only(self):
         result = self.f.filter(self.qs, 'yes')
-        self.assertTrue(all(t.deleted_flag is True for t in result))
+        self.assertTrue(all(t.deleted_at is not None for t in result))
 
     # --- falsy variants → show only active rows ---
 
     def test_false_returns_active_only(self):
         result = self.f.filter(self.qs, 'false')
-        self.assertTrue(all(t.deleted_flag is False for t in result))
+        self.assertTrue(all(t.deleted_at is None for t in result))
 
     def test_False_capital_returns_active_only(self):
         result = self.f.filter(self.qs, 'False')
-        self.assertTrue(all(t.deleted_flag is False for t in result))
+        self.assertTrue(all(t.deleted_at is None for t in result))
 
     def test_0_returns_active_only(self):
         result = self.f.filter(self.qs, '0')
-        self.assertTrue(all(t.deleted_flag is False for t in result))
+        self.assertTrue(all(t.deleted_at is None for t in result))
 
     def test_no_returns_active_only(self):
         result = self.f.filter(self.qs, 'no')
-        self.assertTrue(all(t.deleted_flag is False for t in result))
+        self.assertTrue(all(t.deleted_at is None for t in result))
 
     # --- empty / None → no filter applied ---
 
@@ -243,7 +243,7 @@ class MilestoneListBooleanFilterViewTests(_TaskFixture, APITestCase):
         group = self.milestone.group
         self.deleted_milestone = Milestone.objects.create(
             group=group, milestone_name="Deleted MS",
-            deleted_flag=True,
+            deleted_at=timezone.now(),
         )
         self.factory = APIRequestFactory()
         self.view = MilestoneListHTMLView.as_view()
