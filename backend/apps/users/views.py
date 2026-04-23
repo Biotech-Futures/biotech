@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.contrib.auth import authenticate, login
 from django.core.cache import cache
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, status, serializers
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
@@ -47,11 +47,14 @@ class PasswordLoginView(APIView):
         if attempts >= 5:
             return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
             
+        user_obj = User.objects.filter(email=email).first()
+        if user_obj and user_obj.check_password(password):
+            if user_obj.account_status in ['suspended', 'deactivated']:
+                return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
+            
         user = authenticate(request, username=email, password=password)
         
         if user is not None:
-            if user.account_status in ['suspended', 'deactivated']:
-                return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
             login(request, user) # Initiates Django Session
             cache.delete(cache_key)
             return Response(UserSerializer(user).data)

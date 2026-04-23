@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from .models import Groups, GroupMembership, CountryStates, Tracks, Countries
+from apps.groups.models import Groups, GroupMembership, CountryStates, Tracks, Countries
 
 
 class GroupsTests(TestCase):

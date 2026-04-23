@@ -145,3 +145,58 @@ class AdminWorkflowApiTests(TestCase):
         self.assertEqual(response.data["groups_without_mentor"], 1)
         self.assertEqual(response.data["unassigned_match_recommendations"], 1)
         self.assertGreaterEqual(response.data["upcoming_events"], 1)
+
+
+class AuthUnificationTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()  # Prevent brute force limits from spilling across unit tests
+        self.client = APIClient()
+        self.user_email = "testauth@example.com"
+        self.user_pass = "SecurePass123"
+        self.target_user = User.objects.create_user(
+            email=self.user_email,
+            password=self.user_pass,
+            first_name="Auth",
+            last_name="Test",
+            account_status=User.AccountStatus.ACTIVE
+        )
+
+    def test_password_login_success_creates_session(self):
+        response = self.client.post(
+            reverse("password-login"),
+            {"email": self.user_email, "password": self.user_pass},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Verify Django session cookie is attached in response
+        self.assertTrue(self.client.session.session_key is not None)
+
+    def test_password_login_fails_brute_force_lockout(self):
+        # 5 consecutive failures
+        for _ in range(5):
+            self.client.post(
+                reverse("password-login"),
+                {"email": self.user_email, "password": "WrongPassword"},
+                format="json"
+            )
+        
+        # 6th attempt should be 429 Too Many Requests
+        response = self.client.post(
+            reverse("password-login"),
+            {"email": self.user_email, "password": self.user_pass},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_password_login_fails_inactive_account(self):
+        self.target_user.account_status = User.AccountStatus.DEACTIVATED
+        self.target_user.is_active = False
+        self.target_user.save(update_fields=["account_status", "is_active"])
+
+        response = self.client.post(
+            reverse("password-login"),
+            {"email": self.user_email, "password": self.user_pass},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
