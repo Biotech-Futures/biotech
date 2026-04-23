@@ -53,7 +53,7 @@ def _build_payload(event):
         "event_name": event.event_name,
         "start_datetime": event.start_datetime,
         "location": event.location,
-        "link": event.humanitix_link,
+        "link": event.link,
         "is_virtual": event.is_virtual,
     }
 
