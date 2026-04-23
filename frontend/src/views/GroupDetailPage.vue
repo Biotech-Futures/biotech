@@ -1,19 +1,25 @@
 <template>
-  <div class="content-area group-detail" :data-active="activeTab">
-    <!-- 顶部信息 -->
-    <div class="gd-head">
-      <div class="gd-head-left">
-        <div class="group-avatars">
-          <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">YG</div>
-        </div>
-        <div>
-          <h2 class="gd-title">{{ group.name }}</h2>
-          <p class="gd-subtitle">{{ group.members }} members · Group since August 04, 2025</p>
+  <div
+    class="content-area group-detail"
+    :class="themeStore.isDayMode ? 'group-detail--day' : 'group-detail--night'"
+    :data-active="activeTab"
+  >
+    <!-- Header -->
+    <div class="group-hero-card">
+      <div class="gd-head">
+        <div class="gd-head-left">
+          <div class="group-avatars">
+            <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">YG</div>
+          </div>
+          <div>
+            <h2 class="gd-title">{{ group.name }}</h2>
+            <p class="gd-subtitle">{{ group.members }} members · Group since August 04, 2025</p>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 移动端 Tabs（桌面隐藏） -->
+    <!-- Mobile tabs (hidden on desktop) -->
     <nav class="mobile-tabs">
       <button
         class="tab-btn"
@@ -31,9 +37,9 @@
       </button>
     </nav>
 
-    <!-- 桌面：双栏；移动：单栏由 tabs 切换 -->
+    <!-- Desktop: two columns; mobile: single column via tabs -->
     <div class="split" :data-active="activeTab">
-      <!-- 左栏：Plan -->
+      <!-- Left column: Plan -->
       <section class="pane pane--plan card">
         <div class="card-header">
           <h3 class="card-title">Plan</h3>
@@ -82,10 +88,10 @@
         </div>
       </section>
 
-      <!-- 右栏：Discussion -->
+      <!-- Right column: Discussion -->
       <section class="pane pane--discussion">
         <div class="chat-container">
-          <!-- 讨论区头部改为白色 -->
+          <!-- Discussion header -->
           <div class="chat-header">
             <h3 style="margin:0;">Discussion Board</h3>
             <span v-if="isLoadingMessages" class="chat-status">Loading...</span>
@@ -146,10 +152,12 @@ import { ref, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { mockGroups } from '../data/mock.js'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 import { buildSessionHeaders } from '@/utils/csrf'
 
 const route = useRoute()
 const auth = useAuthStore()
+const themeStore = useThemeStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const rawGroupId = route.params.id ? String(route.params.id) : ''
 const group = ref(mockGroups.find(g => String(g.id) === rawGroupId) || mockGroups[0])
@@ -593,6 +601,361 @@ onMounted(async () => {
   .split .pane { display: none; }
   .split[data-active="plan"] .pane--plan { display: block; }
   .split[data-active="discussion"] .pane--discussion { display: block; }
+  .card {
+    min-height: 220px;
+  }
+}
+.group-detail {
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  overflow: visible;
+  padding: 1.5rem 1.2rem 3rem;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 10% 8%, var(--page-glow-one), transparent 26%),
+    radial-gradient(circle at 86% 12%, var(--page-glow-two), transparent 24%),
+    radial-gradient(circle at 68% 84%, var(--page-glow-three), transparent 26%);
+}
+
+.group-detail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--group-shell-backdrop);
+}
+
+.group-detail--night {
+  --text-primary: #f2fff7;
+  --text-secondary: #b8d8c8;
+  --text-muted: #84a997;
+  --text-link: #8ee7c0;
+  --surface-base: rgba(6, 18, 12, 0.82);
+  --surface-elevated: rgba(8, 22, 16, 0.90);
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent-blue: #60a5fa;
+  --accent-teal: #2dd4bf;
+  --accent-violet: #a78bfa;
+  --accent-amber: #fbbf24;
+  --accent-rose: #f87171;
+  --shadow-lg: 0 24px 64px rgba(0, 6, 2, 0.52);
+  --shadow-md: 0 14px 38px rgba(0, 6, 2, 0.40);
+  --shadow-sm: 0 8px 22px rgba(0, 6, 2, 0.30);
+  --page-glow-one: rgba(96, 165, 250, 0.14);
+  --page-glow-two: rgba(45, 212, 191, 0.12);
+  --page-glow-three: rgba(167, 139, 250, 0.10);
+  --group-shell-backdrop: linear-gradient(135deg, #060c1a, #0a1224);
+}
+
+.group-detail--day {
+  --text-primary: #1a3818;
+  --text-secondary: #3a5e2c;
+  --text-muted: #5e8040;
+  --text-link: #265c3c;
+  --surface-base: rgba(182, 214, 142, 0.84);
+  --surface-elevated: rgba(196, 226, 158, 0.94);
+  --surface-soft: rgba(80, 140, 40, 0.08);
+  --border-default: rgba(70, 120, 30, 0.16);
+  --border-strong: rgba(70, 120, 30, 0.24);
+  --accent-blue: #2a6048;
+  --accent-teal: #1f8a6a;
+  --accent-violet: #7450c6;
+  --accent-amber: #6a9820;
+  --accent-rose: #b74d7e;
+  --shadow-lg: 0 26px 72px rgba(30, 70, 14, 0.16);
+  --shadow-md: 0 18px 42px rgba(30, 70, 14, 0.12);
+  --hero-overlay-a: rgba(196, 222, 162, 0.96);
+  --hero-overlay-b: rgba(180, 210, 144, 0.84);
+  --group-shell-backdrop: linear-gradient(180deg, #d4eac0 0%, #c8e0b2 52%, #bcd6a4 100%);
+  --page-glow-one: rgba(80, 180, 50, 0.13);
+  --page-glow-two: rgba(100, 180, 80, 0.09);
+  --page-glow-three: rgba(60, 160, 80, 0.08);
+}
+
+.group-hero-card {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+  border-radius: 28px;
+  padding: 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+}
+
+.group-detail--night .group-hero-card {
+  background: linear-gradient(145deg, rgba(6, 18, 12, 0.92), rgba(7, 16, 11, 0.78));
+  border-color: rgba(255, 255, 255, 0.13);
+}
+
+.group-detail--day .group-hero-card {
+  background: linear-gradient(145deg, rgba(210, 234, 174, 0.94), rgba(198, 222, 158, 0.82));
+  border-color: rgba(90, 148, 50, 0.22);
+  box-shadow: 0 24px 64px rgba(30, 70, 14, 0.18), inset 0 1px 0 rgba(240, 255, 220, 0.70);
+}
+
+.group-detail--night .group-hero-card::before,
+.group-detail--night .group-hero-card::after,
+.group-detail--day .group-hero-card::before,
+.group-detail--day .group-hero-card::after {
+  content: '';
+  position: absolute;
+  width: 52%;
+  height: 72%;
+  border-radius: 999px;
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+.group-detail--night .group-hero-card::before,
+.group-detail--day .group-hero-card::before {
+  top: -35%;
+  left: -6%;
+}
+
+.group-detail--night .group-hero-card::after,
+.group-detail--day .group-hero-card::after {
+  right: -8%;
+  bottom: -32%;
+  width: 46%;
+}
+
+.group-detail--night .group-hero-card::before {
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.22), transparent 66%);
+}
+
+.group-detail--night .group-hero-card::after {
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.18), transparent 68%);
+}
+
+.group-detail--day .group-hero-card::before {
+  background: radial-gradient(circle, rgba(190, 154, 88, 0.18), transparent 66%);
+}
+
+.group-detail--day .group-hero-card::after {
+  background: radial-gradient(circle, rgba(92, 138, 128, 0.14), transparent 68%);
+}
+
+.gd-head {
+  position: relative;
+  z-index: 1;
+  padding: 1.35rem 1.45rem 1.4rem;
+  border-radius: 28px;
+  margin-bottom: 0;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transition:
+    background 0.28s ease,
+    border-color 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.group-detail--night .gd-head {
+  background: linear-gradient(155deg, rgba(13, 30, 20, 0.94), rgba(9, 23, 16, 0.88));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 18px 42px rgba(0, 8, 3, 0.18);
+}
+
+.group-detail--day .gd-head {
+  background: linear-gradient(155deg, rgba(243, 250, 236, 0.94), rgba(232, 243, 223, 0.90));
+  border: 1px solid rgba(90, 148, 40, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 16px 36px rgba(18, 31, 21, 0.08);
+}
+
+.gd-title {
+  font-size: clamp(2rem, 3vw, 2.9rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text-primary);
+}
+
+.gd-subtitle {
+  margin-top: 0.28rem;
+  font-size: 0.98rem;
+  color: var(--text-secondary);
+}
+
+.card {
+  position: relative;
+  border-radius: 28px;
+  border: 1px solid var(--border-default);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface-elevated) 92%, transparent),
+    color-mix(in srgb, var(--surface-base) 96%, transparent)
+  );
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transition:
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    transform 0.28s ease;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-teal) 14%, transparent), transparent 32%),
+    radial-gradient(circle at bottom right, color-mix(in srgb, var(--accent-blue) 10%, transparent), transparent 30%);
+  opacity: 0.9;
+}
+
+.card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.card-title {
+  color: var(--text-primary);
+}
+
+.chat-status {
+  color: var(--text-secondary);
+}
+
+.chat-alert {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent-amber) 16%, transparent);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.pane--discussion .chat-container {
+  position: relative;
+  border-radius: 28px;
+  border: 1px solid var(--border-default);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface-elevated) 92%, transparent),
+    color-mix(in srgb, var(--surface-base) 96%, transparent)
+  );
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  overflow: hidden;
+}
+
+.pane--discussion .chat-header {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.pane--discussion .chat-header h3 {
+  color: var(--text-primary);
+}
+
+.pane--discussion .chat-messages {
+  background: transparent;
+}
+
+.pane--discussion .chat-input {
+  background: transparent;
+  border-top: 1px solid var(--border-default);
+}
+
+.chat-input-field {
+  background: color-mix(in srgb, var(--surface-base) 82%, transparent);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.chat-input-field::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-input-field:focus {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-teal) 12%, transparent);
+}
+
+.chat-btn {
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  color: var(--text-primary);
+}
+
+.chat-btn:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface-elevated) 100%, transparent);
+}
+
+.chat-btn:disabled,
+.chat-btn:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.48;
+  border-color: var(--border-default);
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+}
+
+.group-detail--day .card,
+.group-detail--day .pane--discussion .chat-container {
+  background: linear-gradient(165deg, rgba(196, 226, 158, 0.94), rgba(182, 214, 142, 0.84));
+  border-color: rgba(70, 120, 30, 0.16);
+}
+
+.group-detail--night .card,
+.group-detail--night .pane--discussion .chat-container {
+  background: linear-gradient(165deg, rgba(8, 22, 16, 0.92), rgba(6, 18, 12, 0.86));
+  border-color: rgba(255, 255, 255, 0.09);
+}
+
+.group-detail--night .card-title,
+.group-detail--night .pane--discussion .chat-header h3,
+.group-detail--night .milestone-title,
+.group-detail--night .task-label {
+  color: #ecf7f2 !important;
+}
+
+.group-detail--night .milestone-status,
+.group-detail--night .message-date,
+.group-detail--night .message-time {
+  color: rgba(214, 232, 223, 0.72) !important;
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+    max-height: 80vh;
+    height: 80vh;
+  }
+
+  .mobile-tabs {
+    display: flex;
+  }
+
+  .split .pane {
+    display: none;
+  }
+
+  .split[data-active="plan"] .pane--plan,
+  .split[data-active="discussion"] .pane--discussion {
+    display: block;
+  }
+
   .card {
     min-height: 220px;
   }
