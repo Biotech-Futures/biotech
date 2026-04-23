@@ -134,3 +134,18 @@ class DashboardNextEventApiTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_summary_returns_authenticated_user_summary(self):
+        user = User.objects.create_user(
+            email="summary@test.com",
+            password="pass123",
+            first_name="Dash",
+            last_name="Board",
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get(reverse("dashboard-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"], user.email)
+        self.assertEqual(response.data["stats"], {"tasks": 0, "events": 0, "groups": 0})

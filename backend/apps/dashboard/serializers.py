@@ -8,3 +8,8 @@ class DashboardNextEventSerializer(serializers.Serializer):
     location = serializers.CharField(allow_null=True, allow_blank=True)
     link = serializers.URLField(allow_null=True, allow_blank=True)
     is_virtual = serializers.BooleanField()
+
+
+class DashboardSummarySerializer(serializers.Serializer):
+    user = serializers.CharField()
+    stats = serializers.DictField()

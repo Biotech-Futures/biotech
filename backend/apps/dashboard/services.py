@@ -154,3 +154,20 @@ def get_personalized_next_event(user):
             return payload
 
     return None
+
+
+def get_dashboard_summary(user):
+    """
+    All dashboard business logic lives here.
+    Views must never compute data directly.
+    """
+    user_identifier = getattr(user, "username", None) or user.email
+
+    return {
+        "user": user_identifier,
+        "stats": {
+            "tasks": 0,
+            "events": 0,
+            "groups": 0,
+        }
+    }
