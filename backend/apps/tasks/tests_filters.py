@@ -1,20 +1,8 @@
-"""
-Unit and integration tests for Bug Fix #4 — robust boolean query parameter handling.
-
-Two test layers:
-  1. FlexibleDeletedFilterUnitTests  — pure unit tests on the filter class itself.
-     No database, no HTTP. Calls filter.filter(qs, value) directly.
-
-  2. TaskListBooleanFilterViewTests  — view-level tests using APIRequestFactory
-     against views_new.TaskListHTMLView and MilestoneListHTMLView directly,
-     without routing through urls.py.
-"""
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory, APITestCase
 
 from apps.groups.models import Countries, CountryStates, Groups, Tracks
@@ -64,9 +52,9 @@ class FlexibleDeletedFilterUnitTests(TestCase):
     """
     Tests FlexibleDeletedFilter.filter() in isolation — no HTTP, no views.
 
-    Verifies the three contract points of bug fix #4:
-      a) truthy variants   → deleted_at__isnull=False
-      b) falsy variants    → deleted_at__isnull=True
+    Verifies three contract points:
+      a) truthy variants   → deleted_flag=True
+      b) falsy variants    → deleted_flag=False
       c) invalid strings   → raises ValidationError (would become HTTP 400)
     """
 
@@ -85,7 +73,7 @@ class FlexibleDeletedFilterUnitTests(TestCase):
             due_date=timezone.now() + timezone.timedelta(days=2),
             deleted_flag=True,
         )
-        self.f = FlexibleDeletedFilter(field_name='deleted_at')
+        self.f = FlexibleDeletedFilter(field_name='deleted_flag')
         self.qs = Tasks.objects.all()
 
     # --- truthy variants → show only deleted rows ---
@@ -158,16 +146,11 @@ class FlexibleDeletedFilterUnitTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Layer 2 — view-level tests via APIRequestFactory (views_new.py)
+# Layer 2 — view-level tests via APIRequestFactory
 # ---------------------------------------------------------------------------
 
 class TaskListBooleanFilterViewTests(_TaskFixture, APITestCase):
-    """
-    Tests TaskListHTMLView from views_new.py through APIRequestFactory.
-
-    The view is called directly (not via URL routing) so these tests are
-    specific to views_new.py and do not depend on urls.py being wired up.
-    """
+    """Tests TaskListHTMLView through APIRequestFactory."""
 
     def setUp(self):
         self._create_fixtures()
@@ -176,7 +159,6 @@ class TaskListBooleanFilterViewTests(_TaskFixture, APITestCase):
 
     def _get(self, params=None):
         request = self.factory.get('/fake/', params or {})
-        # Force auth so AllowAny permission does not block
         request.user = self.user
         return self.view(request)
 
@@ -254,14 +236,10 @@ class TaskListBooleanFilterViewTests(_TaskFixture, APITestCase):
 
 
 class MilestoneListBooleanFilterViewTests(_TaskFixture, APITestCase):
-    """
-    Tests MilestoneListHTMLView from views_new.py through APIRequestFactory.
-    Confirms the same FlexibleDeletedFilter applies to the milestone endpoint.
-    """
+    """Tests MilestoneListHTMLView through APIRequestFactory."""
 
     def setUp(self):
         self._create_fixtures()
-        # Add a soft-deleted milestone alongside the active one
         group = self.milestone.group
         self.deleted_milestone = Milestone.objects.create(
             group=group, milestone_name="Deleted MS",
