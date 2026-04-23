@@ -29,6 +29,7 @@ urlpatterns = [
 
     # Legacy URL structure (kept for backwards compatibility)
     path("users/", include("apps.users.urls")),
+    path("dashboard/", include("apps.dashboard.urls")),
     path("events/", include("apps.events.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("groups/", include("apps.groups.urls")),
@@ -50,5 +51,4 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),  
 ]
-
 

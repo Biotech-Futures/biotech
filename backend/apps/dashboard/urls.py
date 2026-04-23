@@ -1,7 +1,12 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
-from .views import DashboardViewSet
+
+from .views import DashboardNextEventView, DashboardViewSet
 
 router = DefaultRouter()
-router.register(r'', DashboardViewSet, basename='dashboard')
+router.register("", DashboardViewSet, basename="dashboard")
 
-urlpatterns = router.urls
+urlpatterns = [
+    *router.urls,
+    path("next-event/", DashboardNextEventView.as_view(), name="dashboard-next-event"),
+]
