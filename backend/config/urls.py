@@ -25,6 +25,7 @@ urlpatterns = [
 
     # API v1 endpoints
     path("api/v1/", include("apps.users.urls")),
+    path("dashboard/v1/", include("apps.dashboard.urls")),
 
     # Legacy URL structure (kept for backwards compatibility)
     path("users/", include("apps.users.urls")),
