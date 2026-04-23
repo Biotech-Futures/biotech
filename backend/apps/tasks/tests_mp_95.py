@@ -202,6 +202,11 @@ class TaskListBooleanFilterViewTests(_TaskFixture, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn(self.deleted_task.id, self._ids(response))
 
+    def test_deleted_False_capital_returns_active_only(self):
+        response = self._get({'deleted': 'False'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(self.deleted_task.id, self._ids(response))
+
     # --- truthy → deleted only ---
 
     def test_deleted_true_returns_deleted_only(self):
@@ -218,6 +223,11 @@ class TaskListBooleanFilterViewTests(_TaskFixture, APITestCase):
 
     def test_deleted_yes_returns_deleted_only(self):
         response = self._get({'deleted': 'yes'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(self.deleted_task.id, self._ids(response))
+
+    def test_deleted_True_capital_returns_deleted_only(self):
+        response = self._get({'deleted': 'True'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(self.deleted_task.id, self._ids(response))
 
