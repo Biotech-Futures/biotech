@@ -86,9 +86,9 @@ class UserListHTMLView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = User.objects.select_related("track", "track__state").order_by("id")
-        is_active_param = self.request.query_params.get("is_active")
-        if is_active_param is not None:
-            queryset = queryset.filter(is_active=is_active_param.lower() in {"1", "true", "yes"})
+        account_status_param = self.request.query_params.get("account_status")
+        if account_status_param is not None:
+            queryset = queryset.filter(account_status=account_status_param.lower())
         email_param = self.request.query_params.get("email")
         if email_param is not None:
             queryset = queryset.filter(email=email_param)
@@ -108,9 +108,9 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
-        if "is_active" in data:
-            user.is_active = data["is_active"]
-            user.save(update_fields=["is_active"])
+        if "account_status" in data:
+            user.account_status = data["account_status"]
+            user.save(update_fields=["account_status"])
 
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
@@ -135,9 +135,9 @@ class MeRetrieveView(generics.RetrieveAPIView):
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
-        if "is_active" in data:
-            user.is_active = data["is_active"]
-            user.save(update_fields=["is_active"])
+        if "account_status" in data:
+            user.account_status = data["account_status"]
+            user.save(update_fields=["account_status"])
 
         #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
         if "role_id" in data:

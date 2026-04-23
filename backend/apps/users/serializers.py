@@ -55,7 +55,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email", "is_active", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups"]
+        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups"]
         read_only_fields = ["id"]
 
     def _active_assignment(self, user):
@@ -147,7 +147,7 @@ class UserSerializer(serializers.ModelSerializer):
 class UserStatusPatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["is_active"]
+        fields = ["account_status"]
 
 
 class BulkUserStatusSerializer(serializers.Serializer):
