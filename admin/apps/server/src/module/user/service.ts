@@ -45,12 +45,10 @@ export type User = {
 
 export type TrackOption = {
   id: number;
-  trackCode: string;
+  trackName: string;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const generateId = () => Date.now() * 1000 + Math.floor(Math.random() * 999);
 
 const normalizeInterestDescriptions = (interests: string[] | undefined) =>
   Array.from(
@@ -97,9 +95,7 @@ async function resolveInterestIds(
 
     const inserted = await executor
       .insert(areasOfInterest)
-      .values({
-        interestDesc: description,
-      })
+      .values({ interestDesc: description })
       .returning({ id: areasOfInterest.id });
     ids.push(inserted[0].id);
   }
@@ -120,10 +116,7 @@ async function syncStudentInterests(
   if (!interestIds.length) return;
 
   await executor.insert(studentInterest).values(
-    interestIds.map((interestId) => ({
-      userId: userId,
-      interestId,
-    })),
+    interestIds.map((interestId) => ({ userId, interestId })),
   );
 }
 
@@ -161,10 +154,28 @@ async function upsertStudentProfile(
     return;
   }
 
-  await executor.insert(studentProfile).values({
-    userId,
-    ...values,
-  });
+  await executor.insert(studentProfile).values({ userId, ...values });
+}
+
+async function upsertSupervisorProfile(
+  executor: any,
+  userId: number,
+  schoolName: string,
+) {
+  const existing = await executor
+    .select({ userId: supervisorProfile.userId })
+    .from(supervisorProfile)
+    .where(eq(supervisorProfile.userId, userId));
+
+  if (existing[0]) {
+    await executor
+      .update(supervisorProfile)
+      .set({ schoolName })
+      .where(eq(supervisorProfile.userId, userId));
+    return;
+  }
+
+  await executor.insert(supervisorProfile).values({ userId, schoolName });
 }
 
 async function deleteStudentDetails(executor: any, userId: number) {
@@ -284,17 +295,11 @@ export async function queryUserById(id: string) {
 
 export async function queryTracks() {
   const items = await db
-    .select({
-      id: tracks.id,
-      trackCode: tracks.trackName,
-    })
+    .select({ id: tracks.id, trackName: tracks.trackName })
     .from(tracks)
     .orderBy(asc(tracks.trackName));
 
-  return {
-    msg: "Tracks retrieved successfully",
-    data: items as TrackOption[],
-  };
+  return { msg: "Tracks retrieved successfully", data: items as TrackOption[] };
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
@@ -312,21 +317,15 @@ export async function createUser(input: CreateUserInput) {
   }
 
   if (input.role === "student") {
-    if (!input.schoolName?.trim()) {
+    if (!input.schoolName?.trim())
       return { msg: "School is required for student users", data: null };
-    }
-    if (!input.yearLevel) {
-      return {
-        msg: "Age / year level is required for student users",
-        data: null,
-      };
-    }
-    if (!input.interests?.length) {
+    if (!input.yearLevel)
+      return { msg: "Year level is required for student users", data: null };
+    if (!input.interests?.length)
       return {
         msg: "At least one interest is required for student users",
         data: null,
       };
-    }
   }
 
   let trackId: number | null = null;
@@ -347,29 +346,33 @@ export async function createUser(input: CreateUserInput) {
       .select({ id: adminUser.id })
       .from(adminUser)
       .where(eq(adminUser.email, input.email));
-    if (existingAdmin.length > 0) {
+    if (existingAdmin.length > 0)
       return { msg: "Admin account email already exists", data: null };
-    }
   }
 
   const now = new Date().toISOString();
-  const userId = generateId();
+  let newUserId: number | undefined;
 
-  await db.transaction(async (tx) => {
-    await tx.insert(users).values({
-      id: userId,
-      password: "TEMP_PASSWORD_PLACEHOLDER",
-      isSuperuser: input.role === "admin",
-      isStaff: input.role === "admin",
-      email: input.email,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      isActive: input.active ?? true,
-      status: input.active ?? true,
-      dateJoined: now,
-      lastLogin: null,
-      trackId,
-    });
+  await db.transaction(async (tx: typeof db) => {
+    const [newUser] = await tx
+      .insert(users)
+      .values({
+        password: "TEMP_PASSWORD_PLACEHOLDER",
+        isSuperuser: input.role === "admin",
+        isStaff: input.role === "admin",
+        email: input.email,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        isActive: input.active ?? true,
+        status: input.active ?? true,
+        dateJoined: now,
+        lastLogin: null,
+        trackId,
+      })
+      .returning({ id: users.id });
+
+    const userId = newUser.id;
+    newUserId = userId;
 
     if (input.role === "admin") {
       const createdAuthUser = await auth.api.createUser({
@@ -381,22 +384,15 @@ export async function createUser(input: CreateUserInput) {
       });
       const createdAuthUserId =
         (createdAuthUser as any)?.user?.id ?? (createdAuthUser as any)?.id;
-
-      if (!createdAuthUserId) {
-        throw new Error("Failed to create auth user");
-      }
+      if (!createdAuthUserId) throw new Error("Failed to create auth user");
 
       await tx
         .update(adminUser)
-        .set({
-          emailVerified: true,
-          userid: userId,
-        })
+        .set({ emailVerified: true, userid: userId })
         .where(eq(adminUser.id, String(createdAuthUserId)));
     }
 
     await tx.insert(roleAssignmentHistory).values({
-      id: generateId(),
       userId,
       roleId,
       validFrom: now,
@@ -404,24 +400,27 @@ export async function createUser(input: CreateUserInput) {
     });
 
     if (input.role === "student") {
-      await upsertStudentProfile(
+      await upsertStudentProfile(tx, userId, input.firstName, input.lastName, input);
+      await syncStudentInterests(tx, userId, input.interests);
+    }
+
+    if (input.role === "supervisor") {
+      await upsertSupervisorProfile(
         tx,
         userId,
-        input.firstName,
-        input.lastName,
-        input,
+        input.supervisorSchoolName?.trim() ?? "",
       );
-      await syncStudentInterests(tx, userId, input.interests);
     }
   });
 
-  const created = await fetchUserById(userId);
+  if (!newUserId) return { msg: "Failed to create user", data: null };
+  const created = await fetchUserById(newUserId);
   return { msg: "User created successfully", data: created };
 }
 
 export async function bulkCreateUsers(
   input: BulkCreateUsersInput,
-  adminUserId: string,
+  _adminUserId: string,
 ) {
   const created: User[] = [];
   const skipped: string[] = [];
@@ -448,7 +447,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
 
   const now = new Date().toISOString();
   const userUpdates: Partial<typeof users.$inferInsert> = {};
-  const nextRole = input.role ?? existing.role;
+  const nextRole = input.role ?? existing.role ?? "student";
 
   if (input.firstName !== undefined) userUpdates.firstName = input.firstName;
   if (input.lastName !== undefined) userUpdates.lastName = input.lastName;
@@ -459,28 +458,20 @@ export async function updateUser(id: string, input: UpdateUserInput) {
     const nextYearLevel = input.yearLevel ?? existing.yearLevel;
     const nextInterests = input.interests ?? existing.interests;
 
-    if (!nextSchoolName?.trim()) {
+    if (!nextSchoolName?.trim())
       return { msg: "School is required for student users", data: null };
-    }
-    if (!nextYearLevel) {
-      return {
-        msg: "Age / year level is required for student users",
-        data: null,
-      };
-    }
-    if (!nextInterests?.length) {
+    if (!nextYearLevel)
+      return { msg: "Year level is required for student users", data: null };
+    if (!nextInterests?.length)
       return {
         msg: "At least one interest is required for student users",
         data: null,
       };
-    }
   }
 
   if (input.track !== undefined) {
     if (nextRole === "admin") {
-      if (input.track === null) {
-        userUpdates.trackId = null;
-      }
+      if (input.track === null) userUpdates.trackId = null;
     } else {
       if (input.track === null)
         return { msg: "Track cannot be cleared", data: null };
@@ -496,7 +487,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
   }
 
   try {
-    await db.transaction(async (tx) => {
+    await db.transaction(async (tx: typeof db) => {
       if (Object.keys(userUpdates).length > 0) {
         await tx.update(users).set(userUpdates).where(eq(users.id, userId));
       }
@@ -522,6 +513,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
         });
       }
 
+      // Student profile
       if (nextRole === "student") {
         await upsertStudentProfile(
           tx,
@@ -542,6 +534,18 @@ export async function updateUser(id: string, input: UpdateUserInput) {
         );
       } else if (existing.role === "student") {
         await deleteStudentDetails(tx, userId);
+      }
+
+      // Supervisor profile
+      if (nextRole === "supervisor") {
+        const schoolName =
+          input.supervisorSchoolName?.trim() ??
+          (existing.role === "supervisor" ? existing.schoolName ?? "" : "");
+        await upsertSupervisorProfile(tx, userId, schoolName);
+      } else if (existing.role === "supervisor" && nextRole !== "supervisor") {
+        await tx
+          .delete(supervisorProfile)
+          .where(eq(supervisorProfile.userId, userId));
       }
     });
   } catch (error) {

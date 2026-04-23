@@ -5,7 +5,6 @@ import {
   exists,
   ilike,
   inArray,
-  isNull,
   notExists,
   or,
   sql,
@@ -14,17 +13,16 @@ import type { QueryStudentsInput } from "../schema.js";
 import db from "@/lib/db.js";
 import {
   areasOfInterest,
+  groupMembers,
   groups,
-  groupMembership,
   studentInterest,
   studentProfile,
   tracks,
   users,
-} from "@/old/drizzle/schema.js";
+} from "@/schema/index.js";
 
 type StudentListItem = {
   id: number;
-  name: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -32,41 +30,17 @@ type StudentListItem = {
   track: string | null;
   isActive: boolean;
   accountStatus: string;
-  invitedAt: string | null;
-  activatedAt: string | null;
-  basicInfo: {
-    id: number;
-    name: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-    track: string | null;
-    isActive: boolean;
-    accountStatus: string;
-  };
-  studentInfo: {
-    schoolName: string | null;
-    yearLevel: number | null;
-    joinPermissionReceived: boolean;
-    joinPermissionResponseId: string | null;
-  };
-  groupInfo: {
-    id: number;
-    name: string;
-    membershipId: number;
-    membershipRole: string | null;
-    joinedAt: string;
-  } | null;
-  groupId: string | null;
+  schoolName: string | null;
+  yearLevel: number | null;
+  hasJoinPermission: boolean;
+  joinpermResponseId: string | null;
+  groupId: number | null;
   groupName: string | null;
-  interests: Array<{
-    id: number;
-    description: string;
-  }>;
+  interests: Array<{ id: number; description: string }>;
 };
 
 export async function queryStudents(params: QueryStudentsInput) {
-  const { page, limit, search, age, track, interest, inGroup } = params;
+  const { page, limit, search, yearLevel, track, interest, inGroup } = params;
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -80,8 +54,14 @@ export async function queryStudents(params: QueryStudentsInput) {
       ),
     );
   }
-  if (age) conditions.push(eq(studentProfile.yearLevel, age));
-  if (track) conditions.push(eq(tracks.trackCode, track));
+
+  if (yearLevel) {
+    conditions.push(eq(studentProfile.yearLvl, String(yearLevel)));
+  }
+
+  if (track) {
+    conditions.push(eq(tracks.trackName, track));
+  }
 
   if (interest) {
     const matchingInterest = db
@@ -93,37 +73,33 @@ export async function queryStudents(params: QueryStudentsInput) {
       )
       .where(
         and(
-          eq(studentInterest.studentUserId, users.id),
+          eq(studentInterest.userId, users.id),
           ilike(areasOfInterest.interestDesc, `%${interest}%`),
         ),
       );
-
     conditions.push(exists(matchingInterest));
   }
 
-  const activeMembership = db
-    .select({ id: groupMembership.id })
-    .from(groupMembership)
-    .where(
-      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
-    );
+  // inGroup filter: check existence in group_members table
+  const membershipSubq = db
+    .select({ id: groupMembers.id })
+    .from(groupMembers)
+    .where(eq(groupMembers.userId, users.id));
 
-  if (inGroup === "yes") {
-    conditions.push(exists(activeMembership));
-  } else if (inGroup === "no") {
-    conditions.push(notExists(activeMembership));
-  }
+  if (inGroup === "yes") conditions.push(exists(membershipSubq));
+  else if (inGroup === "no") conditions.push(notExists(membershipSubq));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const filteredBase = () =>
+  const baseQ = () =>
     db
       .select({ id: users.id })
       .from(users)
       .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
-      .leftJoin(tracks, eq(tracks.id, users.trackId));
+      .leftJoin(tracks, eq(tracks.id, users.trackId))
+      .$dynamic();
 
-  const countBase = db
+  const countQ = db
     .select({ count: sql<number>`cast(count(distinct ${users.id}) as int)` })
     .from(users)
     .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
@@ -131,131 +107,109 @@ export async function queryStudents(params: QueryStudentsInput) {
     .$dynamic();
 
   const [pageRows, countResult] = await Promise.all([
-    filteredBase()
-      .where(where)
+    (where ? baseQ().where(where) : baseQ())
       .orderBy(asc(users.lastName), asc(users.firstName), asc(users.id))
       .limit(limit)
       .offset(offset),
-    where ? countBase.where(where) : countBase,
+    where ? countQ.where(where) : countQ,
   ]);
 
   const total = countResult[0]?.count ?? 0;
   const studentIds = pageRows.map((row) => row.id);
 
-  const detailRows =
-    studentIds.length === 0
-      ? []
-      : await db
-          .select({
-            id: users.id,
-            firstName: users.firstName,
-            lastName: users.lastName,
-            email: users.email,
-            isActive: users.isActive,
-            accountStatus: users.accountStatus,
-            invitedAt: users.invitedAt,
-            activatedAt: users.activatedAt,
-            track: tracks.trackCode,
-            schoolName: studentProfile.schoolName,
-            yearLevel: studentProfile.yearLevel,
-            joinPermissionReceived: studentProfile.joinPermissionReceived,
-            joinPermissionResponseId: studentProfile.joinPermissionResponseId,
-            membershipId: groupMembership.id,
-            groupId: groups.id,
-            groupName: groups.groupName,
-            membershipRole: groupMembership.membershipRole,
-            joinedAt: groupMembership.joinedAt,
-            interestId: areasOfInterest.id,
-            interestDesc: areasOfInterest.interestDesc,
-          })
-          .from(users)
-          .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
-          .leftJoin(tracks, eq(tracks.id, users.trackId))
-          .leftJoin(
-            groupMembership,
-            and(
-              eq(groupMembership.userId, users.id),
-              isNull(groupMembership.leftAt),
-            ),
-          )
-          .leftJoin(groups, eq(groups.id, groupMembership.groupId))
-          .leftJoin(
-            studentInterest,
-            eq(studentInterest.studentUserId, users.id),
-          )
-          .leftJoin(
-            areasOfInterest,
-            eq(areasOfInterest.id, studentInterest.interestId),
-          )
-          .where(inArray(users.id, studentIds))
-          .orderBy(asc(users.lastName), asc(users.firstName), asc(users.id));
+  if (studentIds.length === 0) {
+    return {
+      msg: "Students retrieved successfully",
+      data: { items: [], total, page, limit, hasMore: false },
+    };
+  }
+
+  const detailRows = await db
+    .select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+      isActive: users.isActive,
+      track: tracks.trackName,
+      schoolName: studentProfile.schoolName,
+      yearLvl: studentProfile.yearLvl,
+      hasJoinPermission: studentProfile.hasJoinPermission,
+      joinpermResponseId: studentProfile.joinpermResponseId,
+      groupId: groups.id,
+      groupName: groups.groupName,
+      interestId: areasOfInterest.id,
+      interestDesc: areasOfInterest.interestDesc,
+    })
+    .from(users)
+    .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
+    .leftJoin(tracks, eq(tracks.id, users.trackId))
+    .leftJoin(groupMembers, eq(groupMembers.userId, users.id))
+    .leftJoin(
+      groups,
+      and(eq(groups.id, groupMembers.groupId), eq(groups.deletedFlag, false)),
+    )
+    .leftJoin(studentInterest, eq(studentInterest.userId, users.id))
+    .leftJoin(
+      areasOfInterest,
+      eq(areasOfInterest.id, studentInterest.interestId),
+    )
+    .where(inArray(users.id, studentIds))
+    .orderBy(asc(users.lastName), asc(users.firstName), asc(users.id));
+
+  type DetailRow = {
+    id: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+    isActive: boolean;
+    track: string | null;
+    schoolName: string | null;
+    yearLvl: string | null;
+    hasJoinPermission: boolean;
+    joinpermResponseId: string | null;
+    groupId: number | null;
+    groupName: string | null;
+    interestId: number | null;
+    interestDesc: string | null;
+  };
 
   const itemsById = new Map<number, StudentListItem>();
 
-  for (const row of detailRows) {
-    const name = `${row.firstName} ${row.lastName}`.trim();
+  for (const row of detailRows as DetailRow[]) {
     let item = itemsById.get(row.id);
 
     if (!item) {
       item = {
         id: row.id,
-        name,
         firstName: row.firstName,
         lastName: row.lastName,
         email: row.email,
         role: "student",
-        track: row.track,
+        track: row.track ?? null,
         isActive: row.isActive,
-        accountStatus: row.accountStatus,
-        invitedAt: row.invitedAt,
-        activatedAt: row.activatedAt,
-        basicInfo: {
-          id: row.id,
-          name,
-          firstName: row.firstName,
-          lastName: row.lastName,
-          email: row.email,
-          track: row.track,
-          isActive: row.isActive,
-          accountStatus: row.accountStatus,
-        },
-        studentInfo: {
-          schoolName: row.schoolName,
-          yearLevel: row.yearLevel,
-          joinPermissionReceived: row.joinPermissionReceived,
-          joinPermissionResponseId: row.joinPermissionResponseId,
-        },
-        groupInfo:
-          row.groupId && row.membershipId && row.joinedAt
-            ? {
-                id: row.groupId,
-                name: row.groupName ?? String(row.groupId),
-                membershipId: row.membershipId,
-                membershipRole: row.membershipRole,
-                joinedAt: row.joinedAt,
-              }
-            : null,
-        groupId: row.groupId ? String(row.groupId) : null,
-        groupName: row.groupName,
+        accountStatus: row.isActive ? "active" : "deactivated",
+        schoolName: row.schoolName ?? null,
+        yearLevel: row.yearLvl ? parseInt(row.yearLvl, 10) : null,
+        hasJoinPermission: row.hasJoinPermission,
+        joinpermResponseId: row.joinpermResponseId ?? null,
+        groupId: row.groupId ?? null,
+        groupName: row.groupName ?? null,
         interests: [],
       };
-
       itemsById.set(row.id, item);
     }
 
     if (
       row.interestId &&
       row.interestDesc &&
-      !item.interests.some((entry) => entry.id === row.interestId)
+      !item.interests.some((e) => e.id === row.interestId)
     ) {
-      item.interests.push({
-        id: row.interestId,
-        description: row.interestDesc,
-      });
+      item.interests.push({ id: row.interestId, description: row.interestDesc });
     }
   }
 
-  const items = studentIds.flatMap((id) => {
+  const items = studentIds.flatMap((id: number) => {
     const item = itemsById.get(id);
     return item ? [item] : [];
   });
