@@ -19,22 +19,25 @@ class SessionTrackingMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
 
-        # Track authenticated requests
+        # Track authenticated requests using Django's native session key
         if request.user.is_authenticated:
+            if not request.session.session_key:
+                request.session.create()
+                
             now = timezone.now()
-            sid = request.COOKIES.get("sid")
-            session = None
-            if sid:
-                session = UserSession.objects.filter(
-                    sid=sid,
-                    user=request.user,
-                    revoked_at__isnull=True,
-                    ended_at__isnull=True,
-                ).first()
+            session_key = request.session.session_key
+            
+            session = UserSession.objects.filter(
+                sid=session_key,
+                user=request.user,
+                revoked_at__isnull=True,
+                ended_at__isnull=True,
+            ).first()
 
             if session is None:
                 session = UserSession.objects.create(
                     user=request.user,
+                    sid=session_key,
                     created_at=now,
                     last_activity_at=now,
                     expires_at=now + timedelta(seconds=getattr(settings, "SESSION_COOKIE_AGE", 86400)),
@@ -43,14 +46,5 @@ class SessionTrackingMiddleware:
                 session.last_activity_at = now
                 session.expires_at = now + timedelta(seconds=getattr(settings, "SESSION_COOKIE_AGE", 86400))
                 session.save(update_fields=["last_activity_at", "expires_at"])
-
-            response.set_cookie(
-                "sid",
-                session.sid,
-                max_age=getattr(settings, "SESSION_COOKIE_AGE", 86400),
-                httponly=True,
-                secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
-                samesite=getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax"),
-            )
-
+                
         return response

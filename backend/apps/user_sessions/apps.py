@@ -5,5 +5,3 @@ class UserSessionsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.user_sessions"
 
-    def ready(self):
-        from . import schema  # noqa: F401

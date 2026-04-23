@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase, APIClient
 
 from apps.users.models import MentorProfile
 from apps.resources.models import Roles, RoleAssignmentHistory
-from .models import CertificateType, MentorCertificate
+from apps.certificates.models import CertificateType, MentorCertificate
 
 User = get_user_model()
 
