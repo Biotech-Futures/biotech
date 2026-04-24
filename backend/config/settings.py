@@ -124,8 +124,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            # "sslmode": "require",
-            "sslmode": config("DB_SSLMODE", default="prefer"),
+            "sslmode": "require",
             "connect_timeout": 5,
         },
         "CONN_MAX_AGE": 0,
