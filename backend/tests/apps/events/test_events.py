@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
-from .models import Events
+from apps.events.models import Events
 
 User = get_user_model()
 

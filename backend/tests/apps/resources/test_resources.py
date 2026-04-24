@@ -10,8 +10,8 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from django.apps import apps as dj_apps
 
-from .models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
-from .services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
+from apps.resources.models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
+from apps.resources.services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 

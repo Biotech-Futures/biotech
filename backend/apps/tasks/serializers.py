@@ -5,12 +5,12 @@ from .models import Tasks, Milestone
 class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tasks
-        fields = ["id", "task_name", "due_date", "deleted_flag", "milestone", "task_description"]
+        fields = ["id", "task_name", "due_date", "deleted_at", "milestone", "task_description"]
 
 class MilestoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = Milestone
-        fields = ["id", "group", "milestone_name", "completed", "deleted_flag"]
+        fields = ["id", "group", "milestone_name", "completed", "deleted_at"]
 
 class TaskCreateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,4 +21,4 @@ class TaskCreateSerializer(serializers.ModelSerializer):
 class DeleteTaskResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tasks
-        fields = ["id", "task_name", "due_date", "deleted_flag", "milestone", "task_description"]
+        fields = ["id", "task_name", "due_date", "deleted_at", "milestone", "task_description"]

@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     'apps.announcements',
     'apps.audit',
     'apps.integrations',
+    'apps.dashboard',
     'apps.events',
     'apps.user_sessions',
     'apps.matching_runtime',
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
     'matching',
     'drf_spectacular',
     'rest_framework',
+    'django_filters',
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
@@ -57,28 +59,21 @@ MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
 
 AUTH_USER_MODEL = 'users.User'
 
-# REST Framework with JWT Authentication
+# REST Framework with Django Session Authentication
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'apps.user_sessions.auth.SessionIdAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 }
 
-# JWT Settings
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-}
+
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'BIOTech Futures Mentoring Platform API',
@@ -128,6 +123,12 @@ DATABASES = {
         "PASSWORD": config("DB_PASSWORD", default=""),
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
+        "OPTIONS": {
+            # "sslmode": "require",
+            "sslmode": config("DB_SSLMODE", default="prefer"),
+            "connect_timeout": 5,
+        },
+        "CONN_MAX_AGE": 0,
     }
 }
 
@@ -144,7 +145,7 @@ USE_I18N = True
 USE_TZ = True
 
 # Email
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)

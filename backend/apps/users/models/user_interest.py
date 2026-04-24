@@ -1,16 +1,16 @@
 from django.conf import settings
 from django.db import models
 
-class StudentInterest(models.Model):
-    interest = models.ForeignKey('AreasOfInterest', on_delete=models.CASCADE)
+class UserInterest(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    interest = models.ForeignKey('AreasOfInterest', on_delete=models.CASCADE)
 
     class Meta:
-        db_table = 'student_interest'
-        verbose_name = "Student Interest"
-        verbose_name_plural = "Student Interests"
+        db_table = 'user_interest'
+        verbose_name = "User Interest"
+        verbose_name_plural = "User Interests"
         constraints = [
-            models.UniqueConstraint(fields=['interest', 'user'], name='pk_student_interest')
+            models.UniqueConstraint(fields=['user', 'interest'], name='pk_user_interest')
         ]
         indexes = [
             models.Index(fields=['user']),

@@ -72,6 +72,18 @@ class User(AbstractUser):
             models.Index(fields=["account_status"]),
         ]
 
+    @property
+    def state(self):
+        if not self.track_id:
+            return None
+        return self.track.state
+
+    @property
+    def state_id(self):
+        if not self.track_id:
+            return None
+        return self.track.state_id
+
     def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
         inactive_statuses = {

@@ -9,8 +9,8 @@ from django.utils import timezone
 from datetime import timedelta
 from unittest.mock import patch, MagicMock
 
-from .auth_service import send_login_code, verify_login_code
-from .models import LoginToken
+from apps.services.auth_service import send_login_code, verify_login_code
+from apps.services.models import LoginToken
 
 User = get_user_model()
 
@@ -30,8 +30,8 @@ class LoginTokenTest(TestCase):
     def test_imports(self):
         """Test that all required imports work"""
         try:
-            from .auth_service import send_login_code, verify_login_code
-            from .models import LoginToken
+            from apps.services.auth_service import send_login_code, verify_login_code
+            from apps.services.models import LoginToken
             self.assertTrue(True, "All imports successful")
         except ImportError as e:
             self.fail(f"Import error: {e}")
@@ -239,26 +239,73 @@ class AuthServiceIntegrationTest(TestCase):
         result3 = verify_login_code(self.user.email, login_token.token)
         self.assertFalse(result3)
 
-    def test_multiple_tokens_per_user(self):
-        """Test that user can have multiple tokens (but only use each once)"""
-        # Create multiple tokens
+    def test_auto_invalidate_previous_tokens(self):
+        """Test that generating a new token invalidates previous pending tokens"""
+        # Create token 1
         token1 = LoginToken.create_for_user(self.user)
-        token2 = LoginToken.create_for_user(self.user)
-
-        # Both should be valid initially
         self.assertTrue(token1.is_valid)
+        
+        # Create token 2
+        token2 = LoginToken.create_for_user(self.user)
+        
+        token1.refresh_from_db()
+        # Token 1 should be immediately invalidated (used/burned)
+        self.assertTrue(token1.used)
         self.assertTrue(token2.is_valid)
 
-        # Use first token
-        result1 = verify_login_code(self.user.email, token1.token)
-        self.assertTrue(result1)
+class LoginEndpointsTest(TestCase):
+    """Integration tests for the HTTP Login Endpoints (OTP & Magic)"""
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        from rest_framework.test import APIClient
+        self.client = APIClient()
+        self.user_email = "api_test@example.com"
+        self.user = User.objects.create_user(
+            email=self.user_email,
+            password="testpass123",
+            first_name="API",
+            last_name="Test",
+            account_status=User.AccountStatus.ACTIVE
+        )
 
-        # First token should be used, second still valid
-        token1.refresh_from_db()
-        token2.refresh_from_db()
-        self.assertTrue(token1.used)
-        self.assertFalse(token2.used)
+    def test_otp_login_endpoint_success(self):
+        token = LoginToken.create_for_user(self.user)
+        response = self.client.post(
+            "/services/verify-login-code/",
+            {"email": self.user_email, "code": token.token},
+            format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("sessionid", response.cookies)
+        self.assertTrue(response.cookies["sessionid"].value)
+        # Token is consumed
+        token.refresh_from_db()
+        self.assertTrue(token.used)
 
-        # Second token should still work
-        result2 = verify_login_code(self.user.email, token2.token)
-        self.assertTrue(result2)
+    def test_otp_login_endpoint_brute_force_lockout(self):
+        # Trigger lockout
+        for _ in range(5):
+            self.client.post(
+                "/services/verify-login-code/",
+                {"email": self.user_email, "code": "000000"},
+                format="json"
+            )
+        
+        # Valid code should be blocked by 429
+        token = LoginToken.create_for_user(self.user)
+        response = self.client.post(
+            "/services/verify-login-code/",
+            {"email": self.user_email, "code": token.token},
+            format="json"
+        )
+        self.assertEqual(response.status_code, 429)
+
+    def test_magic_link_login_redirect_success(self):
+        token = LoginToken.create_for_user(self.user)
+        url = f"/services/magic/?email={self.user_email}&code={token.token}&redirect_url=http://localhost:5173"
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith("http://localhost:5173?success=true"))
+        self.assertIn("sessionid", response.cookies)

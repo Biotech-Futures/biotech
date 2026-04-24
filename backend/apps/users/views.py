@@ -3,11 +3,15 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
-from rest_framework import generics, permissions, status
+from django.contrib.auth import authenticate, login
+from django.core.cache import cache
+from rest_framework import generics, permissions, status, serializers
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.pagination import PageNumberPagination
-from.models import User, StudentProfile, StudentInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
+from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema
+from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
 from apps.events.models import Events
@@ -23,8 +27,40 @@ from .serializers import (
 )
 from .utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
 
-from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema
+class PasswordLoginBodySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField()
+
+class PasswordLoginView(APIView):
+    """ Unified Session-based Password Login with Brute-Force lockout """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    
+    @extend_schema(request=PasswordLoginBodySerializer, responses={200: UserSerializer})
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+        
+        # Clean Code: Guard against Brute-Force
+        cache_key = f"pwd_login_attempts:{email}"
+        attempts = cache.get(cache_key, 0)
+        if attempts >= 5:
+            return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
+        user_obj = User.objects.filter(email=email).first()
+        if user_obj and user_obj.check_password(password):
+            if user_obj.account_status in ['suspended', 'deactivated']:
+                return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
+            
+        user = authenticate(request, username=email, password=password)
+        
+        if user is not None:
+            login(request, user) # Initiates Django Session
+            cache.delete(cache_key)
+            return Response(UserSerializer(user).data)
+        else:
+            cache.set(cache_key, attempts + 1, 300) # 5 min lockout
+            return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
 
 # Create your views here.
 #Issue 41
@@ -53,9 +89,9 @@ class UserListHTMLView(generics.ListAPIView):
 
     def get_queryset(self):
         queryset = User.objects.select_related("track", "track__state").order_by("id")
-        is_active_param = self.request.query_params.get("is_active")
-        if is_active_param is not None:
-            queryset = queryset.filter(is_active=is_active_param.lower() in {"1", "true", "yes"})
+        account_status_param = self.request.query_params.get("account_status")
+        if account_status_param is not None:
+            queryset = queryset.filter(account_status=account_status_param.lower())
         email_param = self.request.query_params.get("email")
         if email_param is not None:
             queryset = queryset.filter(email=email_param)
@@ -75,9 +111,9 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
-        if "is_active" in data:
-            user.is_active = data["is_active"]
-            user.save(update_fields=["is_active"])
+        if "account_status" in data:
+            user.account_status = data["account_status"]
+            user.save(update_fields=["account_status"])
 
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
@@ -102,9 +138,9 @@ class MeRetrieveView(generics.RetrieveAPIView):
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
-        if "is_active" in data:
-            user.is_active = data["is_active"]
-            user.save(update_fields=["is_active"])
+        if "account_status" in data:
+            user.account_status = data["account_status"]
+            user.save(update_fields=["account_status"])
 
         #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
         if "role_id" in data:
@@ -194,7 +230,7 @@ class UserRegisterView(APIView):
         )
 
         #interest
-        si = StudentInterest.objects.create(
+        si = UserInterest.objects.create(
             interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
             user=user
         )
