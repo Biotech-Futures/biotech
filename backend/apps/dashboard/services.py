@@ -5,7 +5,10 @@ from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Eve
 from apps.groups.models import GroupMembership
 from apps.resources.models import RoleAssignmentHistory
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
-
+from django.db.models import Count, Q
+from apps.groups.models import Groups, GroupMembership
+from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
+from django.db import models
 
 def _get_active_role_ids(user):
     now = timezone.now()
@@ -171,3 +174,73 @@ def get_dashboard_summary(user):
             "groups": 0,
         }
     }
+
+def get_groups_preview(user, mine=False):
+    """
+    Returns a queryset of active groups scoped to the user.
+
+    Admin without mine=True  → all active groups in their track scope
+    Admin with mine=True     → only groups they are a member of
+    Non-admin (any)          → only groups they are a member of
+    """
+
+    # Base queryset — active groups only, with track and member count
+    # and lead (mentor) membership prefetched
+    qs = (
+        Groups.objects.filter(deleted_at__isnull=True)
+        .select_related("track")
+        .annotate(
+            member_count=Count(
+                "groupmembership",
+                filter=Q(groupmembership__left_at__isnull=True)
+            )
+        )
+        .prefetch_related(
+            models.Prefetch(
+                "groupmembership_set",
+                queryset=GroupMembership.objects.filter(
+                    membership_role="mentor",
+                    left_at__isnull=True,
+                ).select_related("user"),
+                to_attr="_mentor_memberships",
+            )
+        )
+        .order_by("group_name", "id")
+    )
+
+    # Scope the queryset based on role + mine flag
+    if is_operational_admin(user) and not mine:
+        # Admin sees all groups within their track scope
+        admin_track_ids = get_admin_track_ids(user)
+        if admin_track_ids is not None:
+            # Scoped admin — filter to their tracks
+            qs = qs.filter(track_id__in=admin_track_ids)
+        # else: superuser/global admin — no filter, sees everything
+    else:
+        # Non-admin OR admin with mine=True — scope to their memberships
+        member_group_ids = GroupMembership.objects.filter(
+            user=user,
+            left_at__isnull=True,
+        ).values_list("group_id", flat=True)
+        qs = qs.filter(id__in=member_group_ids)
+
+    # Build the response list
+    results = []
+    for group in qs:
+        mentor_memberships = getattr(group, "_mentor_memberships", [])
+        lead_name = None
+        if mentor_memberships:
+            mentor_user = mentor_memberships[0].user
+            lead_name = mentor_user.get_full_name() or mentor_user.email
+
+        results.append({
+            "id": group.id,
+            "name": group.group_name,
+            "track_id": group.track_id,
+            "track_name": group.track.track_name,
+            "member_count": group.member_count,
+            "lead_name": lead_name,
+            "status": "active" if group.deleted_at is None else "deleted",
+        })
+
+    return results

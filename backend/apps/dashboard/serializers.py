@@ -13,3 +13,12 @@ class DashboardNextEventSerializer(serializers.Serializer):
 class DashboardSummarySerializer(serializers.Serializer):
     user = serializers.CharField()
     stats = serializers.DictField()
+
+class GroupPreviewSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    track_id = serializers.IntegerField()
+    track_name = serializers.CharField()
+    member_count = serializers.IntegerField()
+    lead_name = serializers.CharField(allow_null=True)
+    status = serializers.CharField()
