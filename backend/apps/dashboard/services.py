@@ -47,12 +47,14 @@ def _event_role_ids(event):
 
 
 def _build_payload(event):
+    # Events.humanitix_link is the stored URL; the dashboard API still exposes it as "link"
+    # for DashboardNextEventSerializer and existing clients.
     return {
         "id": event.id,
         "event_name": event.event_name,
         "start_datetime": event.start_datetime,
         "location": event.location,
-        "link": event.link,
+        "link": event.humanitix_link,
         "is_virtual": event.is_virtual,
     }
 
@@ -190,6 +192,7 @@ def get_groups_preview(user, mine=False, track_id=None):
     Optional ``track_id`` further filters results to a single track.
     """
 
+    # One mentor per group for the preview: first active MENTOR by membership id (deterministic).
     mentor_subquery = (
         GroupMembership.objects.filter(
             group_id=OuterRef("pk"),
@@ -204,6 +207,7 @@ def get_groups_preview(user, mine=False, track_id=None):
         Groups.objects.filter(deleted_at__isnull=True)
         .select_related("track")
         .annotate(
+            # Reverse relation default name from GroupMembership -> Groups.
             member_count=Count(
                 "groupmembership",
                 filter=Q(groupmembership__left_at__isnull=True),

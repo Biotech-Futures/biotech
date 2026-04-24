@@ -39,11 +39,19 @@ class DashboardNextEventView(APIView):
         return Response(DashboardNextEventSerializer(payload).data, status=status.HTTP_200_OK)
 
 class GroupsPreviewView(APIView):
+    """
+    GET /dashboard/v1/groups-preview/
+
+    Returns paginated group rows with DB-annotated member_count and lead fields;
+    see ``get_groups_preview`` and ``DashboardGroupPreviewSerializer``.
+    """
+
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         mine = request.query_params.get("mine", "false").lower() == "true"
 
+        # Optional filter aligned with the dashboard widget (integer track primary key).
         track_id_param = request.query_params.get("track_id")
         track_id = None
         if track_id_param not in (None, ""):
@@ -62,6 +70,7 @@ class GroupsPreviewView(APIView):
         paginator = Paginator(results, page_size)
         page = paginator.get_page(page_number)
 
+        # Materialize one page so serialization does not issue extra queries per row.
         serializer = DashboardGroupPreviewSerializer(list(page.object_list), many=True)
         return Response({
             "count": paginator.count,

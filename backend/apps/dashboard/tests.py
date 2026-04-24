@@ -10,7 +10,7 @@ User = get_user_model()
 
 
 def _make_group(**overrides):
-    """Build a lightweight stand-in for an annotated ``Groups`` instance."""
+    """Stand-in for a ``Groups`` row plus ``get_groups_preview`` annotations (no DB)."""
     defaults = {
         "id": 1,
         "group_name": "BTF046",

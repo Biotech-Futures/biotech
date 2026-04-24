@@ -16,6 +16,8 @@ class DashboardSummarySerializer(serializers.Serializer):
 
 
 class DashboardGroupLeadUserSerializer(serializers.Serializer):
+    """Nested lead object for groups-preview; mirrors the dashboard API contract."""
+
     id = serializers.IntegerField()
     first_name = serializers.CharField(allow_blank=True)
     last_name = serializers.CharField(allow_blank=True)
@@ -36,12 +38,14 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
     track_id = serializers.IntegerField()
     track_name = serializers.CharField(source="track.track_name")
     member_count = serializers.IntegerField()
+    # Lead and status are not plain model fields: they come from annotations / soft-delete.
     lead_user = serializers.SerializerMethodField()
     lead_name = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
 
     @staticmethod
     def _read(obj, attr, default=None):
+        # ORM instances in production; dict-like or SimpleNamespace in tests.
         if isinstance(obj, dict):
             return obj.get(attr, default)
         return getattr(obj, attr, default)
@@ -67,4 +71,5 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
         return full or None
 
     def get_status(self, obj):
+        # Stable API values for the widget; list endpoint only returns non-deleted groups today.
         return "active" if self._read(obj, "deleted_at") is None else "deleted"
