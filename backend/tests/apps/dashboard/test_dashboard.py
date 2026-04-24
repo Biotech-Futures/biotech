@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.dashboard.serializers import DashboardGroupPreviewSerializer
 from apps.dashboard.services import get_groups_preview
