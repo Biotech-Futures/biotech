@@ -19,19 +19,25 @@ from django.urls import path, include
 from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
+
 urlpatterns = [
     path("admin/", admin.site.urls),
 
     # API v1 endpoints
     path("api/v1/", include("apps.users.urls")),
+    path("dashboard/v1/", include("apps.dashboard.urls")),
 
     # Legacy URL structure (kept for backwards compatibility)
     path("users/", include("apps.users.urls")),
+    path("dashboard/", include("apps.dashboard.urls")),
     path("events/", include("apps.events.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
     path("resources/", include("apps.resources.urls")),
+    path("announcements/", include("apps.announcements.urls")),
+    path("audit/", include("apps.audit.urls")),
+    path("matching/", include("apps.matching_runtime.urls")),
     path("integrations/", include("apps.integrations.urls")),
     path("certificates/", include("apps.certificates.urls")),
 
@@ -43,6 +49,6 @@ urlpatterns = [
     path('', RedirectView.as_view(url='/api/docs/', permanent=False)),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
-
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),  
 ]
+

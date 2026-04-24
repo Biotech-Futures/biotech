@@ -1,63 +1,54 @@
-from django.test import TestCase, Client
-from django.contrib.auth import get_user_model
+from django.core.exceptions import FieldDoesNotExist
+from django.test import TestCase
 
-User = get_user_model()
+from apps.groups.models import Countries, CountryStates, Tracks
+from apps.users.models import User
 
 
-class UserEmailFilterTestCase(TestCase):
-    """Simple test for email filtering at /users/api/v1/users/?email="""
-
+class UserGeographyTests(TestCase):
     def setUp(self):
-        """Create test users"""
-        self.client = Client()
+        country = Countries.objects.create(country_name="Australia")
+        self.nsw = CountryStates.objects.create(country=country, state_name="NSW")
+        self.vic = CountryStates.objects.create(country=country, state_name="VIC")
+        self.nsw_track = Tracks.objects.create(track_name="AUS-NSW", state=self.nsw)
+        self.vic_track = Tracks.objects.create(track_name="AUS-VIC", state=self.vic)
 
-        # Create admin user
-        self.admin_user = User.objects.create_user(
-            email="admin@admin.com",
-            first_name="Admin",
-            last_name="User",
-            status=True
+    def test_state_is_derived_from_track(self):
+        user = User.objects.create_user(
+            email="derived-state@example.com",
+            first_name="Derived",
+            last_name="State",
+            track=self.nsw_track,
         )
 
-        # Create another user
-        self.regular_user = User.objects.create_user(
-            email="user@example.com",
-            first_name="Regular",
-            last_name="User",
-            status=False
+        self.assertEqual(user.state_id, self.nsw.id)
+        self.assertEqual(user.state, self.nsw)
+
+    def test_state_changes_when_track_changes(self):
+        user = User.objects.create_user(
+            email="track-swap@example.com",
+            first_name="Track",
+            last_name="Swap",
+            track=self.nsw_track,
         )
 
-    def test_email_filter_admin(self):
-        """Test filtering for admin@admin.com"""
-        response = self.client.get('/users/api/v1/users/?email=admin@admin.com')
+        user.track = self.vic_track
+        user.save(update_fields=["track"])
+        user.refresh_from_db()
 
-        self.assertEqual(response.status_code, 200)
-        # Should return HTML page with admin user
-        self.assertContains(response, 'admin@admin.com')
-        self.assertContains(response, 'Admin')
+        self.assertEqual(user.state_id, self.vic.id)
+        self.assertEqual(user.state, self.vic)
 
-    def test_email_filter_regular_user(self):
-        """Test filtering for user@example.com"""
-        response = self.client.get('/users/api/v1/users/?email=user@example.com')
+    def test_state_is_none_without_track(self):
+        user = User.objects.create_user(
+            email="no-track@example.com",
+            first_name="No",
+            last_name="Track",
+        )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'user@example.com')
-        self.assertContains(response, 'Regular')
+        self.assertIsNone(user.state_id)
+        self.assertIsNone(user.state)
 
-    def test_email_filter_nonexistent(self):
-        """Test filtering for non-existent email"""
-        response = self.client.get('/users/api/v1/users/?email=notfound@example.com')
-
-        self.assertEqual(response.status_code, 200)
-        # Should not contain any user emails
-        self.assertNotContains(response, 'admin@admin.com')
-        self.assertNotContains(response, 'user@example.com')
-
-    def test_no_email_filter(self):
-        """Test endpoint without email filter"""
-        response = self.client.get('/users/api/v1/users/')
-
-        self.assertEqual(response.status_code, 200)
-        # Should contain both users
-        self.assertContains(response, 'admin@admin.com')
-        self.assertContains(response, 'user@example.com')
+    def test_user_model_no_longer_has_state_field(self):
+        with self.assertRaises(FieldDoesNotExist):
+            User._meta.get_field("state")

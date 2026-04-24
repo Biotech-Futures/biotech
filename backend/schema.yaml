@@ -4,6 +4,178 @@ info:
   version: 1.0.0
   description: API Documentation for the New BIOTech Futures Mentoring Platform
 paths:
+  /api/v1/registration:
+    post:
+      operationId: api_v1_registration_create
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/updjoinperms:
+    post:
+      operationId: api_v1_updjoinperms_create
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/:
+    get:
+      operationId: api_v1_users_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserList'
+          description: ''
+  /api/v1/users/{id}/:
+    get:
+      operationId: api_v1_users_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: api_v1_users_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/User'
+        required: true
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: api_v1_users_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/users/me/:
+    get:
+      operationId: api_v1_users_me_retrieve
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: api_v1_users_me_partial_update
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
   /certificates/v1/:
     get:
       operationId: certificates_v1_list
@@ -523,6 +695,86 @@ paths:
       responses:
         '204':
           description: No response body
+  /events/api/v1/events/{id}/invite/{uid}:
+    post:
+      operationId: events_api_v1_events_invite_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: uid
+        schema:
+          type: integer
+        required: true
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /events/api/v1/events/{id}/invites:
+    get:
+      operationId: events_api_v1_events_invites_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventInviteSerializersList'
+          description: ''
+  /events/api/v1/events/invites/me:
+    get:
+      operationId: events_api_v1_events_invites_me_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventInviteSerializersList'
+          description: ''
   /events/v1/:
     get:
       operationId: events_v1_list
@@ -2037,9 +2289,9 @@ paths:
       responses:
         '204':
           description: No response body
-  /users/api/v1/registration:
+  /users/registration:
     post:
-      operationId: users_api_v1_registration_create
+      operationId: users_registration_create
       tags:
       - users
       security:
@@ -2048,9 +2300,9 @@ paths:
       responses:
         '200':
           description: No response body
-  /users/api/v1/updjoinperms:
+  /users/updjoinperms:
     post:
-      operationId: users_api_v1_updjoinperms_create
+      operationId: users_updjoinperms_create
       tags:
       - users
       security:
@@ -2059,9 +2311,9 @@ paths:
       responses:
         '200':
           description: No response body
-  /users/api/v1/users/:
+  /users/users/:
     get:
-      operationId: users_api_v1_users_list
+      operationId: users_users_list
       parameters:
       - name: page
         required: false
@@ -2087,9 +2339,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedUserList'
           description: ''
-  /users/api/v1/users/{id}/:
+  /users/users/{id}/:
     get:
-      operationId: users_api_v1_users_retrieve
+      operationId: users_users_retrieve
       parameters:
       - in: path
         name: id
@@ -2109,7 +2361,7 @@ paths:
                 $ref: '#/components/schemas/User'
           description: ''
     put:
-      operationId: users_api_v1_users_update
+      operationId: users_users_update
       parameters:
       - in: path
         name: id
@@ -2141,7 +2393,7 @@ paths:
                 $ref: '#/components/schemas/User'
           description: ''
     patch:
-      operationId: users_api_v1_users_partial_update
+      operationId: users_users_partial_update
       parameters:
       - in: path
         name: id
@@ -2171,9 +2423,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
           description: ''
-  /users/api/v1/users/me/:
+  /users/users/me/:
     get:
-      operationId: users_api_v1_users_me_retrieve
+      operationId: users_users_me_retrieve
       tags:
       - users
       security:
@@ -2186,7 +2438,7 @@ paths:
                 $ref: '#/components/schemas/User'
           description: ''
     patch:
-      operationId: users_api_v1_users_me_partial_update
+      operationId: users_users_me_partial_update
       tags:
       - users
       requestBody:
@@ -2267,6 +2519,27 @@ components:
       - humanitix_link
       - id
       - start_datetime
+    EventInviteSerializers:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        event:
+          type: integer
+        user:
+          type: integer
+        sent_datetime:
+          type: string
+          format: date-time
+        attendance_status:
+          type: boolean
+        rsvp_status:
+          type: boolean
+      required:
+      - event
+      - id
+      - user
     Group:
       type: object
       properties:
@@ -2537,6 +2810,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Country'
+    PaginatedEventInviteSerializersList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventInviteSerializers'
     PaginatedEventList:
       type: object
       required:
@@ -2926,6 +3222,15 @@ components:
         resource_description:
           type: string
           maxLength: 255
+        resource_type_detail:
+          allOf:
+          - $ref: '#/components/schemas/ResourceType'
+          readOnly: true
+        resource_type_id:
+          type: integer
+          writeOnly: true
+          nullable: true
+          description: ID of the resource type
         upload_datetime:
           type: string
           format: date-time
@@ -3085,6 +3390,10 @@ components:
         resource_description:
           type: string
           maxLength: 255
+        resource_type_detail:
+          allOf:
+          - $ref: '#/components/schemas/ResourceType'
+          readOnly: true
         upload_datetime:
           type: string
           format: date-time
@@ -3099,8 +3408,25 @@ components:
       - id
       - resource_description
       - resource_name
+      - resource_type_detail
       - uploader
       - visible_roles
+    ResourceType:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type_name:
+          type: string
+          maxLength: 50
+        type_description:
+          type: string
+          nullable: true
+          maxLength: 255
+      required:
+      - id
+      - type_name
     Resources:
       type: object
       properties:
@@ -3113,6 +3439,15 @@ components:
         resource_description:
           type: string
           maxLength: 255
+        resource_type_detail:
+          allOf:
+          - $ref: '#/components/schemas/ResourceType'
+          readOnly: true
+        resource_type_id:
+          type: integer
+          writeOnly: true
+          nullable: true
+          description: ID of the resource type
         upload_datetime:
           type: string
           format: date-time
@@ -3142,6 +3477,7 @@ components:
       - id
       - resource_description
       - resource_name
+      - resource_type_detail
       - upload_datetime
       - uploader
       - visible_roles
@@ -3265,11 +3601,59 @@ components:
           type: string
           format: email
           maxLength: 254
+        status:
+          type: boolean
+        track:
+          type: integer
+          nullable: true
+        state:
+          type: integer
+          nullable: true
+        current_role_id:
+          type: string
+          readOnly: true
+        current_role_name:
+          type: string
+          readOnly: true
+        pg_firstname:
+          type: string
+          readOnly: true
+        pg_lastname:
+          type: string
+          readOnly: true
+        year_lvl:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+          readOnly: true
+        join_perm:
+          type: string
+          readOnly: true
+        ment_bg:
+          type: string
+          readOnly: true
+        ment_inst:
+          type: string
+          readOnly: true
+        ment_reason:
+          type: string
+          readOnly: true
       required:
+      - current_role_id
+      - current_role_name
       - email
       - first_name
       - id
+      - join_perm
       - last_name
+      - ment_bg
+      - ment_inst
+      - ment_reason
+      - pg_firstname
+      - pg_lastname
+      - school_name
+      - year_lvl
   securitySchemes:
     cookieAuth:
       type: apiKey

@@ -1,40 +1,142 @@
+# Phase 2 update: updated views to use new message lifecycle fields.
+# Changes: deleted_flag=False → deleted_at__isnull=True in queryset filters,
+# destroy() now calls soft_delete() instead of setting deleted_flag,
+# added partial_update() for editing messages which sets edited_at automatically,
+# updated WebSocket broadcast payloads to use new field names.
+
 from django.db.models import Q
-from rest_framework import viewsets
+from django.utils import timezone
+from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework import status
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from .models import Messages
-from .serializers import MessageSerializer
-from .management.permissions import IsGroupMemberOrAdmin,  CanModerateMessage
+from .serializers import MessageSerializer, MessageUpdateSerializer
+from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
 
 
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
 
-    # choose permissions per action
     def get_permissions(self):
         if self.action == "destroy":
             return [CanModerateMessage()]
         return [IsGroupMemberOrAdmin()]
 
+    def get_serializer_class(self):
+        if self.action == "partial_update":
+            return MessageUpdateSerializer
+        return MessageSerializer
+
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
+        # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
         return (
-            Messages.objects.filter(group_id=gid, deleted_flag=False)
+            Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
             .prefetch_related("resources__resource", "attachments")
         )
-    
-    # --- #106: DELETE /groups/{gid}/messages/{mid} (soft-delete + WS) ---
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()  # permission already checked on object
-        instance.deleted_flag = True
-        instance.save(update_fields=["deleted_flag"])
 
-        # broadcast deletion to group room
+    # GET /chat/groups/{gid}/messages/
+    def list(self, request, *args, **kwargs):
+        gid = self.kwargs.get("group_pk")
+        # Phase 2 change: ordering uses sent_at instead of sent_datetime
+        qs = self.get_queryset().order_by("-sent_at", "-id")
+
+        after = request.query_params.get("after")
+        if after:
+            try:
+                pivot = Messages.objects.get(pk=int(after), group_id=gid)
+                qs = qs.filter(
+                    Q(sent_at__gt=pivot.sent_at)
+                    | Q(sent_at=pivot.sent_at, id__gt=pivot.id)
+                )
+            except (ValueError, Messages.DoesNotExist):
+                pass
+
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 100))
+
+        items = list(qs[:limit])
+        data = self.get_serializer(items, many=True).data
+        next_after = items[0].id if items else None
+
+        return Response(
+            {"items": data, "next_after": next_after},
+            status=status.HTTP_200_OK
+        )
+
+    # POST /chat/groups/{gid}/messages/
+    def perform_create(self, serializer):
+        gid = int(self.kwargs.get("group_pk"))
+        msg = serializer.save(sender_user=self.request.user, group_id=gid)
+
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"group_{gid}",
+            {
+                "type": "chat.message",
+                "payload": {
+                    "event": "message.created",
+                    "group_id": gid,
+                    "message": {
+                        "id": msg.id,
+                        "sender_id": msg.sender_user_id,
+                        "text": msg.message_text,
+                        "message_type": msg.message_type,
+                        # Phase 2 change: was sent_datetime, now sent_at
+                        "sent_at": msg.sent_at.isoformat(),
+                        "resource_ids": list(
+                            msg.resources.values_list("resource_id", flat=True)
+                        ),
+                    },
+                },
+            },
+        )
+
+    def create(self, request, *args, **kwargs):
+        resp = super().create(request, *args, **kwargs)
+        resp.status_code = status.HTTP_201_CREATED
+        return resp
+
+    # Phase 2 addition: PATCH /chat/groups/{gid}/messages/{id}/
+    # Allows editing a message — automatically sets edited_at via MessageUpdateSerializer
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        # Broadcast edit event to WebSocket group
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"group_{instance.group_id}",
+            {
+                "type": "chat.message",
+                "payload": {
+                    "event": "message.edited",
+                    "group_id": instance.group_id,
+                    "message_id": instance.id,
+                    "message_text": instance.message_text,
+                    "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
+                },
+            },
+        )
+        return Response(MessageSerializer(instance).data)
+
+    # DELETE /chat/groups/{gid}/messages/{id}/
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Phase 2 change: was instance.deleted_flag = True → instance.save()
+        # Now calls soft_delete() which sets deleted_at = timezone.now()
+        instance.soft_delete()
+
+        # Broadcast delete event to WebSocket group
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f"group_{instance.group_id}",
@@ -48,61 +150,3 @@ class MessageViewSet(viewsets.ModelViewSet):
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    # --- #105: GET /groups/{id}/messages/?after={cursor}&limit={n} ---
-    def list(self, request, *args, **kwargs):
-        gid = self.kwargs.get("group_pk")
-        qs = self.get_queryset().order_by("-sent_datetime", "-id")
-
-        # cursor: items newer than this message id
-        after = request.query_params.get("after")
-        if after:
-            try:
-                pivot = Messages.objects.get(pk=int(after), group_id=gid)
-                qs = qs.filter(
-                    Q(sent_datetime__gt=pivot.sent_datetime) |
-                    Q(sent_datetime=pivot.sent_datetime, id__gt=pivot.id)
-                )
-            except (ValueError, Messages.DoesNotExist):
-                pass  # ignore bad cursor and return latest
-
-        # limit (default 50, max 100, min 1)
-        try:
-            limit = int(request.query_params.get("limit", 50))
-        except ValueError:
-            limit = 50
-        limit = 100 if limit > 100 else (1 if limit < 1 else limit)
-
-        items = list(qs[:limit])
-        data = self.get_serializer(items, many=True).data
-        next_after = items[0].id if items else None
-
-        return Response({"items": data, "next_after": next_after}, status=status.HTTP_200_OK)
-
-    # --- #104: POST /groups/{id}/messages ---
-    def perform_create(self, serializer):
-        gid = int(self.kwargs.get("group_pk"))
-        msg = serializer.save(sender_user=self.request.user, group_id=gid)
-
-        # Broadcast to group WS room after save
-        channel_layer = get_channel_layer()
-        payload = {
-            "type": "chat.message",
-            "payload": {
-                "event": "message.created",
-                "group_id": gid,
-                "message": {
-                    "id": msg.id,
-                    "sender_id": msg.sender_user_id,
-                    "text": msg.message_text,
-                    "sent_datetime": msg.sent_datetime.isoformat(),
-                    "resource_ids": list(msg.resources.values_list("resource_id", flat=True)),
-                },
-            },
-        }
-        async_to_sync(channel_layer.group_send)(f"group_{gid}", payload)
-
-    def create(self, request, *args, **kwargs):
-        resp = super().create(request, *args, **kwargs)
-        resp.status_code = status.HTTP_201_CREATED
-        return resp

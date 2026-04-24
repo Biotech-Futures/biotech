@@ -55,7 +55,10 @@ class LoginToken(models.Model):
 
     @classmethod
     def create_for_user(cls, user, expiry_minutes=10):
-        """Create a new login token for a user"""
+        """Create a new login token for a user and invalidate old ones."""
+        # Clean Code: Enforce single active token per user
+        cls.objects.filter(user=user, used=False).update(used=True)
+        
         token = cls.generate_token()
         expires_at = timezone.now() + timedelta(minutes=expiry_minutes)
 

@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from apps.groups.models import GroupMembers
+from apps.groups.models import GroupMembership
 from apps.users.utils.roles import get_active_assignment
 
 ROLE_ADMIN = "admin"
@@ -24,7 +24,11 @@ class IsGroupMemberOrAdmin(BasePermission):
         if u.is_staff or _has_active_role_name(u, {ROLE_ADMIN}):
             return True
         gid = view.kwargs.get("group_pk")
-        return GroupMembers.objects.filter(user=u, group_id=gid).exists()
+        return GroupMembership.objects.filter(
+            user=u,
+            group_id=gid,
+            left_at__isnull=True,
+        ).exists()
 
 
 class CanModerateMessage(BasePermission):
@@ -45,6 +49,10 @@ class CanModerateMessage(BasePermission):
 
         # Mentor / Supervisor → only if member of THIS group
         if _has_active_role_name(u, {ROLE_MENTOR, ROLE_SUPERVISOR}):
-            return GroupMembers.objects.filter(user=u, group=obj.group).exists()
+            return GroupMembership.objects.filter(
+                user=u,
+                group=obj.group,
+                left_at__isnull=True,
+            ).exists()
 
         return False
