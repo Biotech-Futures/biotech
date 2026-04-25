@@ -30,6 +30,7 @@ urlpatterns = [
     path("users/", include("apps.users.urls")),
     path("events/", include("apps.events.urls")),
     path("tasks/", include("apps.tasks.urls")),
+    path("dashboard/", include("apps.tasks.urls")),
     path("groups/", include("apps.groups.urls")),
     path("chat/", include("apps.chat.urls")),
     path("resources/", include("apps.resources.urls")),

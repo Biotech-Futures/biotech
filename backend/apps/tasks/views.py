@@ -3,7 +3,8 @@ from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from rest_framework.pagination import PageNumberPagination
 from .models import Tasks, Milestone
-from .serializers import TaskSerializer, MilestoneSerializer, TaskCreateSerializer, DeleteTaskResponseSerializer
+from .serializers import TaskSerializer, MilestoneSerializer, TaskCreateSerializer, DeleteTaskResponseSerializer, MilestoneProgressSerializer, ProgressSnapshotSerializer, ProgressQuerySerializer
+from .services import build_progress_snapshot, get_allowed_group_ids
 from rest_framework.views import APIView
 from django.db import transaction
 from drf_spectacular.utils import extend_schema
@@ -74,6 +75,26 @@ class TaskListHTMLView(generics.ListAPIView):
             queryset = queryset.filter(deleted_flag=delete_param)
         return queryset
     
+class DashboardProgressView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        query_serializer = ProgressQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        group_id = query_serializer.validated_data.get("group_id")
+
+        if group_id is not None:
+            allowed_ids = get_allowed_group_ids(request.user)
+            if group_id not in allowed_ids:
+                return Response(
+                    {"detail": "You do not have access to this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        snapshot = build_progress_snapshot(group_id=group_id)
+        return Response(ProgressSnapshotSerializer(snapshot).data, status=status.HTTP_200_OK)
+
+
 class DeleteTaskView(APIView):
     permission_classes = [permissions.AllowAny]
 
