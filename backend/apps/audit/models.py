@@ -4,6 +4,15 @@ from django.utils import timezone
 
 
 class AuditLog(models.Model):
+    class ActionChoices(models.TextChoices):
+        CREATE = "create", "Create"
+        UPDATE = "update", "Update"
+        DELETE = "delete", "Delete"
+        LOGIN = "login", "Login"
+        LOGOUT = "logout", "Logout"
+        EXPORT = "export", "Export"
+        IMPORT = "import", "Import"
+
     actor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -13,7 +22,7 @@ class AuditLog(models.Model):
     )
     entity_type = models.CharField(max_length=100)
     entity_id = models.BigIntegerField()
-    action = models.CharField(max_length=100)
+    action = models.CharField(max_length=100, choices=ActionChoices.choices)
     before_state = models.JSONField(null=True, blank=True)
     after_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)

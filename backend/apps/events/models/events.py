@@ -3,10 +3,18 @@ from django.db import models
 
 
 class Events(models.Model):
+    class EventTypeChoices(models.TextChoices):
+        WORKSHOP = "workshop", "Workshop"
+        WEBINAR = "webinar", "Webinar"
+        SYMPOSIUM = "symposium", "Symposium"
+        NETWORKING = "networking", "Networking"
+        SOCIAL = "social", "Social"
+        OTHER = "other", "Other"
+
     event_name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
-    event_type = models.CharField(max_length=100, blank=True, null=True)
+    event_type = models.CharField(max_length=100, choices=EventTypeChoices.choices, blank=True, null=True)
     start_datetime = models.DateTimeField()
     ends_datetime = models.DateTimeField()
     location = models.CharField(max_length=255, blank=True, null=True)

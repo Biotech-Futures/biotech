@@ -3,8 +3,14 @@ from django.db import models
 from django.db.models import Q, F
 
 class StudentSupervisor(models.Model):
+    class RelationshipTypeChoices(models.TextChoices):
+        TEACHER = "teacher", "Teacher"
+        PARENT_GUARDIAN = "parent_guardian", "Parent/Guardian"
+        OTHER = "other", "Other (Specify)"
+
     student_user = models.ForeignKey('StudentProfile', on_delete=models.CASCADE)
     supervisor_user = models.ForeignKey('SupervisorProfile', on_delete=models.SET_NULL, null=True)
+    relationship_type = models.CharField(max_length=50, choices=RelationshipTypeChoices.choices, default=RelationshipTypeChoices.OTHER)
 
     class Meta:
         db_table = 'student_supervisor'

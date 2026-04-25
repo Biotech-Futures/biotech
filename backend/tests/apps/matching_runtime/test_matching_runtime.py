@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
 from apps.users.models import MentorProfile
 
-from .models import MatchRecommendation, MatchRun
+from apps.matching_runtime.models import MatchRecommendation, MatchRun
 
 
 class MatchingRuntimeAdminWorkflowTests(TestCase):

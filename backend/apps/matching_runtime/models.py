@@ -4,9 +4,14 @@ from django.utils import timezone
 
 
 class MatchRun(models.Model):
+    class RunTypeChoices(models.TextChoices):
+        AUTO = "auto", "Automatic"
+        MANUAL = "manual", "Manual"
+        RERUN = "rerun", "Re-run"
+
     initiated_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
-    run_type = models.CharField(max_length=100)
+    run_type = models.CharField(max_length=100, choices=RunTypeChoices.choices)
     rules_snapshot = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
