@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import JsonResponse, HttpResponse
@@ -163,7 +164,6 @@ class LogoutView(APIView):
     )
     def post(self, request):
         # Explicitly revoke parallel tracking sessions if they exist
-        from django.utils import timezone
         session_key = request.session.session_key
         if session_key:
             UserSession.objects.filter(sid=session_key).update(revoked_at=timezone.now())
