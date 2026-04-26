@@ -37,7 +37,7 @@ export function UserFilters({
   status,
   onStatusChange,
 }: UserFiltersProps) {
-  const availableTracks = (tracks ?? []).map((item) => item.trackCode);
+  const availableTracks = (tracks ?? []).map((item) => item.trackName);
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

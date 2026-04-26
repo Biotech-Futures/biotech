@@ -70,7 +70,7 @@ export function UserEditorSheet({
   const [values, setValues] = useState<UserFormValues>(initialValues);
   const availableTracks = Array.from(
     new Set([
-      ...(tracks ?? []).map((item) => item.trackCode),
+      ...(tracks ?? []).map((item) => item.trackName),
       ...(user?.track ? [user.track] : []),
     ]),
   );
@@ -123,8 +123,8 @@ export function UserEditorSheet({
         window.alert("School is required for student users.");
         return;
       }
-      if (!values.yearLevel || values.yearLevel < 10 || values.yearLevel > 30) {
-        window.alert("Age / Year Level must be between 10 and 30.");
+      if (!values.yearLevel || values.yearLevel < 9 || values.yearLevel > 12) {
+        window.alert("Year level must be between 9 and 12.");
         return;
       }
       if (!values.interests.length) {
@@ -254,7 +254,7 @@ export function UserEditorSheet({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="user-year-level">Age / Year Level</Label>
+                <Label htmlFor="user-year-level">Year Level</Label>
                 <Input
                   id="user-year-level"
                   type="number"

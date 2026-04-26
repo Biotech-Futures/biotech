@@ -29,7 +29,7 @@ export type ServerUser = Omit<UserAccount, "source">;
 export type UserPaginatedResponse = {
   msg: string;
   data: {
-    items: Omit<UserAccount, "source">[];
+    items: UserAccount[];
     total: number;
     page: number;
     limit: number;
@@ -81,7 +81,7 @@ export type StudentTrack = string;
 
 export type TrackOption = {
   id: number;
-  trackCode: string;
+  trackName: string;
 };
 
 export type TracksResponse = {
