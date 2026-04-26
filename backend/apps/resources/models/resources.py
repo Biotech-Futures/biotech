@@ -8,12 +8,29 @@ class Resources(models.Model):
         PUBLIC = "public", "Public"
         ROLE = "role", "Role"
         TRACK = "track", "Track"
+        GROUP = "group", "Group"
         SCOPED = "scoped", "Scoped"
+
+    class ResourceKind(models.TextChoices):
+        FILE = "file", "File"
+        PAGE = "page", "Page"
 
     resource_name = models.CharField(max_length=255)
     resource_description = models.CharField(max_length=255)
     resource_type = models.ForeignKey('ResourceType', on_delete=models.PROTECT, related_name='resources', null=True, blank=True)
+    
+    resource_kind = models.CharField(
+        max_length=50,
+        choices=ResourceKind.choices,
+        default=ResourceKind.FILE,
+    )
+    file_name = models.CharField(max_length=255, null=True, blank=True)
+    file_mime_type = models.CharField(max_length=100, null=True, blank=True)
+    file_size = models.BigIntegerField(null=True, blank=True)
+    storage_key = models.CharField(max_length=255, null=True, blank=True)
+
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
+    group = models.ForeignKey("groups.Groups", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     visibility_scope = models.CharField(
         max_length=50,
         choices=VisibilityScope.choices,
