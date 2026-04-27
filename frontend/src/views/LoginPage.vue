@@ -523,7 +523,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
 
-import { buildSessionHeaders, getCSRFToken } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
   LOGIN_LANGUAGE_KEY,
@@ -1287,28 +1287,15 @@ const parseErrorMessage = async (response, fallbackText) => {
   }
 }
 
-const ensureCsrfReady = async () => {
-  const existingToken = getCSRFToken()
-  if (existingToken) {
-    return true
-  }
-
-  try {
-    await fetch(`${API_BASE_URL}/api-auth/login/`, {
-      method: 'GET',
-      credentials: 'include'
-    })
-  } catch (error) {
-    console.error('Failed to warm up CSRF cookie:', error)
-  }
-
-  return Boolean(getCSRFToken())
-}
-
 /*
   Shared JSON POST request helper.
 */
 const postJson = async (path, payload) => {
+  const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+  if (!csrfReady) {
+    throw new Error(t('errorCsrfFailed'))
+  }
+
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
@@ -1474,7 +1461,7 @@ const verifyOTP = async () => {
     return
   }
 
-  const csrfReady = await ensureCsrfReady()
+  const csrfReady = await ensureCsrfCookie(API_BASE_URL)
   if (!csrfReady) {
     error.value = t('errorCsrfFailed')
     statusMessage.value = ''
@@ -1735,7 +1722,7 @@ function disposeInkEffect() {
   Lifecycle: initial focus.
 */
 onMounted(async () => {
-  ensureCsrfReady().catch((error) => {
+  ensureCsrfCookie(API_BASE_URL).catch((error) => {
     console.error('Initial CSRF warm-up failed:', error)
   })
 
