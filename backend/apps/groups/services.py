@@ -6,13 +6,13 @@ from apps.users.models import MentorProfile
 
 from .models import GroupMembership
 
-MEMBER_MEMBERSHIP_ROLE = GroupMembership.MembershipRole.MEMBER
-MENTOR_MEMBERSHIP_ROLE = GroupMembership.MembershipRole.MENTOR
+MEMBER_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
+MENTOR_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 
 
 def active_mentor_membership_qs(*, mentor_user=None, group=None):
     queryset = GroupMembership.objects.filter(
-        membership_role=GroupMembership.MembershipRole.MENTOR,
+        membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         left_at__isnull=True,
     )
     if mentor_user is not None:
@@ -74,7 +74,7 @@ def assign_mentor_to_group(*, group, mentor_user, replace_existing=False):
     membership = GroupMembership.objects.create(
         group=group,
         user=mentor_user,
-        membership_role=GroupMembership.MembershipRole.MENTOR,
+        membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
     )
     return {
         "membership": membership,
