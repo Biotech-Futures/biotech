@@ -51,10 +51,12 @@ function RouteComponent() {
       const res = await confirmAssignments.mutateAsync({ assignments });
       setConfirmedCount(res.data.confirmedCount);
       setConfirmDialogOpen(true);
+      queryClient.removeQueries({ queryKey: ["mentorMatchInfo"] });
       await Promise.all([
-        runMatch(),
-        queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
-        queryClient.invalidateQueries({ queryKey: ["matchedGroups"] }),
+        queryClient.refetchQueries({ queryKey: ["unmatchedGroups"] }),
+        queryClient.refetchQueries({ queryKey: ["matchedGroups"] }),
+        queryClient.refetchQueries({ queryKey: ["mentorList"] }),
+        queryClient.refetchQueries({ queryKey: ["groups"] }),
       ]);
     } catch (error) {
       if (error instanceof AxiosError) {

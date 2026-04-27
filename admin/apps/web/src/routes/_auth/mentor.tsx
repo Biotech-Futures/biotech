@@ -101,6 +101,7 @@ function MentorPage() {
       setBulkDialogOpen(false);
       await Promise.all([
         refetchMatched(),
+        queryClient.refetchQueries({ queryKey: ["groups"] }),
         queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
         queryClient.invalidateQueries({ queryKey: ["mentorDetail"] }),
         queryClient.invalidateQueries({ queryKey: ["mentorList"] }),

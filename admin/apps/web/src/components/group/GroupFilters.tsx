@@ -192,8 +192,8 @@ export function GroupFilters({
               </SelectItem>
             )}
             {tracks.map((item) => (
-              <SelectItem key={item.id} value={item.trackCode}>
-                {item.trackCode}
+              <SelectItem key={item.id} value={item.trackName}>
+                {item.trackName}
               </SelectItem>
             ))}
           </SelectContent>

@@ -95,6 +95,7 @@ export function MatchedGroupsPanel() {
       setSelectedMentorId("");
       await Promise.all([
         refetch(),
+        queryClient.refetchQueries({ queryKey: ["groups"] }),
         queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
       ]);
     } catch (error) {
@@ -118,6 +119,7 @@ export function MatchedGroupsPanel() {
       setBulkDialogOpen(false);
       await Promise.all([
         refetch(),
+        queryClient.refetchQueries({ queryKey: ["groups"] }),
         queryClient.invalidateQueries({ queryKey: ["unmatchedGroups"] }),
         queryClient.invalidateQueries({ queryKey: ["mentorList"] }),
       ]);
