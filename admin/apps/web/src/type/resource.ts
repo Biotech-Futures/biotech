@@ -1,6 +1,7 @@
 export type ResourceRole = {
   id: number;
   slug: string;
+  name?: string;
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
@@ -14,7 +15,7 @@ export type ResourceTypeOption = {
 };
 
 export type ResourceUploader = {
-  id: number;
+  id: string | number;
   first_name: string;
   last_name: string;
   email: string;
@@ -37,7 +38,9 @@ export type ResourceTrackOption = {
 export type Resource = {
   id: number;
   uploader_user_id: string | number;
+  uploaded_by_id?: string | number;
   track_id: number | null;
+  group_id?: number | null;
   visibility_scope: VisibilityScope;
   uploaded_at: string;
   deleted_at: string | null;
@@ -45,6 +48,7 @@ export type Resource = {
   resource_name: string;
   resource_description: string | null;
   resource_type: ResourceTypeName | null;
+  resource_type_id?: number | null;
   content_html: string | null;
   file_name: string | null;
   file_mime_type: string | null;

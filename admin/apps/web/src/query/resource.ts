@@ -12,6 +12,83 @@ import type {
   PaginatedResponse,
 } from "@/type/resource";
 
+type ApiResource = Partial<Resource> & {
+  id: number;
+  name?: string;
+  description?: string | null;
+  kind?: Resource["resource_kind"];
+  uploaded_by_id?: string | number;
+  type_id?: number | null;
+  group_id?: number | null;
+};
+
+function normalizeResource(resource: ApiResource): Resource {
+  const storageKey = resource.storage_key ?? "";
+  const inferredFileName =
+    storageKey && storageKey.includes("/")
+      ? decodeURIComponent(storageKey.split("/").pop() ?? "")
+      : null;
+
+  const uploader = resource.uploader ?? {
+    id:
+      resource.uploader_user_id ??
+      resource.uploaded_by_id ??
+      "unknown",
+    first_name: "Unknown",
+    last_name: "User",
+    email: "unknown@example.com",
+  };
+
+  const audiences = (resource.audiences ?? []).map((audience) => ({
+    ...audience,
+    role:
+      audience.role && !audience.role.slug && audience.role.name
+        ? {
+            ...audience.role,
+            slug: audience.role.name.toLowerCase().replace(/\s+/g, "-"),
+          }
+        : audience.role,
+  }));
+
+  return {
+    ...resource,
+    uploader,
+    audiences,
+    uploader_user_id:
+      resource.uploader_user_id ??
+      resource.uploaded_by_id ??
+      "unknown",
+    uploaded_by_id: resource.uploaded_by_id,
+    resource_name: resource.resource_name ?? resource.name ?? "",
+    resource_description:
+      resource.resource_description ?? resource.description ?? null,
+    resource_kind: resource.resource_kind ?? resource.kind ?? "file",
+    resource_type: resource.resource_type ?? null,
+    resource_type_id: resource.resource_type_id ?? resource.type_id ?? null,
+    group_id: resource.group_id ?? null,
+    visibility_scope: resource.visibility_scope ?? "global",
+    uploaded_at: resource.uploaded_at ?? "",
+    deleted_at: resource.deleted_at ?? null,
+    track_id: resource.track_id ?? null,
+    content_html: resource.content_html ?? null,
+    file_name: resource.file_name ?? inferredFileName,
+    file_mime_type: resource.file_mime_type ?? null,
+    file_size: resource.file_size ?? null,
+    storage_key: resource.storage_key ?? "",
+    id: resource.id,
+  };
+}
+
+function normalizePaginatedResources(payload: PaginatedResponse<ApiResource>): PaginatedResponse<Resource> {
+  return {
+    ...payload,
+    data: {
+      ...payload.data,
+      items: payload.data.items.map(normalizeResource),
+    },
+  };
+}
+
 interface QueryResourcesParams {
   page: number;
   search?: string;
@@ -28,7 +105,7 @@ export function useQueryResources(params: QueryResourcesParams) {
   return useQuery({
     queryKey: ["resources", page, search, uploader, track_id, order, resource_type, resource_kind],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
-      const res = await myFetch.get<PaginatedResponse<Resource>>("/resource", {
+      const res = await myFetch.get<PaginatedResponse<ApiResource>>("/resource", {
         params: {
           page,
           search,
@@ -39,7 +116,7 @@ export function useQueryResources(params: QueryResourcesParams) {
           order: order ?? "newest",
         },
       });
-      return res.data;
+      return normalizePaginatedResources(res.data);
     },
   });
 }
@@ -48,8 +125,11 @@ export function useQueryResource(id: number | null) {
   return useQuery({
     queryKey: ["resource", id],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: Resource | null }>(`/resource/${id}`);
-      return res.data;
+      const res = await myFetch.get<{ msg: string; data: ApiResource | null }>(`/resource/${id}`);
+      return {
+        ...res.data,
+        data: res.data.data ? normalizeResource(res.data.data) : null,
+      };
     },
     enabled: id !== null,
   });
