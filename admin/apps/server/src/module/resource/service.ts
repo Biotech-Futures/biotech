@@ -6,7 +6,7 @@ import {
 } from "@/lib/blob.js";
 import {
   groups,
-  resourceRoles,
+  resourceAudience,
   resourceTypes,
   resources,
   roles,
@@ -19,6 +19,7 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   sql,
 } from "drizzle-orm";
 import type {
@@ -151,6 +152,15 @@ function buildStorageKey(resourceId: number, fileName?: string | null) {
   const stamp = Date.now();
   const safeName = (fileName || "resource.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
   return `resources/${stamp}-${resourceId}-${safeName}`;
+}
+
+function extractFileNameFromStorageKey(storageKey?: string | null) {
+  if (!storageKey) return null;
+  const parts = storageKey.split("/");
+  const raw = parts[parts.length - 1] || "";
+  const dashIndex = raw.indexOf("-", raw.indexOf("-") + 1);
+  if (dashIndex === -1) return raw || null;
+  return raw.slice(dashIndex + 1) || null;
 }
 
 function buildResourceFromDemoRow(resourceRow: DemoResourceRow): Resource {
@@ -300,12 +310,12 @@ function resolveUploaderForDemo(authUploader?: AuthUploader): ResourceUploader {
 }
 
 async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
-  const conditions = [eq(resources.deletedFlag, false)];
+  const conditions = [isNull(resources.deletedAt)];
 
   const uploaderId =
     params.uploader_user_id !== undefined ? Number(params.uploader_user_id) : null;
   if (uploaderId !== null && Number.isFinite(uploaderId)) {
-    conditions.push(eq(resources.uploaderUserIdId, uploaderId));
+    conditions.push(eq(resources.uploadedById, uploaderId));
   }
 
   if (params.group_id !== undefined) {
@@ -313,56 +323,56 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
   }
 
   if (params.resource_kind) {
-    conditions.push(eq(resources.resourceKind, params.resource_kind));
+    conditions.push(eq(resources.kind, params.resource_kind));
   }
 
   if (params.resource_type_id !== undefined) {
-    conditions.push(eq(resources.resourceTypeId, params.resource_type_id));
+    conditions.push(eq(resources.typeId, params.resource_type_id));
   }
 
   if (params.resource_type) {
-    conditions.push(eq(resourceTypes.typeName, params.resource_type));
+    conditions.push(eq(resourceTypes.name, params.resource_type));
   }
 
   if (params.track_id !== undefined) {
-    conditions.push(eq(groups.trackId, params.track_id));
+    conditions.push(sql`COALESCE(${resources.trackId}, ${groups.trackId}) = ${params.track_id}`);
   }
 
   if (params.search) {
     const pattern = `%${params.search}%`;
     conditions.push(
-      sql`(${resources.resourceName} ILIKE ${pattern} OR ${resources.resourceDescription} ILIKE ${pattern})`,
+      sql`(${resources.name} ILIKE ${pattern} OR ${resources.description} ILIKE ${pattern})`,
     );
   }
 
   const rows = await db
     .select({
       id: resources.id,
-      uploader_user_id: resources.uploaderUserIdId,
+      uploader_user_id: resources.uploadedById,
       group_id: resources.groupId,
-      track_id: groups.trackId,
-      visibility_scope: sql<string>`'global'`,
-      uploaded_at: resources.uploadDatetime,
-      deleted_at: resources.deletedDatetime,
-      resource_kind: sql<ResourceKind>`${resources.resourceKind}`,
-      resource_name: resources.resourceName,
-      resource_description: resources.resourceDescription,
-      resource_type_id: resources.resourceTypeId,
-      resource_type: sql<ResourceTypeName | null>`${resourceTypes.typeName}`,
+      track_id: sql<number | null>`COALESCE(${resources.trackId}, ${groups.trackId})`,
+      visibility_scope: resources.visibilityScope,
+      uploaded_at: resources.uploadedAt,
+      deleted_at: resources.deletedAt,
+      resource_kind: sql<ResourceKind>`${resources.kind}`,
+      resource_name: resources.name,
+      resource_description: resources.description,
+      resource_type_id: resources.typeId,
+      resource_type: sql<ResourceTypeName | null>`${resourceTypes.name}`,
       content_html: sql<string | null>`null`,
-      file_name: resources.fileName,
+      file_name: sql<string | null>`null`,
       file_mime_type: resources.fileMimeType,
       file_size: resources.fileSize,
       storage_key: resources.storageKey,
     })
     .from(resources)
     .leftJoin(groups, eq(resources.groupId, groups.id))
-    .leftJoin(resourceTypes, eq(resources.resourceTypeId, resourceTypes.id))
+    .leftJoin(resourceTypes, eq(resources.typeId, resourceTypes.id))
     .where(and(...conditions))
     .orderBy(
       params.order === "oldest"
-        ? asc(resources.uploadDatetime)
-        : desc(resources.uploadDatetime),
+        ? asc(resources.uploadedAt)
+        : desc(resources.uploadedAt),
     );
 
   return rows as ResourceRow[];
@@ -372,27 +382,27 @@ async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> 
   const row = await db
     .select({
       id: resources.id,
-      uploader_user_id: resources.uploaderUserIdId,
+      uploader_user_id: resources.uploadedById,
       group_id: resources.groupId,
-      track_id: groups.trackId,
-      visibility_scope: sql<string>`'global'`,
-      uploaded_at: resources.uploadDatetime,
-      deleted_at: resources.deletedDatetime,
-      resource_kind: sql<ResourceKind>`${resources.resourceKind}`,
-      resource_name: resources.resourceName,
-      resource_description: resources.resourceDescription,
-      resource_type_id: resources.resourceTypeId,
-      resource_type: sql<ResourceTypeName | null>`${resourceTypes.typeName}`,
+      track_id: sql<number | null>`COALESCE(${resources.trackId}, ${groups.trackId})`,
+      visibility_scope: resources.visibilityScope,
+      uploaded_at: resources.uploadedAt,
+      deleted_at: resources.deletedAt,
+      resource_kind: sql<ResourceKind>`${resources.kind}`,
+      resource_name: resources.name,
+      resource_description: resources.description,
+      resource_type_id: resources.typeId,
+      resource_type: sql<ResourceTypeName | null>`${resourceTypes.name}`,
       content_html: sql<string | null>`null`,
-      file_name: resources.fileName,
+      file_name: sql<string | null>`null`,
       file_mime_type: resources.fileMimeType,
       file_size: resources.fileSize,
       storage_key: resources.storageKey,
     })
     .from(resources)
     .leftJoin(groups, eq(resources.groupId, groups.id))
-    .leftJoin(resourceTypes, eq(resources.resourceTypeId, resourceTypes.id))
-    .where(and(eq(resources.id, id), eq(resources.deletedFlag, false)))
+    .leftJoin(resourceTypes, eq(resources.typeId, resourceTypes.id))
+    .where(and(eq(resources.id, id), isNull(resources.deletedAt)))
     .limit(1);
 
   if (!row[0]) return null;
@@ -432,14 +442,15 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
 
   const audienceRows = await db
     .select({
-      id: resourceRoles.id,
-      resource_id: resourceRoles.resourceId,
-      role_id: resourceRoles.roleId,
+      id: resourceAudience.id,
+      resource_id: resourceAudience.resourceId,
+      role_id: resourceAudience.roleId,
+      track_id: resourceAudience.trackId,
       role_name: roles.roleName,
     })
-    .from(resourceRoles)
-    .leftJoin(roles, eq(resourceRoles.roleId, roles.id))
-    .where(inArray(resourceRoles.resourceId, resourceIds));
+    .from(resourceAudience)
+    .leftJoin(roles, eq(resourceAudience.roleId, roles.id))
+    .where(inArray(resourceAudience.resourceId, resourceIds));
 
   const audienceMap = new Map<number, ResourceAudience[]>();
   for (const row of audienceRows) {
@@ -448,11 +459,11 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
       id: row.id,
       resource_id: row.resource_id,
       role_id: row.role_id,
-      track_id: null,
       role:
         row.role_id && row.role_name
           ? { id: row.role_id, slug: slugifyRole(row.role_name) }
           : null,
+      track_id: row.track_id,
     });
     audienceMap.set(row.resource_id, existing);
   }
@@ -467,6 +478,7 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
     return {
       ...row,
       visibility_scope: visibility,
+      file_name: row.file_name ?? extractFileNameFromStorageKey(row.storage_key),
       uploader:
         uploaderMap.get(Number(row.uploader_user_id)) ?? {
           id: row.uploader_user_id,
@@ -668,15 +680,17 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
   const availableRoles = await getRolesFromDb();
   const requestedRoleIds = payload.role_ids ?? [];
   const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
+  const requestedTrackId = payload.track_id ?? null;
+  const requestedResourceType = payload.resource_type ?? null;
 
   const groupId =
     payload.group_id ??
-    (payload.track_id !== undefined && payload.track_id !== null
+    (requestedTrackId !== null
       ? await (async () => {
           const matched = await db
             .select({ id: groups.id })
             .from(groups)
-            .where(and(eq(groups.trackId, payload.track_id), eq(groups.deletedFlag, false)))
+            .where(and(eq(groups.trackId, requestedTrackId), eq(groups.deletedFlag, false)))
             .orderBy(asc(groups.id))
             .limit(1);
           return matched[0]?.id ?? null;
@@ -685,12 +699,12 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
 
   const resourceTypeId =
     payload.resource_type_id ??
-    (payload.resource_type
+    (requestedResourceType
       ? await (async () => {
           const matched = await db
             .select({ id: resourceTypes.id })
             .from(resourceTypes)
-            .where(eq(resourceTypes.typeName, payload.resource_type))
+            .where(eq(resourceTypes.name, requestedResourceType))
             .limit(1);
           return matched[0]?.id ?? null;
         })()
@@ -700,18 +714,20 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
   const [inserted] = await db
     .insert(resources)
     .values({
-      resourceName: payload.resource_name,
-      resourceDescription: payload.resource_description,
-      uploadDatetime: now,
-      deletedFlag: false,
-      deletedDatetime: null,
-      uploaderUserIdId: Number(uploaderProfile.id),
-      resourceTypeId,
+      name: payload.resource_name,
+      description: payload.resource_description,
+      kind: payload.resource_kind ?? "file",
+      uploadedAt: now,
+      deletedAt: null,
+      uploadedById: Number(uploaderProfile.id),
+      typeId: resourceTypeId,
       fileMimeType: null,
-      fileName: null,
       fileSize: null,
+      visibilityScope:
+        payload.visibility_scope ??
+        resolveVisibilityScope(payload.track_id, requestedRoleIds),
+      trackId: payload.track_id ?? null,
       groupId,
-      resourceKind: payload.resource_kind ?? "file",
       storageKey: null,
     })
     .returning({ id: resources.id });
@@ -741,7 +757,6 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
       .update(resources)
       .set({
         storageKey,
-        fileName,
         fileMimeType: "text/html",
         fileSize: bytes.byteLength,
       })
@@ -749,7 +764,9 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
   }
 
   if (roleIds.length) {
-    await db.insert(resourceRoles).values(roleIds.map((roleId) => ({ resourceId: id, roleId })));
+    await db
+      .insert(resourceAudience)
+      .values(roleIds.map((roleId) => ({ resourceId: id, roleId, trackId: payload.track_id ?? null })));
   }
 
   return queryResourceById(id).then((result) => ({
@@ -835,15 +852,17 @@ export async function uploadResource(payload: {
   const availableRoles = await getRolesFromDb();
   const requestedRoleIds = payload.role_ids ?? [];
   const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
+  const requestedTrackId = payload.track_id ?? null;
+  const requestedResourceType = payload.resource_type ?? null;
 
   const groupId =
     payload.group_id ??
-    (payload.track_id !== undefined && payload.track_id !== null
+    (requestedTrackId !== null
       ? await (async () => {
           const matched = await db
             .select({ id: groups.id })
             .from(groups)
-            .where(and(eq(groups.trackId, payload.track_id), eq(groups.deletedFlag, false)))
+            .where(and(eq(groups.trackId, requestedTrackId), eq(groups.deletedFlag, false)))
             .orderBy(asc(groups.id))
             .limit(1);
           return matched[0]?.id ?? null;
@@ -852,12 +871,12 @@ export async function uploadResource(payload: {
 
   const resourceTypeId =
     payload.resource_type_id ??
-    (payload.resource_type
+    (requestedResourceType
       ? await (async () => {
           const matched = await db
             .select({ id: resourceTypes.id })
             .from(resourceTypes)
-            .where(eq(resourceTypes.typeName, payload.resource_type))
+            .where(eq(resourceTypes.name, requestedResourceType))
             .limit(1);
           return matched[0]?.id ?? null;
         })()
@@ -869,18 +888,20 @@ export async function uploadResource(payload: {
   const [inserted] = await db
     .insert(resources)
     .values({
-      resourceName: payload.resource_name,
-      resourceDescription: payload.resource_description,
-      uploadDatetime: now,
-      deletedFlag: false,
-      deletedDatetime: null,
-      uploaderUserIdId: Number(uploaderProfile.id),
-      resourceTypeId,
+      name: payload.resource_name,
+      description: payload.resource_description,
+      kind: "file",
+      uploadedAt: now,
+      deletedAt: null,
+      uploadedById: Number(uploaderProfile.id),
+      typeId: resourceTypeId,
       fileMimeType,
-      fileName: payload.file_name,
       fileSize: payload.file_size,
+      visibilityScope:
+        payload.visibility_scope ??
+        resolveVisibilityScope(payload.track_id, requestedRoleIds),
+      trackId: payload.track_id ?? null,
       groupId,
-      resourceKind: "file",
       storageKey: null,
     })
     .returning({ id: resources.id });
@@ -900,7 +921,9 @@ export async function uploadResource(payload: {
     .where(eq(resources.id, id));
 
   if (roleIds.length) {
-    await db.insert(resourceRoles).values(roleIds.map((roleId) => ({ resourceId: id, roleId })));
+    await db
+      .insert(resourceAudience)
+      .values(roleIds.map((roleId) => ({ resourceId: id, roleId, trackId: payload.track_id ?? null })));
   }
 
   return queryResourceById(id).then((result) => ({
@@ -974,7 +997,6 @@ export async function replaceResourceFile(
   await db
     .update(resources)
     .set({
-      fileName: payload.file_name,
       fileMimeType: payload.file_mime_type || "application/octet-stream",
       fileSize: payload.file_size,
       storageKey: nextStorageKey,
@@ -1120,6 +1142,8 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
 
   const current = existing.data;
   const updateKind = updates.resource_kind ?? current.resource_kind;
+  const requestedTrackId = updates.track_id ?? null;
+  const requestedResourceType = updates.resource_type ?? null;
 
   const nextGroupId =
     updates.group_id === undefined
@@ -1129,12 +1153,12 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
         : updates.group_id;
 
   const groupIdFromTrack =
-    updates.track_id !== undefined && updates.track_id !== null
+    requestedTrackId !== null
       ? await (async () => {
           const matched = await db
             .select({ id: groups.id })
             .from(groups)
-            .where(and(eq(groups.trackId, updates.track_id), eq(groups.deletedFlag, false)))
+            .where(and(eq(groups.trackId, requestedTrackId), eq(groups.deletedFlag, false)))
             .orderBy(asc(groups.id))
             .limit(1);
           return matched[0]?.id ?? null;
@@ -1151,12 +1175,12 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
         : updates.resource_type_id;
 
   const typeIdFromName =
-    updates.resource_type !== undefined && updates.resource_type !== null
+    requestedResourceType !== null
       ? await (async () => {
           const matched = await db
             .select({ id: resourceTypes.id })
             .from(resourceTypes)
-            .where(eq(resourceTypes.typeName, updates.resource_type))
+            .where(eq(resourceTypes.name, requestedResourceType))
             .limit(1);
           return matched[0]?.id ?? null;
         })()
@@ -1167,10 +1191,12 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
   await db
     .update(resources)
     .set({
-      resourceName: updates.resource_name ?? current.resource_name,
-      resourceDescription: updates.resource_description ?? current.resource_description ?? "",
-      resourceTypeId: finalResourceTypeId,
-      resourceKind: updateKind,
+      name: updates.resource_name ?? current.resource_name,
+      description: updates.resource_description ?? current.resource_description ?? "",
+      typeId: finalResourceTypeId,
+      kind: updateKind,
+      visibilityScope: updates.visibility_scope ?? current.visibility_scope,
+      trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
       groupId: finalGroupId,
     })
     .where(eq(resources.id, id));
@@ -1178,7 +1204,7 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
   // For page resources, keep HTML content in blob storage.
   if (updateKind === "page" && updates.content_html !== undefined) {
     const htmlText = updates.content_html ?? "";
-    const fileName = `${updates.resource_name ?? current.resource_name || "resource"}.html`;
+    const fileName = `${(updates.resource_name ?? current.resource_name) || "resource"}.html`;
     const storageKey = buildStorageKey(id, fileName);
     const bytes = new TextEncoder().encode(htmlText).buffer;
 
@@ -1192,7 +1218,6 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
       .update(resources)
       .set({
         storageKey,
-        fileName,
         fileMimeType: "text/html",
         fileSize: bytes.byteLength,
       })
@@ -1207,9 +1232,15 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
     const requestedRoleIds = updates.role_ids ?? currentNonAdminRoleIds;
     const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
 
-    await db.delete(resourceRoles).where(eq(resourceRoles.resourceId, id));
+    await db.delete(resourceAudience).where(eq(resourceAudience.resourceId, id));
     if (roleIds.length) {
-      await db.insert(resourceRoles).values(roleIds.map((roleId) => ({ resourceId: id, roleId })));
+      await db.insert(resourceAudience).values(
+        roleIds.map((roleId) => ({
+          resourceId: id,
+          roleId,
+          trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+        })),
+      );
     }
   }
 
@@ -1240,7 +1271,7 @@ export async function deleteResource(id: number) {
 
   await db
     .update(resources)
-    .set({ deletedFlag: true, deletedDatetime: new Date().toISOString() })
+    .set({ deletedAt: new Date().toISOString() })
     .where(eq(resources.id, id));
 
   if (useResourceDemoData()) {
@@ -1298,9 +1329,10 @@ export async function assignRoleToResource(id: number, roleId: number) {
 
   const hasRole = existing.data.audiences.some((item) => item.role_id === roleId);
   if (!hasRole) {
-    await db.insert(resourceRoles).values({
+    await db.insert(resourceAudience).values({
       resourceId: id,
       roleId,
+      trackId: existing.data.track_id,
     });
   }
 
@@ -1342,8 +1374,8 @@ export async function removeRoleFromResource(id: number, roleId: number) {
   }
 
   await db
-    .delete(resourceRoles)
-    .where(and(eq(resourceRoles.resourceId, id), eq(resourceRoles.roleId, roleId)));
+    .delete(resourceAudience)
+    .where(and(eq(resourceAudience.resourceId, id), eq(resourceAudience.roleId, roleId)));
 
   return queryResourceById(id).then((result) => ({
     msg: "Role removed successfully",
@@ -1366,10 +1398,36 @@ export async function listResourceRoles() {
   };
 }
 
-export function listResourceTypes() {
+export async function listResourceTypes() {
+  if (useResourceDemoData()) {
+    return {
+      msg: "Resource types retrieved successfully",
+      data: FALLBACK_TYPES,
+    };
+  }
+
+  const rows = await db
+    .select({
+      id: resourceTypes.id,
+      name: resourceTypes.name,
+    })
+    .from(resourceTypes)
+    .orderBy(asc(resourceTypes.name));
+
+  if (!rows.length) {
+    return {
+      msg: "Resource types retrieved successfully",
+      data: FALLBACK_TYPES,
+    };
+  }
+
   return {
     msg: "Resource types retrieved successfully",
-    data: FALLBACK_TYPES,
+    data: rows.map((row) => ({
+      id: row.id,
+      value: row.name as ResourceTypeName,
+      label: row.name,
+    })),
   };
 }
 

@@ -41,8 +41,8 @@ resourceRoute.get("/roles", async (c) => {
   return c.json(result);
 });
 
-resourceRoute.get("/types", (c) => {
-  const result = listResourceTypes();
+resourceRoute.get("/types", async (c) => {
+  const result = await listResourceTypes();
   return c.json(result);
 });
 
@@ -111,6 +111,18 @@ resourceRoute.post("/upload", async (c) => {
     trackIdRaw !== undefined && trackIdRaw !== null && String(trackIdRaw).trim() !== ""
       ? Number(trackIdRaw)
       : undefined;
+  const groupIdRaw = getValue(body.group_id);
+  const groupId =
+    groupIdRaw !== undefined && groupIdRaw !== null && String(groupIdRaw).trim() !== ""
+      ? Number(groupIdRaw)
+      : undefined;
+  const resourceTypeIdRaw = getValue(body.resource_type_id);
+  const resourceTypeId =
+    resourceTypeIdRaw !== undefined &&
+    resourceTypeIdRaw !== null &&
+    String(resourceTypeIdRaw).trim() !== ""
+      ? Number(resourceTypeIdRaw)
+      : undefined;
 
   const roleField = body.role_ids;
   const roleIds = Array.isArray(roleField)
@@ -137,6 +149,8 @@ resourceRoute.post("/upload", async (c) => {
       | undefined,
     visibility_scope: visibilityScope as "global" | "track_based" | "role_based" | undefined,
     track_id: Number.isFinite(trackId) ? trackId : undefined,
+    group_id: Number.isFinite(groupId) ? groupId : undefined,
+    resource_type_id: Number.isFinite(resourceTypeId) ? resourceTypeId : undefined,
     role_ids: roleIds,
     file_name: file.name,
     file_size: file.size,

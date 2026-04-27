@@ -10,7 +10,9 @@ export const queryResourcesSchema = z.object({
   search: z.string().optional(),
   uploader: z.string().optional(),
   uploader_user_id: z.string().optional(),
+  group_id: z.coerce.number().optional(),
   track_id: z.coerce.number().optional(),
+  resource_type_id: z.coerce.number().optional(),
   resource_type: resourceTypeSchema.optional(),
   resource_kind: resourceKindSchema.optional(),
   role_slug: z.string().optional(),
@@ -24,7 +26,9 @@ export const createResourceSchema = z.object({
   resource_kind: resourceKindSchema.default("file"),
   content_html: z.string().max(20000).nullable().optional(),
   visibility_scope: visibilityScopeSchema.default("global"),
+  group_id: z.number().optional(),
   track_id: z.number().optional(),
+  resource_type_id: z.number().optional(),
   role_ids: z.array(z.number()).optional(),
 });
 
@@ -35,7 +39,9 @@ export const updateResourceSchema = z.object({
   resource_kind: resourceKindSchema.optional(),
   content_html: z.string().max(20000).nullable().optional(),
   visibility_scope: visibilityScopeSchema.optional(),
+  group_id: z.number().nullable().optional(),
   track_id: z.number().nullable().optional(),
+  resource_type_id: z.number().nullable().optional(),
   role_ids: z.array(z.number()).optional(),
 });
 
