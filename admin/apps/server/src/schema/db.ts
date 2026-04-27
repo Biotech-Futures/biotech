@@ -720,6 +720,16 @@ export const resources = pgTable(
     }).notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     resourceTypeId: bigint("resource_type_id", { mode: "number" }),
+    fileMimeType: varchar("file_mime_type", { length: 100 }),
+    fileName: varchar("file_name", { length: 255 }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    fileSize: bigint("file_size", { mode: "number" }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    groupId: bigint("group_id", { mode: "number" }),
+    resourceKind: varchar("resource_kind", { length: 20 })
+      .default("file")
+      .notNull(),
+    storageKey: varchar("storage_key", { length: 500 }),
   },
   (table) => [
     index("resources_resource_type_id_8ca31a8a").using(
@@ -734,6 +744,10 @@ export const resources = pgTable(
       "btree",
       table.uploaderUserIdId.asc().nullsLast().op("int8_ops"),
     ),
+    index("resources_group_id_idx").using(
+      "btree",
+      table.groupId.asc().nullsLast().op("int8_ops"),
+    ),
     foreignKey({
       columns: [table.resourceTypeId],
       foreignColumns: [resourceTypes.id],
@@ -743,6 +757,11 @@ export const resources = pgTable(
       columns: [table.uploaderUserIdId],
       foreignColumns: [users.id],
       name: "resources_uploader_user_id_id_f9418bc1_fk_users_id",
+    }),
+    foreignKey({
+      columns: [table.groupId],
+      foreignColumns: [groups.id],
+      name: "resources_group_id_fk_groups_id",
     }),
     check(
       "deleted_after_upload",
