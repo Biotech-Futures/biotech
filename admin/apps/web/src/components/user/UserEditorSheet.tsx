@@ -323,25 +323,6 @@ export function UserEditorSheet({
             </>
           ) : null}
 
-          <div className="space-y-2">
-            <Label>Account Status</Label>
-            <div className="flex gap-2">
-              <Button
-                variant={values.active ? "default" : "outline"}
-                size="sm"
-                onClick={() => setValues((current) => ({ ...current, active: true }))}
-              >
-                Active
-              </Button>
-              <Button
-                variant={!values.active ? "default" : "outline"}
-                size="sm"
-                onClick={() => setValues((current) => ({ ...current, active: false }))}
-              >
-                Inactive
-              </Button>
-            </div>
-          </div>
         </div>
 
         <SheetFooter>
