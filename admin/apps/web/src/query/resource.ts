@@ -14,9 +14,15 @@ import type {
 
 type ApiResource = Partial<Resource> & {
   id: number;
+  resource_name?: string;
+  resource_description?: string | null;
+  resource_kind?: Resource["kind"];
+  resource_type?: Resource["type_name"];
+  resource_type_id?: number | null;
+  uploader_user_id?: string | number;
   name?: string;
   description?: string | null;
-  kind?: Resource["resource_kind"];
+  kind?: Resource["kind"];
   uploaded_by_id?: string | number;
   type_id?: number | null;
   group_id?: number | null;
@@ -51,31 +57,26 @@ function normalizeResource(resource: ApiResource): Resource {
   }));
 
   return {
-    ...resource,
+    id: resource.id,
     uploader,
     audiences,
-    uploader_user_id:
-      resource.uploader_user_id ??
-      resource.uploaded_by_id ??
-      "unknown",
-    uploaded_by_id: resource.uploaded_by_id,
-    resource_name: resource.resource_name ?? resource.name ?? "",
-    resource_description:
-      resource.resource_description ?? resource.description ?? null,
-    resource_kind: resource.resource_kind ?? resource.kind ?? "file",
-    resource_type: resource.resource_type ?? null,
-    resource_type_id: resource.resource_type_id ?? resource.type_id ?? null,
+    uploaded_by_id:
+      resource.uploaded_by_id ?? resource.uploader_user_id ?? "unknown",
+    name: resource.name ?? resource.resource_name ?? "",
+    description: resource.description ?? resource.resource_description ?? null,
+    kind: resource.kind ?? resource.resource_kind ?? "file",
+    type_name: resource.type_name ?? resource.resource_type ?? null,
+    type_id: resource.type_id ?? resource.resource_type_id ?? null,
     group_id: resource.group_id ?? null,
+    track_id: resource.track_id ?? null,
     visibility_scope: resource.visibility_scope ?? "global",
     uploaded_at: resource.uploaded_at ?? "",
     deleted_at: resource.deleted_at ?? null,
-    track_id: resource.track_id ?? null,
     content_html: resource.content_html ?? null,
     file_name: resource.file_name ?? inferredFileName,
     file_mime_type: resource.file_mime_type ?? null,
     file_size: resource.file_size ?? null,
     storage_key: resource.storage_key ?? "",
-    id: resource.id,
   };
 }
 

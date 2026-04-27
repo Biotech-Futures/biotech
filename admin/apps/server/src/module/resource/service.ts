@@ -1417,7 +1417,7 @@ export async function listResourceTypes() {
   if (!rows.length) {
     return {
       msg: "Resource types retrieved successfully",
-      data: FALLBACK_TYPES,
+      data: [],
     };
   }
 

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   useCreateResource,
   useQueryResourceRoles,
+  useQueryResourceTracks,
   useQueryResourceTypes,
   useUploadResource,
 } from "@/query/resource";
@@ -29,6 +30,7 @@ interface ResourceUploadSheetProps {
 
 export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetProps) {
   const { data: rolesData } = useQueryResourceRoles();
+  const { data: tracksData } = useQueryResourceTracks();
   const { data: typesData } = useQueryResourceTypes();
   const { mutate: uploadResource, isPending: isUploadPending } = useUploadResource();
   const { mutate: createResource, isPending: isCreatePending } = useCreateResource();
@@ -47,6 +49,7 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const roles = rolesData?.data ?? [];
+  const tracks = tracksData?.data?.length ? tracksData.data : RESOURCE_TRACKS;
   const types = typesData?.data ?? [];
 
   const fileSizeText = useMemo(() => {
@@ -101,12 +104,19 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
       window.alert("Resource description is required.");
       return;
     }
-    if (!trackId) {
-      window.alert("Track is required.");
+    const parsedTrackId = trackId ? Number(trackId) : null;
+    const finalTrackId = Number.isFinite(parsedTrackId) ? parsedTrackId : null;
+    const finalRoleIds = roleIds;
+
+    if (visibilityMode === "track_based" && finalTrackId === null) {
+      window.alert("Track is required for track-based visibility.");
       return;
     }
-    const finalTrackId = Number(trackId);
-    const finalRoleIds = roleIds;
+
+    if (visibilityMode === "role_based" && !finalRoleIds.length) {
+      window.alert("Please select at least one role for role-based visibility.");
+      return;
+    }
 
     if (resourceKind === "page") {
       if (!contentHtml.trim()) {
@@ -122,8 +132,8 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
           content_html: contentHtml.trim(),
           visibility_scope: visibilityMode,
           resource_type: resourceType || "guide",
-          track_id: finalTrackId,
-          role_ids: finalRoleIds,
+          track_id: visibilityMode === "track_based" ? finalTrackId ?? undefined : undefined,
+          role_ids: visibilityMode === "role_based" ? finalRoleIds : [],
         },
         {
           onSuccess: () => {
@@ -146,8 +156,12 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     formData.append("resource_description", resourceDescription.trim());
     formData.append("visibility_scope", visibilityMode);
     if (resourceType) formData.append("resource_type", resourceType);
-    formData.append("track_id", trackId);
-    roleIds.forEach((roleId) => formData.append("role_ids", String(roleId)));
+    if (visibilityMode === "track_based" && finalTrackId !== null) {
+      formData.append("track_id", String(finalTrackId));
+    }
+    if (visibilityMode === "role_based") {
+      roleIds.forEach((roleId) => formData.append("role_ids", String(roleId)));
+    }
 
     uploadResource(formData, {
       onSuccess: () => {
@@ -355,13 +369,18 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Unassigned</SelectItem>
-                {RESOURCE_TRACKS.map((track) => (
+                {tracks.map((track) => (
                   <SelectItem key={track.id} value={String(track.id)}>
                     {track.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {visibilityMode === "track_based"
+                ? "Required for track-based visibility."
+                : "Optional for global/role-based visibility."}
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -409,6 +428,11 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
                   );
                 })}
             </div>
+            <p className="text-xs text-muted-foreground">
+              {visibilityMode === "role_based"
+                ? "Select one or more roles."
+                : "Ignored unless visibility is role-based."}
+            </p>
           </div>
         </div>
 

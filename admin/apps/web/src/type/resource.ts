@@ -37,18 +37,17 @@ export type ResourceTrackOption = {
 
 export type Resource = {
   id: number;
-  uploader_user_id: string | number;
-  uploaded_by_id?: string | number;
+  uploaded_by_id: string | number;
   track_id: number | null;
-  group_id?: number | null;
+  group_id: number | null;
   visibility_scope: VisibilityScope;
   uploaded_at: string;
   deleted_at: string | null;
-  resource_kind: ResourceKind;
-  resource_name: string;
-  resource_description: string | null;
-  resource_type: ResourceTypeName | null;
-  resource_type_id?: number | null;
+  kind: ResourceKind;
+  name: string;
+  description: string | null;
+  type_name: ResourceTypeName | null;
+  type_id: number | null;
   content_html: string | null;
   file_name: string | null;
   file_mime_type: string | null;

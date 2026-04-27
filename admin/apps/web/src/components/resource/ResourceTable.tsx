@@ -142,7 +142,7 @@ export function ResourceTable({
                         type="checkbox"
                         checked={selectedSet.has(row.original.id)}
                         onChange={(event) => toggleOne(row.original.id, event.target.checked)}
-                        aria-label={`Select resource ${row.original.resource_name}`}
+                        aria-label={`Select resource ${row.original.name}`}
                       />
                     </TableCell>
                   ) : null}

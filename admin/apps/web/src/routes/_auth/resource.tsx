@@ -12,6 +12,7 @@ import {
   useDeleteResource,
   useQueryResourceRoles,
   useQueryResourceTracks,
+  useQueryResourceTypes,
   useQueryResources,
   useUpdateResource,
 } from "@/query/resource";
@@ -20,7 +21,6 @@ import type {
   ResourceOrder,
   ResourceTypeName,
 } from "@/type/resource";
-import { RESOURCE_TRACKS } from "@/type/resource";
 import { Button } from "@/components/ui/button";
 import { UploadIcon } from "lucide-react";
 
@@ -63,6 +63,7 @@ function ResourcePage() {
   const { mutateAsync: updateResourceAsync } = useUpdateResource();
   const { data: rolesData } = useQueryResourceRoles();
   const { data: tracksData } = useQueryResourceTracks();
+  const { data: typesData } = useQueryResourceTypes();
 
   useEffect(() => {
     setPage(1);
@@ -100,14 +101,14 @@ function ResourcePage() {
       return items.sort(
         (a, b) =>
           getSortTimestamp(a) - getSortTimestamp(b) ||
-          a.resource_name.localeCompare(b.resource_name),
+          a.name.localeCompare(b.name),
       );
     }
 
     return items.sort(
       (a, b) =>
         getSortTimestamp(b) - getSortTimestamp(a) ||
-        a.resource_name.localeCompare(b.resource_name),
+        a.name.localeCompare(b.name),
     );
   }, [data?.data.items, order]);
   const totalPages = Math.max(
@@ -129,7 +130,7 @@ function ResourcePage() {
 
   const handleDelete = (resource: Resource) => {
     const shouldDelete = window.confirm(
-      `Delete resource "${resource.resource_name}"?`,
+      `Delete resource "${resource.name}"?`,
     );
     if (!shouldDelete) return;
     deleteResource(resource.id);
@@ -192,7 +193,8 @@ function ResourcePage() {
         onOrderChange={setOrder}
         type={resourceType}
         onTypeChange={setResourceType}
-        trackOptions={tracksData?.data?.length ? tracksData.data : RESOURCE_TRACKS}
+        trackOptions={tracksData?.data ?? []}
+        typeOptions={typesData?.data}
         actionSlot={
           <div className="flex items-center gap-2">
             <Button

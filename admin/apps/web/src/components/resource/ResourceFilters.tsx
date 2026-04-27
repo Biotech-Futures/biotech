@@ -9,8 +9,12 @@ import { Label } from "@/components/ui/label";
 import { ArrowUpDown, SearchIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
-import type { ResourceOrder, ResourceTrackOption, ResourceTypeName } from "@/type/resource";
-import { RESOURCE_TYPES } from "@/type/resource";
+import type {
+  ResourceOrder,
+  ResourceTrackOption,
+  ResourceTypeName,
+  ResourceTypeOption,
+} from "@/type/resource";
 
 interface ResourceFiltersProps {
   search: string;
@@ -24,6 +28,7 @@ interface ResourceFiltersProps {
   type: ResourceTypeName | undefined;
   onTypeChange: (value: ResourceTypeName | undefined) => void;
   trackOptions: ResourceTrackOption[];
+  typeOptions?: ResourceTypeOption[];
   actionSlot?: ReactNode;
 }
 
@@ -39,6 +44,7 @@ export function ResourceFilters({
   type,
   onTypeChange,
   trackOptions,
+  typeOptions,
   actionSlot,
 }: ResourceFiltersProps) {
   const [localSearch, setLocalSearch] = useState(search);
@@ -57,6 +63,8 @@ export function ResourceFilters({
       if (timeoutUploaderRef.current) clearTimeout(timeoutUploaderRef.current);
     };
   }, []);
+
+  const availableTypeOptions = typeOptions ?? [];
 
   return (
     <div className="rounded-md border p-4 space-y-4">
@@ -87,7 +95,7 @@ export function ResourceFilters({
 
           <div className="lg:col-span-4">
             <Label htmlFor="resource-type" className="text-sm text-muted-foreground mb-1.5 block">
-              Filter by Type
+              Type
             </Label>
             <Select
               value={type ?? "all"}
@@ -100,7 +108,7 @@ export function ResourceFilters({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
-                {RESOURCE_TYPES.map((resourceType) => (
+                {availableTypeOptions.map((resourceType) => (
                   <SelectItem key={resourceType.value} value={resourceType.value}>
                     {resourceType.label}
                   </SelectItem>

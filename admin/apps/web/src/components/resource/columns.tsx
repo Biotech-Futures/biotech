@@ -43,7 +43,7 @@ export function createResourceColumns({
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
   return [
     {
-      accessorKey: "resource_name",
+      accessorKey: "name",
       header: "Resource",
       cell: ({ row }) => {
         const resource = row.original;
@@ -52,16 +52,16 @@ export function createResourceColumns({
             className="font-medium hover:underline text-left"
             onClick={() => onViewDetail?.(resource)}
           >
-            {resource.resource_name}
+            {resource.name}
           </button>
         );
       },
     },
     {
-      id: "resource_type",
+      id: "type_name",
       header: "Type",
       cell: ({ row }) => {
-        return <span>{getResourceTypeLabel(row.original.resource_type)}</span>;
+        return <span>{getResourceTypeLabel(row.original.type_name)}</span>;
       },
     },
     {
@@ -83,7 +83,7 @@ export function createResourceColumns({
       },
     },
     {
-      id: "track_id",
+      id: "track",
       header: "Track",
       cell: ({ row }) => <span>{getResourceTrackLabel(row.original.track_id)}</span>,
     },
