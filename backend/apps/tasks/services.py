@@ -1,5 +1,8 @@
+from django.db.models import Max, Min
 from django.utils import timezone
+
 from apps.groups.models import GroupMembership, Groups
+from .models import Tasks, Milestone
 
 
 def calculate_completion_rate(completed_tasks: int, total_tasks: int) -> int:
@@ -20,20 +23,20 @@ def get_allowed_group_ids(user):
     if is_mentor:
         return GroupMembership.objects.filter(
             user=user,
-            membership_role=GroupMembership.MembershipRole.MENTOR,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
             left_at__isnull=True,
         ).values_list("group_id", flat=True)
     return Groups.objects.filter(track=user.track).values_list("id", flat=True)
 
 
-def build_progress_snapshot(group_id=None):
-    from django.db.models import Max, Min
-    from .models import Tasks, Milestone
-    from apps.groups.models import Groups
+def build_progress_snapshot(group_id=None, allowed_group_ids=None):
 
-    task_qs = Tasks.objects.filter(deleted_flag=False)
+    task_qs = Tasks.objects.filter(deleted_at__isnull=True)
+
     if group_id is not None:
         task_qs = task_qs.filter(milestone__group_id=group_id)
+    elif allowed_group_ids is not None:
+        task_qs = task_qs.filter(milestone__group_id__in=allowed_group_ids)
 
     totals = task_qs.get_task_totals()
     total_tasks = totals["total_tasks"] or 0
@@ -52,7 +55,7 @@ def build_progress_snapshot(group_id=None):
 
         next_milestone = (
             Milestone.objects
-            .filter(group_id=group_id, completed=False, deleted_flag=False)
+            .filter(group_id=group_id, completed=False, deleted_at__isnull=True)
             .annotate(earliest_task_due=Min("tasks__due_date"))
             .order_by("earliest_task_due")
             .first()
@@ -62,7 +65,7 @@ def build_progress_snapshot(group_id=None):
             next_milestone_name = next_milestone.milestone_name
             next_milestone_date = (
                 Tasks.objects
-                .filter(milestone=next_milestone, deleted_flag=False)
+                .filter(milestone=next_milestone, deleted_at__isnull=True)
                 .aggregate(max_due=Max("due_date"))["max_due"]
             )
 

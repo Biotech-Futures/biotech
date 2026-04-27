@@ -16,7 +16,8 @@ from apps.dashboard.services import get_groups_preview
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import AdminScope
+from apps.users.models import AdminScope, MentorProfile
+from apps.tasks.models import Milestone, Tasks
 
 
 User = get_user_model()
@@ -720,3 +721,124 @@ class GroupsPreviewViewTest(TestCase):
         data = response.json()
         self.assertEqual(data["count"], 0)
         self.assertEqual(data["results"], [])
+
+
+# ---------------------------------------------------------------------------
+# Progress API tests
+# ---------------------------------------------------------------------------
+
+class DashboardProgressApiTests(TestCase):
+    url = "/dashboard/v1/progress/"
+
+    def setUp(self):
+        self.client = APIClient()
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
+
+        self.student = User.objects.create_user(
+            email="student@test.com",
+            password="pass123",
+            first_name="Stu",
+            last_name="Dent",
+            track=self.track,
+        )
+        self.mentor = User.objects.create_user(
+            email="mentor@test.com",
+            password="pass123",
+            first_name="Men",
+            last_name="Tor",
+            track=self.track,
+        )
+        MentorProfile.objects.create(
+            user=self.mentor,
+            institution="University of Sydney",
+            mentor_reason="I like mentoring",
+        )
+        self.group = Groups.objects.create(group_name="BTF046", track=self.track)
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.mentor,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.student,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        self.milestone = Milestone.objects.create(
+            group=self.group,
+            milestone_name="Check-in #1",
+        )
+
+    def _create_task(self, *, completed=False, days_from_now=7):
+        due = timezone.now() + timedelta(days=days_from_now)
+        return Tasks.objects.create(
+            task_name="Test Task",
+            due_date=due,
+            milestone=self.milestone,
+            completed=completed,
+        )
+
+    def test_unauthenticated_returns_403(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_response_has_correct_schema(self):
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            set(response.data.keys()),
+            {"completionRate", "completedTasks", "totalTasks", "currentWeek", "nextMilestone", "nextMilestoneDate"},
+        )
+
+    def test_student_can_access_own_group(self):
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url + f"?group_id={self.group.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_mentor_can_access_assigned_group(self):
+        self.client.force_authenticate(user=self.mentor)
+        response = self.client.get(self.url + f"?group_id={self.group.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_student_cannot_access_other_group(self):
+        other_track = Tracks.objects.create(track_name="AUS-VIC", state=self.state)
+        other_group = Groups.objects.create(group_name="OtherGroup", track=other_track)
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url + f"?group_id={other_group.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_completion_rate_calculated_correctly(self):
+        self._create_task(completed=True)
+        self._create_task(completed=True)
+        self._create_task(completed=False)
+        self._create_task(completed=False)
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url + f"?group_id={self.group.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["completionRate"], 50)
+        self.assertEqual(response.data["completedTasks"], 2)
+        self.assertEqual(response.data["totalTasks"], 4)
+
+    def test_completion_rate_zero_when_no_tasks(self):
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url + f"?group_id={self.group.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["completionRate"], 0)
+        self.assertEqual(response.data["totalTasks"], 0)
+
+    def test_next_milestone_returned(self):
+        self._create_task(completed=False)
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url + f"?group_id={self.group.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["nextMilestone"], "Check-in #1")
+
+    def test_no_group_id_returns_scoped_data(self):
+        self._create_task(completed=True)
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["totalTasks"], 1)
