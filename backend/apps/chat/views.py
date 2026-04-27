@@ -8,11 +8,12 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
-from .models import Messages
-from .serializers import MessageSerializer, MessageUpdateSerializer
+from .models import Messages, MessageReaction
+from .serializers import MessageSerializer, MessageUpdateSerializer, MessageReactionSerializer
 from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
 
 
@@ -150,3 +151,50 @@ class MessageViewSet(viewsets.ModelViewSet):
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+        # POST /chat/groups/{gid}/messages/{id}/react/
+    @action(detail=True, methods=["post"], url_path="react")
+    def react(self, request, *args, **kwargs):
+        instance = self.get_object()
+        emoji = request.data.get("emoji_string", "").strip()
+
+        if not emoji:
+            return Response(
+                {"detail": "emoji_string is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Toggle logic — add if not exists, remove if exists
+        reaction, created = MessageReaction.objects.get_or_create(
+            message=instance,
+            user=request.user,
+            emoji_string=emoji,
+        )
+        if not created:
+            reaction.delete()
+
+        # Build updated reaction counts
+        all_reactions = MessageReaction.objects.filter(message=instance)
+        reaction_counts = {}
+        for r in all_reactions:
+            reaction_counts[r.emoji_string] = reaction_counts.get(r.emoji_string, 0) + 1
+
+        # Broadcast to WebSocket group
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"group_{instance.group_id}",
+            {
+                "type": "chat.message",
+                "payload": {
+                    "event": "message.reaction_updated",
+                    "group_id": instance.group_id,
+                    "message_id": instance.id,
+                    "reactions": reaction_counts,
+                },
+            },
+        )
+
+        serializer = MessageReactionSerializer(
+            {"message_id": instance.id, "reactions": reaction_counts}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)

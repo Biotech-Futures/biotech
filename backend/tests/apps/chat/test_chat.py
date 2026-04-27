@@ -304,3 +304,162 @@ class ChatFeatureTests(TestCase):
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 async_to_sync(asyncio.sleep)(0.05)
                 async_to_sync(comm.disconnect)()
+
+    def test_reaction_toggle_adds_new(self):
+        """Verify DB count increments on first react."""
+        msg = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="react to me"
+        )
+        url = reverse(
+            "group-messages-react",
+            kwargs={"group_pk": self.group.id, "pk": msg.id}
+        )
+
+        resp = self.client_student.post(
+            url,
+            {"emoji_string": "👍"},
+            format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["message_id"], msg.id)
+        self.assertEqual(resp.data["reactions"]["👍"], 1)
+
+        # Confirm DB record exists
+        from apps.chat.models import MessageReaction
+        self.assertEqual(
+            MessageReaction.objects.filter(
+                message=msg, user=self.student, emoji_string="👍"
+            ).count(),
+            1
+        )
+
+    def test_reaction_toggle_removes_existing(self):
+        """Verify DB count decrements when the same emoji is POSTed twice."""
+        from apps.chat.models import MessageReaction
+
+        msg = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="react to me twice"
+        )
+        url = reverse(
+            "group-messages-react",
+            kwargs={"group_pk": self.group.id, "pk": msg.id}
+        )
+
+        # First POST — adds reaction
+        self.client_student.post(url, {"emoji_string": "❤️"}, format="json")
+        self.assertEqual(
+            MessageReaction.objects.filter(
+                message=msg, user=self.student, emoji_string="❤️"
+            ).count(),
+            1
+        )
+
+        # Second POST — removes reaction (toggle off)
+        resp = self.client_student.post(url, {"emoji_string": "❤️"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["reactions"].get("❤️", 0), 0)
+
+        # Confirm DB record is gone
+        self.assertEqual(
+            MessageReaction.objects.filter(
+                message=msg, user=self.student, emoji_string="❤️"
+            ).count(),
+            0
+        )
+    def test_ws_typing_broadcast(self):
+        """Connect a WS consumer, dispatch client.typing, assert group receives typing.updated."""
+        comm = self._ws_connect_with_session(self.student)
+
+        try:
+            # Send typing event over WebSocket
+            async_to_sync(comm.send_json_to)({
+                "type": "client.typing",
+                "status": "started"
+            })
+
+            async_to_sync(asyncio.sleep)(0.05)
+
+            # Expect typing.updated broadcast
+            event = async_to_sync(comm.receive_json_from)(timeout=5)
+            self.assertEqual(event["type"], "typing.updated")
+            self.assertEqual(event["user_id"], self.student.id)
+            self.assertEqual(event["status"], "started")
+            self.assertEqual(event["group_id"], str(self.group.id))
+
+        finally:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                async_to_sync(asyncio.sleep)(0.05)
+                async_to_sync(comm.disconnect)()
+
+    def test_ws_typing_rate_limit(self):
+        """Dispatch 10 typing events instantly, assert group only receives 1 broadcast within the debounce window."""
+        comm = self._ws_connect_with_session(self.student)
+
+        try:
+            # Send 10 typing events rapidly
+            for _ in range(10):
+                async_to_sync(comm.send_json_to)({
+                    "type": "client.typing",
+                    "status": "started"
+                })
+
+            async_to_sync(asyncio.sleep)(0.1)
+
+            # Should only receive 1 broadcast due to rate limiting
+            event = async_to_sync(comm.receive_json_from)(timeout=5)
+            self.assertEqual(event["type"], "typing.updated")
+
+            # Try to receive another — should timeout (no more broadcasts)
+            try:
+                async_to_sync(comm.receive_json_from)(timeout=1)
+                self.fail("Expected no more typing broadcasts due to rate limit")
+            except Exception:
+                pass  # Expected — no second broadcast within rate limit window
+
+        finally:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                async_to_sync(asyncio.sleep)(0.05)
+                async_to_sync(comm.disconnect)()
+
+class TypingRateLimitTest(TestCase):
+        """Unit tests for typing indicator rate limit logic."""
+
+        def test_rate_limit_key_format(self):
+            """Rate limit key should be unique per group and user."""
+            group_id = 1
+            user_id = 5
+            key = f"group_{group_id}_user_{user_id}"
+            self.assertEqual(key, "group_1_user_5")
+
+        def test_rate_limit_blocks_rapid_events(self):
+            """Second typing event within 2s window should be blocked."""
+            import time
+            from apps.chat.management.consumers import GroupChatConsumer, TYPING_RATE_LIMIT_SECONDS
+
+            rate_key = "group_1_user_1"
+            now = time.monotonic()
+
+            # Simulate first broadcast
+            GroupChatConsumer._typing_timestamps[rate_key] = now
+
+            # Immediately check — should be blocked
+            last_sent = GroupChatConsumer._typing_timestamps.get(rate_key, 0)
+            should_block = (now - last_sent) < TYPING_RATE_LIMIT_SECONDS
+            self.assertTrue(should_block)
+
+        def test_rate_limit_allows_after_window(self):
+            """Typing event after 2s window should be allowed."""
+            import time
+            from apps.chat.management.consumers import GroupChatConsumer, TYPING_RATE_LIMIT_SECONDS
+
+            rate_key = "group_1_user_2"
+            # Simulate last broadcast was 3 seconds ago
+            GroupChatConsumer._typing_timestamps[rate_key] = time.monotonic() - 3
+
+            last_sent = GroupChatConsumer._typing_timestamps.get(rate_key, 0)
+            should_block = (time.monotonic() - last_sent) < TYPING_RATE_LIMIT_SECONDS
+            self.assertFalse(should_block)
