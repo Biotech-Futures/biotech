@@ -259,7 +259,11 @@ export function ResourceDetailDrawer({
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Description</Label>
-                  <p>{resource.description || "-"}</p>
+                  <div className="mt-2 rounded-md border bg-muted/20 px-3 py-2">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {resource.description || "-"}
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Type</Label>

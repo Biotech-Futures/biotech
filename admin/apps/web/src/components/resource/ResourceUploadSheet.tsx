@@ -376,11 +376,11 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              {visibilityMode === "track_based"
-                ? "Required for track-based visibility."
-                : "Optional for global/role-based visibility."}
-            </p>
+            {visibilityMode === "track_based" ? (
+              <p className="text-xs text-muted-foreground">
+                Required for track-based visibility.
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">

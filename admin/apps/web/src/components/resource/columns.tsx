@@ -29,9 +29,12 @@ function getVisibleRoleSlugs(resource: Resource) {
 
 function parseResourceDate(value: string | null | undefined) {
   if (!value) return Number.NaN;
-  const withT = value.includes("T") ? value : value.replace(" ", "T");
-  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(withT);
-  const normalized = hasTimezone ? withT : `${withT}Z`;
+  let normalized = value.includes("T") ? value : value.replace(" ", "T");
+  normalized = normalized
+    .replace(/([+-]\d{2})$/, "$1:00")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized);
+  if (!hasTimezone) normalized = `${normalized}Z`;
   return Date.parse(normalized);
 }
 
