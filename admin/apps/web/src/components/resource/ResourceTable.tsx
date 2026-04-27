@@ -18,6 +18,11 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { Resource } from "@/type/resource";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+type ResourceColumnMeta = {
+  headClassName?: string;
+  cellClassName?: string;
+};
+
 interface ResourceTableProps {
   columns: ColumnDef<Resource>[];
   data: Resource[];
@@ -101,7 +106,7 @@ export function ResourceTable({
   return (
     <div className="min-w-0 space-y-4">
       <div className="rounded-md border overflow-x-auto">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -117,7 +122,13 @@ export function ResourceTable({
                   </TableHead>
                 ) : null}
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead
+                    key={header.id}
+                    className={
+                      (header.column.columnDef.meta as ResourceColumnMeta | undefined)
+                        ?.headClassName
+                    }
+                  >
                     {header.isPlaceholder
                       ? null
                       : flexRender(header.column.columnDef.header, header.getContext())}
@@ -147,7 +158,13 @@ export function ResourceTable({
                     </TableCell>
                   ) : null}
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                    <TableCell
+                      key={cell.id}
+                      className={
+                        (cell.column.columnDef.meta as ResourceColumnMeta | undefined)
+                          ?.cellClassName
+                      }
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}

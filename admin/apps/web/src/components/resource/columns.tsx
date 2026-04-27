@@ -57,11 +57,15 @@ export function createResourceColumns({
     {
       accessorKey: "name",
       header: "Resource",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         const resource = row.original;
         return (
           <button
-            className="font-medium hover:underline text-left"
+            className="font-medium hover:underline text-left break-words"
             onClick={() => onViewDetail?.(resource)}
           >
             {resource.name}
@@ -72,6 +76,10 @@ export function createResourceColumns({
     {
       id: "type_name",
       header: "Type",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         return <span>{getResourceTypeLabel(row.original.type_name)}</span>;
       },
@@ -79,6 +87,10 @@ export function createResourceColumns({
     {
       id: "visibility",
       header: "Visibility",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         return <span>{row.original.visibility_scope}</span>;
       },
@@ -86,6 +98,10 @@ export function createResourceColumns({
     {
       id: "role",
       header: "Role",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         const roleSlugs = getVisibleRoleSlugs(row.original);
         if (!roleSlugs.length) {
@@ -97,6 +113,10 @@ export function createResourceColumns({
     {
       id: "track",
       header: "Track",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         const rawTrackId = row.original.track_id;
         if (rawTrackId === null || rawTrackId === undefined) return <span>Unassigned</span>;
@@ -108,13 +128,21 @@ export function createResourceColumns({
     {
       id: "uploader",
       header: "Uploader",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         return <span>{formatUploaderName(row.original)}</span>;
       },
     },
     {
       accessorKey: "uploaded_at",
-      header: "Uploaded",
+      header: "Uploaded Time",
+      meta: {
+        headClassName: "align-top",
+        cellClassName: "whitespace-normal break-words align-top",
+      },
       cell: ({ row }) => {
         const parsed = parseResourceDate(row.original.uploaded_at);
         if (Number.isNaN(parsed)) return <span className="text-muted-foreground">N/A</span>;
@@ -123,6 +151,10 @@ export function createResourceColumns({
     },
     {
       id: "actions",
+      meta: {
+        headClassName: "align-top w-[56px]",
+        cellClassName: "align-top w-[56px]",
+      },
       cell: ({ row }) => {
         const resource = row.original;
 

@@ -691,22 +691,9 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
   const availableRoles = await getRolesFromDb();
   const requestedRoleIds = payload.role_ids ?? [];
   const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
-  const requestedTrackId = payload.track_id ?? null;
   const requestedResourceType = payload.resource_type ?? null;
 
-  const groupId =
-    payload.group_id ??
-    (requestedTrackId !== null
-      ? await (async () => {
-          const matched = await db
-            .select({ id: groups.id })
-            .from(groups)
-            .where(and(eq(groups.trackId, requestedTrackId), eq(groups.deletedFlag, false)))
-            .orderBy(asc(groups.id))
-            .limit(1);
-          return matched[0]?.id ?? null;
-        })()
-      : null);
+  const groupId = payload.group_id ?? null;
 
   const resourceTypeId =
     payload.resource_type_id ??
@@ -862,22 +849,9 @@ export async function uploadResource(payload: {
   const availableRoles = await getRolesFromDb();
   const requestedRoleIds = payload.role_ids ?? [];
   const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
-  const requestedTrackId = payload.track_id ?? null;
   const requestedResourceType = payload.resource_type ?? null;
 
-  const groupId =
-    payload.group_id ??
-    (requestedTrackId !== null
-      ? await (async () => {
-          const matched = await db
-            .select({ id: groups.id })
-            .from(groups)
-            .where(and(eq(groups.trackId, requestedTrackId), eq(groups.deletedFlag, false)))
-            .orderBy(asc(groups.id))
-            .limit(1);
-          return matched[0]?.id ?? null;
-        })()
-      : null);
+  const groupId = payload.group_id ?? null;
 
   const resourceTypeId =
     payload.resource_type_id ??
@@ -1151,7 +1125,6 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
 
   const current = existing.data;
   const updateKind = updates.resource_kind ?? current.resource_kind;
-  const requestedTrackId = updates.track_id ?? null;
   const requestedResourceType = updates.resource_type ?? null;
 
   const nextGroupId =
@@ -1161,20 +1134,7 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
         ? null
         : updates.group_id;
 
-  const groupIdFromTrack =
-    requestedTrackId !== null
-      ? await (async () => {
-          const matched = await db
-            .select({ id: groups.id })
-            .from(groups)
-            .where(and(eq(groups.trackId, requestedTrackId), eq(groups.deletedFlag, false)))
-            .orderBy(asc(groups.id))
-            .limit(1);
-          return matched[0]?.id ?? null;
-        })()
-      : null;
-
-  const finalGroupId = groupIdFromTrack ?? nextGroupId;
+  const finalGroupId = nextGroupId;
 
   const nextResourceTypeId =
     updates.resource_type_id === undefined
