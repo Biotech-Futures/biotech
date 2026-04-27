@@ -701,83 +701,83 @@ export const resources = pgTable(
       minValue: 1,
       cache: 1,
     }),
-    resourceName: varchar("resource_name", { length: 255 }).notNull(),
-    resourceDescription: varchar("resource_description", {
+    name: varchar("name", { length: 255 }).notNull(),
+    description: varchar("description", {
       length: 255,
     }).notNull(),
-    uploadDatetime: timestamp("upload_datetime", {
+    kind: varchar("kind", { length: 20 }).default("file").notNull(),
+    fileMimeType: varchar("file_mime_type", { length: 100 }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    fileSize: bigint("file_size", { mode: "number" }),
+    storageKey: varchar("storage_key", { length: 500 }),
+    visibilityScope: varchar("visibility_scope", { length: 50 }).notNull(),
+    uploadedAt: timestamp("uploaded_at", {
       withTimezone: true,
       mode: "string",
     }).notNull(),
-    deletedFlag: boolean("deleted_flag").notNull(),
-    deletedDatetime: timestamp("deleted_datetime", {
+    deletedAt: timestamp("deleted_at", {
       withTimezone: true,
       mode: "string",
     }),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    uploaderUserIdId: bigint("uploader_user_id_id", {
+    groupId: bigint("group_id", { mode: "number" }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    trackId: bigint("track_id", { mode: "number" }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    uploadedById: bigint("uploaded_by_id", {
       mode: "number",
     }).notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    resourceTypeId: bigint("resource_type_id", { mode: "number" }),
-    fileMimeType: varchar("file_mime_type", { length: 100 }),
-    fileName: varchar("file_name", { length: 255 }),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    fileSize: bigint("file_size", { mode: "number" }),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    groupId: bigint("group_id", { mode: "number" }),
-    resourceKind: varchar("resource_kind", { length: 20 })
-      .default("file")
-      .notNull(),
-    storageKey: varchar("storage_key", { length: 500 }),
+    typeId: bigint("type_id", { mode: "number" }),
   },
   (table) => [
-    index("resources_resource_type_id_8ca31a8a").using(
+    index("resources_type_id_idx").using(
       "btree",
-      table.resourceTypeId.asc().nullsLast().op("int8_ops"),
+      table.typeId.asc().nullsLast().op("int8_ops"),
     ),
-    index("resources_uploade_68f1ef_idx").using(
+    index("resources_uploaded_by_id_idx").using(
       "btree",
-      table.uploaderUserIdId.asc().nullsLast().op("int8_ops"),
+      table.uploadedById.asc().nullsLast().op("int8_ops"),
     ),
-    index("resources_uploader_user_id_id_f9418bc1").using(
+    index("resources_track_id_idx").using(
       "btree",
-      table.uploaderUserIdId.asc().nullsLast().op("int8_ops"),
+      table.trackId.asc().nullsLast().op("int8_ops"),
     ),
     index("resources_group_id_idx").using(
       "btree",
       table.groupId.asc().nullsLast().op("int8_ops"),
     ),
     foreignKey({
-      columns: [table.resourceTypeId],
+      columns: [table.typeId],
       foreignColumns: [resourceTypes.id],
-      name: "resources_resource_type_id_8ca31a8a_fk_resource_types_id",
+      name: "resources_type_id_fk_resource_types_id",
     }),
     foreignKey({
-      columns: [table.uploaderUserIdId],
+      columns: [table.uploadedById],
       foreignColumns: [users.id],
-      name: "resources_uploader_user_id_id_f9418bc1_fk_users_id",
+      name: "resources_uploaded_by_id_fk_users_id",
     }),
     foreignKey({
       columns: [table.groupId],
       foreignColumns: [groups.id],
       name: "resources_group_id_fk_groups_id",
     }),
+    foreignKey({
+      columns: [table.trackId],
+      foreignColumns: [tracks.id],
+      name: "resources_track_id_fk_tracks_id",
+    }),
     check(
       "deleted_after_upload",
-      sql`(deleted_datetime >= upload_datetime) OR (deleted_datetime IS NULL)`,
-    ),
-    check(
-      "deleted_flag_true_if_deleted_datetime",
-      sql`(deleted_datetime IS NULL) OR deleted_flag`,
+      sql`(deleted_at >= uploaded_at) OR (deleted_at IS NULL)`,
     ),
     check(
       "resource_description_not_empty",
-      sql`NOT ((resource_description)::text = ''::text)`,
+      sql`NOT ((description)::text = ''::text)`,
     ),
     check(
       "resource_upload_not_future",
-      sql`upload_datetime <= statement_timestamp()`,
+      sql`uploaded_at <= statement_timestamp()`,
     ),
   ],
 );
@@ -833,12 +833,12 @@ export const roles = pgTable(
   ],
 );
 
-export const resourceRoles = pgTable(
-  "resource_roles",
+export const resourceAudience = pgTable(
+  "resource_audience",
   {
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     id: bigint({ mode: "number" }).primaryKey().generatedByDefaultAsIdentity({
-      name: "resource_roles_id_seq",
+      name: "resource_audience_id_seq",
       startWith: 1,
       increment: 1,
       minValue: 1,
@@ -847,32 +847,43 @@ export const resourceRoles = pgTable(
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     resourceId: bigint("resource_id", { mode: "number" }).notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    roleId: bigint("role_id", { mode: "number" }).notNull(),
+    roleId: bigint("role_id", { mode: "number" }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    trackId: bigint("track_id", { mode: "number" }),
   },
   (table) => [
-    index("resource_ro_role_id_190238_idx").using(
+    index("resource_audience_role_id_idx").using(
       "btree",
       table.roleId.asc().nullsLast().op("int8_ops"),
     ),
-    index("resource_roles_resource_id_158c512b").using(
+    index("resource_audience_resource_id_idx").using(
       "btree",
       table.resourceId.asc().nullsLast().op("int8_ops"),
     ),
-    index("resource_roles_role_id_5ce2ab8a").using(
+    index("resource_audience_track_id_idx").using(
       "btree",
-      table.roleId.asc().nullsLast().op("int8_ops"),
+      table.trackId.asc().nullsLast().op("int8_ops"),
     ),
     foreignKey({
       columns: [table.resourceId],
       foreignColumns: [resources.id],
-      name: "resource_roles_resource_id_158c512b_fk_resources_id",
+      name: "resource_audience_resource_id_fk_resources_id",
     }),
     foreignKey({
       columns: [table.roleId],
       foreignColumns: [roles.id],
-      name: "resource_roles_role_id_5ce2ab8a_fk_roles_id",
+      name: "resource_audience_role_id_fk_roles_id",
     }),
-    unique("pk_resource_role").on(table.resourceId, table.roleId),
+    foreignKey({
+      columns: [table.trackId],
+      foreignColumns: [tracks.id],
+      name: "resource_audience_track_id_fk_tracks_id",
+    }),
+    unique("pk_resource_audience").on(
+      table.resourceId,
+      table.roleId,
+      table.trackId,
+    ),
   ],
 );
 
@@ -1634,15 +1645,15 @@ export const resourceTypes = pgTable(
       minValue: 1,
       cache: 1,
     }),
-    typeName: varchar("type_name", { length: 50 }).notNull(),
-    typeDescription: varchar("type_description", { length: 255 }),
+    name: varchar("name", { length: 50 }).notNull(),
+    description: varchar("description", { length: 255 }),
   },
   (table) => [
-    index("resource_types_type_name_368352d8_like").using(
+    index("resource_types_name_like").using(
       "btree",
-      table.typeName.asc().nullsLast().op("varchar_pattern_ops"),
+      table.name.asc().nullsLast().op("varchar_pattern_ops"),
     ),
-    unique("resource_types_type_name_key").on(table.typeName),
+    unique("resource_types_name_key").on(table.name),
   ],
 );
 
