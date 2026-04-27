@@ -1,5 +1,5 @@
-import { and, asc, count, desc, eq, gte, type SQL } from "drizzle-orm";
-import { eventRsvp, events } from "@/old/drizzle/schema.js";
+import { and, asc, count, eq, gte, type SQL } from "drizzle-orm";
+import { eventInvite, events } from "@/schema/db.js";
 import db from "@/lib/db.js";
 import type {
   CreateEventInput,
@@ -13,55 +13,34 @@ type EventUpdate = Partial<Omit<typeof events.$inferInsert, "id">>;
 
 function toEventId(id: string) {
   const eventId = Number(id);
-
   if (!Number.isInteger(eventId) || eventId <= 0) {
     return null;
   }
-
   return eventId;
 }
 
 export async function queryEvents(params: QueryEventsInput) {
-  const { page, limit, hostUserId, trackId, eventType, upcoming } = params;
+  const { page, limit, hostUserId, upcoming } = params;
   const offset = (page - 1) * limit;
   const conditions: SQL[] = [];
+
+  conditions.push(eq(events.deletedFlag, false));
 
   if (hostUserId) {
     conditions.push(eq(events.hostUserId, hostUserId));
   }
 
-  if (trackId) {
-    conditions.push(eq(events.trackId, trackId));
-  }
-
-  if (eventType) {
-    conditions.push(eq(events.eventType, eventType));
-  }
-
   if (upcoming) {
-    const sydneyNow = new Date().toLocaleString("en-AU", {
-      timeZone: "Australia/Sydney",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
-    const [datePart, timePart] = sydneyNow.split(", ");
-    const [day, month, year] = datePart.split("/");
-    const nowSydney = `${year}-${month}-${day} ${timePart}`;
-    conditions.push(gte(events.startAt, nowSydney));
+    conditions.push(gte(events.startDatetime, new Date().toISOString()));
   }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions);
 
   const items = await db
     .select()
     .from(events)
     .where(whereClause)
-    .orderBy(asc(events.startAt))
+    .orderBy(asc(events.startDatetime))
     .limit(limit)
     .offset(offset);
 
@@ -85,21 +64,15 @@ export async function queryEvents(params: QueryEventsInput) {
 
 export async function queryEventById(id: string) {
   const eventId = toEventId(id);
-
-  if (!eventId) {
-    return {
-      msg: "Invalid event id",
-      data: null,
-    };
-  }
+  if (!eventId) return { msg: "Invalid event id", data: null };
 
   const rows = await db
     .select()
     .from(events)
-    .where(eq(events.id, eventId))
+    .where(and(eq(events.id, eventId), eq(events.deletedFlag, false)))
     .limit(1);
-  const event = rows[0] ?? null;
 
+  const event = rows[0] ?? null;
   return {
     msg: event ? "Event retrieved successfully" : "Event not found",
     data: event,
@@ -108,14 +81,19 @@ export async function queryEventById(id: string) {
 
 export async function createEvent(data: CreateEventInput) {
   if (!data.hostUserId) throw new Error("hostUserId is required");
+
   const rows = await db
     .insert(events)
     .values({
+      eventName: data.eventName,
+      description: data.description ?? null,
+      location: data.location?.trim() || null,
+      humanitixLink: data.humanitixLink ?? "",
+      isVirtual: data.isVirtual ?? false,
+      deletedFlag: false,
       hostUserId: data.hostUserId,
-      trackId: data.trackId ?? null,
-      eventType: data.eventType ?? null,
-      startAt: new Date(data.startAt).toISOString(),
-      endsAt: new Date(data.endsAt).toISOString(),
+      startDatetime: new Date(data.startAt).toISOString(),
+      endsDatetime: new Date(data.endsAt).toISOString(),
     } as typeof events.$inferInsert)
     .returning();
 
@@ -127,39 +105,19 @@ export async function createEvent(data: CreateEventInput) {
 
 export async function updateEvent(id: string, data: UpdateEventInput) {
   const eventId = toEventId(id);
-
-  if (!eventId) {
-    return {
-      msg: "Invalid event id",
-      data: null,
-    };
-  }
+  if (!eventId) return { msg: "Invalid event id", data: null };
 
   const updates: EventUpdate = {};
 
-  if (data.hostUserId !== undefined) {
-    updates.hostUserId = data.hostUserId;
-  }
+  if (data.hostUserId !== undefined) updates.hostUserId = data.hostUserId;
+  if (data.eventName !== undefined) updates.eventName = data.eventName;
+  if (data.description !== undefined) updates.description = data.description;
+  if (data.location !== undefined) updates.location = data.location?.trim() || null;
+  if (data.isVirtual !== undefined) updates.isVirtual = data.isVirtual;
+  if (data.startAt !== undefined) updates.startDatetime = new Date(data.startAt).toISOString();
+  if (data.endsAt !== undefined) updates.endsDatetime = new Date(data.endsAt).toISOString();
 
-  if (data.trackId !== undefined) {
-    updates.trackId = data.trackId;
-  }
-
-  if (data.eventType !== undefined) {
-    updates.eventType = data.eventType;
-  }
-
-  if (data.startAt !== undefined) {
-    updates.startAt = new Date(data.startAt).toISOString();
-  }
-
-  if (data.endsAt !== undefined) {
-    updates.endsAt = new Date(data.endsAt).toISOString();
-  }
-
-  if (Object.keys(updates).length === 0) {
-    return queryEventById(id);
-  }
+  if (Object.keys(updates).length === 0) return queryEventById(id);
 
   const existingRows = await db
     .select()
@@ -168,21 +126,13 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
     .limit(1);
   const existingEvent = existingRows[0] ?? null;
 
-  if (!existingEvent) {
-    return {
-      msg: "Event not found",
-      data: null,
-    };
-  }
+  if (!existingEvent) return { msg: "Event not found", data: null };
 
-  const startAt = updates.startAt ?? existingEvent.startAt;
-  const endsAt = updates.endsAt ?? existingEvent.endsAt;
+  const startDatetime = updates.startDatetime ?? existingEvent.startDatetime;
+  const endsDatetime = updates.endsDatetime ?? existingEvent.endsDatetime;
 
-  if (new Date(endsAt) <= new Date(startAt)) {
-    return {
-      msg: "endsAt must be after startAt",
-      data: null,
-    };
+  if (new Date(endsDatetime) <= new Date(startDatetime)) {
+    return { msg: "endsAt must be after startAt", data: null };
   }
 
   const rows = await db
@@ -198,23 +148,19 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
   };
 }
 
-// ✅ Cascade delete: remove all RSVPs first, then delete the event
+// Delete invites first, then soft-delete the event
 export async function deleteEvent(id: string) {
   const eventId = toEventId(id);
+  if (!eventId) return { msg: "Invalid event id", data: null };
 
-  if (!eventId) {
-    return {
-      msg: "Invalid event id",
-      data: null,
-    };
-  }
+  await db.delete(eventInvite).where(eq(eventInvite.eventId, eventId));
 
-  // Delete all RSVPs for this event first
-  await db.delete(eventRsvp).where(eq(eventRsvp.eventId, eventId));
-
-  // Then delete the event
   const rows = await db
-    .delete(events)
+    .update(events)
+    .set({
+      deletedFlag: true,
+      deletedDatetime: new Date().toISOString(),
+    })
     .where(eq(events.id, eventId))
     .returning();
   const event = rows[0] ?? null;
@@ -227,19 +173,13 @@ export async function deleteEvent(id: string) {
 
 export async function queryEventRsvps(id: string) {
   const eventId = toEventId(id);
-
-  if (!eventId) {
-    return {
-      msg: "Invalid event id",
-      data: null,
-    };
-  }
+  if (!eventId) return { msg: "Invalid event id", data: null };
 
   const rows = await db
     .select()
-    .from(eventRsvp)
-    .where(eq(eventRsvp.eventId, eventId))
-    .orderBy(asc(eventRsvp.id));
+    .from(eventInvite)
+    .where(eq(eventInvite.eventId, eventId))
+    .orderBy(asc(eventInvite.id));
 
   return {
     msg: "Event RSVPs retrieved successfully",
@@ -249,21 +189,18 @@ export async function queryEventRsvps(id: string) {
 
 export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
   const eventId = toEventId(id);
-  if (!eventId) {
-    return {
-      msg: "Invalid event id",
-      data: null,
-    };
-  }
+  if (!eventId) return { msg: "Invalid event id", data: null };
 
   const rows = await db
-    .insert(eventRsvp)
-    .values({
-      eventId,
-      userId: data.userId,
-      rsvpStatus: data.rsvpStatus,
-    } as typeof eventRsvp.$inferInsert)
-    .returning();
+  .insert(eventInvite)
+  .values({
+    eventId,
+    userId: data.userId,
+    rsvpStatus: data.rsvpStatus,
+    attendanceStatus: false,
+    sentDatetime: new Date(Date.now() - 600000).toISOString(),
+  } as typeof eventInvite.$inferInsert)
+  .returning();
 
   return {
     msg: "Event RSVP created successfully",
@@ -276,20 +213,12 @@ export async function updateEventRsvp(
   data: UpdateEventRsvpInput,
 ) {
   const rsvpId = toEventId(rsvpIdParam);
-
-  if (!rsvpId) {
-    return {
-      msg: "Invalid RSVP id",
-      data: null,
-    };
-  }
+  if (!rsvpId) return { msg: "Invalid RSVP id", data: null };
 
   const rows = await db
-    .update(eventRsvp)
-    .set({
-      rsvpStatus: data.rsvpStatus,
-    })
-    .where(eq(eventRsvp.id, rsvpId))
+    .update(eventInvite)
+    .set({ rsvpStatus: data.rsvpStatus })
+    .where(eq(eventInvite.id, rsvpId))
     .returning();
   const rsvp = rows[0] ?? null;
 

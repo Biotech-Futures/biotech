@@ -9,16 +9,17 @@ export const queryEventsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),
   hostUserId: z.coerce.number().int().positive().optional(),
-  trackId: z.coerce.number().int().positive().optional(),
-  eventType: z.string().trim().min(1).max(100).optional(),
   upcoming: booleanQuery.optional(),
 });
 
 export const createEventSchema = z
   .object({
     hostUserId: z.number().int().positive().optional().nullable(),
-    trackId: z.number().int().positive().optional().nullable(),
-    eventType: z.string().trim().min(1).max(100).optional().nullable(),
+    eventName: z.string().trim().min(1).max(255),
+    description: z.string().trim().max(255).optional().nullable(),
+    location: z.string().trim().max(255).optional().nullable(),
+    humanitixLink: z.string().trim().max(255).optional().nullable(),
+    isVirtual: z.boolean().optional().default(false),
     startAt: dateTimeString,
     endsAt: dateTimeString,
   })
@@ -30,8 +31,11 @@ export const createEventSchema = z
 export const updateEventSchema = z
   .object({
     hostUserId: z.number().int().positive().optional().nullable(),
-    trackId: z.number().int().positive().optional().nullable(),
-    eventType: z.string().trim().min(1).max(100).optional().nullable(),
+    eventName: z.string().trim().min(1).max(255).optional(),
+    description: z.string().trim().max(255).optional().nullable(),
+    location: z.string().trim().max(255).optional().nullable(),
+    humanitixLink: z.string().trim().max(255).optional().nullable(),
+    isVirtual: z.boolean().optional(),
     startAt: dateTimeString.optional(),
     endsAt: dateTimeString.optional(),
   })
@@ -46,13 +50,14 @@ export const updateEventSchema = z
     },
   );
 
+// rsvpStatus is now boolean: true = attending, false = declined
 export const createEventRsvpSchema = z.object({
   userId: z.number().int().positive(),
-  rsvpStatus: z.string().trim().min(1).max(50),
+  rsvpStatus: z.boolean(),
 });
 
 export const updateEventRsvpSchema = z.object({
-  rsvpStatus: z.string().trim().min(1).max(50),
+  rsvpStatus: z.boolean(),
 });
 
 export type QueryEventsInput = z.infer<typeof queryEventsSchema>;
