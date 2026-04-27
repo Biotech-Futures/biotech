@@ -68,8 +68,8 @@ export function ResourceFilters({
 
   return (
     <div className="rounded-md border p-4 space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+        <div className="md:col-span-1 xl:col-span-4">
             <Label htmlFor="resource-track" className="text-sm text-muted-foreground mb-1.5 block">
               Track
             </Label>
@@ -93,7 +93,7 @@ export function ResourceFilters({
             </Select>
           </div>
 
-          <div className="lg:col-span-4">
+          <div className="md:col-span-1 xl:col-span-4">
             <Label htmlFor="resource-type" className="text-sm text-muted-foreground mb-1.5 block">
               Type
             </Label>
@@ -117,10 +117,10 @@ export function ResourceFilters({
             </Select>
           </div>
 
-          <div className="lg:col-span-4">
-            <Label htmlFor="resource-order" className="text-sm text-muted-foreground mb-1.5 block">
-              Sort by Date
-            </Label>
+        <div className="md:col-span-2 xl:col-span-4">
+          <Label htmlFor="resource-order" className="text-sm text-muted-foreground mb-1.5 block">
+            Sort by Date
+          </Label>
             <Select value={order} onValueChange={(value) => onOrderChange(value as ResourceOrder)}>
               <SelectTrigger id="resource-order" className="w-full">
                 <ArrowUpDown className="size-4" />
@@ -134,8 +134,8 @@ export function ResourceFilters({
           </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-1">
           <Label htmlFor="resource-search" className="text-sm text-muted-foreground mb-1.5 block">
             Search Resource
           </Label>
@@ -160,7 +160,7 @@ export function ResourceFilters({
           </InputGroup>
         </div>
 
-        <div className="lg:col-span-4">
+        <div className="md:col-span-1">
           <Label
             htmlFor="resource-uploader"
             className="text-sm text-muted-foreground mb-1.5 block"
@@ -188,14 +188,10 @@ export function ResourceFilters({
           </InputGroup>
         </div>
 
-        <div className="lg:col-span-4">
-          <Label className="text-sm text-transparent mb-1.5 block select-none">
-            Action
-          </Label>
-          <div className="h-10 flex items-center justify-end">
-            {actionSlot}
-          </div>
-        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
+        {actionSlot}
       </div>
     </div>
   );

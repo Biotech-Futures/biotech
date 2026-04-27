@@ -81,6 +81,7 @@ function ResourcePage() {
 
   const resources = useMemo(() => {
     const items = [...(data?.data.items ?? [])];
+
     const getSortTimestamp = (resource: Resource) => {
       const raw = resource.uploaded_at ?? "";
       let normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
@@ -157,6 +158,7 @@ function ResourcePage() {
     onEdit: handleEdit,
     onDelete: handleDelete,
     onDownload: handleDownload,
+    trackOptions: tracksData?.data ?? [],
   });
 
   const handleBatchDelete = async () => {
@@ -184,7 +186,7 @@ function ResourcePage() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="min-w-0 p-4 space-y-4">
       <ResourceFilters
         search={search}
         onSearchChange={setSearch}
@@ -199,14 +201,15 @@ function ResourcePage() {
         trackOptions={tracksData?.data ?? []}
         typeOptions={typesData?.data}
         actionSlot={
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 xl:justify-end">
             <Button
+              type="button"
               variant={bulkMode ? "default" : "outline"}
               onClick={() => setBulkMode((prev) => !prev)}
             >
               {bulkMode ? "Exit Batch Mode" : "Batch Mode"}
             </Button>
-            <Button onClick={() => setUploadOpen(true)}>
+            <Button type="button" onClick={() => setUploadOpen(true)}>
               <UploadIcon className="size-4 mr-1" />
               Upload Resource
             </Button>

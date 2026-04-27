@@ -99,8 +99,8 @@ export function ResourceTable({
   const selectionColumnCount = bulkMode ? 1 : 0;
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-md border">
+    <div className="min-w-0 space-y-4">
+      <div className="rounded-md border overflow-x-auto">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -164,11 +164,11 @@ export function ResourceTable({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Page {page} of {totalPages}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2">
             <Input
               value={pageInput}

@@ -19,7 +19,6 @@ import {
   useUploadResource,
 } from "@/query/resource";
 import type { ResourceKind, ResourceTypeName } from "@/type/resource";
-import { RESOURCE_TRACKS } from "@/type/resource";
 
 type VisibilityMode = "global" | "track_based" | "role_based";
 
@@ -49,7 +48,7 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const roles = rolesData?.data ?? [];
-  const tracks = tracksData?.data?.length ? tracksData.data : RESOURCE_TRACKS;
+  const tracks = tracksData?.data ?? [];
   const types = typesData?.data ?? [];
 
   const fileSizeText = useMemo(() => {
@@ -58,6 +57,22 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     if (kb < 1024) return `${kb.toFixed(1)} KB`;
     return `${(kb / 1024).toFixed(1)} MB`;
   }, [file]);
+
+  const getErrorMessage = (error: unknown) => {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "response" in error &&
+      typeof (error as { response?: unknown }).response === "object" &&
+      (error as { response?: { data?: unknown } }).response?.data &&
+      typeof (error as { response?: { data?: { msg?: unknown } } }).response?.data?.msg === "string"
+    ) {
+      return (error as { response?: { data?: { msg?: string } } }).response?.data?.msg ?? "Request failed.";
+    }
+
+    if (error instanceof Error) return error.message;
+    return "Request failed. Please try again.";
+  };
 
   const resetForm = () => {
     setResourceName("");
@@ -132,13 +147,16 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
           content_html: contentHtml.trim(),
           visibility_scope: visibilityMode,
           resource_type: resourceType || "guide",
-          track_id: visibilityMode === "track_based" ? finalTrackId ?? undefined : undefined,
-          role_ids: visibilityMode === "role_based" ? finalRoleIds : [],
+          track_id: finalTrackId ?? undefined,
+          role_ids: finalRoleIds,
         },
         {
           onSuccess: () => {
             resetForm();
             onOpenChange(false);
+          },
+          onError: (error) => {
+            window.alert(getErrorMessage(error));
           },
         },
       );
@@ -156,10 +174,10 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
     formData.append("resource_description", resourceDescription.trim());
     formData.append("visibility_scope", visibilityMode);
     if (resourceType) formData.append("resource_type", resourceType);
-    if (visibilityMode === "track_based" && finalTrackId !== null) {
+    if (finalTrackId !== null) {
       formData.append("track_id", String(finalTrackId));
     }
-    if (visibilityMode === "role_based") {
+    if (roleIds.length) {
       roleIds.forEach((roleId) => formData.append("role_ids", String(roleId)));
     }
 
@@ -167,6 +185,9 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
       onSuccess: () => {
         resetForm();
         onOpenChange(false);
+      },
+      onError: (error) => {
+        window.alert(getErrorMessage(error));
       },
     });
   };
@@ -351,7 +372,6 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
                 <SelectValue placeholder="Select visibility mode" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="global">Global</SelectItem>
                 <SelectItem value="track_based">Track-based</SelectItem>
                 <SelectItem value="role_based">Role-based</SelectItem>
               </SelectContent>
@@ -431,16 +451,16 @@ export function ResourceUploadSheet({ open, onOpenChange }: ResourceUploadSheetP
             <p className="text-xs text-muted-foreground">
               {visibilityMode === "role_based"
                 ? "Select one or more roles."
-                : "Ignored unless visibility is role-based."}
+                : "Roles are preserved for future role-based switching."}
             </p>
           </div>
         </div>
 
         <SheetFooter className="shrink-0 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={isUploadPending || isCreatePending}>
+          <Button type="button" onClick={handleSubmit} disabled={isUploadPending || isCreatePending}>
             {isUploadPending || isCreatePending
               ? "Saving..."
               : resourceKind === "page"

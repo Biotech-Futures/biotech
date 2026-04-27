@@ -23,10 +23,9 @@ import type { Resource, ResourceKind, ResourceTypeName } from "@/type/resource";
 import {
   getResourceTrackLabel,
   getResourceTypeLabel,
-  RESOURCE_TRACKS,
-  RESOURCE_TYPES,
 } from "@/type/resource";
 import {
+  useQueryResource,
   useQueryResourceRoles,
   useQueryResourceTracks,
   useQueryResourceTypes,
@@ -57,16 +56,19 @@ export function ResourceDetailDrawer({
   const { mutateAsync: updateResourceAsync, isPending } = useUpdateResource();
   const { mutateAsync: replaceResourceFileAsync, isPending: isReplacingFile } =
     useReplaceResourceFile();
+  const { data: detailData } = useQueryResource(resource?.id ?? null);
   const { data: rolesData } = useQueryResourceRoles();
   const { data: tracksData } = useQueryResourceTracks();
   const { data: typesData } = useQueryResourceTypes();
+  const currentResource = detailData?.data ?? resource;
 
   const allRoles = rolesData?.data ?? [];
   const nonAdminRoles = allRoles.filter((role) => role.slug !== "admin");
-  const trackOptions = tracksData?.data?.length ? tracksData.data : RESOURCE_TRACKS;
-  const typeOptions = typesData?.data?.length
-    ? typesData.data.map((item) => ({ value: item.value, label: item.label }))
-    : RESOURCE_TYPES;
+  const trackOptions = tracksData?.data ?? [];
+  const typeOptions = (typesData?.data ?? []).map((item) => ({
+    value: item.value,
+    label: item.label,
+  }));
 
   const [editData, setEditData] = useState<{
     name: string;
@@ -93,38 +95,37 @@ export function ResourceDetailDrawer({
   const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const visibleRoleSlugs = useMemo(() => {
-    if (!resource) return [] as string[];
-    const slugs = resource.audiences
+    if (!currentResource) return [] as string[];
+    const slugs = currentResource.audiences
       .map((audience) => audience.role?.slug)
       .filter((slug): slug is string => Boolean(slug) && slug !== "admin");
     return Array.from(new Set(slugs));
-  }, [resource]);
+  }, [currentResource]);
 
   useEffect(() => {
-    if (!resource) return;
+    if (!currentResource) return;
 
     setEditData({
-      name: resource.name,
-      description: resource.description ?? "",
-      kind: resource.kind,
+      name: currentResource.name,
+      description: currentResource.description ?? "",
+      kind: currentResource.kind,
       visibility_mode:
-        resource.visibility_scope === "global" ||
-        resource.visibility_scope === "track_based" ||
-        resource.visibility_scope === "role_based"
-          ? (resource.visibility_scope as VisibilityMode)
-          : resource.audiences.some((audience) => audience.role?.slug !== "admin")
+        currentResource.visibility_scope === "track_based" ||
+        currentResource.visibility_scope === "role_based"
+          ? (currentResource.visibility_scope as VisibilityMode)
+          : currentResource.audiences.some((audience) => audience.role?.slug !== "admin")
             ? "role_based"
-            : resource.track_id !== null
+            : currentResource.track_id !== null
               ? "track_based"
               : "role_based",
-      track_id: resource.track_id,
-      type_name: resource.type_name,
-      content_html: resource.content_html ?? "",
+      track_id: currentResource.track_id,
+      type_name: currentResource.type_name,
+      content_html: currentResource.content_html ?? "",
       role_ids: Array.from(
         new Set(
-          resource.audiences
-            .map((audience) => audience.role_id)
-            .filter((roleId): roleId is number => roleId !== null && roleId !== 3),
+          currentResource.audiences
+            .filter((audience) => audience.role_id !== null && audience.role?.slug !== "admin")
+            .map((audience) => audience.role_id as number),
         ),
       ),
     });
@@ -132,9 +133,9 @@ export function ResourceDetailDrawer({
     setReplacementFile(null);
     setShowHtmlEditor(false);
     setShowHtmlPreview(false);
-  }, [resource]);
+  }, [currentResource]);
 
-  if (!resource) return null;
+  if (!currentResource) return null;
 
   const handleSave = async () => {
     if (editData.visibility_mode === "track_based" && editData.track_id === null) {
@@ -146,10 +147,8 @@ export function ResourceDetailDrawer({
       window.alert("Please select at least one role for role-based visibility.");
       return;
     }
-    const finalTrackId =
-      editData.visibility_mode === "track_based" ? editData.track_id : null;
-    const finalRoleIds =
-      editData.visibility_mode === "role_based" ? editData.role_ids : [];
+    const finalTrackId = editData.track_id;
+    const finalRoleIds = editData.role_ids;
 
     const parsed = updateResourceSchema.safeParse({
       resource_name: editData.name,
@@ -170,7 +169,7 @@ export function ResourceDetailDrawer({
 
     try {
       await updateResourceAsync({
-        id: resource.id,
+        id: currentResource.id,
         updates: parsed.data,
       });
 
@@ -178,7 +177,7 @@ export function ResourceDetailDrawer({
         const formData = new FormData();
         formData.append("file", replacementFile);
         await replaceResourceFileAsync({
-          id: resource.id,
+          id: currentResource.id,
           payload: formData,
         });
       }
@@ -218,7 +217,6 @@ export function ResourceDetailDrawer({
       body { margin: 0; padding: 24px; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #111827; background: #f8fafc; }
       .wrap { max-width: 960px; margin: 0 auto; background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
     </style>
-  </head>
   <body>
     <div class="wrap">
       ${html || "<p>No content yet.</p>"}
@@ -242,7 +240,7 @@ export function ResourceDetailDrawer({
         <DrawerHeader className="shrink-0 border-b">
           <DrawerTitle className="flex items-center gap-2">
             <FileTextIcon className="size-5" />
-            {mode === "view" ? resource.name : "Edit Resource"}
+            {mode === "view" ? currentResource.name : "Edit Resource"}
           </DrawerTitle>
         </DrawerHeader>
 
@@ -255,35 +253,48 @@ export function ResourceDetailDrawer({
               <>
                 <div>
                   <Label className="text-muted-foreground">Resource Name</Label>
-                  <p className="font-medium">{resource.name}</p>
+                  <p className="font-medium">{currentResource.name}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Description</Label>
                   <div className="mt-2 rounded-md border bg-muted/20 px-3 py-2">
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {resource.description || "-"}
+                      {currentResource.description || "-"}
                     </p>
                   </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Type</Label>
                   <div>
-                    <Badge variant="secondary">{getResourceTypeLabel(resource.type_name)}</Badge>
+                    <Badge variant="secondary">
+                      {getResourceTypeLabel(currentResource.type_name)}
+                    </Badge>
                   </div>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Kind</Label>
-                  <p>{resource.kind === "page" ? "HTML Page" : "File"}</p>
+                  <p>{currentResource.kind === "page" ? "HTML Page" : "File"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Track</Label>
-                  <p>{getResourceTrackLabel(resource.track_id)}</p>
+                  <p>
+                    {currentResource.track_id === null || currentResource.track_id === undefined
+                      ? "Unassigned"
+                      : (() => {
+                          const trackId = Number(currentResource.track_id);
+                          if (!Number.isFinite(trackId)) return "Unassigned";
+                          return (
+                            trackOptions.find((item) => item.id === trackId)?.label ??
+                            getResourceTrackLabel(trackId)
+                          );
+                        })()}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Visibility</Label>
-                  <p>{resource.visibility_scope}</p>
+                  <p>{currentResource.visibility_scope}</p>
                 </div>
-                {resource.kind === "page" ? (
+                {currentResource.kind === "page" ? (
                   <div>
                     <Label className="text-muted-foreground">Page Preview</Label>
                     <div className="mt-2">
@@ -291,7 +302,7 @@ export function ResourceDetailDrawer({
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          openHtmlPreviewPage(resource.content_html || "<p>No content yet.</p>")
+                          openHtmlPreviewPage(currentResource.content_html || "<p>No content yet.</p>")
                         }
                       >
                         Open Preview Page
@@ -302,12 +313,12 @@ export function ResourceDetailDrawer({
                   <div>
                     <Label className="text-muted-foreground">File</Label>
                     <div className="flex items-center justify-between gap-2">
-                      <p>{resource.file_name ?? "No file metadata"}</p>
-                      {resource.file_name ? (
+                      <p>{currentResource.file_name ?? "No file metadata"}</p>
+                      {currentResource.file_name ? (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => onDownload?.(resource)}
+                          onClick={() => onDownload?.(currentResource)}
                         >
                           Download
                         </Button>
@@ -373,7 +384,6 @@ export function ResourceDetailDrawer({
                       <SelectValue placeholder="Select visibility mode" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="global">Global</SelectItem>
                       <SelectItem value="track_based">Track-based</SelectItem>
                       <SelectItem value="role_based">Role-based</SelectItem>
                     </SelectContent>
@@ -549,9 +559,9 @@ export function ResourceDetailDrawer({
             <Label className="text-muted-foreground">Uploader</Label>
             <div className="p-3 rounded-md bg-muted/50">
               <p className="font-medium">
-                {`${resource.uploader.first_name} ${resource.uploader.last_name}`.trim()}
+                {`${currentResource.uploader.first_name} ${currentResource.uploader.last_name}`.trim()}
               </p>
-              <p className="text-sm text-muted-foreground">{resource.uploader.email}</p>
+              <p className="text-sm text-muted-foreground">{currentResource.uploader.email}</p>
             </div>
           </div>
 
@@ -561,7 +571,7 @@ export function ResourceDetailDrawer({
             <Label className="text-muted-foreground">Visible Roles</Label>
             {mode === "view" ? (
               <div className="flex flex-wrap gap-2">
-                {resource.visibility_scope === "global" ? (
+                {currentResource.visibility_scope === "global" ? (
                   <span className="text-sm text-muted-foreground">
                     Global visibility
                   </span>

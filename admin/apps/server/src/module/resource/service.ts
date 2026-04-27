@@ -148,6 +148,17 @@ function resolveVisibilityScope(trackId: number | null | undefined, roleIds: num
   return "global" as const;
 }
 
+function normalizeVisibilityScope(
+  value: string | null | undefined,
+  trackId: number | null | undefined,
+  roleIds: number[] = [],
+) {
+  if (value === "global" || value === "track_based" || value === "role_based") {
+    return value;
+  }
+  return resolveVisibilityScope(trackId, roleIds);
+}
+
 function buildStorageKey(resourceId: number, fileName?: string | null) {
   const stamp = Date.now();
   const safeName = (fileName || "resource.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -197,7 +208,7 @@ async function getRolesFromDb(): Promise<Role[]> {
     .from(roles)
     .orderBy(asc(roles.id));
 
-  if (!rows.length) return FALLBACK_ROLES;
+  if (!rows.length) return [];
   return rows.map((item) => ({
     id: item.id,
     name: item.name,
@@ -350,7 +361,7 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
       id: resources.id,
       uploader_user_id: resources.uploadedById,
       group_id: resources.groupId,
-      track_id: sql<number | null>`COALESCE(${resources.trackId}, ${groups.trackId})`,
+      track_id: sql<number | null>`(COALESCE(${resources.trackId}, ${groups.trackId}))::int`,
       visibility_scope: resources.visibilityScope,
       uploaded_at: resources.uploadedAt,
       deleted_at: resources.deletedAt,
@@ -384,7 +395,7 @@ async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> 
       id: resources.id,
       uploader_user_id: resources.uploadedById,
       group_id: resources.groupId,
-      track_id: sql<number | null>`COALESCE(${resources.trackId}, ${groups.trackId})`,
+      track_id: sql<number | null>`(COALESCE(${resources.trackId}, ${groups.trackId}))::int`,
       visibility_scope: resources.visibilityScope,
       uploaded_at: resources.uploadedAt,
       deleted_at: resources.deletedAt,
@@ -473,7 +484,7 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
     const roleIds = audiences
       .map((item) => item.role_id)
       .filter((id): id is number => typeof id === "number");
-    const visibility = resolveVisibilityScope(row.track_id, roleIds);
+    const visibility = normalizeVisibilityScope(row.visibility_scope, row.track_id, roleIds);
 
     return {
       ...row,
@@ -523,7 +534,7 @@ export async function queryResources(params: QueryResourcesInput) {
 
   if (params.track_id !== undefined) {
     resourcesList = resourcesList.filter(
-      (item) => item.track_id === params.track_id,
+      (item) => Number(item.track_id) === Number(params.track_id),
     );
   }
 
@@ -710,14 +721,13 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
         })()
       : null);
 
-  const now = new Date().toISOString();
   const [inserted] = await db
     .insert(resources)
     .values({
       name: payload.resource_name,
       description: payload.resource_description,
       kind: payload.resource_kind ?? "file",
-      uploadedAt: now,
+      uploadedAt: sql`statement_timestamp()`,
       deletedAt: null,
       uploadedById: Number(uploaderProfile.id),
       typeId: resourceTypeId,
@@ -882,7 +892,6 @@ export async function uploadResource(payload: {
         })()
       : null);
 
-  const now = new Date().toISOString();
   const fileMimeType = payload.file_mime_type || "application/octet-stream";
 
   const [inserted] = await db
@@ -891,7 +900,7 @@ export async function uploadResource(payload: {
       name: payload.resource_name,
       description: payload.resource_description,
       kind: "file",
-      uploadedAt: now,
+      uploadedAt: sql`statement_timestamp()`,
       deletedAt: null,
       uploadedById: Number(uploaderProfile.id),
       typeId: resourceTypeId,

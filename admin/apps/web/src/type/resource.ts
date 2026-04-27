@@ -86,7 +86,7 @@ export const RESOURCE_TRACKS: ResourceTrackOption[] = [
 
 export function getResourceTrackLabel(trackId: number | null | undefined): string {
   if (trackId === null || trackId === undefined) return "Unassigned";
-  return RESOURCE_TRACKS.find((item) => item.id === trackId)?.code ?? `Track ${trackId}`;
+  return `ID:${trackId}`;
 }
 
 export function getResourceTypeLabel(typeName: ResourceTypeName | null | undefined): string {

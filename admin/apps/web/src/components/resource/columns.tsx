@@ -1,5 +1,10 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { getResourceTrackLabel, getResourceTypeLabel, type Resource } from "@/type/resource";
+import {
+  getResourceTrackLabel,
+  getResourceTypeLabel,
+  type Resource,
+  type ResourceTrackOption,
+} from "@/type/resource";
 import { Button } from "@/components/ui/button";
 import { MoreHorizontal } from "lucide-react";
 import {
@@ -14,6 +19,7 @@ interface ResourceColumnsOptions {
   onEdit?: (resource: Resource) => void;
   onDelete?: (resource: Resource) => void;
   onDownload?: (resource: Resource) => void;
+  trackOptions?: ResourceTrackOption[];
 }
 
 function formatUploaderName(resource: Resource) {
@@ -43,7 +49,10 @@ export function createResourceColumns({
   onEdit,
   onDelete,
   onDownload,
+  trackOptions,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
+  const trackLabelById = new Map((trackOptions ?? []).map((item) => [item.id, item.label]));
+
   return [
     {
       accessorKey: "name",
@@ -88,7 +97,13 @@ export function createResourceColumns({
     {
       id: "track",
       header: "Track",
-      cell: ({ row }) => <span>{getResourceTrackLabel(row.original.track_id)}</span>,
+      cell: ({ row }) => {
+        const rawTrackId = row.original.track_id;
+        if (rawTrackId === null || rawTrackId === undefined) return <span>Unassigned</span>;
+        const trackId = Number(rawTrackId);
+        if (!Number.isFinite(trackId)) return <span>Unassigned</span>;
+        return <span>{trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId)}</span>;
+      },
     },
     {
       id: "uploader",

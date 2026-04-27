@@ -13,20 +13,26 @@ import type {
 } from "@/type/resource";
 
 type ApiResource = Partial<Resource> & {
-  id: number;
+  id: number | string;
   resource_name?: string;
   resource_description?: string | null;
   resource_kind?: Resource["kind"];
   resource_type?: Resource["type_name"];
-  resource_type_id?: number | null;
+  resource_type_id?: number | string | null;
   uploader_user_id?: string | number;
   name?: string;
   description?: string | null;
   kind?: Resource["kind"];
   uploaded_by_id?: string | number;
-  type_id?: number | null;
-  group_id?: number | null;
+  type_id?: number | string | null;
+  group_id?: number | string | null;
 };
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 function normalizeResource(resource: ApiResource): Resource {
   const storageKey = resource.storage_key ?? "";
@@ -57,7 +63,7 @@ function normalizeResource(resource: ApiResource): Resource {
   }));
 
   return {
-    id: resource.id,
+    id: Number(resource.id),
     uploader,
     audiences,
     uploaded_by_id:
@@ -66,9 +72,9 @@ function normalizeResource(resource: ApiResource): Resource {
     description: resource.description ?? resource.resource_description ?? null,
     kind: resource.kind ?? resource.resource_kind ?? "file",
     type_name: resource.type_name ?? resource.resource_type ?? null,
-    type_id: resource.type_id ?? resource.resource_type_id ?? null,
-    group_id: resource.group_id ?? null,
-    track_id: resource.track_id ?? null,
+    type_id: toNullableNumber(resource.type_id ?? resource.resource_type_id),
+    group_id: toNullableNumber(resource.group_id),
+    track_id: toNullableNumber(resource.track_id),
     visibility_scope: resource.visibility_scope ?? "global",
     uploaded_at: resource.uploaded_at ?? "",
     deleted_at: resource.deleted_at ?? null,
