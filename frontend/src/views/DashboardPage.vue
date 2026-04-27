@@ -560,12 +560,18 @@ const {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const DASHBOARD_FX_ENABLED_KEY = 'dashboard-fx-enabled'
 const DASHBOARD_ENDPOINTS = {
+  groupsPreview: (mine = false) => `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
+  groupsMine: `${API_BASE_URL}/groups/groups/?page_size=20&mine=true`,
   groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
   tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
+  nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
+  personalizedEvents: `${API_BASE_URL}/events/v1/?audience=me&page_size=1&ordering=start_datetime`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
+  progress: `${API_BASE_URL}/dashboard/v1/progress/`,
+  tasksPreferred: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=false`,
   tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=False`,
   milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`,
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`
@@ -1071,20 +1077,37 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
     const role = String(item?.membership_role || '').toLowerCase()
     return role.includes('mentor') || role.includes('supervisor')
   })
+  const leadName = group?.lead_name || group?.lead_user
+    ? [
+        group?.lead_user?.first_name,
+        group?.lead_user?.last_name
+      ].filter(Boolean).join(' ').trim() || group?.lead_user?.email || group?.lead_name
+    : ''
   const trackLabel =
     group?.track_name ||
     trackById.get(Number(group?.track)) ||
     (group?.track ? `Track ${group.track}` : group?.category)
+  const memberCount = Number(
+    group?.member_count ??
+    group?.memberCount ??
+    group?.members ??
+    matchingMemberships.length ??
+    0
+  )
 
   return {
     ...group,
     id: groupId,
     name: group?.group_name || group?.name || group?.title || 'Untitled group',
     title: group?.group_name || group?.title || group?.name || 'Untitled group',
-    members: matchingMemberships.length || Number(group?.members || group?.memberCount || 0),
-    memberCount: matchingMemberships.length || Number(group?.members || group?.memberCount || 0),
+    members: memberCount,
+    memberCount,
     status: group?.deleted_at ? 'archived' : group?.status || 'active',
-    mentor: group?.mentor || group?.lead || (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
+    mentor:
+      leadName ||
+      group?.mentor ||
+      group?.lead ||
+      (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
     track: trackLabel || 'General'
   }
 }
@@ -1251,7 +1274,37 @@ function deriveProgressSnapshot(tasksData, milestonesData) {
   }
 }
 
-async function fetchJson(url) {
+function normalizeProgressSnapshot(payload) {
+  const fallback = getDefaultProgressSnapshot()
+
+  if (!payload || typeof payload !== 'object') {
+    return fallback
+  }
+
+  return {
+    completionRate: Number(payload?.completion_rate ?? fallback.completionRate),
+    completedTasks: Number(payload?.completed_tasks ?? fallback.completedTasks),
+    totalTasks: Number(payload?.total_tasks ?? fallback.totalTasks),
+    currentWeek: payload?.current_stage || fallback.currentWeek,
+    nextMilestone: payload?.next_milestone?.name || fallback.nextMilestone,
+    nextMilestoneDate: payload?.next_milestone?.due_date || fallback.nextMilestoneDate
+  }
+}
+
+function hasGroupPreviewShape(items) {
+  return Array.isArray(items) && items.some(item =>
+    item &&
+    (
+      'track_name' in item ||
+      'member_count' in item ||
+      'lead_name' in item ||
+      'lead_user' in item
+    )
+  )
+}
+
+async function fetchJson(url, options = {}) {
+  const { allowNoContent = false } = options
   const response = await fetch(url, {
     method: 'GET',
     credentials: 'include',
@@ -1262,11 +1315,41 @@ async function fetchJson(url) {
     })
   })
 
+  if (allowNoContent && response.status === 204) {
+    return null
+  }
+
+  const text = await response.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = null
+  }
+
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`)
   }
 
-  return response.json()
+  return data
+}
+
+async function fetchFirstAvailable(urls, options = {}) {
+  let lastError = null
+
+  for (const url of urls) {
+    try {
+      return await fetchJson(url, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  return null
 }
 
 async function loadDashboardData() {
@@ -1297,7 +1380,25 @@ function loadSummary() {
 
 async function loadGroups() {
   try {
-    const data = await fetchJson(DASHBOARD_ENDPOINTS.groups)
+    const primaryGroupUrl = isAdmin.value
+      ? DASHBOARD_ENDPOINTS.groupsPreview(false)
+      : DASHBOARD_ENDPOINTS.groupsPreview(true)
+    const fallbackGroupUrls = isAdmin.value
+      ? [DASHBOARD_ENDPOINTS.groups]
+      : [DASHBOARD_ENDPOINTS.groupsMine, DASHBOARD_ENDPOINTS.groups]
+    const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
+    const groupItems = extractCollectionItems(data)
+
+    if (Array.isArray(groupItems) && groupItems.length === 0 && String(primaryGroupUrl).includes('/dashboard/v1/groups-preview/')) {
+      groups.value = []
+      return
+    }
+
+    if (hasGroupPreviewShape(groupItems)) {
+      groups.value = groupItems.map(group => normalizeGroup(group))
+      return
+    }
+
     let memberships = null
     let trackById = new Map()
 
@@ -1318,7 +1419,7 @@ async function loadGroups() {
       throw new Error('Group memberships unavailable')
     }
 
-    const liveGroups = filterGroupsForDashboard(extractCollectionItems(data), memberships || [])
+    const liveGroups = filterGroupsForDashboard(groupItems, memberships || [])
     groups.value = liveGroups.map(group => normalizeGroup(group, memberships || [], trackById))
   } catch (error) {
     groups.value = Array.isArray(mockGroups) ? [...mockGroups] : []
@@ -1347,11 +1448,37 @@ async function loadAnnouncements() {
 
 async function loadEvents() {
   try {
-    const data = await fetchJson(DASHBOARD_ENDPOINTS.events)
-    const liveEvents = extractCollectionItems(data)
+    const nextEventData = await fetchJson(DASHBOARD_ENDPOINTS.nextEvent, {
+      allowNoContent: true
+    })
+
+    if (nextEventData) {
+      events.value = [normalizeEvent(nextEventData)]
+      return
+    }
+
+    if (nextEventData === null) {
+      events.value = []
+      return
+    }
+
+    const fallbackEvents = await fetchFirstAvailable([
+      DASHBOARD_ENDPOINTS.personalizedEvents,
+      DASHBOARD_ENDPOINTS.events
+    ])
+    const liveEvents = extractCollectionItems(fallbackEvents)
     events.value = liveEvents.map(normalizeEvent)
   } catch (error) {
-    events.value = Array.isArray(mockEvents) ? [...mockEvents] : []
+    try {
+      const fallbackEvents = await fetchFirstAvailable([
+        DASHBOARD_ENDPOINTS.personalizedEvents,
+        DASHBOARD_ENDPOINTS.events
+      ])
+      const liveEvents = extractCollectionItems(fallbackEvents)
+      events.value = liveEvents.length ? liveEvents.map(normalizeEvent) : []
+    } catch {
+      events.value = Array.isArray(mockEvents) ? [...mockEvents] : []
+    }
   }
 }
 
@@ -1380,14 +1507,20 @@ async function loadAdminWorkflow() {
 
 async function loadProgress() {
   try {
+    const progressData = await fetchJson(DASHBOARD_ENDPOINTS.progress)
+    progressSnapshot.value = normalizeProgressSnapshot(progressData)
+    return
+  } catch (error) {
+    try {
     const [tasksData, milestonesData] = await Promise.all([
-      fetchJson(DASHBOARD_ENDPOINTS.tasks),
+        fetchFirstAvailable([DASHBOARD_ENDPOINTS.tasksPreferred, DASHBOARD_ENDPOINTS.tasks]),
       fetchJson(DASHBOARD_ENDPOINTS.milestones)
     ])
 
     progressSnapshot.value = deriveProgressSnapshot(tasksData, milestonesData)
-  } catch (error) {
-    progressSnapshot.value = getDefaultProgressSnapshot()
+    } catch {
+      progressSnapshot.value = getDefaultProgressSnapshot()
+    }
   }
 }
 

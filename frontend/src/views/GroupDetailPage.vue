@@ -94,7 +94,11 @@
           <!-- Discussion header -->
           <div class="chat-header">
             <h3 style="margin:0;">Discussion Board</h3>
-            <span v-if="isLoadingMessages" class="chat-status">Loading...</span>
+            <span class="chat-status">
+              <template v-if="isLoadingMessages">Loading...</template>
+              <template v-else-if="wsConnectionState === 'connected'">Live</template>
+              <template v-else>Offline</template>
+            </span>
           </div>
 
           <div v-if="chatError" class="chat-alert">
@@ -112,16 +116,84 @@
                 <div class="message-header">
                   <span class="message-author">{{ message.author }}</span>
                   <span class="message-meta">
+                    <span v-if="message.editedAt" class="message-edited">edited</span>
                     <span class="message-date">{{ formatDate(message.date) }}</span>
                     <span class="message-time">{{ message.time }}</span>
                   </span>
                 </div>
-                <div class="message-text">{{ message.text }}</div>
+                <img
+                  v-if="message.messageType === 'gif' && message.gifUrl"
+                  :src="message.gifUrl"
+                  :alt="message.text || 'GIF message'"
+                  class="message-gif"
+                />
+                <div v-else class="message-text">{{ message.text }}</div>
+
+                <div v-if="message.attachments?.length" class="message-attachments">
+                  <a
+                    v-for="attachment in message.attachments"
+                    :key="attachment.id || attachment.attachment_filename"
+                    href="#"
+                    class="attachment-chip"
+                    @click.prevent
+                  >
+                    <i class="fas fa-paperclip"></i>
+                    {{ attachment.attachment_filename || 'Attachment' }}
+                  </a>
+                </div>
+
+                <div v-if="message.preview?.title" class="message-preview">
+                  <strong>{{ message.preview.title }}</strong>
+                </div>
+
+                <div class="message-reactions">
+                  <button
+                    v-for="emoji in CHAT_REACTION_OPTIONS"
+                    :key="`${message.id}-${emoji}`"
+                    type="button"
+                    class="reaction-btn"
+                    @click="reactToMessage(message.id, emoji)"
+                  >
+                    <span>{{ emoji }}</span>
+                    <span v-if="message.reactions?.[emoji]" class="reaction-count">{{ message.reactions[emoji] }}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
+          <div v-if="typingIndicatorText" class="typing-indicator">
+            {{ typingIndicatorText }}
+          </div>
+
           <div class="chat-input">
+            <div v-if="showGifPanel" class="gif-panel">
+              <div class="gif-panel-header">
+                <input
+                  v-model.trim="gifQuery"
+                  type="text"
+                  class="gif-search-input"
+                  placeholder="Search GIFs"
+                  @keydown.enter.prevent="searchGifs"
+                />
+                <button type="button" class="btn btn-outline btn-sm" @click="searchGifs">Search</button>
+              </div>
+              <div v-if="gifError" class="gif-status">{{ gifError }}</div>
+              <div class="gif-grid">
+                <button
+                  v-for="gif in gifResults"
+                  :key="gif.id"
+                  type="button"
+                  class="gif-card"
+                  @click="sendGifMessage(gif)"
+                >
+                  <img :src="gif.previewUrl || gif.url" :alt="gif.title" />
+                  <span>{{ gif.title }}</span>
+                </button>
+              </div>
+              <div v-if="isLoadingGifs" class="gif-status">Loading GIFs...</div>
+            </div>
+
             <div class="chat-input-group">
               <textarea
                 ref="composer"
@@ -130,11 +202,16 @@
                 placeholder="Type your message..."
                 rows="2"
                 @keydown.enter.exact.prevent="sendMessage"
+                @input="handleComposerInput"
               ></textarea>
               <div class="chat-actions">
-                <button class="chat-btn" title="Attach file" disabled>
+                <button class="chat-btn" type="button" title="GIF picker" @click="toggleGifPanel">
+                  <i class="fas fa-image"></i>
+                </button>
+                <button class="chat-btn" type="button" title="Attach file" :disabled="isUploadingFile" @click="openFilePicker">
                   <i class="fas fa-paperclip"></i>
                 </button>
+                <input ref="fileInputRef" type="file" class="hidden-file-input" @change="uploadAttachment" />
                 <button class="chat-btn" :disabled="isSendingMessage || !newMessage.trim()" @click="sendMessage" title="Send">
                   <i class="fas fa-paper-plane"></i>
                 </button>
@@ -148,7 +225,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { mockGroups } from '../data/mock.js'
 import { useAuthStore } from '@/stores/auth'
@@ -159,6 +236,12 @@ const route = useRoute()
 const auth = useAuthStore()
 const themeStore = useThemeStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
+const MOCK_GIF_RESULTS = [
+  { id: 'gif-1', url: 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif', previewUrl: 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif', title: 'Celebration cat' },
+  { id: 'gif-2', url: 'https://media.tenor.com/mCYz5TvJ8FYAAAAC/excited-happy.gif', previewUrl: 'https://media.tenor.com/mCYz5TvJ8FYAAAAC/excited-happy.gif', title: 'Excited reaction' },
+  { id: 'gif-3', url: 'https://media.tenor.com/v6hK8g0j8MIAAAAC/thumbs-up-yes.gif', previewUrl: 'https://media.tenor.com/v6hK8g0j8MIAAAAC/thumbs-up-yes.gif', title: 'Thumbs up' }
+]
 const rawGroupId = route.params.id ? String(route.params.id) : ''
 const group = ref(mockGroups.find(g => String(g.id) === rawGroupId) || mockGroups[0])
 
@@ -217,9 +300,22 @@ const messages = ref([...mockMessages])
 const newMessage = ref('')
 const composer = ref(null)
 const msgList = ref(null)
+const fileInputRef = ref(null)
 const isLoadingMessages = ref(false)
 const isSendingMessage = ref(false)
+const isUploadingFile = ref(false)
+const isLoadingGifs = ref(false)
 const chatError = ref('')
+const gifError = ref('')
+const showGifPanel = ref(false)
+const gifQuery = ref('')
+const gifResults = ref([...MOCK_GIF_RESULTS])
+const typingUsers = ref([])
+const wsConnectionState = ref('offline')
+
+let chatSocket = null
+let typingStopTimer = null
+let hasSentTypingStart = false
 
 const getInitials = (name) => String(name || 'U').split(' ').map(n => n[0]).join('').toUpperCase()
 
@@ -242,12 +338,61 @@ const extractCollectionItems = (data) => {
   return []
 }
 
+const buildChatMessageCollectionUrls = (groupId, suffix = '') => {
+  return [
+    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`,
+    `${API_BASE_URL}/chat/groups/${groupId}/messages/${suffix}`
+  ]
+}
+
+const buildChatUploadUrls = (groupId) => {
+  return [
+    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/upload/`,
+    `${API_BASE_URL}/chat/groups/${groupId}/messages/upload/`
+  ]
+}
+
+const buildChatReactionUrls = (groupId, messageId) => {
+  return [
+    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`,
+    `${API_BASE_URL}/chat/groups/${groupId}/messages/${messageId}/react/`
+  ]
+}
+
+const buildGifSearchUrls = (query) => {
+  const encoded = encodeURIComponent(query)
+  return [
+    `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encoded}`,
+    `${API_BASE_URL}/chat/gifs/search?q=${encoded}`
+  ]
+}
+
+const buildGifTrendingUrls = () => {
+  return [
+    `${API_BASE_URL}/api/v1/chat/gifs/trending`,
+    `${API_BASE_URL}/chat/gifs/trending`
+  ]
+}
+
+const buildChatWebSocketUrl = (groupId) => {
+  try {
+    const apiUrl = new URL(API_BASE_URL)
+    const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${apiUrl.host}/ws/chat/groups/${groupId}/`
+  } catch {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}/ws/chat/groups/${groupId}/`
+  }
+}
+
 const requestJson = async (url, options = {}) => {
+  const isFormData = options.body instanceof FormData
   const response = await fetch(url, {
     credentials: 'include',
     ...options,
     headers: buildSessionHeaders({
       includeCSRF: options.method && options.method !== 'GET',
+      isFormData,
       headers: {
         Accept: 'application/json',
         ...(options.headers || {})
@@ -270,6 +415,24 @@ const requestJson = async (url, options = {}) => {
   return data
 }
 
+const requestJsonFirst = async (urls, options = {}) => {
+  let lastError = null
+
+  for (const url of urls) {
+    try {
+      return await requestJson(url, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  return null
+}
+
 const normalizeGroup = (item) => {
   return {
     ...group.value,
@@ -279,6 +442,30 @@ const normalizeGroup = (item) => {
     members: Number(item?.members || item?.memberCount || group.value?.members || 0),
     createdAt: item?.created_at || item?.createdAt || ''
   }
+}
+
+const normalizeReactionMap = (reactions) => {
+  if (!reactions || typeof reactions !== 'object' || Array.isArray(reactions)) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(reactions)
+      .map(([emoji, count]) => [emoji, Number(count) || 0])
+      .filter(([, count]) => count > 0)
+  )
+}
+
+const normalizeGifResults = (data) => {
+  const items = extractCollectionItems(data)
+  const normalized = items.map((item, index) => ({
+    id: item?.id || item?.media_id || item?.url || `gif-${index}`,
+    url: item?.gif_url || item?.url || item?.media?.gif?.url || item?.media_formats?.gif?.url || item?.itemurl || '',
+    previewUrl: item?.preview_url || item?.preview || item?.media_formats?.tinygif?.url || item?.media_formats?.nanogif?.url || item?.gif_url || item?.url || '',
+    title: item?.title || item?.content_description || 'GIF'
+  })).filter(item => item.url)
+
+  return normalized.length ? normalized : [...MOCK_GIF_RESULTS]
 }
 
 const loadGroup = async () => {
@@ -300,21 +487,33 @@ const loadGroup = async () => {
 }
 
 const normalizeMessage = (item) => {
-  const sentAt = item?.sent_at || item?.sent_datetime || item?.created_at || new Date().toISOString()
-  const senderId = Number(item?.sender_user || item?.sender_id || 0)
+  const raw = item?.message ? item.message : item
+  const sentAt = raw?.sent_at || raw?.sent_datetime || raw?.created_at || new Date().toISOString()
+  const senderId = Number(raw?.sender_user || raw?.sender_id || raw?.sender_user_id || 0)
   const currentUserId = Number(auth.user?.id || 0)
   const isOwn = currentUserId > 0 && senderId === currentUserId
+  const messageText = raw?.message_text || raw?.text || ''
+  const messageType = raw?.message_type || 'text'
+  const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const author = isOwn
     ? 'You'
-    : (item?.sender_name || item?.author || (senderId ? `User ${senderId}` : 'Team member'))
+    : (raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member'))
 
   return {
-    id: item?.id || `${senderId}-${sentAt}`,
+    id: raw?.id || `${senderId}-${sentAt}`,
     author,
-    text: item?.message_text || item?.text || '',
+    text: messageText,
     time: formatTime(sentAt),
     date: sentAt,
-    isOwn
+    isOwn,
+    messageType,
+    gifUrl: messageType === 'gif' ? messageText : '',
+    attachments,
+    reactions: normalizeReactionMap(raw?.reactions),
+    preview: raw?.preview || null,
+    editedAt: raw?.edited_at || null,
+    readBy: Array.isArray(raw?.read_by) ? raw.read_by : [],
+    isLocalOnly: Boolean(raw?.isLocalOnly)
   }
 }
 
@@ -323,9 +522,201 @@ const getBackendGroupId = () => {
   return /^\d+$/.test(String(id || '')) ? String(id) : ''
 }
 
+const typingIndicatorText = computed(() => {
+  if (!typingUsers.value.length) return ''
+  if (typingUsers.value.length === 1) return `${typingUsers.value[0]} is typing...`
+  return `${typingUsers.value[0]} and others are typing...`
+})
+
+const applyMessageUpdate = (messageId, updater) => {
+  const index = messages.value.findIndex(message => String(message.id) === String(messageId))
+  if (index === -1) return
+
+  const current = messages.value[index]
+  const nextValue = typeof updater === 'function' ? updater(current) : updater
+  messages.value.splice(index, 1, nextValue)
+}
+
+const upsertMessage = (message) => {
+  const normalized = normalizeMessage(message)
+  const index = messages.value.findIndex(item => String(item.id) === String(normalized.id))
+  if (index === -1) {
+    messages.value.push(normalized)
+    return
+  }
+
+  messages.value.splice(index, 1, {
+    ...messages.value[index],
+    ...normalized
+  })
+}
+
+const removeTypingUser = (name) => {
+  typingUsers.value = typingUsers.value.filter(item => item !== name)
+}
+
+const sendSocketAction = (payload) => {
+  if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return
+  chatSocket.send(JSON.stringify(payload))
+}
+
+const stopTypingIndicator = () => {
+  clearTimeout(typingStopTimer)
+  if (hasSentTypingStart) {
+    sendSocketAction({ action: 'client.typing', status: 'stopped' })
+    hasSentTypingStart = false
+  }
+}
+
+const scheduleTypingStop = () => {
+  clearTimeout(typingStopTimer)
+  typingStopTimer = setTimeout(() => {
+    stopTypingIndicator()
+  }, 1400)
+}
+
+const handleComposerInput = () => {
+  if (!newMessage.value.trim()) {
+    stopTypingIndicator()
+    return
+  }
+
+  if (!hasSentTypingStart) {
+    sendSocketAction({ action: 'client.typing', status: 'started' })
+    hasSentTypingStart = true
+  }
+
+  scheduleTypingStop()
+}
+
+const markMessagesAsRead = (messageIds) => {
+  const ids = (messageIds || []).map(id => Number(id)).filter(id => Number.isFinite(id))
+  if (!ids.length) return
+  sendSocketAction({ action: 'client.mark_read', message_ids: ids })
+}
+
 const scrollMessagesToBottom = async () => {
   await nextTick()
   if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+}
+
+const disconnectChatSocket = () => {
+  if (chatSocket) {
+    chatSocket.close()
+    chatSocket = null
+  }
+  wsConnectionState.value = 'offline'
+  typingUsers.value = []
+  stopTypingIndicator()
+}
+
+const handleSocketPayload = async (payload) => {
+  if (!payload || typeof payload !== 'object') return
+
+  if (payload.type === 'typing.updated') {
+    const currentUserId = Number(auth.user?.id || 0)
+    if (Number(payload.user_id) === currentUserId) return
+
+    const displayName = payload.user_name || `User ${payload.user_id}`
+    if (payload.status === 'started') {
+      if (!typingUsers.value.includes(displayName)) {
+        typingUsers.value = [...typingUsers.value, displayName]
+      }
+    } else {
+      removeTypingUser(displayName)
+    }
+    return
+  }
+
+  if (payload.type === 'message.reaction_updated') {
+    applyMessageUpdate(payload.message_id, (message) => ({
+      ...message,
+      reactions: normalizeReactionMap(payload.reactions)
+    }))
+    return
+  }
+
+  if (payload.type === 'message.read') {
+    const ids = Array.isArray(payload.message_ids) ? payload.message_ids : []
+    ids.forEach((id) => {
+      applyMessageUpdate(id, (message) => ({
+        ...message,
+        readBy: Array.from(new Set([...(message.readBy || []), payload.read_by]))
+      }))
+    })
+    return
+  }
+
+  if (payload.type === 'message.preview_ready') {
+    applyMessageUpdate(payload.message_id, (message) => ({
+      ...message,
+      preview: payload.preview || null
+    }))
+    return
+  }
+
+  const eventName = payload.event
+  if (eventName === 'message.created' && payload.message) {
+    upsertMessage(payload.message)
+    removeTypingUser(payload.user_name || payload.message.sender_name || '')
+    await scrollMessagesToBottom()
+    if (Number(payload.message.sender_id) !== Number(auth.user?.id || 0)) {
+      markMessagesAsRead([payload.message.id])
+    }
+    return
+  }
+
+  if (eventName === 'message.edited') {
+    applyMessageUpdate(payload.message_id, (message) => ({
+      ...message,
+      text: payload.message_text || message.text,
+      editedAt: payload.edited_at || message.editedAt
+    }))
+    return
+  }
+
+  if (eventName === 'message.deleted') {
+    messages.value = messages.value.filter(message => String(message.id) !== String(payload.message_id))
+  }
+}
+
+const connectChatSocket = () => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId || typeof WebSocket === 'undefined') return
+
+  disconnectChatSocket()
+
+  try {
+    chatSocket = new WebSocket(buildChatWebSocketUrl(backendGroupId))
+  } catch {
+    wsConnectionState.value = 'offline'
+    return
+  }
+
+  wsConnectionState.value = 'connecting'
+
+  chatSocket.addEventListener('open', () => {
+    wsConnectionState.value = 'connected'
+    markMessagesAsRead(messages.value.filter(message => !message.isOwn).map(message => message.id))
+  })
+
+  chatSocket.addEventListener('message', async (event) => {
+    try {
+      const payload = JSON.parse(event.data)
+      await handleSocketPayload(payload)
+    } catch (error) {
+      console.error('Failed to parse chat socket payload:', error)
+    }
+  })
+
+  chatSocket.addEventListener('close', () => {
+    wsConnectionState.value = 'offline'
+    typingUsers.value = []
+  })
+
+  chatSocket.addEventListener('error', () => {
+    wsConnectionState.value = 'offline'
+  })
 }
 
 const loadMessages = async () => {
@@ -341,7 +732,9 @@ const loadMessages = async () => {
   chatError.value = ''
 
   try {
-    const data = await requestJson(`${API_BASE_URL}/chat/groups/${backendGroupId}/messages/?limit=50`)
+    const data = await requestJsonFirst(
+      buildChatMessageCollectionUrls(backendGroupId, '?limit=50')
+    )
     const liveMessages = extractCollectionItems(data)
       .map(normalizeMessage)
       .reverse()
@@ -353,57 +746,249 @@ const loadMessages = async () => {
   } finally {
     isLoadingMessages.value = false
     await scrollMessagesToBottom()
+    markMessagesAsRead(messages.value.filter(message => !message.isOwn).map(message => message.id))
+  }
+}
+
+const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pendingId, keepLocalOnFailure = false }) => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) {
+    if (optimisticMessage) {
+      upsertMessage({
+        ...optimisticMessage,
+        isLocalOnly: true
+      })
+      await scrollMessagesToBottom()
+    }
+    chatError.value = 'Live discussion needs a backend group id. This update is only shown locally.'
+    return
+  }
+
+  chatError.value = ''
+
+  try {
+    const savedMessage = await requestJsonFirst(body === 'upload'
+      ? buildChatUploadUrls(backendGroupId)
+      : buildChatMessageCollectionUrls(backendGroupId), requestOptions)
+
+    if (!savedMessage) {
+      return null
+    }
+
+    if (pendingId) {
+      const index = messages.value.findIndex(message => message.id === pendingId)
+      if (index !== -1) {
+        messages.value.splice(index, 1, normalizeMessage(savedMessage))
+      } else {
+        upsertMessage(savedMessage)
+      }
+    } else if (savedMessage) {
+      upsertMessage(savedMessage)
+    }
+    return savedMessage
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Message could not be sent.'
+    if (pendingId && !keepLocalOnFailure) {
+      messages.value = messages.value.filter(message => message.id !== pendingId)
+    }
+    throw error
+  } finally {
+    await scrollMessagesToBottom()
   }
 }
 
 const sendMessage = async () => {
   const text = newMessage.value.trim()
   if (!text || isSendingMessage.value) return
-  const backendGroupId = getBackendGroupId()
 
   const now = new Date()
+  const pendingId = `pending-${Date.now()}`
   const draftMessage = {
-    id: `pending-${Date.now()}`,
+    id: pendingId,
     author: 'You',
     text,
     time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     date: now.toISOString(),
+    isOwn: true,
+    message_type: 'text'
+  }
+
+  messages.value.push(normalizeMessage(draftMessage))
+  newMessage.value = ''
+  stopTypingIndicator()
+  await scrollMessagesToBottom()
+
+  isSendingMessage.value = true
+  try {
+    await sendMessagePayload({
+      body: 'message',
+      pendingId,
+      optimisticMessage: draftMessage,
+      requestOptions: {
+        method: 'POST',
+        body: JSON.stringify({
+          message_text: text,
+          message_type: 'text'
+        })
+      }
+    })
+  } catch {
+    newMessage.value = text
+  } finally {
+    isSendingMessage.value = false
+    composer.value?.focus()
+  }
+}
+
+const sendGifMessage = async (gif) => {
+  if (!gif?.url || isSendingMessage.value) return
+
+  const now = new Date()
+  const pendingId = `gif-${Date.now()}`
+  const optimisticMessage = {
+    id: pendingId,
+    author: 'You',
+    message_text: gif.url,
+    message_type: 'gif',
+    sent_at: now.toISOString(),
     isOwn: true
   }
 
-  messages.value.push(draftMessage)
-  newMessage.value = ''
+  messages.value.push(normalizeMessage(optimisticMessage))
+  showGifPanel.value = false
+  gifError.value = ''
   await scrollMessagesToBottom()
 
-  if (!backendGroupId) {
-    chatError.value = 'Live discussion needs a backend group id. This message is only shown locally.'
+  isSendingMessage.value = true
+  try {
+    await sendMessagePayload({
+      body: 'message',
+      pendingId,
+      optimisticMessage,
+      keepLocalOnFailure: true,
+      requestOptions: {
+        method: 'POST',
+        body: JSON.stringify({
+          message_text: gif.url,
+          message_type: 'gif'
+        })
+      }
+    })
+  } catch {
+    chatError.value = 'GIF endpoint is not available yet. The GIF is shown locally for now.'
+  } finally {
+    isSendingMessage.value = false
     composer.value?.focus()
+  }
+}
+
+const openFilePicker = () => {
+  fileInputRef.value?.click()
+}
+
+const uploadAttachment = async (event) => {
+  const input = event?.target
+  const file = input?.files?.[0]
+  if (!file || isUploadingFile.value) return
+
+  const now = new Date()
+  const pendingId = `upload-${Date.now()}`
+  const optimisticMessage = {
+    id: pendingId,
+    author: 'You',
+    message_text: file.name,
+    message_type: 'attachment',
+    sent_at: now.toISOString(),
+    attachments: [{ id: pendingId, attachment_filename: file.name }],
+    isOwn: true
+  }
+
+  messages.value.push(normalizeMessage(optimisticMessage))
+  await scrollMessagesToBottom()
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('message_text', '')
+
+  isUploadingFile.value = true
+  try {
+    await sendMessagePayload({
+      body: 'upload',
+      pendingId,
+      optimisticMessage,
+      keepLocalOnFailure: true,
+      requestOptions: {
+        method: 'POST',
+        body: formData
+      }
+    })
+  } catch {
+    chatError.value = 'Upload endpoint is not available yet. The attachment is shown locally for now.'
+  } finally {
+    isUploadingFile.value = false
+    if (input) input.value = ''
+  }
+}
+
+const fetchGifResults = async (mode = 'trending') => {
+  isLoadingGifs.value = true
+  gifError.value = ''
+
+  try {
+    const data = await requestJsonFirst(
+      mode === 'search'
+        ? buildGifSearchUrls(gifQuery.value.trim())
+        : buildGifTrendingUrls(),
+      {
+        method: 'GET'
+      }
+    )
+    gifResults.value = normalizeGifResults(data)
+  } catch {
+    gifResults.value = [...MOCK_GIF_RESULTS]
+    gifError.value = 'Live GIF search is unavailable, showing fallback picks.'
+  } finally {
+    isLoadingGifs.value = false
+  }
+}
+
+const toggleGifPanel = async () => {
+  showGifPanel.value = !showGifPanel.value
+  if (showGifPanel.value) {
+    await fetchGifResults('trending')
+  }
+}
+
+const searchGifs = async () => {
+  if (!gifQuery.value.trim()) {
+    await fetchGifResults('trending')
     return
   }
 
-  isSendingMessage.value = true
-  chatError.value = ''
+  await fetchGifResults('search')
+}
+
+const reactToMessage = async (messageId, emoji) => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) return
+
+  applyMessageUpdate(messageId, (message) => ({
+    ...message,
+    reactions: {
+      ...(message.reactions || {}),
+      [emoji]: Number(message.reactions?.[emoji] || 0) + 1
+    }
+  }))
 
   try {
-    const savedMessage = await requestJson(`${API_BASE_URL}/chat/groups/${backendGroupId}/messages/`, {
+    await requestJsonFirst(buildChatReactionUrls(backendGroupId, messageId), {
       method: 'POST',
       body: JSON.stringify({
-        message_text: text,
-        message_type: 'text'
+        emoji_string: emoji
       })
     })
-    const index = messages.value.findIndex(message => message.id === draftMessage.id)
-    if (index !== -1) {
-      messages.value.splice(index, 1, normalizeMessage(savedMessage))
-    }
-  } catch (error) {
-    chatError.value = error instanceof Error ? error.message : 'Message could not be sent.'
-    newMessage.value = text
-    messages.value = messages.value.filter(message => message.id !== draftMessage.id)
-  } finally {
-    isSendingMessage.value = false
-    await scrollMessagesToBottom()
-    composer.value?.focus()
+  } catch {
+    chatError.value = 'Reaction endpoint is not available yet. The reaction is shown locally for now.'
   }
 }
 
@@ -412,6 +997,12 @@ const focusComposer = () => composer.value?.focus()
 onMounted(async () => {
   await loadGroup()
   await loadMessages()
+  connectChatSocket()
+})
+
+onBeforeUnmount(() => {
+  disconnectChatSocket()
+  clearTimeout(typingStopTimer)
 })
 </script>
 
@@ -511,6 +1102,64 @@ onMounted(async () => {
   font-size: 0.9rem;
 }
 
+.typing-indicator,
+.gif-status {
+  padding: 0.55rem 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.gif-panel {
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.85rem;
+}
+
+.gif-panel-header {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.gif-search-input {
+  flex: 1;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 0.65rem 0.8rem;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.gif-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.gif-card {
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.gif-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+}
+
+.gif-card span {
+  display: block;
+  padding: 0.45rem 0.55rem 0.6rem;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
 .chat-btn:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -590,6 +1239,94 @@ onMounted(async () => {
   color: #fff !important;
 }
 
+.message-edited {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.message-gif {
+  width: min(100%, 280px);
+  border-radius: 18px;
+  display: block;
+  margin-top: 0.4rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 0.84rem;
+}
+
+.message-preview {
+  margin-top: 0.7rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--surface-base) 86%, transparent);
+  color: var(--text-primary);
+}
+
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.reaction-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
+  color: var(--text-primary);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+
+.reaction-btn:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.reaction-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
 /* 移动端：单列 + 由 tabs 控制显示哪一块 */
 @media (max-width: 900px) {
   .split {
@@ -603,6 +1340,10 @@ onMounted(async () => {
   .split[data-active="discussion"] .pane--discussion { display: block; }
   .card {
     min-height: 220px;
+  }
+
+  .gif-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 .group-detail {
