@@ -9,12 +9,12 @@ import {
   type StudentGroupRecommendation,
 } from "@/algorithm/student.js";
 import db from "@/lib/db.js";
-import { and, desc, eq, inArray, isNull, notExists } from "drizzle-orm";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import {
   areasOfInterest,
   countries,
   countryStates,
-  groupMembership,
+  groupMembers,
   groups,
   matchRun,
   mentorProfile,
@@ -22,7 +22,7 @@ import {
   studentProfile,
   tracks,
   users,
-} from "@/old/drizzle/schema.js";
+} from "@/schema/index.js";
 
 import type { ConfirmMatchAssignmentInput } from "./schema.js";
 
@@ -192,11 +192,9 @@ function buildFormRecommendations(
 
 export async function matchStudent(uid: string) {
   const activeMembershipSubquery = db
-    .select({ userId: groupMembership.userId })
-    .from(groupMembership)
-    .where(
-      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
-    );
+    .select({ userId: groupMembers.userId })
+    .from(groupMembers)
+    .where(eq(groupMembers.userId, users.id));
 
   const standaloneStudents = await db
     .select({
@@ -204,8 +202,8 @@ export async function matchStudent(uid: string) {
       firstName: users.firstName,
       lastName: users.lastName,
       trackId: users.trackId,
-      trackCode: tracks.trackCode,
-      yearLevel: studentProfile.yearLevel,
+      trackCode: tracks.trackName,
+      yearLevel: sql<number | null>`NULLIF(${studentProfile.yearLvl}, '')::int`,
       countryName: countries.countryName,
     })
     .from(studentProfile)
@@ -222,18 +220,17 @@ export async function matchStudent(uid: string) {
       firstName: users.firstName,
       lastName: users.lastName,
       trackId: users.trackId,
-      trackCode: tracks.trackCode,
-      yearLevel: studentProfile.yearLevel,
+      trackCode: tracks.trackName,
+      yearLevel: sql<number | null>`NULLIF(${studentProfile.yearLvl}, '')::int`,
       countryName: countries.countryName,
     })
-    .from(groupMembership)
-    .innerJoin(groups, eq(groups.id, groupMembership.groupId))
-    .innerJoin(users, eq(users.id, groupMembership.userId))
+    .from(groupMembers)
+    .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .innerJoin(users, eq(users.id, groupMembers.userId))
     .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
     .innerJoin(tracks, eq(tracks.id, users.trackId))
     .innerJoin(countryStates, eq(countryStates.id, tracks.stateId))
-    .innerJoin(countries, eq(countries.id, countryStates.countryId))
-    .where(isNull(groupMembership.leftAt));
+    .innerJoin(countries, eq(countries.id, countryStates.countryId));
 
   const groupIds = [
     ...new Set(groupMembersRows.map((student) => student.groupId)),
@@ -247,7 +244,7 @@ export async function matchStudent(uid: string) {
             groupId: groups.id,
             groupName: groups.groupName,
             groupTrackId: groups.trackId,
-            groupTrackCode: tracks.trackCode,
+            groupTrackCode: tracks.trackName,
           })
           .from(groups)
           .innerJoin(tracks, eq(tracks.id, groups.trackId))
@@ -283,16 +280,14 @@ export async function matchStudent(uid: string) {
             tutorFirstName: users.firstName,
             tutorLastName: users.lastName,
           })
-          .from(groupMembership)
-          .innerJoin(groups, eq(groups.id, groupMembership.groupId))
+          .from(groupMembers)
+          .innerJoin(groups, eq(groups.id, groupMembers.groupId))
           .innerJoin(
             mentorProfile,
-            eq(mentorProfile.userId, groupMembership.userId),
+            eq(mentorProfile.userId, groupMembers.userId),
           )
           .innerJoin(users, eq(users.id, mentorProfile.userId))
-          .where(
-            and(inArray(groups.id, groupIds), isNull(groupMembership.leftAt)),
-          );
+          .where(inArray(groups.id, groupIds));
 
   const tutorByGroupId = new Map<
     number,
@@ -330,7 +325,7 @@ export async function matchStudent(uid: string) {
       ? []
       : await db
           .select({
-            userId: studentInterest.studentUserId,
+            userId: studentInterest.userId,
             interestDesc: areasOfInterest.interestDesc,
           })
           .from(studentInterest)
@@ -338,7 +333,7 @@ export async function matchStudent(uid: string) {
             areasOfInterest,
             eq(areasOfInterest.id, studentInterest.interestId),
           )
-          .where(inArray(studentInterest.studentUserId, userIds));
+          .where(inArray(studentInterest.userId, userIds));
 
   const interestsByUserId = mapInterestsByUserId(interestRows);
 
@@ -500,11 +495,11 @@ export async function matchStudent(uid: string) {
       groupId: groups.id,
       groupName: groups.groupName,
       trackId: groups.trackId,
-      trackCode: tracks.trackCode,
+      trackCode: tracks.trackName,
     })
     .from(groups)
     .innerJoin(tracks, eq(tracks.id, groups.trackId))
-    .where(isNull(groups.deletedAt));
+    .where(eq(groups.deletedFlag, false));
 
   const allGroupIds = allGroups.map((group) => group.groupId);
 
@@ -513,26 +508,21 @@ export async function matchStudent(uid: string) {
       ? []
       : await db
           .select({
-            groupId: groupMembership.groupId,
+            groupId: groupMembers.groupId,
             userId: users.id,
             firstName: users.firstName,
             lastName: users.lastName,
-            trackCode: tracks.trackCode,
-            yearLevel: studentProfile.yearLevel,
+            trackCode: tracks.trackName,
+            yearLevel: sql<number | null>`NULLIF(${studentProfile.yearLvl}, '')::int`,
             countryName: countries.countryName,
           })
-          .from(groupMembership)
-          .innerJoin(users, eq(users.id, groupMembership.userId))
+          .from(groupMembers)
+          .innerJoin(users, eq(users.id, groupMembers.userId))
           .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
           .innerJoin(tracks, eq(tracks.id, users.trackId))
           .innerJoin(countryStates, eq(countryStates.id, tracks.stateId))
           .innerJoin(countries, eq(countries.id, countryStates.countryId))
-          .where(
-            and(
-              inArray(groupMembership.groupId, allGroupIds),
-              isNull(groupMembership.leftAt),
-            ),
-          );
+          .where(inArray(groupMembers.groupId, allGroupIds));
 
   const allStudentIds = [
     ...new Set(activeStudentRows.map((student) => student.userId)),
@@ -543,7 +533,7 @@ export async function matchStudent(uid: string) {
       ? []
       : await db
           .select({
-            userId: studentInterest.studentUserId,
+            userId: studentInterest.userId,
             interestDesc: areasOfInterest.interestDesc,
           })
           .from(studentInterest)
@@ -551,7 +541,7 @@ export async function matchStudent(uid: string) {
             areasOfInterest,
             eq(areasOfInterest.id, studentInterest.interestId),
           )
-          .where(inArray(studentInterest.studentUserId, allStudentIds));
+          .where(inArray(studentInterest.userId, allStudentIds));
 
   const studentInterestsByUserId = mapInterestsByUserId(
     activeStudentInterestRows,
@@ -567,19 +557,14 @@ export async function matchStudent(uid: string) {
             tutorFirstName: users.firstName,
             tutorLastName: users.lastName,
           })
-          .from(groupMembership)
-          .innerJoin(groups, eq(groups.id, groupMembership.groupId))
+          .from(groupMembers)
+          .innerJoin(groups, eq(groups.id, groupMembers.groupId))
           .innerJoin(
             mentorProfile,
-            eq(mentorProfile.userId, groupMembership.userId),
+            eq(mentorProfile.userId, groupMembers.userId),
           )
           .innerJoin(users, eq(users.id, mentorProfile.userId))
-          .where(
-            and(
-              inArray(groups.id, allGroupIds),
-              isNull(groupMembership.leftAt),
-            ),
-          );
+          .where(inArray(groups.id, allGroupIds));
 
   const allTutorByGroupId = new Map<
     number,
@@ -645,11 +630,9 @@ export async function matchStudent(uid: string) {
 
 export async function getIndividualStudents() {
   const activeMembershipSubquery = db
-    .select({ userId: groupMembership.userId })
-    .from(groupMembership)
-    .where(
-      and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)),
-    );
+    .select({ userId: groupMembers.userId })
+    .from(groupMembers)
+    .where(eq(groupMembers.userId, users.id));
 
   const individualStudents = await db
     .select({
@@ -657,8 +640,8 @@ export async function getIndividualStudents() {
       firstName: users.firstName,
       lastName: users.lastName,
       trackId: users.trackId,
-      trackCode: tracks.trackCode,
-      yearLevel: studentProfile.yearLevel,
+      trackCode: tracks.trackName,
+      yearLevel: sql<number | null>`NULLIF(${studentProfile.yearLvl}, '')::int`,
       countryName: countries.countryName,
     })
     .from(studentProfile)
@@ -674,7 +657,7 @@ export async function getIndividualStudents() {
       ? []
       : await db
           .select({
-            userId: studentInterest.studentUserId,
+            userId: studentInterest.userId,
             interestDesc: areasOfInterest.interestDesc,
           })
           .from(studentInterest)
@@ -682,7 +665,7 @@ export async function getIndividualStudents() {
             areasOfInterest,
             eq(areasOfInterest.id, studentInterest.interestId),
           )
-          .where(inArray(studentInterest.studentUserId, userIds));
+          .where(inArray(studentInterest.userId, userIds));
   const interestsByUserId = mapInterestsByUserId(interestRows);
 
   return individualStudents.map((student) => ({
@@ -714,16 +697,7 @@ export async function confirmStudentAssignments(
   const now = new Date().toISOString();
 
   await db.transaction(async (tx) => {
-    await tx
-      .update(groupMembership)
-      .set({ leftAt: now })
-      .where(
-        and(
-          inArray(groupMembership.userId, studentIds),
-          eq(groupMembership.membershipRole, "student"),
-          isNull(groupMembership.leftAt),
-        ),
-      );
+    await tx.delete(groupMembers).where(inArray(groupMembers.userId, studentIds));
 
     let resolvedAssignments = assignments.map((item) => ({
       studentId: item.studentId,
@@ -760,21 +734,7 @@ export async function confirmStudentAssignments(
         usersForAssignments.map((row) => [row.id, row.trackId] as const),
       );
 
-      const latestGroup = await tx
-        .select({ id: groups.id })
-        .from(groups)
-        .orderBy(desc(groups.id))
-        .limit(1);
-
-      let nextGroupId = (latestGroup[0]?.id ?? 0) + 1;
       const createdGroupIdBySyntheticId = new Map<string, number>();
-      const newGroupRows: Array<{
-        id: number;
-        groupName: string;
-        trackId: number;
-        createdAt: string;
-        deletedAt: null;
-      }> = [];
 
       for (const [syntheticId, members] of syntheticGroups) {
         const firstTrack = members
@@ -785,19 +745,29 @@ export async function confirmStudentAssignments(
           continue;
         }
 
-        const groupId = nextGroupId++;
-        createdGroupIdBySyntheticId.set(syntheticId, groupId);
-        newGroupRows.push({
-          id: groupId,
-          groupName: `Auto Group ${groupId}`,
-          trackId: firstTrack,
-          createdAt: now,
-          deletedAt: null,
-        });
-      }
+        const [createdGroup] = await tx
+          .insert(groups)
+          .values({
+            groupName: "Auto Group",
+            trackId: firstTrack,
+            creationDatetime: now,
+            deletedFlag: false,
+            deletedDatetime: null,
+          })
+          .returning({ id: groups.id });
 
-      if (newGroupRows.length > 0) {
-        await tx.insert(groups).values(newGroupRows);
+        if (!createdGroup) {
+          continue;
+        }
+
+        await tx
+          .update(groups)
+          .set({
+            groupName: `Auto Group ${createdGroup.id}`,
+          })
+          .where(eq(groups.id, createdGroup.id));
+
+        createdGroupIdBySyntheticId.set(syntheticId, createdGroup.id);
       }
 
       resolvedAssignments = assignments
@@ -822,29 +792,18 @@ export async function confirmStudentAssignments(
         );
     }
 
-    const latestMembership = await tx
-      .select({ id: groupMembership.id })
-      .from(groupMembership)
-      .orderBy(desc(groupMembership.id))
-      .limit(1);
-
-    let nextId = (latestMembership[0]?.id ?? 0) + 1;
     const rows = resolvedAssignments
       .filter(
         (item): item is { studentId: number; groupId: number } =>
           typeof item.groupId === "number",
       )
       .map((item) => ({
-        id: nextId++,
         groupId: item.groupId,
         userId: item.studentId,
-        membershipRole: "student",
-        joinedAt: now,
-        leftAt: null as string | null,
       }));
 
     if (rows.length > 0) {
-      await tx.insert(groupMembership).values(rows);
+      await tx.insert(groupMembers).values(rows);
     }
   });
 

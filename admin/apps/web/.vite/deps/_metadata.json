@@ -2,72 +2,78 @@
   "hash": "2383063d",
   "configHash": "b30ad038",
   "lockfileHash": "60cfe1dc",
-  "browserHash": "2e5a252d",
+  "browserHash": "d22141e9",
   "optimized": {
     "react/jsx-dev-runtime": {
       "src": "../../../../node_modules/.pnpm/react@19.2.4/node_modules/react/jsx-dev-runtime.js",
       "file": "react_jsx-dev-runtime.js",
-      "fileHash": "84ba98f5",
+      "fileHash": "ffdbea35",
       "needsInterop": true
     },
     "react": {
       "src": "../../../../node_modules/.pnpm/react@19.2.4/node_modules/react/index.js",
       "file": "react.js",
-      "fileHash": "9c519730",
+      "fileHash": "a71a2c85",
       "needsInterop": true
     },
     "react-dom/client": {
       "src": "../../../../node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/client.js",
       "file": "react-dom_client.js",
-      "fileHash": "7d7a2fcd",
+      "fileHash": "d6384a1b",
       "needsInterop": true
     },
     "@tanstack/react-router": {
-      "src": "../../../../node_modules/.pnpm/@tanstack+react-router@1.168.13_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/@tanstack/react-router/dist/esm/index.dev.js",
+      "src": "../../../../node_modules/.pnpm/@tanstack+react-router@1.168.23_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/@tanstack/react-router/dist/esm/index.dev.js",
       "file": "@tanstack_react-router.js",
-      "fileHash": "5b125282",
+      "fileHash": "73a74afc",
       "needsInterop": false
     },
     "@tanstack/react-query": {
       "src": "../../../../node_modules/.pnpm/@tanstack+react-query@5.95.2_react@19.2.4/node_modules/@tanstack/react-query/build/modern/index.js",
       "file": "@tanstack_react-query.js",
-      "fileHash": "96e4653e",
+      "fileHash": "30eff912",
       "needsInterop": false
     },
     "@tanstack/react-router-devtools": {
-      "src": "../../../../node_modules/.pnpm/@tanstack+react-router-devtools@1.166.11_@tanstack+react-router@1.168.13_react-dom@19.2.4_rea_ubxxg2az4wnyynlq2pcyrzo4ki/node_modules/@tanstack/react-router-devtools/dist/esm/index.js",
+      "src": "../../../../node_modules/.pnpm/@tanstack+react-router-devtools@1.166.13_@tanstack+react-router@1.168.23_react-dom@19.2.4_rea_ilintuv4h3zkhdjmmrkqqvlwue/node_modules/@tanstack/react-router-devtools/dist/esm/index.js",
       "file": "@tanstack_react-router-devtools.js",
-      "fileHash": "188acde9",
+      "fileHash": "0120ec11",
       "needsInterop": false
     },
     "@tanstack/react-devtools": {
       "src": "../../../../node_modules/.pnpm/@tanstack+react-devtools@0.10.2_@types+react-dom@19.2.3_@types+react@19.2.14__@types+react@19_jfko6mue7i2q3qblafsdqmtnly/node_modules/@tanstack/react-devtools/dist/esm/index.js",
       "file": "@tanstack_react-devtools.js",
-      "fileHash": "4aad9fb6",
+      "fileHash": "beac9ff4",
       "needsInterop": false
     },
     "sonner": {
       "src": "../../../../node_modules/.pnpm/sonner@2.0.7_react-dom@19.2.4_react@19.2.4__react@19.2.4/node_modules/sonner/dist/index.mjs",
       "file": "sonner.js",
-      "fileHash": "f4ca8796",
-      "needsInterop": false
-    },
-    "react-hook-form": {
-      "src": "../../../../node_modules/.pnpm/react-hook-form@7.72.0_react@19.2.4/node_modules/react-hook-form/dist/index.esm.mjs",
-      "file": "react-hook-form.js",
-      "fileHash": "e51bcaf4",
-      "needsInterop": false
-    },
-    "@hookform/resolvers/zod": {
-      "src": "../../../../node_modules/.pnpm/@hookform+resolvers@5.2.2_react-hook-form@7.72.0_react@19.2.4_/node_modules/@hookform/resolvers/zod/dist/zod.mjs",
-      "file": "@hookform_resolvers_zod.js",
-      "fileHash": "39aedbeb",
+      "fileHash": "8a6eb5e2",
       "needsInterop": false
     },
     "axios": {
       "src": "../../../../node_modules/.pnpm/axios@1.14.0/node_modules/axios/index.js",
       "file": "axios.js",
-      "fileHash": "a5c6b6b5",
+      "fileHash": "d94c73aa",
+      "needsInterop": false
+    },
+    "react-hook-form": {
+      "src": "../../../../node_modules/.pnpm/react-hook-form@7.72.0_react@19.2.4/node_modules/react-hook-form/dist/index.esm.mjs",
+      "file": "react-hook-form.js",
+      "fileHash": "f2b257a9",
+      "needsInterop": false
+    },
+    "@hookform/resolvers/zod": {
+      "src": "../../../../node_modules/.pnpm/@hookform+resolvers@5.2.2_react-hook-form@7.72.0_react@19.2.4_/node_modules/@hookform/resolvers/zod/dist/zod.mjs",
+      "file": "@hookform_resolvers_zod.js",
+      "fileHash": "1b3ebd3f",
+      "needsInterop": false
+    },
+    "lucide-react": {
+      "src": "../../../../node_modules/.pnpm/lucide-react@0.545.0_react@19.2.4/node_modules/lucide-react/dist/esm/lucide-react.js",
+      "file": "lucide-react.js",
+      "fileHash": "3c59d58c",
       "needsInterop": false
     }
   },
@@ -75,14 +81,14 @@
     "chunk-JX4HZTBQ": {
       "file": "chunk-JX4HZTBQ.js"
     },
-    "BaseTanStackRouterDevtoolsPanel-qCkSGZav-GH6PAZUQ": {
-      "file": "BaseTanStackRouterDevtoolsPanel-qCkSGZav-GH6PAZUQ.js"
+    "BaseTanStackRouterDevtoolsPanel-BbL4h7yi-6QJOAPSO": {
+      "file": "BaseTanStackRouterDevtoolsPanel-BbL4h7yi-6QJOAPSO.js"
     },
-    "FloatingTanStackRouterDevtools-Dz-7tBRe-2UMQFVQK": {
-      "file": "FloatingTanStackRouterDevtools-Dz-7tBRe-2UMQFVQK.js"
+    "FloatingTanStackRouterDevtools-CMO0N95A-AQUQ245D": {
+      "file": "FloatingTanStackRouterDevtools-CMO0N95A-AQUQ245D.js"
     },
-    "chunk-EVRSBEOA": {
-      "file": "chunk-EVRSBEOA.js"
+    "chunk-JX5JJ3SJ": {
+      "file": "chunk-JX5JJ3SJ.js"
     },
     "4QORE6HP-Z5LCLS2H": {
       "file": "4QORE6HP-Z5LCLS2H.js"
@@ -96,14 +102,14 @@
     "chunk-C3IKEGBQ": {
       "file": "chunk-C3IKEGBQ.js"
     },
-    "chunk-4KVETDJY": {
-      "file": "chunk-4KVETDJY.js"
+    "chunk-TBNYN663": {
+      "file": "chunk-TBNYN663.js"
     },
-    "chunk-JQ2ZHZLQ": {
-      "file": "chunk-JQ2ZHZLQ.js"
+    "chunk-GJLG664C": {
+      "file": "chunk-GJLG664C.js"
     },
-    "chunk-LYORZDUS": {
-      "file": "chunk-LYORZDUS.js"
+    "chunk-VLGVGHCS": {
+      "file": "chunk-VLGVGHCS.js"
     },
     "chunk-Q5K2DMFC": {
       "file": "chunk-Q5K2DMFC.js"
