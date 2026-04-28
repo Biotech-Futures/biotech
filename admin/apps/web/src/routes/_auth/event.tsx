@@ -83,8 +83,10 @@ function EventPage() {
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
-  const { data: rsvpData, isPending: isRsvpLoading } = useQueryEventRsvps(rsvpEventId);
-  const { mutate: createRsvp, isPending: isCreatingRsvp } = useCreateEventRsvp();
+  const { data: rsvpData, isPending: isRsvpLoading } =
+    useQueryEventRsvps(rsvpEventId);
+  const { mutate: createRsvp, isPending: isCreatingRsvp } =
+    useCreateEventRsvp();
 
   const allUsers = usersData?.data.items ?? [];
   const studentUsers = allUsers.filter((u) => u.role === "student");
@@ -141,7 +143,9 @@ function EventPage() {
     resolver: zodResolver(createEventRsvpSchema),
   });
 
-  useEffect(() => { setPage(1); }, [upcoming]);
+  useEffect(() => {
+    setPage(1);
+  }, [upcoming]);
 
   useEffect(() => {
     if (editingEvent) {
@@ -246,7 +250,9 @@ function EventPage() {
               <Label>Event Name</Label>
               <Input placeholder="Event name" {...register("eventName")} />
               {errors.eventName && (
-                <p className="text-sm text-destructive">{errors.eventName.message}</p>
+                <p className="text-sm text-destructive">
+                  {errors.eventName.message}
+                </p>
               )}
             </div>
 
@@ -300,7 +306,9 @@ function EventPage() {
                   <Label>Start</Label>
                   <Input type="datetime-local" {...field} />
                   {errors.startAt && (
-                    <p className="text-sm text-destructive">{errors.startAt.message}</p>
+                    <p className="text-sm text-destructive">
+                      {errors.startAt.message}
+                    </p>
                   )}
                 </div>
               )}
@@ -315,7 +323,9 @@ function EventPage() {
                   <Label>End</Label>
                   <Input type="datetime-local" {...field} />
                   {errors.endsAt && (
-                    <p className="text-sm text-destructive">{errors.endsAt.message}</p>
+                    <p className="text-sm text-destructive">
+                      {errors.endsAt.message}
+                    </p>
                   )}
                 </div>
               )}
@@ -338,15 +348,25 @@ function EventPage() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>RSVP List — Event #{rsvpEventId}</CardTitle>
-                <CardDescription>View and add RSVPs for this event</CardDescription>
+                <CardDescription>
+                  View and add RSVPs for this event
+                </CardDescription>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setRsvpEventId(null)}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setRsvpEventId(null)}
+              >
                 <XIcon className="size-4" />
               </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <form className="flex gap-3 items-end" onSubmit={handleRsvpSubmit(onRsvpSubmit)}>
+            <form
+              className="flex gap-3 items-end"
+              onSubmit={handleRsvpSubmit(onRsvpSubmit)}
+            >
               {/* Student dropdown */}
               <Controller
                 control={rsvpControl}
@@ -363,7 +383,9 @@ function EventPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {studentUsers.length === 0 ? (
-                          <SelectItem value="__empty" disabled>No students found</SelectItem>
+                          <SelectItem value="__empty" disabled>
+                            No students found
+                          </SelectItem>
                         ) : (
                           studentUsers.map((u) => (
                             <SelectItem key={u.id} value={u.id}>
@@ -374,7 +396,9 @@ function EventPage() {
                       </SelectContent>
                     </Select>
                     {rsvpErrors.userId && (
-                      <p className="text-sm text-destructive">{rsvpErrors.userId.message}</p>
+                      <p className="text-sm text-destructive">
+                        {rsvpErrors.userId.message}
+                      </p>
                     )}
                   </div>
                 )}
@@ -388,7 +412,13 @@ function EventPage() {
                   <div className="space-y-1.5">
                     <Label>RSVP Status</Label>
                     <Select
-                      value={field.value === true ? "true" : field.value === false ? "false" : ""}
+                      value={
+                        field.value === true
+                          ? "true"
+                          : field.value === false
+                            ? "false"
+                            : ""
+                      }
                       onValueChange={(val) => field.onChange(val === "true")}
                     >
                       <SelectTrigger className="w-36">
@@ -400,7 +430,9 @@ function EventPage() {
                       </SelectContent>
                     </Select>
                     {rsvpErrors.rsvpStatus && (
-                      <p className="text-sm text-destructive">{rsvpErrors.rsvpStatus.message}</p>
+                      <p className="text-sm text-destructive">
+                        {rsvpErrors.rsvpStatus.message}
+                      </p>
                     )}
                   </div>
                 )}
@@ -423,24 +455,36 @@ function EventPage() {
               <TableBody>
                 {isRsvpLoading ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center">Loading...</TableCell>
+                    <TableCell colSpan={4} className="text-center">
+                      Loading...
+                    </TableCell>
                   </TableRow>
                 ) : rsvps.length > 0 ? (
                   rsvps.map((rsvp) => {
-                    const student = allUsers.find((u) => Number(u.id) === rsvp.userId);
+                    const student = allUsers.find(
+                      (u) => Number(u.id) === rsvp.userId,
+                    );
                     return (
                       <TableRow key={rsvp.id}>
                         <TableCell>{rsvp.id}</TableCell>
                         <TableCell>
-                          {student ? `${student.name} (${student.email})` : `User #${rsvp.userId}`}
+                          {student
+                            ? `${student.name} (${student.email})`
+                            : `User #${rsvp.userId}`}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={rsvp.rsvpStatus ? "default" : "outline"}>
+                          <Badge
+                            variant={rsvp.rsvpStatus ? "default" : "outline"}
+                          >
                             {rsvp.rsvpStatus ? "Attending" : "Declined"}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={rsvp.attendanceStatus ? "default" : "outline"}>
+                          <Badge
+                            variant={
+                              rsvp.attendanceStatus ? "default" : "outline"
+                            }
+                          >
                             {rsvp.attendanceStatus ? "Yes" : "No"}
                           </Badge>
                         </TableCell>
@@ -449,7 +493,9 @@ function EventPage() {
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center">No RSVPs yet.</TableCell>
+                    <TableCell colSpan={4} className="text-center">
+                      No RSVPs yet.
+                    </TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -486,7 +532,9 @@ function EventPage() {
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">Loading events...</TableCell>
+                <TableCell colSpan={7} className="h-24 text-center">
+                  Loading events...
+                </TableCell>
               </TableRow>
             ) : eventsList.length > 0 ? (
               eventsList.map((event) => (
@@ -507,7 +555,11 @@ function EventPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setRsvpEventId(rsvpEventId === event.id ? null : event.id)}
+                        onClick={() =>
+                          setRsvpEventId(
+                            rsvpEventId === event.id ? null : event.id,
+                          )
+                        }
                       >
                         <UsersIcon className="size-4" />
                         RSVP
@@ -516,7 +568,11 @@ function EventPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setEditingEvent(editingEvent?.id === event.id ? null : event)}
+                        onClick={() =>
+                          setEditingEvent(
+                            editingEvent?.id === event.id ? null : event,
+                          )
+                        }
                       >
                         <PencilIcon className="size-4" />
                         Edit
@@ -537,7 +593,9 @@ function EventPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">No events found.</TableCell>
+                <TableCell colSpan={7} className="h-24 text-center">
+                  No events found.
+                </TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -546,7 +604,9 @@ function EventPage() {
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
+        <p className="text-sm text-muted-foreground">
+          Page {page} of {totalPages}
+        </p>
         <div className="flex gap-2">
           <Button
             type="button"
@@ -570,14 +630,22 @@ function EventPage() {
       </div>
 
       {/* Edit Event — Right Slide-in Sheet */}
-      <Sheet open={!!editingEvent} onOpenChange={(open) => { if (!open) setEditingEvent(null); }}>
+      <Sheet
+        open={!!editingEvent}
+        onOpenChange={(open) => {
+          if (!open) setEditingEvent(null);
+        }}
+      >
         <SheetContent className="w-[420px] sm:w-[480px] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Edit Event #{editingEvent?.id}</SheetTitle>
             <SheetDescription>Update the event details</SheetDescription>
           </SheetHeader>
 
-          <form className="mt-6 grid gap-5" onSubmit={handleEditSubmit(onEditSubmit)}>
+          <form
+            className="mt-6 grid gap-5"
+            onSubmit={handleEditSubmit(onEditSubmit)}
+          >
             {/* Host User ID — read-only */}
             <div className="space-y-1.5">
               <Label>Host User ID</Label>
@@ -594,7 +662,9 @@ function EventPage() {
               <Label>Event Name</Label>
               <Input {...registerEdit("eventName")} />
               {editErrors.eventName && (
-                <p className="text-sm text-destructive">{editErrors.eventName.message}</p>
+                <p className="text-sm text-destructive">
+                  {editErrors.eventName.message}
+                </p>
               )}
             </div>
 
@@ -640,9 +710,15 @@ function EventPage() {
               render={({ field }) => (
                 <div className="space-y-1.5">
                   <Label>Start</Label>
-                  <Input type="datetime-local" {...field} value={field.value ?? ""} />
+                  <Input
+                    type="datetime-local"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
                   {editErrors.startAt && (
-                    <p className="text-sm text-destructive">{editErrors.startAt.message}</p>
+                    <p className="text-sm text-destructive">
+                      {editErrors.startAt.message}
+                    </p>
                   )}
                 </div>
               )}
@@ -655,9 +731,15 @@ function EventPage() {
               render={({ field }) => (
                 <div className="space-y-1.5">
                   <Label>End</Label>
-                  <Input type="datetime-local" {...field} value={field.value ?? ""} />
+                  <Input
+                    type="datetime-local"
+                    {...field}
+                    value={field.value ?? ""}
+                  />
                   {editErrors.endsAt && (
-                    <p className="text-sm text-destructive">{editErrors.endsAt.message}</p>
+                    <p className="text-sm text-destructive">
+                      {editErrors.endsAt.message}
+                    </p>
                   )}
                 </div>
               )}
@@ -667,7 +749,11 @@ function EventPage() {
               <Button type="submit" disabled={isUpdating}>
                 {isUpdating ? "Saving..." : "Save Changes"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => setEditingEvent(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditingEvent(null)}
+              >
                 Cancel
               </Button>
             </div>
