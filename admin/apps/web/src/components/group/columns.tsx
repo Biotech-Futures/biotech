@@ -4,19 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { Group, Track } from "@/type/group";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  ArrowUpDown,
-  MessageSquareIcon,
-  MoreHorizontal,
-  UsersIcon,
-  UserIcon,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ArrowUpDown, UsersIcon, UserIcon } from "lucide-react";
 
 function getTrackColor(track: Track) {
   switch (track.toLowerCase()) {

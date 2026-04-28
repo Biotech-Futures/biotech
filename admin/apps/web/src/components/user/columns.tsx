@@ -8,7 +8,7 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
     id: "name",
     header: "Student",
     cell: ({ row }) => {
-      const { firstName, lastName, email, groupId } = row.original;
+      const { firstName, lastName, email } = row.original;
       const name = `${firstName} ${lastName}`.trim();
       const content = (
         <div className="min-w-0">

@@ -49,7 +49,10 @@ export const updateEventRsvpSchema = z.object({
   rsvpStatus: z.boolean(),
 });
 
-export type CreateEvent = z.infer<typeof createEventSchema>;
-export type UpdateEvent = z.infer<typeof updateEventSchema>;
-export type CreateEventRsvp = z.infer<typeof createEventRsvpSchema>;
-export type UpdateEventRsvp = z.infer<typeof updateEventRsvpSchema>;
+export type CreateEventInput = z.input<typeof createEventSchema>;
+export type CreateEvent = z.output<typeof createEventSchema>;
+export type UpdateEventInput = z.input<typeof updateEventSchema>;
+export type UpdateEvent = z.output<typeof updateEventSchema>;
+export type CreateEventRsvpInput = z.input<typeof createEventRsvpSchema>;
+export type CreateEventRsvp = z.output<typeof createEventRsvpSchema>;
+export type UpdateEventRsvp = z.output<typeof updateEventRsvpSchema>;

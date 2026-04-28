@@ -28,8 +28,6 @@ interface StudentFiltersProps {
 export function StudentFilters({
   search,
   onSearchChange,
-  yearLevel,
-  onYearLevelChange,
   track,
   onTrackChange,
   tracks = [],

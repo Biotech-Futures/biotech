@@ -41,9 +41,14 @@ export function useCreateEvent() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: CreateEvent): Promise<ApiResponse<Event | null>> => {
+    mutationFn: async (
+      data: CreateEvent,
+    ): Promise<ApiResponse<Event | null>> => {
       const payload = toApiEventPayload(data);
-      const res = await myFetch.post<ApiResponse<Event | null>>("/event", payload);
+      const res = await myFetch.post<ApiResponse<Event | null>>(
+        "/event",
+        payload,
+      );
       return res.data;
     },
     onSuccess: () => {
@@ -82,13 +87,15 @@ export function useDeleteEvent() {
 
   return useMutation({
     mutationFn: async (id: number): Promise<ApiResponse<Event | null>> => {
-      const res = await myFetch.delete<ApiResponse<Event | null>>(`/event/${id}`);
+      const res = await myFetch.delete<ApiResponse<Event | null>>(
+        `/event/${id}`,
+      );
       return res.data;
     },
     onSuccess: (_, deletedId) => {
-  queryClient.invalidateQueries({ queryKey: ["events"] });
-  queryClient.invalidateQueries({ queryKey: ["event-rsvps", deletedId] });
-},
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["event-rsvps", deletedId] });
+    },
   });
 }
 
@@ -133,7 +140,6 @@ export function useUpdateEventRsvp() {
 
   return useMutation({
     mutationFn: async ({
-      eventId,
       rsvpId,
       data,
     }: {
@@ -156,9 +162,7 @@ export function useUpdateEventRsvp() {
 function toApiEventPayload(data: CreateEvent | UpdateEvent) {
   return {
     ...data,
-    eventType: data.eventType?.trim() || null,
     hostUserId: data.hostUserId ?? null,
-    trackId: data.trackId ?? null,
     startAt: data.startAt ? data.startAt + ":00.000Z" : undefined,
     endsAt: data.endsAt ? data.endsAt + ":00.000Z" : undefined,
   };

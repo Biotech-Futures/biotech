@@ -1,18 +1,25 @@
 export type Event = {
   id: number;
+  eventName: string;
+  description: string | null;
+  startDatetime: string;
+  endsDatetime: string;
+  location: string | null;
+  humanitixLink: string;
+  deletedFlag: boolean;
+  deletedDatetime: string | null;
+  "eventImage(img)": string | null;
+  isVirtual: boolean;
   hostUserId: number | null;
-  trackId: number | null;
-  eventType: string | null;
-  startAt: string;
-  endsAt: string;
 };
 
 export type EventRsvp = {
   id: number;
   eventId: number;
   userId: number;
-  rsvpStatus: string;
-  respondedAt: string | null;
+  sentDatetime: string;
+  attendanceStatus: boolean;
+  rsvpStatus: boolean;
 };
 
 export type ApiResponse<T> = {
@@ -35,7 +42,5 @@ export type QueryEventsParams = {
   page: number;
   limit?: number;
   hostUserId?: number;
-  trackId?: number;
-  eventType?: string;
   upcoming?: boolean;
 };

@@ -36,8 +36,11 @@ import {
   updateEventSchema,
   createEventRsvpSchema,
   type CreateEvent,
+  type CreateEventInput,
   type UpdateEvent,
+  type UpdateEventInput,
   type CreateEventRsvp,
+  type CreateEventRsvpInput,
 } from "@/schema/event";
 import {
   useCreateEvent,
@@ -97,7 +100,7 @@ function EventPage() {
     reset,
     register,
     formState: { errors },
-  } = useForm<CreateEvent>({
+  } = useForm<CreateEventInput, undefined, CreateEvent>({
     defaultValues: {
       hostUserId: null,
       eventName: "",
@@ -124,7 +127,7 @@ function EventPage() {
     reset: resetEdit,
     register: registerEdit,
     formState: { errors: editErrors },
-  } = useForm<UpdateEvent>({
+  } = useForm<UpdateEventInput, undefined, UpdateEvent>({
     resolver: zodResolver(updateEventSchema),
   });
 
@@ -134,7 +137,7 @@ function EventPage() {
     handleSubmit: handleRsvpSubmit,
     reset: resetRsvp,
     formState: { errors: rsvpErrors },
-  } = useForm<CreateEventRsvp>({
+  } = useForm<CreateEventRsvpInput, undefined, CreateEventRsvp>({
     resolver: zodResolver(createEventRsvpSchema),
   });
 
