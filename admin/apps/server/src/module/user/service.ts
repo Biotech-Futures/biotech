@@ -208,9 +208,9 @@ const userSelect = {
     string[]
   >`COALESCE((SELECT array_agg(aoi.interest_desc) FROM user_interest ui JOIN areas_of_interest aoi ON aoi.id = ui.interest_id WHERE ui.user_id = ${users.id}), ARRAY[]::text[])`,
   isActive: users.isActive,
-  accountStatus: sql<string>`CASE WHEN ${users.isActive} THEN 'active' ELSE 'deactivated' END`,
-  invitedAt: users.dateJoined,
-  activatedAt: users.lastLogin,
+  accountStatus: users.accountStatus,
+  invitedAt: users.invitedAt,
+  activatedAt: users.activatedAt,
 };
 
 function baseUserQuery() {

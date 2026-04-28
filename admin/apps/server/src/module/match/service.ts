@@ -279,7 +279,7 @@ export async function matchStudent(uid: string) {
   const activeMembershipSubquery = db
     .select({ userId: groupMembership.userId })
     .from(groupMembership)
-    .where(eq(groupMembership.userId, users.id));
+    .where(and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)));
 
   const standaloneStudents = await db
     .select({
@@ -315,7 +315,8 @@ export async function matchStudent(uid: string) {
     .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
     .innerJoin(tracks, eq(tracks.id, users.trackId))
     .innerJoin(countryStates, eq(countryStates.id, tracks.stateId))
-    .innerJoin(countries, eq(countries.id, countryStates.countryId));
+    .innerJoin(countries, eq(countries.id, countryStates.countryId))
+    .where(isNull(groupMembership.leftAt));
 
   const groupIds = [
     ...new Set(groupMembersRows.map((student) => student.groupId)),
@@ -372,7 +373,7 @@ export async function matchStudent(uid: string) {
             eq(mentorProfile.userId, groupMembership.userId),
           )
           .innerJoin(users, eq(users.id, mentorProfile.userId))
-          .where(inArray(groups.id, groupIds));
+          .where(and(inArray(groups.id, groupIds), isNull(groupMembership.leftAt)));
 
   const tutorByGroupId = new Map<
     number,
@@ -612,7 +613,7 @@ export async function matchStudent(uid: string) {
           .innerJoin(tracks, eq(tracks.id, users.trackId))
           .innerJoin(countryStates, eq(countryStates.id, tracks.stateId))
           .innerJoin(countries, eq(countries.id, countryStates.countryId))
-          .where(inArray(groupMembership.groupId, allGroupIds));
+          .where(and(inArray(groupMembership.groupId, allGroupIds), isNull(groupMembership.leftAt)));
 
   const allStudentIds = [
     ...new Set(activeStudentRows.map((student) => student.userId)),
@@ -654,7 +655,7 @@ export async function matchStudent(uid: string) {
             eq(mentorProfile.userId, groupMembership.userId),
           )
           .innerJoin(users, eq(users.id, mentorProfile.userId))
-          .where(inArray(groups.id, allGroupIds));
+          .where(and(inArray(groups.id, allGroupIds), isNull(groupMembership.leftAt)));
 
   const allTutorByGroupId = new Map<
     number,
@@ -723,7 +724,7 @@ export async function getIndividualStudents() {
   const activeMembershipSubquery = db
     .select({ userId: groupMembership.userId })
     .from(groupMembership)
-    .where(eq(groupMembership.userId, users.id));
+    .where(and(eq(groupMembership.userId, users.id), isNull(groupMembership.leftAt)));
 
   const individualStudents = await db
     .select({

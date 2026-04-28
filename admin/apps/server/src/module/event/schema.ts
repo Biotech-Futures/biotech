@@ -50,14 +50,13 @@ export const updateEventSchema = z
     },
   );
 
-// rsvpStatus is now boolean: true = attending, false = declined
 export const createEventRsvpSchema = z.object({
   userId: z.number().int().positive(),
-  rsvpStatus: z.boolean(),
+  rsvpStatus: z.enum(["going", "maybe", "declined"]),
 });
 
 export const updateEventRsvpSchema = z.object({
-  rsvpStatus: z.boolean(),
+  rsvpStatus: z.enum(["going", "maybe", "declined"]),
 });
 
 export type QueryEventsInput = z.infer<typeof queryEventsSchema>;

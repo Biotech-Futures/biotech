@@ -90,7 +90,6 @@ export async function createEvent(data: CreateEventInput) {
       location: data.location?.trim() || null,
       humanitixLink: data.humanitixLink ?? "",
       isVirtual: data.isVirtual ?? false,
-      deletedFlag: false,
       hostUserId: data.hostUserId,
       startDatetime: new Date(data.startAt).toISOString(),
       endsDatetime: new Date(data.endsAt).toISOString(),
@@ -199,8 +198,7 @@ export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
       eventId,
       userId: data.userId,
       rsvpStatus: data.rsvpStatus,
-      attendanceStatus: false,
-      respondedAt: new Date(Date.now() - 600000).toISOString(),
+      respondedAt: new Date().toISOString(),
     })
     .returning();
 
