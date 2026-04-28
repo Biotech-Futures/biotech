@@ -41,6 +41,11 @@ class MessageViewSet(viewsets.ModelViewSet):
         )
 
     # GET /chat/groups/{gid}/messages/
+    # Uses cursor-based pagination (?after=<message_id>&limit=N) instead of the
+    # project-default PageNumberPagination. Offset/page pagination is unsuitable
+    # for real-time chat because new messages shift page boundaries between
+    # requests, causing duplicates or gaps. Cursor pagination anchors on a
+    # stable message ID so polling clients never miss or repeat a message.
     def list(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
         # Phase 2 change: ordering uses sent_at instead of sent_datetime
@@ -151,8 +156,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
-        # POST /chat/groups/{gid}/messages/{id}/react/
+
+    # POST /chat/groups/{gid}/messages/{id}/react/
     @action(detail=True, methods=["post"], url_path="react")
     def react(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -173,7 +178,10 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not created:
             reaction.delete()
 
-        # Build updated reaction counts
+        # Build updated reaction counts by iterating all reactions for this message.
+        # TODO: Replace with a single aggregated query using
+        #       .values('emoji_string').annotate(count=Count('id')) to avoid
+        #       loading every row into Python when a message has many reactions.
         all_reactions = MessageReaction.objects.filter(message=instance)
         reaction_counts = {}
         for r in all_reactions:

@@ -92,12 +92,19 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         fields = ["message_text"]
 
     def update(self, instance, validated_data):
+        # TODO: Move `from django.utils import timezone` to the top-level imports;
+        #       the local import here was left in by mistake and adds overhead on
+        #       every edit request.
         from django.utils import timezone
         instance.message_text = validated_data.get("message_text", instance.message_text)
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
     
+# Plain Serializer (not ModelSerializer) because the response is an aggregated
+# view — reaction counts keyed by emoji — not a direct representation of any
+# single MessageReaction row. Using ModelSerializer here would require a
+# custom to_representation() anyway, so a plain Serializer is cleaner.
 class MessageReactionSerializer(serializers.Serializer):
     message_id = serializers.IntegerField()
     reactions = serializers.DictField(child=serializers.IntegerField())

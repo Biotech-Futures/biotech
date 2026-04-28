@@ -19,6 +19,9 @@ class MessageReaction(models.Model):
         db_table = 'message_reactions'
         verbose_name = 'Message Reaction'
         verbose_name_plural = 'Message Reactions'
+        # Enforces the toggle constraint at the DB level: a user can only hold
+        # one row per (message, emoji) combination. The react view relies on
+        # get_or_create against this constraint to implement add-or-remove logic.
         unique_together = [('message', 'user', 'emoji_string')]
         indexes = [
             models.Index(fields=['message']),
