@@ -33,13 +33,13 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
   {
     id: "school",
     header: "School",
-    cell: ({ row }) => row.original.studentInfo.schoolName ?? "-",
+    cell: ({ row }) => row.original?.studentInfo?.schoolName ?? "-",
   },
   {
     id: "yearLevel",
     header: "Year",
     cell: ({ row }) => {
-      const yearLevel = row.original.studentInfo.yearLevel;
+      const yearLevel = row.original?.studentInfo?.yearLevel;
       return yearLevel ? `Year ${yearLevel}` : "-";
     },
   },
@@ -91,12 +91,12 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
     cell: ({ row }) => (
       <Badge
         variant={
-          row.original.studentInfo.joinPermissionReceived
+          row.original?.studentInfo?.joinPermissionReceived
             ? "default"
             : "secondary"
         }
       >
-        {row.original.studentInfo.joinPermissionReceived
+        {row.original?.studentInfo?.joinPermissionReceived
           ? "Received"
           : "Missing"}
       </Badge>
