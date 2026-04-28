@@ -58,7 +58,7 @@ export function createResourceColumns({
       accessorKey: "name",
       header: "Resource",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -77,7 +77,7 @@ export function createResourceColumns({
       id: "type_name",
       header: "Type",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -88,7 +88,7 @@ export function createResourceColumns({
       id: "visibility",
       header: "Visibility",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -99,7 +99,7 @@ export function createResourceColumns({
       id: "role",
       header: "Role",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -114,7 +114,7 @@ export function createResourceColumns({
       id: "track",
       header: "Track",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -129,7 +129,7 @@ export function createResourceColumns({
       id: "uploader",
       header: "Uploader",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -140,7 +140,7 @@ export function createResourceColumns({
       accessorKey: "uploaded_at",
       header: "Uploaded Time",
       meta: {
-        headClassName: "align-top",
+        headClassName: "",
         cellClassName: "whitespace-normal break-words align-top",
       },
       cell: ({ row }) => {
@@ -152,7 +152,7 @@ export function createResourceColumns({
     {
       id: "actions",
       meta: {
-        headClassName: "align-top w-[56px]",
+        headClassName: "w-[56px]",
         cellClassName: "align-top w-[56px]",
       },
       cell: ({ row }) => {
