@@ -21,7 +21,7 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
       return (
         <Link
           to="/group"
-          search={{ groupId }}
+          search={{ page: 1, groupId }}
           className="text-primary font-medium underline-offset-2 hover:underline"
           title={`Open group details for ${groupId}`}
         >
@@ -58,7 +58,7 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
       return (
         <Link
           to="/group"
-          search={{ groupId: String(groupInfo.id) }}
+          search={{ page: 1, groupId: String(groupInfo.id) }}
           className="text-primary underline-offset-2 hover:underline"
           title={`Open group details for ${groupInfo.id}`}
         >

@@ -134,8 +134,9 @@ function GroupPage() {
       navigate({
         to: "/group",
         search: (prev) => ({
+          ...prev,
+          page: prev.page ?? 1,
           groupId: undefined,
-          mentorStatus: prev.mentorStatus,
         }),
         replace: true,
       });

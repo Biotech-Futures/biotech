@@ -10,6 +10,7 @@ import type {
 
 interface QueryGroupsParams {
   page: number;
+  limit?: number;
   searchName?: string;
   searchGroup?: string;
   track?: Track;
@@ -17,13 +18,23 @@ interface QueryGroupsParams {
 }
 
 export function useQueryGroups(params: QueryGroupsParams) {
-  const { page, searchName, searchGroup, track, mentorStatus } = params;
+  const { page, limit = 10, searchName, searchGroup, track, mentorStatus } =
+    params;
   return useQuery({
-    queryKey: ["groups", page, searchName, searchGroup, track, mentorStatus],
+    queryKey: [
+      "groups",
+      page,
+      limit,
+      searchName,
+      searchGroup,
+      track,
+      mentorStatus,
+    ],
     queryFn: async (): Promise<PaginatedResponse<Group>> => {
       const res = await myFetch.get<PaginatedResponse<Group>>(`/group`, {
         params: {
           page,
+          limit,
           searchName,
           searchGroup,
           track,
