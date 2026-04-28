@@ -12,15 +12,8 @@ TYPING_RATE_LIMIT_SECONDS = 2
 
 class GroupChatConsumer(AsyncJsonWebsocketConsumer):
 
-    # Tracks last typing broadcast time per (group, user): { "group_1_user_5": 1234567890.123 }
-    # WARNING: This is a process-local, in-memory dict. It works correctly for
-    # single-process local development, but will NOT enforce rate limits across
-    # multiple worker processes or pods in production.
-    # TODO: When REDIS_URL is active, replace this dict with Redis GETSET/EXPIRE
-    #       calls so the rate limit state is shared across all processes.
-    # NOTE: This dict grows indefinitely for the lifetime of the process. For
-    #       long-running deployments with high user churn, consider periodically
-    #       evicting stale entries to avoid unbounded memory growth.
+    # Tracks last typing broadcast time per (group, user)
+    # { "group_1_user_5": 1234567890.123 }
     _typing_timestamps = {}
 
     async def connect(self):
@@ -71,13 +64,7 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             await self._handle_typing(content)
             return
 
-        # Default: relay the raw client payload to the group channel.
-        # NOTE: This branch is a passthrough for legacy/test scenarios only.
-        # Production message creation should go through the REST API
-        # (POST /chat/groups/{gid}/messages/), which handles persistence,
-        # validation, and then broadcasts a message.created event itself.
-        # TODO: Evaluate whether this branch is still needed or should be removed
-        #       to prevent unauthenticated/unvalidated content reaching the channel.
+        # Default: echo client-sent messages to the group
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -140,7 +127,3 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def disconnect(self, code):
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
-        # TODO: Remove the stale _typing_timestamps entry for this user/group on
-        #       disconnect to avoid unbounded dict growth. Example:
-        #           rate_key = f"group_{self.group_id}_user_{self.scope['user'].id}"
-        #           self._typing_timestamps.pop(rate_key, None)

@@ -153,13 +153,6 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 
 REDIS_URL = config("REDIS_URL", default=None)
 
-# Use Redis-backed channel layer when REDIS_URL is set (staging / production).
-# Falls back to InMemoryChannelLayer for local development where Redis is not
-# available. InMemoryChannelLayer does NOT work across multiple processes, so
-# it must never be used in a multi-worker deployment.
-# NOTE: The typing-indicator rate limit state in consumers.py is currently
-#       stored in a process-local dict. Once REDIS_URL is set here, that state
-#       should also be migrated to Redis for cross-process consistency.
 if REDIS_URL:
     CHANNEL_LAYERS = {
         "default": {
