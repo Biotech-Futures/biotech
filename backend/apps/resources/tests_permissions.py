@@ -59,10 +59,10 @@ class PermissionClassesTests(TestCase):
         # Resource + Roles chain
         Resources = dj_apps.get_model("resources", "Resources")
         self.resource = Resources.objects.create(
-            resource_name="Test Resource",
-            resource_description="Test resource for permission tests",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(days=1),  # explicitly set
+            name="Test Resource",
+            description="Test resource for permission tests",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(days=1),  # explicitly set
         )
 
         self.role_viewer = Roles.objects.create(role_name="viewer")

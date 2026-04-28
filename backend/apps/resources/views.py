@@ -345,7 +345,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
     permission_classes = [IsAuthenticated]
     pagination_class = ResourcesPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    queryset = Resources.objects.select_related('uploader_user_id', 'track').prefetch_related('audiences__role', 'audiences__track').all()
+    queryset = Resources.objects.select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track').all()
 
     def get_serializer_class(self):
         """Use different serializers for list vs detail(ResourceListSerializer for list, ResourcesSerializer for detail)"""
@@ -365,15 +365,15 @@ class ResourcesViewSet(mixins.ListModelMixin,
         
         # Base queryset - only non-deleted resources
         queryset = Resources.objects.filter(
-            deleted_flag=False
-        ).select_related('uploader_user_id', 'track').prefetch_related('audiences__role', 'audiences__track')
+            deleted_at__isnull=True
+        ).select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track')
         
         # Only apply role-based filtering for list actions
         # For retrieve/detail actions, we handle permissions in the retrieve() method
         if self.action == 'list' and not user.is_staff:
             # Regular users can only see resources they uploaded or resources visible to their roles
             access_filter = (
-                Q(uploader_user_id=user) |  # Resources they uploaded
+                Q(uploaded_by=user) |  # Resources they uploaded
                 Q(visibility_scope=Resources.VisibilityScope.PUBLIC)
                 | Q(audiences__role__in=user_roles)
             )
@@ -384,7 +384,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Apply filters
         queryset = self._apply_filters(queryset)
         
-        return queryset.order_by('-upload_datetime')
+        return queryset.order_by('-uploaded_at')
 
     def _get_user_roles(self, user):
         """Get user's current active roles"""
@@ -403,7 +403,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Filter by uploader
         uploader_id = params.get('uploader_id')
         if uploader_id:
-            queryset = queryset.filter(uploader_user_id=uploader_id)
+            queryset = queryset.filter(uploaded_by_id=uploader_id)
         
         # Filter by role (group)
         role = params.get('role')
@@ -420,18 +420,18 @@ class ResourcesViewSet(mixins.ListModelMixin,
         search = params.get('search')
         if search:
             queryset = queryset.filter(
-                Q(resource_name__icontains=search) |
-                Q(resource_description__icontains=search)
+                Q(name__icontains=search) |
+                Q(description__icontains=search)
             )
         
         # Order by
         order = params.get('order', 'newest')
         if order == 'oldest':
-            queryset = queryset.order_by('upload_datetime')
+            queryset = queryset.order_by('uploaded_at')
         elif order == 'name':
-            queryset = queryset.order_by('resource_name')
+            queryset = queryset.order_by('name')
         elif order == 'newest':
-            queryset = queryset.order_by('-upload_datetime')
+            queryset = queryset.order_by('-uploaded_at')
         
         return queryset
 
@@ -450,7 +450,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def perform_create(self, serializer):
         """Automatically set uploader to the authenticated user - users can only upload as themselves"""
-        resource = serializer.save(uploader_user_id=self.request.user)
+        resource = serializer.save(uploaded_by=self.request.user)
         log_audit_event(
             actor=self.request.user,
             entity_type="resource",
@@ -500,7 +500,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             return True, "Admin access granted"
         
         # Users can access resources they uploaded
-        if resource.uploader_user_id == user:
+        if resource.uploaded_by == user:
             return True, "Access granted as uploader"
 
         if resource.visibility_scope == Resources.VisibilityScope.PUBLIC:
@@ -547,9 +547,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
         """Soft delete resource"""
         instance = self.get_object()
         before_state = ResourcesSerializer(instance).data
-        instance.deleted_flag = True
-        instance.deleted_datetime = timezone.now()
-        instance.save(update_fields=["deleted_flag", "deleted_datetime"])
+        instance.deleted_at = timezone.now()
+        instance.save(update_fields=["deleted_at"])
         log_audit_event(
             actor=request.user,
             entity_type="resource",
@@ -586,8 +585,9 @@ class ResourcesViewSet(mixins.ListModelMixin,
             ResourceAudience.objects.create(resource=resource, role=role)
             
             return Response({
-                "message": f"Role '{role.role_name}' assigned to resource '{resource.resource_name}'",
+                "message": f"Role '{role.role_name}' assigned to resource '{resource.name}'",
                 "resource_id": resource.id,
+                "resource_name": resource.name,
                 "role_id": role.id
             }, status=status.HTTP_201_CREATED)
             
@@ -616,7 +616,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             resource_role.delete()
             
             return Response({
-                "message": f"Role '{role_name}' removed from resource '{resource.resource_name}'"
+                "message": f"Role '{role_name}' removed from resource '{resource.name}'"
             }, status=status.HTTP_200_OK)
             
         except Roles.DoesNotExist:

@@ -556,36 +556,36 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         """Test successful resource creation"""
         url = reverse('resource-files-list')
         data = {
-            'resource_name': 'Test Resource',
-            'resource_description': 'A test resource',
+            'name': 'Test Resource',
+            'description': 'A test resource',
             'role_ids': [self.supervisor_role.id]
         }
         
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['resource_name'], 'Test Resource')
+        self.assertEqual(response.data['name'], 'Test Resource')
         # The uploader should be the authenticated user (admin_user)
         self.assertEqual(response.data['uploader']['email'], 'admin@test.com')
         
         # Verify resource was created in database
-        resource = Resources.objects.get(resource_name='Test Resource')
-        self.assertEqual(resource.uploader_user_id, self.admin_user)
-        self.assertEqual(resource.resource_description, 'A test resource')
+        resource = Resources.objects.get(name='Test Resource')
+        self.assertEqual(resource.uploaded_by, self.admin_user)
+        self.assertEqual(resource.description, 'A test resource')
     
     def test_create_resource_duplicate_name(self):
         """Test error handling for duplicate resource names"""
         # Create first resource
         Resources.objects.create(
-            resource_name='Test Resource',
-            resource_description='First resource',
-            uploader_user_id=self.regular_user
+            name='Test Resource',
+            description='First resource',
+            uploaded_by=self.regular_user
         )
         
         # Try to create second resource with same name
         url = reverse('resource-files-list')
         data = {
-            'resource_name': 'Test Resource',
-            'resource_description': 'Second resource',
+            'name': 'Test Resource',
+            'description': 'Second resource',
             'uploader_id': self.regular_user.id
         }
         
@@ -597,8 +597,8 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         """Test error handling for empty resource name"""
         url = reverse('resource-files-list')
         data = {
-            'resource_name': '',
-            'resource_description': 'A test resource',
+            'name': '',
+            'description': 'A test resource',
             'uploader_id': self.regular_user.id
         }
         
@@ -612,14 +612,14 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         """Test resource listing"""
         # Create test resources
         resource1 = Resources.objects.create(
-            resource_name='Resource 1',
-            resource_description='First resource',
-            uploader_user_id=self.regular_user
+            name='Resource 1',
+            description='First resource',
+            uploaded_by=self.regular_user
         )
         resource2 = Resources.objects.create(
-            resource_name='Resource 2',
-            resource_description='Second resource',
-            uploader_user_id=self.admin_user
+            name='Resource 2',
+            description='Second resource',
+            uploaded_by=self.admin_user
         )
         
         url = reverse('resource-files-list')
@@ -629,54 +629,54 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         self.assertEqual(len(response.data['results']), 2)
         
         # Check that resources are in response
-        resource_names = [r['resource_name'] for r in response.data['results']]
-        self.assertIn('Resource 1', resource_names)
-        self.assertIn('Resource 2', resource_names)
+        names = [r['name'] for r in response.data['results']]
+        self.assertIn('Resource 1', names)
+        self.assertIn('Resource 2', names)
     
     def test_retrieve_resource(self):
         """Test resource retrieval"""
         resource = Resources.objects.create(
-            resource_name='Test Resource',
-            resource_description='A test resource',
-            uploader_user_id=self.regular_user
+            name='Test Resource',
+            description='A test resource',
+            uploaded_by=self.regular_user
         )
         
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['resource_name'], 'Test Resource')
+        self.assertEqual(response.data['name'], 'Test Resource')
         self.assertEqual(response.data['uploader']['email'], 'user@test.com')
     
     def test_update_resource(self):
         """Test resource update"""
         resource = Resources.objects.create(
-            resource_name='Test Resource',
-            resource_description='A test resource',
-            uploader_user_id=self.regular_user
+            name='Test Resource',
+            description='A test resource',
+            uploaded_by=self.regular_user
         )
         
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
         data = {
-            'resource_name': 'Updated Resource',
-            'resource_description': 'Updated description',
+            'name': 'Updated Resource',
+            'description': 'Updated description',
             'uploader_id': self.regular_user.id
         }
         
         response = self.client.patch(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['resource_name'], 'Updated Resource')
+        self.assertEqual(response.data['name'], 'Updated Resource')
         
         # Verify update in database
         resource.refresh_from_db()
-        self.assertEqual(resource.resource_name, 'Updated Resource')
+        self.assertEqual(resource.name, 'Updated Resource')
     
     def test_delete_resource_soft_delete(self):
         """Test resource soft delete"""
         resource = Resources.objects.create(
-            resource_name='Test Resource',
-            resource_description='A test resource',
-            uploader_user_id=self.regular_user
+            name='Test Resource',
+            description='A test resource',
+            uploaded_by=self.regular_user
         )
         
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
@@ -686,26 +686,25 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         
         # Verify soft delete
         resource.refresh_from_db()
-        self.assertTrue(resource.deleted_flag)
-        self.assertIsNotNone(resource.deleted_datetime)
+        self.assertTrue(resource.deleted_at is not None)
+        self.assertIsNotNone(resource.deleted_at)
     
     def test_list_resources_excludes_deleted(self):
         """Test that deleted resources are excluded from listing"""
         # Create active resource
         Resources.objects.create(
-            resource_name='Active Resource',
-            resource_description='Active resource',
-            uploader_user_id=self.regular_user
+            name='Active Resource',
+            description='Active resource',
+            uploaded_by=self.regular_user
         )
         
         # Create and delete resource
         deleted_resource = Resources.objects.create(
-            resource_name='Deleted Resource',
-            resource_description='Deleted resource',
-            uploader_user_id=self.regular_user
+            name='Deleted Resource',
+            description='Deleted resource',
+            uploaded_by=self.regular_user
         )
-        deleted_resource.deleted_flag = True
-        deleted_resource.deleted_datetime = timezone.now()
+        deleted_resource.deleted_at = timezone.now()
         deleted_resource.save()
         
         url = reverse('resource-files-list')
@@ -713,7 +712,7 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['resource_name'], 'Active Resource')
+        self.assertEqual(response.data['results'][0]['name'], 'Active Resource')
 
 
 class PaginationComprehensiveTests(TestCase):
@@ -734,9 +733,9 @@ class PaginationComprehensiveTests(TestCase):
         # Create multiple resources for pagination testing
         for i in range(25):
             Resources.objects.create(
-                resource_name=f'Resource {i+1}',
-                resource_description=f'Description for resource {i+1}',
-                uploader_user_id=self.admin_user
+                name=f'Resource {i+1}',
+                description=f'Description for resource {i+1}',
+                uploaded_by=self.admin_user
             )
         
         self.client.force_authenticate(user=self.admin_user)
@@ -845,9 +844,9 @@ class ResourceRolesComprehensiveTests(TestCase):
         
         # Create test resource
         self.resource = Resources.objects.create(
-            resource_name='Test Resource',
-            resource_description='A test resource',
-            uploader_user_id=self.regular_user
+            name='Test Resource',
+            description='A test resource',
+            uploaded_by=self.regular_user
         )
         
         self.client.force_authenticate(user=self.admin_user)
@@ -1348,54 +1347,54 @@ class ResourceTypeAPITests(TestCase):
         """Test creating a resource with a resource type"""
         url = reverse('resource-files-list')
         data = {
-            'resource_name': 'Python Guide',
-            'resource_description': 'A comprehensive Python programming guide',
+            'name': 'Python Guide',
+            'description': 'A comprehensive Python programming guide',
             'resource_type_id': self.guide_type.id
         }
 
         response = self.client.post(url, data, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['resource_name'], 'Python Guide')
+        self.assertEqual(response.data['name'], 'Python Guide')
         self.assertIn('resource_type_detail', response.data)
         self.assertEqual(response.data['resource_type_detail']['type_name'], 'guide')
 
         # Verify in database
-        resource = Resources.objects.get(resource_name='Python Guide')
+        resource = Resources.objects.get(name='Python Guide')
         self.assertEqual(resource.resource_type, self.guide_type)
 
     def test_create_resource_without_type(self):
         """Test creating a resource without specifying type (should be null)"""
         url = reverse('resource-files-list')
         data = {
-            'resource_name': 'Untitled Resource',
-            'resource_description': 'A resource without type'
+            'name': 'Untitled Resource',
+            'description': 'A resource without type'
         }
 
         response = self.client.post(url, data, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['resource_name'], 'Untitled Resource')
+        self.assertEqual(response.data['name'], 'Untitled Resource')
         self.assertIsNone(response.data.get('resource_type_detail'))
 
         # Verify in database
-        resource = Resources.objects.get(resource_name='Untitled Resource')
+        resource = Resources.objects.get(name='Untitled Resource')
         self.assertIsNone(resource.resource_type)
 
     def test_list_resources_includes_type(self):
         """Test that listing resources includes resource type information"""
         # Create resources with different types
         Resources.objects.create(
-            resource_name='Video Tutorial',
-            resource_description='Video tutorial',
+            name='Video Tutorial',
+            description='Video tutorial',
             resource_type=self.video_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
         Resources.objects.create(
-            resource_name='PDF Document',
-            resource_description='PDF document',
+            name='PDF Document',
+            description='PDF document',
             resource_type=self.document_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-list')
@@ -1407,18 +1406,18 @@ class ResourceTypeAPITests(TestCase):
         # Check that resource_type_detail is included
         for resource in response.data['results']:
             self.assertIn('resource_type_detail', resource)
-            if resource['resource_name'] == 'Video Tutorial':
+            if resource['name'] == 'Video Tutorial':
                 self.assertEqual(resource['resource_type_detail']['type_name'], 'video')
-            elif resource['resource_name'] == 'PDF Document':
+            elif resource['name'] == 'PDF Document':
                 self.assertEqual(resource['resource_type_detail']['type_name'], 'document')
 
     def test_update_resource_type(self):
         """Test updating a resource's type"""
         resource = Resources.objects.create(
-            resource_name='My Resource',
-            resource_description='A resource',
+            name='My Resource',
+            description='A resource',
             resource_type=self.document_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
@@ -1438,10 +1437,10 @@ class ResourceTypeAPITests(TestCase):
     def test_update_resource_type_to_null(self):
         """Test removing type from a resource"""
         resource = Resources.objects.create(
-            resource_name='My Resource',
-            resource_description='A resource',
+            name='My Resource',
+            description='A resource',
             resource_type=self.document_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
@@ -1462,8 +1461,8 @@ class ResourceTypeAPITests(TestCase):
         """Test error handling for invalid resource type ID"""
         url = reverse('resource-files-list')
         data = {
-            'resource_name': 'Test Resource',
-            'resource_description': 'A test resource',
+            'name': 'Test Resource',
+            'description': 'A test resource',
             'resource_type_id': 99999  # Non-existent ID
         }
 
@@ -1475,22 +1474,22 @@ class ResourceTypeAPITests(TestCase):
         """Test filtering resources by type (if implemented)"""
         # Create resources with different types
         Resources.objects.create(
-            resource_name='Video 1',
-            resource_description='Video',
+            name='Video 1',
+            description='Video',
             resource_type=self.video_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
         Resources.objects.create(
-            resource_name='Video 2',
-            resource_description='Video',
+            name='Video 2',
+            description='Video',
             resource_type=self.video_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
         Resources.objects.create(
-            resource_name='Document 1',
-            resource_description='Document',
+            name='Document 1',
+            description='Document',
             resource_type=self.document_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-list')
@@ -1506,10 +1505,10 @@ class ResourceTypeAPITests(TestCase):
     def test_resource_type_in_serializer(self):
         """Test that resource type is properly serialized"""
         resource = Resources.objects.create(
-            resource_name='Test Resource',
-            resource_description='A test resource',
+            name='Test Resource',
+            description='A test resource',
             resource_type=self.template_type,
-            uploader_user_id=self.admin_user
+            uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
@@ -1576,8 +1575,8 @@ class ResourceTypeIntegrationTests(TestCase):
 
         for name, description, type_id in resource_data:
             data = {
-                'resource_name': name,
-                'resource_description': description,
+                'name': name,
+                'description': description,
                 'resource_type_id': type_id
             }
 
@@ -1595,8 +1594,8 @@ class ResourceTypeIntegrationTests(TestCase):
         """Test creating resource with both type and role visibility"""
         url = reverse('resource-files-list')
         data = {
-            'resource_name': 'Advanced Python Guide',
-            'resource_description': 'Python guide for advanced users',
+            'name': 'Advanced Python Guide',
+            'description': 'Python guide for advanced users',
             'resource_type_id': self.guide_type.id,
             'role_ids': [self.supervisor_role.id]
         }
