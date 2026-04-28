@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "pnpm --filter server typecheck && pnpm --filter web typecheck",
     "dev:server": "pnpm --filter server dev",
     "dev:web": "pnpm --filter web dev",
     "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:web\"",

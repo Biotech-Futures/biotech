@@ -353,7 +353,7 @@ export async function createUser(input: CreateUserInput) {
   const now = new Date().toISOString();
   let newUserId: number | undefined;
 
-  await db.transaction(async (tx: typeof db) => {
+  await db.transaction(async (tx) => {
     const [newUser] = await tx
       .insert(users)
       .values({
@@ -487,7 +487,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
   }
 
   try {
-    await db.transaction(async (tx: typeof db) => {
+    await db.transaction(async (tx) => {
       if (Object.keys(userUpdates).length > 0) {
         await tx.update(users).set(userUpdates).where(eq(users.id, userId));
       }

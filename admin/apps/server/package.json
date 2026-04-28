@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "db:pull": "drizzle-kit pull --config=drizzle.pull.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
