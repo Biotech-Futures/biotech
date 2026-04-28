@@ -392,19 +392,30 @@ function getSharedInterestsWithGroup(
   student: StudentInput,
   group: ExistingGroupInput,
 ): string[] {
-  const shared = new Set<string>();
-  const studentInterests = toInterestSet(student);
+  const interestSets = [
+    toInterestSet(student),
+    ...group.groupStudent.map(toMemberInterestSet),
+  ];
 
-  for (const member of group.groupStudent) {
-    const memberInterests = toMemberInterestSet(member);
-    for (const interest of studentInterests) {
-      if (memberInterests.has(interest)) {
-        shared.add(interest);
+  return getCommonInterests(interestSets);
+}
+
+function getCommonInterests(interestSets: Set<string>[]): string[] {
+  if (interestSets.length === 0) {
+    return [];
+  }
+
+  const common = new Set(interestSets[0]);
+
+  for (const interestSet of interestSets.slice(1)) {
+    for (const interest of common) {
+      if (!interestSet.has(interest)) {
+        common.delete(interest);
       }
     }
   }
 
-  return [...shared].sort();
+  return [...common].sort();
 }
 
 function groupHasMandatoryInterestOverlap(group: StudentInput[]): boolean {
@@ -412,20 +423,7 @@ function groupHasMandatoryInterestOverlap(group: StudentInput[]): boolean {
     return false;
   }
 
-  const hasMatchByStudent = new Map<string, boolean>(
-    group.map((student) => [stringifyId(student.id), false]),
-  );
-
-  for (let i = 0; i < group.length; i++) {
-    for (let j = i + 1; j < group.length; j++) {
-      if (pairSharesInterest(group[i], group[j])) {
-        hasMatchByStudent.set(stringifyId(group[i].id), true);
-        hasMatchByStudent.set(stringifyId(group[j].id), true);
-      }
-    }
-  }
-
-  return [...hasMatchByStudent.values()].every(Boolean);
+  return getCommonInterests(group.map(toInterestSet)).length > 0;
 }
 
 function computeYearSpread(group: StudentInput[]): number {
@@ -614,9 +612,7 @@ function isStudentEligibleForGroup(
     return false;
   }
 
-  return group.groupStudent.some((member) =>
-    studentSharesInterestWithMember(student, member),
-  );
+  return getSharedInterestsWithGroup(student, group).length > 0;
 }
 
 function scoreStudentForExistingGroup(
@@ -756,10 +752,8 @@ function buildUnmatchedRecommendation(
     sameTrackId(group.trackId, track),
   );
   const nonFullGroups = sameTrackGroups.filter((group) => !isGroupFull(group));
-  const hasInterestMatch = nonFullGroups.some((group) =>
-    group.groupStudent.some((member) =>
-      studentSharesInterestWithMember(student, member),
-    ),
+  const hasInterestMatch = nonFullGroups.some(
+    (group) => getSharedInterestsWithGroup(student, group).length > 0,
   );
 
   let reason = "No eligible group found in this track.";
@@ -922,6 +916,7 @@ type ScoredCandidate = {
   memberIds: string[];
   qualityScore: number;
   objectiveScore: number;
+  interestCohesion: number;
   yearSpread: number;
   scoreBreakdown: GroupScoreBreakdown;
 };
@@ -933,6 +928,10 @@ function compareCandidate(a: ScoredCandidate, b: ScoredCandidate): number {
 
   if (b.qualityScore !== a.qualityScore) {
     return b.qualityScore - a.qualityScore;
+  }
+
+  if (b.interestCohesion !== a.interestCohesion) {
+    return b.interestCohesion - a.interestCohesion;
   }
 
   if (a.yearSpread !== b.yearSpread) {
@@ -969,6 +968,39 @@ function combinations<T>(items: T[], choose: number): T[][] {
   return result;
 }
 
+function getPairSharedInterestCount(a: StudentInput, b: StudentInput): number {
+  const aInterests = toInterestSet(a);
+  const bInterests = toInterestSet(b);
+  let sharedCount = 0;
+
+  for (const interest of aInterests) {
+    if (bInterests.has(interest)) {
+      sharedCount++;
+    }
+  }
+
+  return sharedCount;
+}
+
+function computeInterestCohesion(group: StudentInput[]): number {
+  if (group.length < 2) {
+    return 0;
+  }
+
+  let sharedInterestPairCount = 0;
+
+  for (let i = 0; i < group.length; i++) {
+    for (let j = i + 1; j < group.length; j++) {
+      sharedInterestPairCount += getPairSharedInterestCount(
+        group[i],
+        group[j],
+      );
+    }
+  }
+
+  return round2(sharedInterestPairCount / getPairCount(group.length));
+}
+
 function generateScoredCandidates(
   students: StudentInput[],
   track: Track,
@@ -992,6 +1024,7 @@ function generateScoredCandidates(
           .sort((a, b) => a.localeCompare(b)),
         qualityScore: scored.qualityScore,
         objectiveScore: scored.scoreBreakdown.objectiveScore,
+        interestCohesion: computeInterestCohesion(combo),
         yearSpread: scored.yearSpread,
         scoreBreakdown: scored.scoreBreakdown,
       });

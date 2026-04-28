@@ -92,7 +92,7 @@ describe("scoreGroup", () => {
     ).toBeNull();
   });
 
-  it("allows chained interest overlap when every member matches at least one peer", () => {
+  it("rejects chained interest overlap without a whole-group common interest", () => {
     const result = scoreGroup(
       [
         student({ id: "s1", interests: ["math"] }),
@@ -102,9 +102,7 @@ describe("scoreGroup", () => {
       "AUS-NSW",
     );
 
-    expect(result).not.toBeNull();
-    expect(result?.qualityScore).toBe(100);
-    expect(result?.scoreBreakdown.objectiveScore).toBe(103);
+    expect(result).toBeNull();
   });
 
   it("normalizes interest case and whitespace before checking overlap", () => {
@@ -353,6 +351,21 @@ describe("buildGroups", () => {
     expect(result.groups[0].studentIds).toEqual(["s1", "s2", "s3", "s4"]);
   });
 
+  it("uses interest cohesion to break otherwise equal group candidates", () => {
+    const input: StudentInput[] = [
+      student({ id: "a", interests: ["biology"], yearLevel: 11 }),
+      student({ id: "b", interests: ["chemistry"], yearLevel: 11 }),
+      student({ id: "c", interests: ["biology"], yearLevel: 11 }),
+      student({ id: "d", interests: ["biology"], yearLevel: 11 }),
+    ];
+
+    const result = buildGroups(input);
+
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].studentIds).toEqual(["a", "c", "d"]);
+    expect(result.unmatchedStudentIds).toEqual(["b"]);
+  });
+
   it("does not prefer larger groups when quality degradation is high", () => {
     const input: StudentInput[] = [
       student({ id: "s1", interests: ["math"], yearLevel: 10 }),
@@ -519,6 +532,34 @@ describe("recommendGroupsByTrack", () => {
     const result = recommendGroupsByTrack(input);
     expect(result[0].recommendGroup).toBeNull();
     expect(result[0].score).toBe(0);
+    expect(result[0].reason).toContain("common interest");
+  });
+
+  it("rejects existing groups without a whole-group common interest after joining", () => {
+    const input: RecommendationInputByTrack = {
+      "AUS-NSW": {
+        students: [
+          student({
+            id: "s1",
+            region: "AUS-NSW",
+            interests: ["biology", "chemistry"],
+          }),
+        ],
+        groups: [
+          group({
+            id: "chained",
+            trackId: "AUS-NSW",
+            groupStudent: [
+              member({ id: "m1", interests: ["biology"] }),
+              member({ id: "m2", interests: ["chemistry"] }),
+            ],
+          }),
+        ],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+    expect(result[0].recommendGroup).toBeNull();
     expect(result[0].reason).toContain("common interest");
   });
 

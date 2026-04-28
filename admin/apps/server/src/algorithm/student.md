@@ -54,12 +54,12 @@ These constraints apply to both grouping and recommendations:
 
 - Groups must contain between 2 and 5 students.
 - Students cannot be grouped across tracks.
-- Shared interest overlap is mandatory.
+- A whole-group shared interest is mandatory.
 
-Mandatory overlap means:
+Mandatory shared interest means:
 
-- For a proposed new group, every student must share at least one normalized interest with at least one other student in that same group.
-- For recommendation into an existing group, the student must share at least one normalized interest with at least one current member of the group.
+- For a proposed new group, all students in the group must share at least one normalized interest in common.
+- For recommendation into an existing group, the student plus all current group members must share at least one normalized interest in common.
 
 If the shared-interest rule fails, the candidate group is invalid.
 
@@ -142,6 +142,7 @@ Within one track:
 4. Sort candidates by:
    - highest `objectiveScore`
    - then highest `qualityScore`
+   - then highest interest cohesion, measured as average shared interests across all student pairs
    - then smallest year spread
    - then lexicographically smallest joined member IDs
 5. Select the top candidate.
@@ -178,7 +179,7 @@ A student is eligible for an existing group only if:
 
 1. The student and group are in the same track.
 2. The group is not full.
-3. The student shares at least one interest with at least one current group member.
+3. The student and every current group member share at least one common interest.
 
 Default max group size is `5`, unless `group.maxSize` is provided.
 

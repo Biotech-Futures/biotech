@@ -43,8 +43,10 @@ export function useMutationConfirmAssignments() {
       const res = await myFetch.post("match/confirm", payload);
       return confirmAssignmentsResponseSchema.parse(res.data);
     },
-    onSuccess: async () => {
-      toast.success("Student assigned successfully.");
+    onSuccess: async (data) => {
+      toast.success(
+        `Confirmed ${data.data.assignedCount} student assignment${data.data.assignedCount === 1 ? "" : "s"}.`,
+      );
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ["students"] }),
         queryClient.invalidateQueries({ queryKey: ["groups"] }),

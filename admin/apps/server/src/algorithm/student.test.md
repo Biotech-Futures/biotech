@@ -16,7 +16,7 @@ The inputs are simplified to the fields that matter for each assertion. The outp
 | Test | Input | Expected output |
 | --- | --- | --- |
 | rejects groups outside the 2-5 member size range | One student; six students | `scoreGroup` returns `null`. |
-| allows chained interest overlap when every member matches at least one peer | Three students with interests `math`, `math/science`, `science` | Valid group; `qualityScore = 100`, `objectiveScore = 103`. |
+| rejects chained interest overlap without a whole-group common interest | Three students with interests `math`, `math/science`, `science` | `scoreGroup` returns `null`. |
 | normalizes interest case and whitespace before checking overlap | Two students with `  Robotics ` and `robotics` | Valid group with `qualityScore = 100`. |
 | uses yearlevel fallback when yearLevel is missing | Student has `yearlevel = 9`; peer has `yearLevel = 11` | Per-student `yearPenalty = 16`, score `84`. |
 | caps global timezone penalty and ignores timezone when country matches | Global pairs with timezone gap 26; one cross-country pair and one same-country pair | Cross-country timezone penalty caps at `18`; same-country timezone and country penalties are `0`. |

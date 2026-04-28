@@ -49,8 +49,29 @@ type MatchGroupSummary = {
   availableSeats: number;
 };
 
+type MatchRecommendedStudent = {
+  student: StudentInput;
+  reason: string;
+  score: number;
+  scoreBreakdown: StudentGroupRecommendation["scoreBreakdown"];
+};
+
+type MatchRecommendationGroup = {
+  id: string | number;
+  groupName: string;
+  trackId: string | number;
+  maxSize: number;
+  tutor: {
+    id: string | number;
+    name: string;
+  } | null;
+  existingStudents: MatchGroupSummary["groupStudent"];
+  recommendStudents: MatchRecommendedStudent[];
+};
+
 type MatchStudentResult = {
-  recommendations: StudentGroupRecommendation[];
+  recommendations: MatchRecommendationGroup[];
+  unmatchedStudents: MatchRecommendedStudent[];
   notFullGroups: MatchGroupSummary[];
 };
 
@@ -91,9 +112,6 @@ function buildFormRecommendations(
     groupedResult.unmatchedStudentReasons.map(
       (item) => [String(item.studentId), item] as const,
     ),
-  );
-  const studentById = new Map(
-    students.map((student) => [String(student.id), student] as const),
   );
   const groupByStudentId = new Map<
     string,
@@ -154,19 +172,7 @@ function buildFormRecommendations(
           trackId: matchedGroup.track,
           maxSize: 5,
           tutor: null,
-          groupStudent: matchedGroup.studentIds
-            .map((memberId) => studentById.get(String(memberId)))
-            .filter((candidate): candidate is StudentInput =>
-              Boolean(candidate),
-            )
-            .map((candidate) => ({
-              id: candidate.id,
-              name: candidate.name,
-              trackId: candidate.trackId,
-              country: candidate.country,
-              yearLevel: candidate.yearLevel,
-              interests: candidate.interests,
-            })),
+          groupStudent: [],
         },
         reason:
           "Assigned to highest score-based formed group considering interests, track, and compatibility.",
@@ -188,6 +194,85 @@ function buildFormRecommendations(
     recommendations,
     objectiveByStudentId,
   };
+}
+
+function mapExistingStudents(
+  group: NonNullable<StudentGroupRecommendation["recommendGroup"]>,
+): MatchGroupSummary["groupStudent"] {
+  return group.groupStudent.map((student) => ({
+    id: student.id,
+    name: student.name ?? `Student #${student.id}`,
+    trackId: student.trackId,
+    country: student.country,
+    yearLevel: student.yearLevel ?? student.yearlevel,
+    interests: student.interests,
+  }));
+}
+
+function mapRecommendedStudent(
+  recommendation: StudentGroupRecommendation,
+): MatchRecommendedStudent {
+  return {
+    student: recommendation.student,
+    reason: recommendation.reason,
+    score: recommendation.score,
+    scoreBreakdown: recommendation.scoreBreakdown,
+  };
+}
+
+function groupStudentRecommendations(
+  recommendations: StudentGroupRecommendation[],
+): {
+  groups: MatchRecommendationGroup[];
+  unmatchedStudents: MatchRecommendedStudent[];
+} {
+  const groupsById = new Map<string, MatchRecommendationGroup>();
+  const unmatchedStudents: MatchRecommendedStudent[] = [];
+
+  for (const recommendation of recommendations) {
+    const group = recommendation.recommendGroup;
+
+    if (!group) {
+      unmatchedStudents.push(mapRecommendedStudent(recommendation));
+      continue;
+    }
+
+    const groupKey = String(group.id);
+    let groupedRecommendation = groupsById.get(groupKey);
+
+    if (!groupedRecommendation) {
+      groupedRecommendation = {
+        id: group.id,
+        groupName: group.groupName,
+        trackId: group.trackId,
+        maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
+        tutor: group.tutor ?? null,
+        existingStudents: mapExistingStudents(group),
+        recommendStudents: [],
+      };
+      groupsById.set(groupKey, groupedRecommendation);
+    }
+
+    groupedRecommendation.recommendStudents.push(
+      mapRecommendedStudent(recommendation),
+    );
+  }
+
+  const groups = [...groupsById.values()].sort((a, b) =>
+    String(a.id).localeCompare(String(b.id)),
+  );
+
+  for (const group of groups) {
+    group.recommendStudents.sort((a, b) =>
+      String(a.student.id).localeCompare(String(b.student.id)),
+    );
+  }
+
+  unmatchedStudents.sort((a, b) =>
+    String(a.student.id).localeCompare(String(b.student.id)),
+  );
+
+  return { groups, unmatchedStudents };
 }
 
 export async function matchStudent(uid: string) {
@@ -349,7 +434,7 @@ export async function matchStudent(uid: string) {
       interests: interestsByUserId.get(student.userId) ?? [],
     }));
 
-  let recommendations: StudentGroupRecommendation[];
+  let flatRecommendations: StudentGroupRecommendation[];
   let payload: unknown;
 
   const ungroupedStudents: StudentInput[] = formattedIndividualStudents
@@ -467,10 +552,13 @@ export async function matchStudent(uid: string) {
     .filter((candidate) => selectedJoinStudentIds.has(candidate.studentId))
     .map((candidate) => candidate.recommendation);
 
-  recommendations = [
+  flatRecommendations = [
     ...selectedJoinRecommendations,
     ...finalFormRecommendations.recommendations,
   ].sort((a, b) => String(a.student.id).localeCompare(String(b.student.id)));
+
+  const groupedRecommendations =
+    groupStudentRecommendations(flatRecommendations);
 
   payload = {
     strategy: "hybrid-join-or-form",
@@ -486,7 +574,7 @@ export async function matchStudent(uid: string) {
     adminUserId: uid,
     runType: "student-match",
     payload,
-    result: recommendations,
+    result: groupedRecommendations,
     createdAt: new Date().toISOString(),
   });
 
@@ -623,7 +711,8 @@ export async function matchStudent(uid: string) {
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
   return {
-    recommendations,
+    recommendations: groupedRecommendations.groups,
+    unmatchedStudents: groupedRecommendations.unmatchedStudents,
     notFullGroups,
   } satisfies MatchStudentResult;
 }

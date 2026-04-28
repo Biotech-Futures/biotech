@@ -19,7 +19,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { MatchRecommendation, NotFullGroup } from "@/schema/match";
+import type {
+  MatchRecommendationGroup,
+  MatchRecommendedStudent,
+  NotFullGroup,
+} from "@/schema/match";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +35,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type MatchingBoardProps = {
-  recommendations: MatchRecommendation[];
+  recommendations: MatchRecommendationGroup[];
+  unmatchedStudents: MatchRecommendedStudent[];
   notFullGroups: NotFullGroup[];
   onRunMatch: () => void;
   onConfirmAssignments: (
@@ -96,7 +101,7 @@ function toStringId(id: string | number | undefined): string {
 }
 
 function buildDisplayName(
-  recommendationStudent: MatchRecommendation["student"],
+  recommendationStudent: MatchRecommendedStudent["student"],
 ): string {
   if (recommendationStudent.name?.trim()) {
     return recommendationStudent.name.trim();
@@ -119,37 +124,48 @@ function formatInterests(interests?: string[]): string[] {
 function getSharedInterests(
   students: Array<{ id: string; interests: string[] }>,
 ): string[] {
-  const interestCounts = new Map<
-    string,
-    {
-      label: string;
-      count: number;
-    }
-  >();
-  const seenStudentIds = new Set<string>();
+  const uniqueStudents = new Map<string, { id: string; interests: string[] }>();
 
   for (const student of students) {
-    if (seenStudentIds.has(student.id)) {
-      continue;
-    }
-    seenStudentIds.add(student.id);
-
-    const uniqueStudentInterests = new Set(
-      student.interests.map((interest) => interest.trim()).filter(Boolean),
-    );
-
-    for (const interest of uniqueStudentInterests) {
-      const key = interest.toLowerCase();
-      const existing = interestCounts.get(key);
-      interestCounts.set(key, {
-        label: existing?.label ?? interest,
-        count: (existing?.count ?? 0) + 1,
-      });
+    if (!uniqueStudents.has(student.id)) {
+      uniqueStudents.set(student.id, student);
     }
   }
 
-  return [...interestCounts.values()]
-    .filter((interest) => interest.count > 1)
+  const studentList = [...uniqueStudents.values()];
+  if (studentList.length === 0) {
+    return [];
+  }
+
+  const commonInterests = new Map<
+    string,
+    {
+      label: string;
+    }
+  >();
+
+  for (const interest of studentList[0].interests) {
+    const label = interest.trim();
+    if (label) {
+      commonInterests.set(label.toLowerCase(), { label });
+    }
+  }
+
+  for (const student of studentList.slice(1)) {
+    const studentInterests = new Set(
+      student.interests
+        .map((interest) => interest.trim().toLowerCase())
+        .filter(Boolean),
+    );
+
+    for (const interest of commonInterests.keys()) {
+      if (!studentInterests.has(interest)) {
+        commonInterests.delete(interest);
+      }
+    }
+  }
+
+  return [...commonInterests.values()]
     .map((interest) => interest.label)
     .sort((a, b) => a.localeCompare(b));
 }
@@ -159,11 +175,14 @@ function toContainerId(groupId: string): string {
 }
 
 function toMatchingGroup(
-  group: MatchRecommendation["recommendGroup"] | NotFullGroup,
+  group: MatchRecommendationGroup | NotFullGroup,
 ): MatchingGroup | null {
   if (!group) {
     return null;
   }
+
+  const groupStudents =
+    "existingStudents" in group ? group.existingStudents : group.groupStudent;
 
   return {
     id: toStringId(group.id),
@@ -171,7 +190,7 @@ function toMatchingGroup(
     track: toStringId(group.trackId),
     tutor: group.tutor?.name || "Unassigned",
     maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
-    existingStudents: group.groupStudent.map((groupStudent) => ({
+    existingStudents: groupStudents.map((groupStudent) => ({
       id: toStringId(groupStudent.id),
       name:
         groupStudent.name?.trim() || `Student #${toStringId(groupStudent.id)}`,
@@ -184,7 +203,8 @@ function toMatchingGroup(
 }
 
 function buildBoardData(
-  recommendations: MatchRecommendation[],
+  recommendations: MatchRecommendationGroup[],
+  unmatchedStudents: MatchRecommendedStudent[],
   notFullGroups: NotFullGroup[],
 ): BoardData {
   const studentsById: Record<string, MovableStudent> = {};
@@ -203,12 +223,51 @@ function buildBoardData(
     }
   }
 
-  for (const recommendation of recommendations) {
-    const studentId = toStringId(recommendation.student.id);
-    const recommendGroupId = recommendation.recommendGroup
-      ? toStringId(recommendation.recommendGroup.id)
-      : null;
+  for (const group of recommendations) {
+    const containerId = toContainerId(toStringId(group.id));
 
+    if (!groupsByContainerId[containerId]) {
+      const matchingGroup = toMatchingGroup(group);
+      if (matchingGroup) {
+        groupsByContainerId[containerId] = matchingGroup;
+      }
+    }
+
+    if (!containers[containerId]) {
+      containers[containerId] = [];
+    }
+
+    const existingMemberIds = new Set(
+      (groupsByContainerId[containerId]?.existingStudents ?? []).map(
+        (member) => member.id,
+      ),
+    );
+
+    for (const recommendation of group.recommendStudents) {
+      const studentId = toStringId(recommendation.student.id);
+
+      studentsById[studentId] = {
+        id: studentId,
+        name: buildDisplayName(recommendation.student),
+        track: toStringId(recommendation.student.trackId),
+        yearLevel: formatYearLevel(
+          recommendation.student.yearLevel ?? recommendation.student.yearlevel,
+        ),
+        interests: formatInterests(recommendation.student.interests),
+        score: recommendation.score,
+        reason: recommendation.reason,
+        recommendedGroupId: toStringId(group.id),
+        scoreBreakdown: recommendation.scoreBreakdown,
+      };
+
+      if (!existingMemberIds.has(studentId)) {
+        containers[containerId].push(studentId);
+      }
+    }
+  }
+
+  for (const recommendation of unmatchedStudents) {
+    const studentId = toStringId(recommendation.student.id);
     studentsById[studentId] = {
       id: studentId,
       name: buildDisplayName(recommendation.student),
@@ -219,37 +278,10 @@ function buildBoardData(
       interests: formatInterests(recommendation.student.interests),
       score: recommendation.score,
       reason: recommendation.reason,
-      recommendedGroupId: recommendGroupId,
+      recommendedGroupId: null,
       scoreBreakdown: recommendation.scoreBreakdown,
     };
-
-    if (recommendation.recommendGroup) {
-      const group = recommendation.recommendGroup;
-      const containerId = toContainerId(toStringId(group.id));
-
-      if (!groupsByContainerId[containerId]) {
-        const matchingGroup = toMatchingGroup(group);
-        if (matchingGroup) {
-          groupsByContainerId[containerId] = matchingGroup;
-        }
-      }
-
-      if (!containers[containerId]) {
-        containers[containerId] = [];
-      }
-
-      const existingMemberIds = new Set(
-        (groupsByContainerId[containerId]?.existingStudents ?? []).map(
-          (member) => member.id,
-        ),
-      );
-
-      if (!existingMemberIds.has(studentId)) {
-        containers[containerId].push(studentId);
-      }
-    } else {
-      containers[WAITING_CONTAINER_ID].push(studentId);
-    }
+    containers[WAITING_CONTAINER_ID].push(studentId);
   }
 
   return {
@@ -602,6 +634,7 @@ function DroppableStudentList({
 
 export function MatchingBoard({
   recommendations,
+  unmatchedStudents,
   notFullGroups,
   onRunMatch,
   onConfirmAssignments,
@@ -609,8 +642,8 @@ export function MatchingBoard({
   isConfirming,
 }: MatchingBoardProps) {
   const boardData = useMemo(
-    () => buildBoardData(recommendations, notFullGroups),
-    [notFullGroups, recommendations],
+    () => buildBoardData(recommendations, unmatchedStudents, notFullGroups),
+    [notFullGroups, recommendations, unmatchedStudents],
   );
   const [containers, setContainers] = useState<Record<string, string[]>>({});
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
@@ -746,87 +779,85 @@ export function MatchingBoard({
       return;
     }
 
-    setContainers((previous) => {
-      const currentContainers =
-        Object.keys(previous).length > 0 ? previous : boardData.containers;
+    const currentContainers = effectiveContainers;
 
-      const sourceContainerId = findContainerId(activeId, currentContainers);
-      const targetContainerId = resolveDropContainer(overId, currentContainers);
+    const sourceContainerId = findContainerId(activeId, currentContainers);
+    const targetContainerId = resolveDropContainer(overId, currentContainers);
 
-      if (!sourceContainerId || !targetContainerId) {
-        return currentContainers;
+    if (!sourceContainerId || !targetContainerId) {
+      return;
+    }
+
+    if (sourceContainerId === targetContainerId) {
+      const sourceItems = currentContainers[sourceContainerId];
+      const activeIndex = sourceItems.indexOf(activeId);
+      const overIndex = sourceItems.indexOf(overId);
+
+      if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) {
+        return;
       }
 
-      if (sourceContainerId === targetContainerId) {
-        const sourceItems = currentContainers[sourceContainerId];
-        const activeIndex = sourceItems.indexOf(activeId);
-        const overIndex = sourceItems.indexOf(overId);
-
-        if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) {
-          return currentContainers;
-        }
-
-        return {
-          ...currentContainers,
-          [sourceContainerId]: arrayMove(sourceItems, activeIndex, overIndex),
-        };
-      }
-
-      if (targetContainerId !== WAITING_CONTAINER_ID) {
-        const targetGroup = boardData.groupsByContainerId[targetContainerId];
-        const draggedStudent = boardData.studentsById[activeId];
-        if (targetGroup) {
-          if (draggedStudent?.track !== targetGroup.track) {
-            toast.error(
-              `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: track ${draggedStudent?.track || "N/A"} does not match ${targetGroup.track || "N/A"}.`,
-            );
-            return currentContainers;
-          }
-
-          if (
-            !draggedStudent ||
-            !hasSharedInterest(
-              draggedStudent,
-              targetGroup,
-              currentContainers[targetContainerId] ?? [],
-              boardData.studentsById,
-            )
-          ) {
-            toast.error(
-              `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: no shared interest with the group.`,
-            );
-            return currentContainers;
-          }
-
-          const existingCount = targetGroup.existingStudents.length;
-          const currentMovedCount = currentContainers[targetContainerId].length;
-          if (existingCount + currentMovedCount >= targetGroup.maxSize) {
-            toast.error(
-              `${targetGroup.name} is full (${targetGroup.maxSize}/${targetGroup.maxSize}).`,
-            );
-            return currentContainers;
-          }
-        }
-      }
-
-      const sourceItems = [...currentContainers[sourceContainerId]];
-      const sourceIndex = sourceItems.indexOf(activeId);
-      if (sourceIndex === -1) {
-        return currentContainers;
-      }
-      sourceItems.splice(sourceIndex, 1);
-
-      const targetItems = [...currentContainers[targetContainerId]];
-      const targetIndex = currentContainers[targetContainerId].includes(overId)
-        ? currentContainers[targetContainerId].indexOf(overId)
-        : targetItems.length;
-      targetItems.splice(targetIndex, 0, activeId);
-
-      return {
+      setContainers({
         ...currentContainers,
-        [sourceContainerId]: sourceItems,
-        [targetContainerId]: targetItems,
-      };
+        [sourceContainerId]: arrayMove(sourceItems, activeIndex, overIndex),
+      });
+      return;
+    }
+
+    if (targetContainerId !== WAITING_CONTAINER_ID) {
+      const targetGroup = boardData.groupsByContainerId[targetContainerId];
+      const draggedStudent = boardData.studentsById[activeId];
+      if (targetGroup) {
+        if (draggedStudent?.track !== targetGroup.track) {
+          toast.error(
+            `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: track ${draggedStudent?.track || "N/A"} does not match ${targetGroup.track || "N/A"}.`,
+          );
+          return;
+        }
+
+        if (
+          !draggedStudent ||
+          !hasSharedInterest(
+            draggedStudent,
+            targetGroup,
+            currentContainers[targetContainerId] ?? [],
+            boardData.studentsById,
+          )
+        ) {
+          toast.error(
+            `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: no shared interest with the group.`,
+          );
+          return;
+        }
+
+        const existingCount = targetGroup.existingStudents.length;
+        const currentMovedCount = currentContainers[targetContainerId].length;
+        if (existingCount + currentMovedCount >= targetGroup.maxSize) {
+          toast.error(
+            `${targetGroup.name} is full (${targetGroup.maxSize}/${targetGroup.maxSize}).`,
+          );
+          return;
+        }
+      }
+    }
+
+    const sourceItems = [...currentContainers[sourceContainerId]];
+    const sourceIndex = sourceItems.indexOf(activeId);
+    if (sourceIndex === -1) {
+      return;
+    }
+    sourceItems.splice(sourceIndex, 1);
+
+    const targetItems = [...currentContainers[targetContainerId]];
+    const targetIndex = currentContainers[targetContainerId].includes(overId)
+      ? currentContainers[targetContainerId].indexOf(overId)
+      : targetItems.length;
+    targetItems.splice(targetIndex, 0, activeId);
+
+    setContainers({
+      ...currentContainers,
+      [sourceContainerId]: sourceItems,
+      [targetContainerId]: targetItems,
     });
   }
 
@@ -834,9 +865,11 @@ export function MatchingBoard({
     (sum, item) => sum + item.remainingCapacity,
     0,
   );
-  const assignedStudentCount =
-    recommendations.length -
-    (effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0);
+  const recommendationStudentCount =
+    recommendations.reduce(
+      (sum, group) => sum + group.recommendStudents.length,
+      0,
+    ) + unmatchedStudents.length;
   const waitingStudentCount =
     effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0;
 
@@ -905,7 +938,7 @@ export function MatchingBoard({
             <Button
               variant="outline"
               onClick={resetBoardFromRecommendations}
-              disabled={recommendations.length === 0}
+              disabled={recommendationStudentCount === 0}
             >
               Reset Board
             </Button>
@@ -929,14 +962,12 @@ export function MatchingBoard({
           </div>
           <div className="rounded-md border bg-muted/30 p-2 text-xs">
             <p className="text-muted-foreground">Waiting students</p>
-            <p className="text-sm font-semibold">
-              {effectiveContainers[WAITING_CONTAINER_ID]?.length ?? 0}
-            </p>
+            <p className="text-sm font-semibold">{waitingStudentCount}</p>
           </div>
         </div>
       </div>
 
-      {recommendations.length === 0 ? (
+      {recommendationStudentCount === 0 ? (
         <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
           Click <span className="font-semibold">Run Match</span> to load
           recommended groups.
@@ -1033,13 +1064,7 @@ export function MatchingBoard({
                               {item.group.track} | {item.group.tutor}
                             </p>
                           </div>
-                          <Badge
-                            variant={
-                              item.remainingCapacity === 0
-                                ? "destructive"
-                                : "outline"
-                            }
-                          >
+                          <Badge>
                             {item.totalCount}/{item.group.maxSize}
                           </Badge>
                         </div>
