@@ -1,12 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,13 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -60,10 +54,9 @@ import {
   Trash2Icon,
   PencilIcon,
   UsersIcon,
-  XIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
@@ -72,6 +65,7 @@ export const Route = createFileRoute("/_auth/event")({
 function EventPage() {
   const [page, setPage] = useState(1);
   const [upcoming, setUpcoming] = useState(true);
+  const [createEventOpen, setCreateEventOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
 
@@ -90,10 +84,17 @@ function EventPage() {
 
   const allUsers = usersData?.data.items ?? [];
   const studentUsers = allUsers.filter((u) => u.role === "student");
+  const usersById = useMemo(
+    () => new Map(allUsers.map((user) => [Number(user.id), user])),
+    [allUsers],
+  );
 
   const currentAdminEmail = sessionData?.user?.email ?? "";
   const currentUserRecord = allUsers.find((u) => u.email === currentAdminEmail);
   const currentUserId = currentUserRecord ? Number(currentUserRecord.id) : null;
+  const currentHostName = currentUserId
+    ? formatHostName(currentUserId, usersById)
+    : "—";
 
   // Create form
   const {
@@ -166,11 +167,13 @@ function EventPage() {
   const limit = data?.data.limit ?? 10;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
+  const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
 
   const onSubmit = (formData: CreateEvent) => {
     createEvent(formData, {
       onSuccess: (result) => {
         if (result.data) {
+          setCreateEventOpen(false);
           reset({
             hostUserId: currentUserId,
             eventName: "",
@@ -221,297 +224,18 @@ function EventPage() {
 
   return (
     <div className="p-4 space-y-4">
-      {/* Create Event Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Event</CardTitle>
-          <CardDescription>
-            Add an event to the BIOTech Futures program calendar
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="grid gap-4 lg:grid-cols-3"
-            onSubmit={handleSubmit(onSubmit)}
-          >
-            {/* Host User ID — auto-filled */}
-            <div className="space-y-1.5">
-              <Label>Host User ID</Label>
-              <Input
-                value={currentUserId ?? "—"}
-                readOnly
-                disabled
-                className="bg-muted text-muted-foreground cursor-not-allowed"
-              />
-            </div>
-
-            {/* Event Name */}
-            <div className="space-y-1.5">
-              <Label>Event Name</Label>
-              <Input placeholder="Event name" {...register("eventName")} />
-              {errors.eventName && (
-                <p className="text-sm text-destructive">
-                  {errors.eventName.message}
-                </p>
-              )}
-            </div>
-
-            {/* Description */}
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Input placeholder="Optional" {...register("description")} />
-            </div>
-
-            {/* Location */}
-            <div className="space-y-1.5">
-              <Label>Location</Label>
-              <Input placeholder="Optional" {...register("location")} />
-            </div>
-
-            {/* Humanitix Link */}
-            <div className="space-y-1.5">
-              <Label>Humanitix Link</Label>
-              <Input placeholder="https://..." {...register("humanitixLink")} />
-            </div>
-
-            {/* Is Virtual */}
-            <Controller
-              control={control}
-              name="isVirtual"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>Virtual Event?</Label>
-                  <Select
-                    value={field.value ? "true" : "false"}
-                    onValueChange={(val) => field.onChange(val === "true")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="false">No (In-person)</SelectItem>
-                      <SelectItem value="true">Yes (Virtual)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            />
-
-            {/* Start */}
-            <Controller
-              control={control}
-              name="startAt"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>Start</Label>
-                  <Input type="datetime-local" {...field} />
-                  {errors.startAt && (
-                    <p className="text-sm text-destructive">
-                      {errors.startAt.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            />
-
-            {/* End */}
-            <Controller
-              control={control}
-              name="endsAt"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>End</Label>
-                  <Input type="datetime-local" {...field} />
-                  {errors.endsAt && (
-                    <p className="text-sm text-destructive">
-                      {errors.endsAt.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            />
-
-            <div className="lg:col-span-3">
-              <Button type="submit" disabled={isCreating}>
-                <CalendarIcon className="size-4" />
-                {isCreating ? "Creating..." : "Create Event"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* RSVP Panel */}
-      {rsvpEventId && (
-        <Card className="border-green-300">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>RSVP List — Event #{rsvpEventId}</CardTitle>
-                <CardDescription>
-                  View and add RSVPs for this event
-                </CardDescription>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setRsvpEventId(null)}
-              >
-                <XIcon className="size-4" />
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form
-              className="flex gap-3 items-end"
-              onSubmit={handleRsvpSubmit(onRsvpSubmit)}
-            >
-              {/* Student dropdown */}
-              <Controller
-                control={rsvpControl}
-                name="userId"
-                render={({ field }) => (
-                  <div className="space-y-1.5">
-                    <Label>Student</Label>
-                    <Select
-                      value={field.value ? String(field.value) : ""}
-                      onValueChange={(val) => field.onChange(Number(val))}
-                    >
-                      <SelectTrigger className="w-56">
-                        <SelectValue placeholder="Select student" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {studentUsers.length === 0 ? (
-                          <SelectItem value="__empty" disabled>
-                            No students found
-                          </SelectItem>
-                        ) : (
-                          studentUsers.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.name} ({u.email})
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {rsvpErrors.userId && (
-                      <p className="text-sm text-destructive">
-                        {rsvpErrors.userId.message}
-                      </p>
-                    )}
-                  </div>
-                )}
-              />
-
-              {/* RSVP Status dropdown */}
-              <Controller
-                control={rsvpControl}
-                name="rsvpStatus"
-                render={({ field }) => (
-                  <div className="space-y-1.5">
-                    <Label>RSVP Status</Label>
-                    <Select
-                      value={
-                        field.value === true
-                          ? "true"
-                          : field.value === false
-                            ? "false"
-                            : ""
-                      }
-                      onValueChange={(val) => field.onChange(val === "true")}
-                    >
-                      <SelectTrigger className="w-36">
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="true">Attending</SelectItem>
-                        <SelectItem value="false">Declined</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {rsvpErrors.rsvpStatus && (
-                      <p className="text-sm text-destructive">
-                        {rsvpErrors.rsvpStatus.message}
-                      </p>
-                    )}
-                  </div>
-                )}
-              />
-
-              <Button type="submit" disabled={isCreatingRsvp}>
-                {isCreatingRsvp ? "Adding..." : "Add RSVP"}
-              </Button>
-            </form>
-
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>RSVP ID</TableHead>
-                  <TableHead>Student</TableHead>
-                  <TableHead>RSVP Status</TableHead>
-                  <TableHead>Attended</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isRsvpLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center">
-                      Loading...
-                    </TableCell>
-                  </TableRow>
-                ) : rsvps.length > 0 ? (
-                  rsvps.map((rsvp) => {
-                    const student = allUsers.find(
-                      (u) => Number(u.id) === rsvp.userId,
-                    );
-                    return (
-                      <TableRow key={rsvp.id}>
-                        <TableCell>{rsvp.id}</TableCell>
-                        <TableCell>
-                          {student
-                            ? `${student.name} (${student.email})`
-                            : `User #${rsvp.userId}`}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={rsvp.rsvpStatus ? "default" : "outline"}
-                          >
-                            {rsvp.rsvpStatus ? "Attending" : "Declined"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              rsvp.attendanceStatus ? "default" : "outline"
-                            }
-                          >
-                            {rsvp.attendanceStatus ? "Yes" : "No"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center">
-                      No RSVPs yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Filters */}
-      <div className="flex gap-3 rounded-md border p-4 items-end">
+      <div className="flex flex-wrap gap-3 p-4 items-end justify-between">
         <Button
           type="button"
           variant={upcoming ? "default" : "outline"}
           onClick={() => setUpcoming((v) => !v)}
         >
           {upcoming ? "Upcoming Only" : "All Events"}
+        </Button>
+        <Button type="button" onClick={() => setCreateEventOpen(true)}>
+          <CalendarIcon className="size-4" />
+          Create Event
         </Button>
       </div>
 
@@ -541,7 +265,11 @@ function EventPage() {
                 <TableRow key={event.id}>
                   <TableCell>{event.id}</TableCell>
                   <TableCell>{event.eventName}</TableCell>
-                  <TableCell>{event.hostUserId ?? "Unassigned"}</TableCell>
+                  <TableCell>
+                    {event.hostUserId
+                      ? formatHostName(event.hostUserId, usersById)
+                      : "Unassigned"}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={event.isVirtual ? "default" : "outline"}>
                       {event.isVirtual ? "Virtual" : "In-person"}
@@ -629,35 +357,364 @@ function EventPage() {
         </div>
       </div>
 
-      {/* Edit Event — Right Slide-in Sheet */}
-      <Sheet
-        open={!!editingEvent}
+      <Drawer
+        direction="right"
+        open={createEventOpen}
         onOpenChange={(open) => {
-          if (!open) setEditingEvent(null);
+          setCreateEventOpen(open);
+          if (!open) {
+            reset({
+              hostUserId: currentUserId,
+              eventName: "",
+              description: null,
+              location: null,
+              humanitixLink: "",
+              isVirtual: false,
+              startAt: "",
+              endsAt: "",
+            });
+          }
         }}
       >
-        <SheetContent className="w-[420px] sm:w-[480px] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Edit Event #{editingEvent?.id}</SheetTitle>
-            <SheetDescription>Update the event details</SheetDescription>
-          </SheetHeader>
+        <DrawerContent className="overflow-y-auto sm:max-w-xl">
+          <DrawerHeader>
+            <DrawerTitle>Create Event</DrawerTitle>
+            <DrawerDescription>
+              Add an event to the BIOTech Futures program calendar.
+            </DrawerDescription>
+          </DrawerHeader>
 
           <form
-            className="mt-6 grid gap-5"
-            onSubmit={handleEditSubmit(onEditSubmit)}
+            id="create-event-form"
+            className="grid gap-5 px-4 pb-4"
+            onSubmit={handleSubmit(onSubmit)}
           >
-            {/* Host User ID — read-only */}
             <div className="space-y-1.5">
-              <Label>Host User ID</Label>
+              <Label>Host</Label>
               <Input
-                value={editingEvent?.hostUserId ?? currentUserId ?? "—"}
+                value={currentHostName}
                 readOnly
                 disabled
                 className="bg-muted text-muted-foreground cursor-not-allowed"
               />
             </div>
 
-            {/* Event Name */}
+            <div className="space-y-1.5">
+              <Label>Event Name</Label>
+              <Input placeholder="Event name" {...register("eventName")} />
+              {errors.eventName && (
+                <p className="text-sm text-destructive">
+                  {errors.eventName.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input placeholder="Optional" {...register("description")} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Location</Label>
+              <Input placeholder="Optional" {...register("location")} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Humanitix Link</Label>
+              <Input placeholder="https://..." {...register("humanitixLink")} />
+            </div>
+
+            <Controller
+              control={control}
+              name="isVirtual"
+              render={({ field }) => (
+                <div className="space-y-1.5">
+                  <Label>Virtual Event?</Label>
+                  <Select
+                    value={field.value ? "true" : "false"}
+                    onValueChange={(val) => field.onChange(val === "true")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">No (In-person)</SelectItem>
+                      <SelectItem value="true">Yes (Virtual)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            />
+
+            <Controller
+              control={control}
+              name="startAt"
+              render={({ field }) => (
+                <div className="space-y-1.5">
+                  <Label>Start</Label>
+                  <Input type="datetime-local" {...field} />
+                  {errors.startAt && (
+                    <p className="text-sm text-destructive">
+                      {errors.startAt.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            />
+
+            <Controller
+              control={control}
+              name="endsAt"
+              render={({ field }) => (
+                <div className="space-y-1.5">
+                  <Label>End</Label>
+                  <Input type="datetime-local" {...field} />
+                  {errors.endsAt && (
+                    <p className="text-sm text-destructive">
+                      {errors.endsAt.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            />
+          </form>
+
+          <DrawerFooter>
+            <Button form="create-event-form" type="submit" disabled={isCreating}>
+              <CalendarIcon className="size-4" />
+              {isCreating ? "Creating..." : "Create Event"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateEventOpen(false)}
+            >
+              Cancel
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      <Drawer
+        direction="right"
+        open={rsvpEventId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRsvpEventId(null);
+            resetRsvp();
+          }
+        }}
+      >
+        <DrawerContent className="overflow-y-auto sm:max-w-3xl">
+          <DrawerHeader>
+            <DrawerTitle>
+              RSVP List {rsvpEvent ? `- ${rsvpEvent.eventName}` : ""}
+            </DrawerTitle>
+            <DrawerDescription>
+              Event #{rsvpEventId} has {rsvps.length} RSVP
+              {rsvps.length === 1 ? "" : "s"}.
+            </DrawerDescription>
+          </DrawerHeader>
+
+          <div className="space-y-4 px-4 pb-4">
+            <form
+              id="event-rsvp-form"
+              className="grid gap-3 sm:grid-cols-[1fr_180px]"
+              onSubmit={handleRsvpSubmit(onRsvpSubmit)}
+            >
+              <Controller
+                control={rsvpControl}
+                name="userId"
+                render={({ field }) => (
+                  <div className="space-y-1.5">
+                    <Label>Student</Label>
+                    <Select
+                      value={field.value ? String(field.value) : ""}
+                      onValueChange={(val) => field.onChange(Number(val))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select student" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {studentUsers.length === 0 ? (
+                          <SelectItem value="__empty" disabled>
+                            No students found
+                          </SelectItem>
+                        ) : (
+                          studentUsers.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.name} ({u.email})
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {rsvpErrors.userId && (
+                      <p className="text-sm text-destructive">
+                        {rsvpErrors.userId.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              />
+
+              <Controller
+                control={rsvpControl}
+                name="rsvpStatus"
+                render={({ field }) => (
+                  <div className="space-y-1.5">
+                    <Label>RSVP Status</Label>
+                    <Select
+                      value={
+                        field.value === true
+                          ? "true"
+                          : field.value === false
+                            ? "false"
+                            : ""
+                      }
+                      onValueChange={(val) => field.onChange(val === "true")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">Attending</SelectItem>
+                        <SelectItem value="false">Declined</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {rsvpErrors.rsvpStatus && (
+                      <p className="text-sm text-destructive">
+                        {rsvpErrors.rsvpStatus.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              />
+            </form>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-medium">RSVPs</h3>
+                <Badge variant="outline">{rsvps.length}</Badge>
+              </div>
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>RSVP ID</TableHead>
+                      <TableHead>Student</TableHead>
+                      <TableHead>RSVP Status</TableHead>
+                      <TableHead>Attended</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isRsvpLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center">
+                          Loading...
+                        </TableCell>
+                      </TableRow>
+                    ) : rsvps.length > 0 ? (
+                      rsvps.map((rsvp) => {
+                        const student = allUsers.find(
+                          (u) => Number(u.id) === rsvp.userId,
+                        );
+                        return (
+                          <TableRow key={rsvp.id}>
+                            <TableCell>{rsvp.id}</TableCell>
+                            <TableCell>
+                              {student
+                                ? `${student.name} (${student.email})`
+                                : `User #${rsvp.userId}`}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  rsvp.rsvpStatus ? "default" : "outline"
+                                }
+                              >
+                                {rsvp.rsvpStatus ? "Attending" : "Declined"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  rsvp.attendanceStatus ? "default" : "outline"
+                                }
+                              >
+                                {rsvp.attendanceStatus ? "Yes" : "No"}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center">
+                          No RSVPs yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+
+          <DrawerFooter>
+            <Button
+              form="event-rsvp-form"
+              type="submit"
+              disabled={isCreatingRsvp}
+            >
+              {isCreatingRsvp ? "Adding..." : "Add RSVP"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setRsvpEventId(null);
+                resetRsvp();
+              }}
+            >
+              Close
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      <Drawer
+        direction="right"
+        open={!!editingEvent}
+        onOpenChange={(open) => {
+          if (!open) setEditingEvent(null);
+        }}
+      >
+        <DrawerContent className="overflow-y-auto sm:max-w-xl">
+          <DrawerHeader>
+            <DrawerTitle>Edit Event #{editingEvent?.id}</DrawerTitle>
+            <DrawerDescription>Update the event details.</DrawerDescription>
+          </DrawerHeader>
+
+          <form
+            id="edit-event-form"
+            className="grid gap-5 px-4 pb-4"
+            onSubmit={handleEditSubmit(onEditSubmit)}
+          >
+            <div className="space-y-1.5">
+              <Label>Host</Label>
+              <Input
+                value={
+                  editingEvent?.hostUserId
+                    ? formatHostName(editingEvent.hostUserId, usersById)
+                    : currentHostName
+                }
+                readOnly
+                disabled
+                className="bg-muted text-muted-foreground cursor-not-allowed"
+              />
+            </div>
+
             <div className="space-y-1.5">
               <Label>Event Name</Label>
               <Input {...registerEdit("eventName")} />
@@ -668,19 +725,16 @@ function EventPage() {
               )}
             </div>
 
-            {/* Description */}
             <div className="space-y-1.5">
               <Label>Description</Label>
               <Input {...registerEdit("description")} />
             </div>
 
-            {/* Location */}
             <div className="space-y-1.5">
               <Label>Location</Label>
               <Input {...registerEdit("location")} />
             </div>
 
-            {/* Is Virtual */}
             <Controller
               control={editControl}
               name="isVirtual"
@@ -703,7 +757,6 @@ function EventPage() {
               )}
             />
 
-            {/* Start */}
             <Controller
               control={editControl}
               name="startAt"
@@ -724,7 +777,6 @@ function EventPage() {
               )}
             />
 
-            {/* End */}
             <Controller
               control={editControl}
               name="endsAt"
@@ -744,22 +796,22 @@ function EventPage() {
                 </div>
               )}
             />
-
-            <div className="flex gap-2 pt-2">
-              <Button type="submit" disabled={isUpdating}>
-                {isUpdating ? "Saving..." : "Save Changes"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditingEvent(null)}
-              >
-                Cancel
-              </Button>
-            </div>
           </form>
-        </SheetContent>
-      </Sheet>
+
+          <DrawerFooter>
+            <Button form="edit-event-form" type="submit" disabled={isUpdating}>
+              {isUpdating ? "Saving..." : "Save Changes"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingEvent(null)}
+            >
+              Cancel
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
@@ -770,6 +822,14 @@ function formatDateTime(value: string) {
     timeStyle: "short",
     timeZone: "Australia/Sydney",
   }).format(new Date(value));
+}
+
+function formatHostName(
+  hostUserId: number,
+  usersById: Map<number, { name: string; email: string }>,
+) {
+  const user = usersById.get(hostUserId);
+  return user?.name || user?.email || "Unassigned";
 }
 
 function toDatetimeLocal(value: string) {
