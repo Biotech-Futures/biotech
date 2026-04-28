@@ -23,6 +23,14 @@ import type {
 } from "@/type/resource";
 import { Button } from "@/components/ui/button";
 import { UploadIcon } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/_auth/resource")({
   component: ResourcePage,
@@ -41,6 +49,13 @@ function ResourcePage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [showBatchVisibilityEditor, setShowBatchVisibilityEditor] =
     useState(false);
+  const [singleBatchEditor, setSingleBatchEditor] = useState<
+    "visibility" | "track" | "roles" | null
+  >(null);
+  const [batchVisibilityScope, setBatchVisibilityScope] = useState<
+    "track_based" | "role_based"
+  >("role_based");
+  const [batchTrackId, setBatchTrackId] = useState<number | null>(null);
   const [batchRoleIds, setBatchRoleIds] = useState<number[]>([]);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
@@ -73,6 +88,9 @@ function ResourcePage() {
     if (!bulkMode) {
       setSelectedIds([]);
       setShowBatchVisibilityEditor(false);
+      setSingleBatchEditor(null);
+      setBatchVisibilityScope("role_based");
+      setBatchTrackId(null);
       setBatchRoleIds([]);
     }
   }, [bulkMode]);
@@ -172,17 +190,94 @@ function ResourcePage() {
 
   const handleBatchUpdateVisibility = async () => {
     if (!selectedIds.length) return;
+
+    if (batchVisibilityScope === "role_based" && !batchRoleIds.length) {
+      window.alert("Please select at least one role for role-based visibility.");
+      return;
+    }
+
+    if (batchVisibilityScope === "track_based" && batchTrackId === null) {
+      window.alert("Please select a track for track-based visibility.");
+      return;
+    }
+
     await Promise.all(
       selectedIds.map((id) =>
         updateResourceAsync({
           id,
-          updates: { role_ids: batchRoleIds },
+          updates: {
+            visibility_scope: batchVisibilityScope,
+            track_id: batchTrackId,
+            role_ids: batchRoleIds,
+          },
         }),
       ),
     );
     setSelectedIds([]);
     setShowBatchVisibilityEditor(false);
+    setSingleBatchEditor(null);
+    setBatchVisibilityScope("role_based");
+    setBatchTrackId(null);
     setBatchRoleIds([]);
+  };
+
+  const handleBatchApplyVisibilityOnly = async () => {
+    if (!selectedIds.length) return;
+    await Promise.all(
+      selectedIds.map((id) =>
+        updateResourceAsync({
+          id,
+          updates: {
+            visibility_scope: batchVisibilityScope,
+          },
+        }),
+      ),
+    );
+    setSelectedIds([]);
+    setShowBatchVisibilityEditor(false);
+    setSingleBatchEditor(null);
+  };
+
+  const handleBatchApplyTrackOnly = async () => {
+    if (!selectedIds.length) return;
+    if (batchTrackId === null) {
+      window.alert("Please select a track.");
+      return;
+    }
+    await Promise.all(
+      selectedIds.map((id) =>
+        updateResourceAsync({
+          id,
+          updates: {
+            track_id: batchTrackId,
+          },
+        }),
+      ),
+    );
+    setSelectedIds([]);
+    setShowBatchVisibilityEditor(false);
+    setSingleBatchEditor(null);
+  };
+
+  const handleBatchApplyRolesOnly = async () => {
+    if (!selectedIds.length) return;
+    if (!batchRoleIds.length) {
+      window.alert("Please select at least one role.");
+      return;
+    }
+    await Promise.all(
+      selectedIds.map((id) =>
+        updateResourceAsync({
+          id,
+          updates: {
+            role_ids: batchRoleIds,
+          },
+        }),
+      ),
+    );
+    setSelectedIds([]);
+    setShowBatchVisibilityEditor(false);
+    setSingleBatchEditor(null);
   };
 
   return (
@@ -227,14 +322,43 @@ function ResourcePage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                if (!availableRoles.length) {
-                  window.alert("No roles available.");
-                  return;
-                }
+                setSingleBatchEditor(null);
                 setShowBatchVisibilityEditor((prev) => !prev);
               }}
             >
-              Batch Set Visibility
+              Batch Edit Access
+            </Button>
+            <Button
+              variant={singleBatchEditor === "visibility" ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setShowBatchVisibilityEditor(false);
+                setSingleBatchEditor((prev) =>
+                  prev === "visibility" ? null : "visibility",
+                );
+              }}
+            >
+              Visibility Only
+            </Button>
+            <Button
+              variant={singleBatchEditor === "track" ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setShowBatchVisibilityEditor(false);
+                setSingleBatchEditor((prev) => (prev === "track" ? null : "track"));
+              }}
+            >
+              Track Only
+            </Button>
+            <Button
+              variant={singleBatchEditor === "roles" ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setShowBatchVisibilityEditor(false);
+                setSingleBatchEditor((prev) => (prev === "roles" ? null : "roles"));
+              }}
+            >
+              Roles Only
             </Button>
             <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
               Batch Delete
@@ -248,7 +372,165 @@ function ResourcePage() {
       {bulkMode && selectedIds.length && showBatchVisibilityEditor ? (
         <div className="rounded-md border bg-background px-3 py-3 space-y-3">
           <p className="text-sm text-muted-foreground">
-            Set visibility roles for {selectedIds.length} selected resources
+            Batch update visibility, track, and roles for {selectedIds.length} selected resources
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="batch-visibility">Visibility</Label>
+              <Select
+                value={batchVisibilityScope}
+                onValueChange={(value) =>
+                  setBatchVisibilityScope(value as "track_based" | "role_based")
+                }
+              >
+                <SelectTrigger id="batch-visibility">
+                  <SelectValue placeholder="Select visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="track_based">track_based</SelectItem>
+                  <SelectItem value="role_based">role_based</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="batch-track">Track</Label>
+              <Select
+                value={batchTrackId === null ? undefined : String(batchTrackId)}
+                onValueChange={(value) =>
+                  setBatchTrackId(Number(value))
+                }
+              >
+                <SelectTrigger id="batch-track">
+                  <SelectValue placeholder="Select track" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(tracksData?.data ?? []).map((track) => (
+                    <SelectItem key={track.id} value={String(track.id)}>
+                      {track.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            {availableRoles.map((role) => {
+              const checked = batchRoleIds.includes(role.id);
+              return (
+                <label key={role.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      const isChecked = event.target.checked;
+                      setBatchRoleIds((prev) =>
+                        isChecked
+                          ? [...prev, role.id]
+                          : prev.filter((id) => id !== role.id),
+                      );
+                    }}
+                  />
+                  <span>{role.slug}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={handleBatchUpdateVisibility}>
+              Apply Batch Changes
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setShowBatchVisibilityEditor(false);
+                setSingleBatchEditor(null);
+                setBatchVisibilityScope("role_based");
+                setBatchTrackId(null);
+                setBatchRoleIds([]);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkMode && selectedIds.length && singleBatchEditor === "visibility" ? (
+        <div className="rounded-md border bg-background px-3 py-3 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Update visibility only for {selectedIds.length} selected resources
+          </p>
+          <div className="space-y-1.5 max-w-sm">
+            <Label htmlFor="single-batch-visibility">Visibility</Label>
+            <Select
+              value={batchVisibilityScope}
+              onValueChange={(value) =>
+                setBatchVisibilityScope(value as "track_based" | "role_based")
+              }
+            >
+              <SelectTrigger id="single-batch-visibility">
+                <SelectValue placeholder="Select visibility" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="track_based">track_based</SelectItem>
+                <SelectItem value="role_based">role_based</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleBatchApplyVisibilityOnly}>
+              Apply Visibility Only
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSingleBatchEditor(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkMode && selectedIds.length && singleBatchEditor === "track" ? (
+        <div className="rounded-md border bg-background px-3 py-3 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Update track only for {selectedIds.length} selected resources
+          </p>
+          <div className="space-y-1.5 max-w-sm">
+            <Label htmlFor="single-batch-track">Track</Label>
+            <Select
+              value={batchTrackId === null ? undefined : String(batchTrackId)}
+              onValueChange={(value) =>
+                setBatchTrackId(Number(value))
+              }
+            >
+              <SelectTrigger id="single-batch-track">
+                <SelectValue placeholder="Select track" />
+              </SelectTrigger>
+              <SelectContent>
+                {(tracksData?.data ?? []).map((track) => (
+                  <SelectItem key={track.id} value={String(track.id)}>
+                    {track.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={handleBatchApplyTrackOnly}>
+              Apply Track Only
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSingleBatchEditor(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {bulkMode && selectedIds.length && singleBatchEditor === "roles" ? (
+        <div className="rounded-md border bg-background px-3 py-3 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Update roles only for {selectedIds.length} selected resources
           </p>
           <div className="flex flex-wrap items-center gap-4">
             {availableRoles.map((role) => {
@@ -273,17 +555,10 @@ function ResourcePage() {
             })}
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleBatchUpdateVisibility}>
-              Apply Visibility
+            <Button size="sm" onClick={handleBatchApplyRolesOnly}>
+              Apply Roles Only
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setShowBatchVisibilityEditor(false);
-                setBatchRoleIds([]);
-              }}
-            >
+            <Button size="sm" variant="ghost" onClick={() => setSingleBatchEditor(null)}>
               Cancel
             </Button>
           </div>
