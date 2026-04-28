@@ -9,7 +9,7 @@
     "dev:server": "pnpm --filter server dev",
     "dev:web": "pnpm --filter web dev",
     "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:web\"",
-    "prepare": "husky"
+    "prepare": "cd .. && admin/node_modules/.bin/husky"
   },
   "keywords": [],
   "author": "",

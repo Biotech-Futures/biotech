@@ -4,7 +4,6 @@ import myCors from "./middleware/myCors.js";
 import { logger } from "hono/logger";
 import { matchRoute } from "./module/match/route.js";
 import { groupRoute } from "./module/group/route.js";
-import { demoRoute } from "./module/demo/route.js";
 import { mentorMatchRoute } from "./module/mentorMatch/route.js";
 import { userRoute } from "./module/user/route.js";
 import { auth } from "./lib/auth.js";
@@ -31,7 +30,6 @@ app
   .use(authRequirement)
   .route("match", matchRoute)
   .route("group", groupRoute)
-  .route("demo", demoRoute)
   .route("mentor-match", mentorMatchRoute)
   .route("user", userRoute)
   .route("resource", resourceRoute)
