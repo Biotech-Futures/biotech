@@ -8,7 +8,6 @@ import {
   messages,
   tracks,
   users,
-  background,
   userInterest,
   areasOfInterest,
 } from "@/schema/index.js";
@@ -39,12 +38,11 @@ export async function getMentorList() {
       institution: mentorProfile.institution,
       maxGrpCnt: mentorProfile.maxGroupCount,
       trackCode: tracks.trackName,
-      backgroundDesc: background.backgroundDescUniqueField,
+      backgroundDesc: mentorProfile.background,
     })
     .from(mentorProfile)
     .innerJoin(users, eq(users.id, mentorProfile.userId))
-    .innerJoin(tracks, eq(tracks.id, users.trackId))
-    .innerJoin(background, eq(background.id, mentorProfile.backgroundId));
+    .innerJoin(tracks, eq(tracks.id, users.trackId));
 
   if (mentorRows.length === 0) return [];
 
