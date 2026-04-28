@@ -30,7 +30,7 @@ class EventViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.Gene
 
     def get_queryset(self):
         now = timezone.now()
-        return Events.objects.filter(deleted_flag=False, ends_datetime__gte=now).order_by("start_datetime")
+        return Events.objects.filter(deleted_at__isnull=True, ends_datetime__gte=now).order_by("start_datetime")
 
     def perform_create(self, serializer):
         event = serializer.save(host_user=self.request.user if self.request.user.is_authenticated else None)

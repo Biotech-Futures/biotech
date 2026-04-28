@@ -8,56 +8,59 @@ class Resources(models.Model):
         PUBLIC = "public", "Public"
         ROLE = "role", "Role"
         TRACK = "track", "Track"
+        GROUP = "group", "Group"
         SCOPED = "scoped", "Scoped"
 
-    resource_name = models.CharField(max_length=255)
-    resource_description = models.CharField(max_length=255)
-    resource_type = models.ForeignKey('ResourceType', on_delete=models.PROTECT, related_name='resources', null=True, blank=True)
+    class ResourceKind(models.TextChoices):
+        FILE = "file", "File"
+        PAGE = "page", "Page"
+
+    name = models.CharField(max_length=255)
+    description = models.CharField(max_length=255)
+    type = models.ForeignKey('ResourceType', on_delete=models.PROTECT, related_name='resources', null=True, blank=True)
+
+    kind = models.CharField(
+        max_length=50,
+        choices=ResourceKind.choices,
+        default=ResourceKind.FILE,
+    )
+    file_mime_type = models.CharField(max_length=100, null=True, blank=True)
+    file_size = models.BigIntegerField(null=True, blank=True)
+    storage_key = models.CharField(max_length=255, null=True, blank=True)
+
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
+    group = models.ForeignKey("groups.Groups", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     visibility_scope = models.CharField(
         max_length=50,
         choices=VisibilityScope.choices,
         default=VisibilityScope.ROLE,
     )
-    upload_datetime = models.DateTimeField(default=timezone.now)
-    uploader_user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    deleted_flag = models.BooleanField(default=False)
-    deleted_datetime = models.DateTimeField(blank=True, null=True)
+    uploaded_at = models.DateTimeField(default=timezone.now)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'resources'
         verbose_name = "Resource"
         verbose_name_plural = "Resources"
         indexes = [
-            models.Index(fields=['uploader_user_id']),
+            models.Index(fields=['uploaded_by']),
             models.Index(fields=['track']),
             models.Index(fields=['visibility_scope']),
+            models.Index(fields=['deleted_at']),
         ]
         constraints = [
-            # Ensure deleted_flag is always either True or False
+            # Ensure deleted_at is after uploaded_at if set
             models.CheckConstraint(
-                condition=Q(deleted_datetime__isnull=True) | Q(deleted_flag=True),
-                name='deleted_flag_true_if_deleted_datetime'
-            ),
-            # Ensure resource names are unique if provided
-            models.CheckConstraint(
-                condition=Q(deleted_datetime__gte=F('upload_datetime')) | Q(deleted_datetime__isnull=True),
+                condition=Q(deleted_at__gte=F('uploaded_at')) | Q(deleted_at__isnull=True),
                 name='deleted_after_upload'
             ),
-            # Ensure resource_description is not empty
+            # Ensure description is not empty
             models.CheckConstraint(
-                condition=~Q(resource_description=''),
+                condition=~Q(description=''),
                 name='resource_description_not_empty'
             ),
         ]
 
     def __str__(self):
-        return self.resource_name or f"Resource {self.id}"
-
-    @property
-    def uploaded_at(self):
-        return self.upload_datetime
-
-    @property
-    def deleted_at(self):
-        return self.deleted_datetime
+        return self.name or f"Resource {self.id}"

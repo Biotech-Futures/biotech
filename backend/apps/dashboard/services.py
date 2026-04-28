@@ -116,7 +116,7 @@ def get_personalized_next_event(user):
     admin_track_ids = get_admin_track_ids(user) if is_operational_admin(user) else []
 
     queryset = (
-        Events.objects.filter(deleted_flag=False, ends_datetime__gte=now)
+        Events.objects.filter(deleted_at__isnull=True, ends_datetime__gte=now)
         .select_related("track")
         .prefetch_related(
             Prefetch(

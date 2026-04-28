@@ -28,8 +28,7 @@ class Workshops(models.Model):
     zoom_link = models.CharField(max_length=255, blank=True, null=True)
     host_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     group = models.ForeignKey('groups.Groups', on_delete=models.PROTECT)
-    deleted_flag = models.BooleanField(default=False)
-    deleted_datetime = models.DateTimeField(blank=True, null=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'workshops'

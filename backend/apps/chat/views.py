@@ -36,7 +36,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
-            .prefetch_related("resources__resource", "attachments")
+            .prefetch_related("resources__resource")
         )
 
     # GET /chat/groups/{gid}/messages/
