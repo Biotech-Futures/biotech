@@ -5,11 +5,11 @@ staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
 run_server=false
 run_web=false
 
-if printf '%s\n' "$staged_files" | grep -q '^apps/server/'; then
+if printf '%s\n' "$staged_files" | grep -q '^admin/apps/server/'; then
   run_server=true
 fi
 
-if printf '%s\n' "$staged_files" | grep -q '^apps/web/'; then
+if printf '%s\n' "$staged_files" | grep -q '^admin/apps/web/'; then
   run_web=true
 fi
 
@@ -18,9 +18,9 @@ if [ "$run_server" = false ] && [ "$run_web" = false ]; then
 fi
 
 if [ "$run_server" = true ]; then
-  pnpm --filter server typecheck || exit 1
+  pnpm --dir admin --filter server typecheck || exit 1
 fi
 
 if [ "$run_web" = true ]; then
-  pnpm --filter web typecheck || exit 1
+  pnpm --dir admin --filter web typecheck || exit 1
 fi
