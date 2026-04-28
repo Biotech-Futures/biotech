@@ -238,7 +238,15 @@ function buildBoardData(
         containers[containerId] = [];
       }
 
-      containers[containerId].push(studentId);
+      const existingMemberIds = new Set(
+        (groupsByContainerId[containerId]?.existingStudents ?? []).map(
+          (member) => member.id,
+        ),
+      );
+
+      if (!existingMemberIds.has(studentId)) {
+        containers[containerId].push(studentId);
+      }
     } else {
       containers[WAITING_CONTAINER_ID].push(studentId);
     }
@@ -869,15 +877,9 @@ export function MatchingBoard({
   }
 
   function onClickConfirmAssignments() {
-    if (waitingStudentCount > 0) {
-      toast.error(
-        `Please assign all students first. ${waitingStudentCount} still in Waiting Area.`,
-      );
-      return;
-    }
-
     const assignments = buildAssignmentsPayload();
     if (assignments.length === 0) {
+      toast.error("No assignments to confirm.");
       return;
     }
 
@@ -897,14 +899,7 @@ export function MatchingBoard({
             <Button onClick={onRunMatch} disabled={isRunning}>
               {isRunning ? "Matching..." : "Run Match"}
             </Button>
-            <Button
-              onClick={onClickConfirmAssignments}
-              disabled={
-                recommendations.length === 0 ||
-                assignedStudentCount === 0 ||
-                isConfirming
-              }
-            >
+            <Button onClick={onClickConfirmAssignments} disabled={isConfirming}>
               {isConfirming ? "Confirming..." : "Confirm Assignments"}
             </Button>
             <Button
@@ -939,7 +934,6 @@ export function MatchingBoard({
             </p>
           </div>
         </div>
-
       </div>
 
       {recommendations.length === 0 ? (
