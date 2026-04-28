@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import JsonResponse, HttpResponse
@@ -7,13 +8,55 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import login, logout
+from rest_framework import serializers
+from drf_spectacular.utils import extend_schema
+from django.core.cache import cache
+from urllib.parse import urlparse
+from django.conf import settings
 from . import auth_service
 from apps.users.models import User
+from apps.user_sessions.models import UserSession
+
+
+class SendLoginCodeRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    redirect_url = serializers.CharField(required=False, allow_blank=True)
+
+
+class VerifyLoginCodeRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField()
+
+
+class AuthMessageSerializer(serializers.Serializer):
+    message = serializers.CharField(required=False)
+    error = serializers.CharField(required=False)
+
+
+class VerifiedUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    email = serializers.EmailField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+
+
+class VerifyLoginCodeResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    user = VerifiedUserSerializer()
 
 
 class SendLoginCodeView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+
+    @extend_schema(
+        request=SendLoginCodeRequestSerializer,
+        responses={
+            200: AuthMessageSerializer,
+            400: AuthMessageSerializer,
+            404: AuthMessageSerializer,
+        },
+    )
     def post(self, request):
         email = request.data.get("email")
         # edbert: Added redirect_url parameter to support frontend callback
@@ -32,19 +75,37 @@ class VerifyLoginCodeView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
+    @extend_schema(
+        request=VerifyLoginCodeRequestSerializer,
+        responses={
+            200: VerifyLoginCodeResponseSerializer,
+            400: AuthMessageSerializer,
+        },
+    )
     def post(self, request):
         email = request.data.get("email")
         code = request.data.get("code")
         if not email or not code:
             return Response({"error": "Email and code are required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        cache_key = f"otp_attempts:{email}"
+        attempts = cache.get(cache_key, 0)
+        if attempts >= 5:
+            return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         valid = auth_service.verify_login_code(email, code)
         if not valid:
+            cache.set(cache_key, attempts + 1, 300)
             return Response({"error": "Invalid or expired code"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # At this point user is authenticated → create Django session
+        # At this point user is authenticated 
         user = User.objects.get(email=email)
+        
+        if user.account_status in ['suspended', 'deactivated']:
+            return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
+            
         login(request, user)  # Creates session cookie
+        cache.delete(cache_key)
 
         return Response(
             {
@@ -70,15 +131,24 @@ def magic_login(request):
     if not auth_service.verify_login_code(email, code):
         return JsonResponse({"error": "Invalid or expired code"}, status=400)
 
-    # User is authenticated → create Django session
+    # User is authenticated 
     user = User.objects.get(email=email)
+    
+    if user.account_status in ['suspended', 'deactivated']:
+        return JsonResponse({"error": "Account is inactive."}, status=403)
+        
     login(request, user)  # Creates session cookie
 
-    # Redirect to frontend - session cookie is automatically set
-    from django.conf import settings
+    # Redirect to frontend - securely validate domain
+    redirect_url_param = request.GET.get("redirect_url")
     frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/#/auth/callback')
+    
+    if redirect_url_param:
+        parsed_url = urlparse(redirect_url_param)
+        allowed_domains = ['localhost', '127.0.0.1', 'biotechfutures.org']
+        if parsed_url.hostname in allowed_domains:
+            frontend_callback = redirect_url_param
 
-    # No need to pass tokens - session cookie handles authentication
     redirect_url = f"{frontend_callback}?success=true&email={user.email}"
 
     return redirect(redirect_url)
@@ -88,12 +158,20 @@ class LogoutView(APIView):
     """Logout endpoint - destroys Django session"""
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=None,
+        responses={200: AuthMessageSerializer},
+    )
     def post(self, request):
-        logout(request)  # Destroys session
-        return Response(
-            {"message": "Successfully logged out"},
-            status=status.HTTP_200_OK
-        )
+        # Explicitly revoke parallel tracking sessions if they exist
+        session_key = request.session.session_key
+        if session_key:
+            UserSession.objects.filter(sid=session_key).update(revoked_at=timezone.now())
+            
+        logout(request)  # Destroys native session
+        
+        response = Response({"message": "Successfully logged out"}, status=status.HTTP_200_OK)
+        return response
 
 
 @require_http_methods(["GET"])

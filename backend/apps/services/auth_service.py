@@ -1,4 +1,5 @@
 from datetime import timedelta
+from urllib.parse import urlencode
 from django.utils import timezone
 from django.core.mail import send_mail
 from apps.users.models import User
@@ -25,11 +26,16 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
         base_redirect = redirect_url
     else:
         # edbert: Fallback to settings configuration
-        from django.conf import settings
         base_redirect = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/auth/callback')
 
     # edbert: Build magic link that points to backend magic endpoint with email and code
-    magic_link = f"http://localhost:8000/services/magic/?email={email}&code={token}"
+    backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000')
+    query_params = {
+        'email': email,
+        'code': token,
+        'redirect_url': base_redirect
+    }
+    magic_link = f"{backend_url}/services/magic/?{urlencode(query_params)}"
 
     # Render HTML email
     html_content = render_to_string("emails/login.html", {

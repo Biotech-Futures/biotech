@@ -1,0 +1,53 @@
+from drf_spectacular.utils import extend_schema
+from rest_framework import permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
+from rest_framework.views import APIView
+
+from .serializers import DashboardNextEventSerializer, DashboardSummarySerializer
+from .services import get_dashboard_summary, get_personalized_next_event
+from django.core.paginator import Paginator
+from .serializers import GroupPreviewSerializer
+from .services import get_groups_preview
+
+class DashboardViewSet(GenericViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request):
+        data = get_dashboard_summary(request.user)
+        serializer = DashboardSummarySerializer(data)
+        return Response(serializer.data)
+
+
+class DashboardNextEventView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(request=None, responses={200: DashboardNextEventSerializer, 204: None})
+    def get(self, request):
+        payload = get_personalized_next_event(request.user)
+        if payload is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(DashboardNextEventSerializer(payload).data, status=status.HTTP_200_OK)
+
+class GroupsPreviewView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        mine = request.query_params.get("mine", "false").lower() == "true"
+        results = get_groups_preview(user=request.user, mine=mine)
+
+        # Pagination
+        page_size = int(request.query_params.get("page_size", 20))
+        page_number = int(request.query_params.get("page", 1))
+        paginator = Paginator(results, page_size)
+        page = paginator.get_page(page_number)
+
+        serializer = GroupPreviewSerializer(list(page.object_list), many=True)
+        return Response({
+            "count": paginator.count,
+            "next": page_number + 1 if page.has_next() else None,
+            "previous": page_number - 1 if page.has_previous() else None,
+            "results": serializer.data,
+        })

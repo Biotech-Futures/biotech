@@ -142,35 +142,54 @@ class CanAccessResource(BasePermission):
             except Exception:
                 return None
 
-        Users = apps.get_model("users", "Users")
+        User = apps.get_model("users", "User")
         # 1) direct PK match
         try:
-            if Users.objects.filter(pk=auth_user.pk).exists():
+            if User.objects.filter(pk=auth_user.pk).exists():
                 return int(auth_user.pk)
         except Exception:
             pass
         # 2) email match
         email = getattr(auth_user, "email", None)
         if email:
-            u = Users.objects.filter(email=email).only("id").first()
+            u = User.objects.filter(email=email).only("id").first()
             if u:
                 return int(u.id)
         return None
 
     def _user_can_access(self, business_user_id, resource_id) -> bool:
         # Late import to avoid circulars
-        ResourceRoles = apps.get_model("resources", "ResourceRoles")
+        Resources = apps.get_model("resources", "Resources")
+        ResourceAudience = apps.get_model("resources", "ResourceAudience")
         RoleAssignmentHistory = apps.get_model("resources", "RoleAssignmentHistory")
+        User = apps.get_model("users", "User")
 
         now = timezone.now()
-        # roles attached to this resource
-        role_ids = ResourceRoles.objects.filter(resource_id=resource_id).values_list("role_id", flat=True)
+        resource = Resources.objects.only("id", "visibility_scope").get(pk=resource_id)
+        if resource.visibility_scope == Resources.VisibilityScope.PUBLIC:
+            return True
+
+        user = User.objects.only("id", "track_id").get(pk=business_user_id)
 
         # active assignments for this user, matching any of those roles
-        return RoleAssignmentHistory.objects.filter(
+        has_role_access = RoleAssignmentHistory.objects.filter(
             user_id=business_user_id,
-            role_id__in=role_ids,
+            role_id__in=ResourceAudience.objects.filter(
+                resource_id=resource_id,
+                role_id__isnull=False,
+            ).values_list("role_id", flat=True),
             valid_from__lte=now,
         ).filter(
             Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        ).exists()
+
+        if has_role_access:
+            return True
+
+        if not user.track_id:
+            return False
+
+        return ResourceAudience.objects.filter(
+            resource_id=resource_id,
+            track_id=user.track_id,
         ).exists()

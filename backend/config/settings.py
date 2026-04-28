@@ -4,8 +4,17 @@ from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config("DJANGO_SECRET_KEY")
-DEBUG = config("DEBUG", default=True, cast=bool)
+
+def env_bool(value):
+    value = str(value).strip().lower()
+    if value in {"1", "true", "t", "yes", "y", "on", "debug"}:
+        return True
+    if value in {"0", "false", "f", "no", "n", "off", "release", "prod", "production", ""}:
+        return False
+    raise ValueError(f"Invalid truth value: {value}")
+
+SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-only-not-for-production")
+DEBUG = config("DEBUG", default="true", cast=env_bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
 INSTALLED_APPS = [
@@ -19,17 +28,21 @@ INSTALLED_APPS = [
     'apps.groups',
     'apps.chat',
     'apps.resources',
+    'apps.announcements',
+    'apps.audit',
     'apps.integrations',
+    'apps.dashboard',
     'apps.events',
     'apps.user_sessions',
+    'apps.matching_runtime',
     'apps.tasks',
     'apps.workshops',
     'apps.certificates',
     'apps.services',
-    'emailing',
     'matching',
     'drf_spectacular',
     'rest_framework',
+    'django_filters',
     'drf_spectacular_sidecar',
     'corsheaders',
     'channels',
@@ -37,8 +50,8 @@ INSTALLED_APPS = [
 ]
 
 # Azure Blob Storage
-AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME")
-AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY")
+AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME", default="")
+AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY", default="")
 AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
 AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
@@ -46,27 +59,21 @@ MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
 
 AUTH_USER_MODEL = 'users.User'
 
-# REST Framework with JWT Authentication
+# REST Framework with Django Session Authentication
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 }
 
-# JWT Settings
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-}
+
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'BIOTech Futures Mentoring Platform API',
@@ -82,6 +89,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.user_sessions.middleware.SessionTrackingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -110,11 +118,16 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME", default="biotech_db"),
-        "USER": config("DB_USER", default="pratikkulkarni"),
+        "NAME": config("DB_NAME", default="postgres"),
+        "USER": config("DB_USER", default="postgres"),
         "PASSWORD": config("DB_PASSWORD", default=""),
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
+        "OPTIONS": {
+            "sslmode": "require",
+            "connect_timeout": 5,
+        },
+        "CONN_MAX_AGE": 0,
     }
 }
 
@@ -131,10 +144,10 @@ USE_I18N = True
 USE_TZ = True
 
 # Email
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 
