@@ -4,7 +4,9 @@ import {
   individualStudentsResponseSchema,
   matchRecommendationsResponseSchema,
 } from "@/schema/match";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
+import { toast } from "sonner";
 
 export function useQueryMatchInfo() {
   return useQuery({
@@ -35,10 +37,32 @@ type ConfirmAssignmentPayload = {
 };
 
 export function useMutationConfirmAssignments() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: ConfirmAssignmentPayload) => {
       const res = await myFetch.post("match/confirm", payload);
       return confirmAssignmentsResponseSchema.parse(res.data);
+    },
+    onSuccess: async () => {
+      toast.success("Student assigned successfully.");
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["students"] }),
+        queryClient.invalidateQueries({ queryKey: ["groups"] }),
+        queryClient.invalidateQueries({ queryKey: ["matchInfo"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["individualStudents"],
+        }),
+      ]);
+    },
+    onError: (error) => {
+      if (error instanceof AxiosError) {
+        const msg =
+          (error.response?.data as { msg?: string } | undefined)?.msg ??
+          error.message;
+        toast.error(`Assignment failed: ${msg}`);
+      } else {
+        toast.error("Assignment failed. Please try again.");
+      }
     },
   });
 }

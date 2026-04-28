@@ -40,9 +40,7 @@ export function StudentFilters({
   onInGroupChange,
 }: StudentFiltersProps) {
   const trackOptions =
-    tracks.length > 0
-      ? tracks.map((item) => item.trackCode)
-      : STUDENT_TRACKS;
+    tracks.length > 0 ? tracks.map((item) => item.trackName) : STUDENT_TRACKS;
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -56,7 +54,7 @@ export function StudentFilters({
         />
       </div>
 
-      <div className="space-y-1">
+      {/* <div className="space-y-1">
         <Label htmlFor="student-year-level">Year</Label>
         <Select
           value={yearLevel || "all"}
@@ -76,7 +74,7 @@ export function StudentFilters({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </div> */}
 
       <div className="space-y-1">
         <Label htmlFor="student-track">Track</Label>

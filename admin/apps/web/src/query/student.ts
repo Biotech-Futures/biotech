@@ -37,7 +37,7 @@ export function useQueryStudents(params: QueryStudentsParams) {
           page,
           limit,
           search,
-          age: yearLevel,
+          yearLevel,
           track,
           interest,
           inGroup,

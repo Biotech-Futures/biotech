@@ -94,17 +94,8 @@ export type StudentInterest = {
   description: string;
 };
 
-export type StudentGroupInfo = {
-  id: number;
-  name: string;
-  membershipId: number;
-  membershipRole: string | null;
-  joinedAt: string;
-};
-
 export type StudentUser = {
   id: number;
-  name: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -112,26 +103,11 @@ export type StudentUser = {
   track: StudentTrack | null;
   isActive: boolean;
   accountStatus: string;
-  invitedAt: string | null;
-  activatedAt: string | null;
-  basicInfo: {
-    id: number;
-    name: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-    track: StudentTrack | null;
-    isActive: boolean;
-    accountStatus: string;
-  };
-  studentInfo: {
-    schoolName: string | null;
-    yearLevel: number | null;
-    joinPermissionReceived: boolean;
-    joinPermissionResponseId: string | null;
-  };
-  groupInfo: StudentGroupInfo | null;
-  groupId: string | null;
+  schoolName: string | null;
+  yearLevel: number | null;
+  hasJoinPermission: boolean;
+  joinpermResponseId: string | null;
+  groupId: number | null;
   groupName: string | null;
   interests: StudentInterest[];
 };

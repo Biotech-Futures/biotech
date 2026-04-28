@@ -5,10 +5,11 @@ import { Link } from "@tanstack/react-router";
 
 export const studentColumns: ColumnDef<StudentUser>[] = [
   {
-    accessorKey: "name",
+    id: "name",
     header: "Student",
     cell: ({ row }) => {
-      const { name, email, groupId } = row.original;
+      const { firstName, lastName, email, groupId } = row.original;
+      const name = `${firstName} ${lastName}`.trim();
       const content = (
         <div className="min-w-0">
           <p className="truncate font-medium">{name}</p>
@@ -16,30 +17,19 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
         </div>
       );
 
-      if (!groupId) return content;
-
-      return (
-        <Link
-          to="/group"
-          search={{ page: 1, groupId }}
-          className="text-primary font-medium underline-offset-2 hover:underline"
-          title={`Open group details for ${groupId}`}
-        >
-          {content}
-        </Link>
-      );
+      return content;
     },
   },
   {
     id: "school",
     header: "School",
-    cell: ({ row }) => row.original?.studentInfo?.schoolName ?? "-",
+    cell: ({ row }) => row.original.schoolName ?? "-",
   },
   {
     id: "yearLevel",
     header: "Year",
     cell: ({ row }) => {
-      const yearLevel = row.original?.studentInfo?.yearLevel;
+      const yearLevel = row.original.yearLevel;
       return yearLevel ? `Year ${yearLevel}` : "-";
     },
   },
@@ -52,17 +42,17 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
     id: "group",
     header: "Group",
     cell: ({ row }) => {
-      const { groupInfo } = row.original;
-      if (!groupInfo) return "-";
+      const { groupId, groupName } = row.original;
+      if (!groupId || !groupName) return "-";
 
       return (
         <Link
           to="/group"
-          search={{ page: 1, groupId: String(groupInfo.id) }}
+          search={{ page: 1, groupId: String(groupId) }}
           className="text-primary underline-offset-2 hover:underline"
-          title={`Open group details for ${groupInfo.id}`}
+          title={`Open group details for ${groupId}`}
         >
-          {groupInfo.name}
+          {groupName}
         </Link>
       );
     },
@@ -84,22 +74,5 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
         </div>
       );
     },
-  },
-  {
-    id: "permission",
-    header: "Permission",
-    cell: ({ row }) => (
-      <Badge
-        variant={
-          row.original?.studentInfo?.joinPermissionReceived
-            ? "default"
-            : "secondary"
-        }
-      >
-        {row.original?.studentInfo?.joinPermissionReceived
-          ? "Received"
-          : "Missing"}
-      </Badge>
-    ),
   },
 ];
