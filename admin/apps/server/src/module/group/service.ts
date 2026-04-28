@@ -12,7 +12,7 @@ import {
   sql,
 } from "drizzle-orm";
 import {
-  groupMembers,
+  groupMembership,
   groups,
   mentorProfile,
   messages,
@@ -74,8 +74,8 @@ async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
 
   const memberRows = await db
     .select({
-      groupId: groupMembers.groupId,
-      membershipId: groupMembers.id,
+      groupId: groupMembership.groupId,
+      membershipId: groupMembership.id,
       userId: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
@@ -83,12 +83,12 @@ async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
       isMentor: sql<boolean>`(${mentorProfile.userId} IS NOT NULL)`,
       isStudent: sql<boolean>`(${studentProfile.userId} IS NOT NULL)`,
     })
-    .from(groupMembers)
-    .innerJoin(users, eq(users.id, groupMembers.userId))
-    .leftJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
-    .leftJoin(studentProfile, eq(studentProfile.userId, groupMembers.userId))
-    .where(inArray(groupMembers.groupId, groupIds))
-    .orderBy(asc(groupMembers.groupId), asc(groupMembers.id));
+    .from(groupMembership)
+    .innerJoin(users, eq(users.id, groupMembership.userId))
+    .leftJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
+    .leftJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
+    .where(inArray(groupMembership.groupId, groupIds))
+    .orderBy(asc(groupMembership.groupId), asc(groupMembership.id));
 
   const membersByGroupId = new Map<number, GroupMember[]>();
   const mentorByGroupId = new Map<number, GroupMember>();
@@ -132,7 +132,7 @@ function buildGroupWhere(
     "searchName" | "searchGroup" | "track" | "mentorStatus"
   >,
 ) {
-  const conditions = [eq(groups.deletedFlag, false)];
+  const conditions = [isNull(groups.deletedAt)];
 
   if (params.track) conditions.push(eq(tracks.trackName, params.track));
   if (params.searchGroup) {
@@ -140,10 +140,10 @@ function buildGroupWhere(
   }
 
   const mentorMembership = db
-    .select({ id: groupMembers.id })
-    .from(groupMembers)
-    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId))
-    .where(eq(groupMembers.groupId, groups.id));
+    .select({ id: groupMembership.id })
+    .from(groupMembership)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
+    .where(eq(groupMembership.groupId, groups.id));
 
   if (params.mentorStatus === "matched") {
     conditions.push(exists(mentorMembership));
@@ -155,12 +155,12 @@ function buildGroupWhere(
   if (params.searchName) {
     const search = `%${params.searchName}%`;
     const matchingMember = db
-      .select({ id: groupMembers.id })
-      .from(groupMembers)
-      .innerJoin(users, eq(users.id, groupMembers.userId))
+      .select({ id: groupMembership.id })
+      .from(groupMembership)
+      .innerJoin(users, eq(users.id, groupMembership.userId))
       .where(
         and(
-          eq(groupMembers.groupId, groups.id),
+          eq(groupMembership.groupId, groups.id),
           or(
             ilike(users.firstName, search),
             ilike(users.lastName, search),
@@ -180,11 +180,11 @@ async function fetchGroupBaseById(id: number): Promise<GroupBaseRow | null> {
       id: groups.id,
       name: groups.groupName,
       track: tracks.trackName,
-      createdAt: groups.creationDatetime,
+      createdAt: groups.createdAt,
     })
     .from(groups)
     .innerJoin(tracks, eq(tracks.id, groups.trackId))
-    .where(and(eq(groups.id, id), eq(groups.deletedFlag, false)))
+    .where(and(eq(groups.id, id), isNull(groups.deletedAt)))
     .limit(1);
 
   return rows[0] ?? null;
@@ -201,7 +201,7 @@ export async function queryGroups(params: QueryGroupsInput) {
         id: groups.id,
         name: groups.groupName,
         track: tracks.trackName,
-        createdAt: groups.creationDatetime,
+        createdAt: groups.createdAt,
       })
       .from(groups)
       .innerJoin(tracks, eq(tracks.id, groups.trackId))
@@ -264,10 +264,7 @@ export async function queryGroupMessages(
   const { page, limit } = params;
   const offset = (page - 1) * limit;
 
-  const where = and(
-    eq(messages.groupId, groupId),
-    isNull(messages.deletedAt),
-  );
+  const where = and(eq(messages.groupId, groupId), isNull(messages.deletedAt));
 
   const [messageRows, countResult] = await Promise.all([
     db
@@ -287,7 +284,10 @@ export async function queryGroupMessages(
       .from(messages)
       .innerJoin(users, eq(users.id, messages.senderUserId))
       .leftJoin(mentorProfile, eq(mentorProfile.userId, messages.senderUserId))
-      .leftJoin(studentProfile, eq(studentProfile.userId, messages.senderUserId))
+      .leftJoin(
+        studentProfile,
+        eq(studentProfile.userId, messages.senderUserId),
+      )
       .where(where)
       .orderBy(asc(messages.sentAt), asc(messages.id))
       .limit(limit)

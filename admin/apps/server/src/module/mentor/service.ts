@@ -1,7 +1,7 @@
 import db from "@/lib/db.js";
 import { and, eq, isNull, max, sql } from "drizzle-orm";
 import {
-  groupMembers,
+  groupMembership,
   mentorProfile,
   mentorCertificate,
   certificateType,
@@ -9,16 +9,16 @@ import {
   tracks,
   users,
   background,
-  studentInterest,
+  userInterest,
   areasOfInterest,
 } from "@/schema/index.js";
 
 export async function getMentorList() {
   // 1. Count currently assigned groups per mentor
   const assignedCountRows = await db
-    .select({ mentorUserId: groupMembers.userId })
-    .from(groupMembers)
-    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembers.userId));
+    .select({ mentorUserId: groupMembership.userId })
+    .from(groupMembership)
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId));
 
   const assignedCountByMentor = new Map<number, number>();
   for (const row of assignedCountRows) {
@@ -37,7 +37,7 @@ export async function getMentorList() {
       email: users.email,
       isActive: users.isActive,
       institution: mentorProfile.institution,
-      maxGrpCnt: mentorProfile.maxGrpCnt,
+      maxGrpCnt: mentorProfile.maxGroupCount,
       trackCode: tracks.trackName,
       backgroundDesc: background.backgroundDescUniqueField,
     })
@@ -82,7 +82,10 @@ export async function getMentorList() {
       verified: mentorCertificate.verified,
     })
     .from(mentorCertificate)
-    .innerJoin(certificateType, eq(certificateType.id, mentorCertificate.certificateTypeId))
+    .innerJoin(
+      certificateType,
+      eq(certificateType.id, mentorCertificate.certificateTypeId),
+    )
     .where(
       sql`${mentorCertificate.mentorProfileId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
     );
@@ -97,13 +100,13 @@ export async function getMentorList() {
   // 5. Interests per mentor
   const interestRows = await db
     .select({
-      userId: studentInterest.userId,
+      userId: userInterest.userId,
       interestDesc: areasOfInterest.interestDesc,
     })
-    .from(studentInterest)
-    .innerJoin(areasOfInterest, eq(areasOfInterest.id, studentInterest.interestId))
+    .from(userInterest)
+    .innerJoin(areasOfInterest, eq(areasOfInterest.id, userInterest.interestId))
     .where(
-      sql`${studentInterest.userId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
+      sql`${userInterest.userId} = ANY(${sql.raw(`ARRAY[${mentorIds.join(",")}]::bigint[]`)})`,
     );
 
   const interestsByMentor = new Map<number, string[]>();
@@ -137,9 +140,6 @@ export async function getMentorList() {
 }
 
 export async function setMentorActive(mentorId: number, isActive: boolean) {
-  await db
-    .update(users)
-    .set({ isActive })
-    .where(eq(users.id, mentorId));
+  await db.update(users).set({ isActive }).where(eq(users.id, mentorId));
   return { mentorId, isActive };
 }

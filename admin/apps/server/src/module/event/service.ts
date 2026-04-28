@@ -1,5 +1,5 @@
-import { and, asc, count, eq, gte, type SQL } from "drizzle-orm";
-import { eventInvite, events } from "@/schema/db.js";
+import { and, asc, count, eq, gte, isNull, type SQL } from "drizzle-orm";
+import { eventRsvp, events } from "@/schema/db.js";
 import db from "@/lib/db.js";
 import type {
   CreateEventInput,
@@ -24,7 +24,7 @@ export async function queryEvents(params: QueryEventsInput) {
   const offset = (page - 1) * limit;
   const conditions: SQL[] = [];
 
-  conditions.push(eq(events.deletedFlag, false));
+  conditions.push(isNull(events.deletedAt));
 
   if (hostUserId) {
     conditions.push(eq(events.hostUserId, hostUserId));
@@ -69,7 +69,7 @@ export async function queryEventById(id: string) {
   const rows = await db
     .select()
     .from(events)
-    .where(and(eq(events.id, eventId), eq(events.deletedFlag, false)))
+    .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
     .limit(1);
 
   const event = rows[0] ?? null;
@@ -112,10 +112,13 @@ export async function updateEvent(id: string, data: UpdateEventInput) {
   if (data.hostUserId !== undefined) updates.hostUserId = data.hostUserId;
   if (data.eventName !== undefined) updates.eventName = data.eventName;
   if (data.description !== undefined) updates.description = data.description;
-  if (data.location !== undefined) updates.location = data.location?.trim() || null;
+  if (data.location !== undefined)
+    updates.location = data.location?.trim() || null;
   if (data.isVirtual !== undefined) updates.isVirtual = data.isVirtual;
-  if (data.startAt !== undefined) updates.startDatetime = new Date(data.startAt).toISOString();
-  if (data.endsAt !== undefined) updates.endsDatetime = new Date(data.endsAt).toISOString();
+  if (data.startAt !== undefined)
+    updates.startDatetime = new Date(data.startAt).toISOString();
+  if (data.endsAt !== undefined)
+    updates.endsDatetime = new Date(data.endsAt).toISOString();
 
   if (Object.keys(updates).length === 0) return queryEventById(id);
 
@@ -153,13 +156,12 @@ export async function deleteEvent(id: string) {
   const eventId = toEventId(id);
   if (!eventId) return { msg: "Invalid event id", data: null };
 
-  await db.delete(eventInvite).where(eq(eventInvite.eventId, eventId));
+  await db.delete(eventRsvp).where(eq(eventRsvp.eventId, eventId));
 
   const rows = await db
     .update(events)
     .set({
-      deletedFlag: true,
-      deletedDatetime: new Date().toISOString(),
+      deletedAt: new Date().toISOString(),
     })
     .where(eq(events.id, eventId))
     .returning();
@@ -177,9 +179,9 @@ export async function queryEventRsvps(id: string) {
 
   const rows = await db
     .select()
-    .from(eventInvite)
-    .where(eq(eventInvite.eventId, eventId))
-    .orderBy(asc(eventInvite.id));
+    .from(eventRsvp)
+    .where(eq(eventRsvp.eventId, eventId))
+    .orderBy(asc(eventRsvp.id));
 
   return {
     msg: "Event RSVPs retrieved successfully",
@@ -192,15 +194,15 @@ export async function createEventRsvp(id: string, data: CreateEventRsvpInput) {
   if (!eventId) return { msg: "Invalid event id", data: null };
 
   const rows = await db
-  .insert(eventInvite)
-  .values({
-    eventId,
-    userId: data.userId,
-    rsvpStatus: data.rsvpStatus,
-    attendanceStatus: false,
-    sentDatetime: new Date(Date.now() - 600000).toISOString(),
-  } as typeof eventInvite.$inferInsert)
-  .returning();
+    .insert(eventRsvp)
+    .values({
+      eventId,
+      userId: data.userId,
+      rsvpStatus: data.rsvpStatus,
+      attendanceStatus: false,
+      respondedAt: new Date(Date.now() - 600000).toISOString(),
+    })
+    .returning();
 
   return {
     msg: "Event RSVP created successfully",
@@ -216,9 +218,9 @@ export async function updateEventRsvp(
   if (!rsvpId) return { msg: "Invalid RSVP id", data: null };
 
   const rows = await db
-    .update(eventInvite)
+    .update(eventRsvp)
     .set({ rsvpStatus: data.rsvpStatus })
-    .where(eq(eventInvite.id, rsvpId))
+    .where(eq(eventRsvp.id, rsvpId))
     .returning();
   const rsvp = rows[0] ?? null;
 

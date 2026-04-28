@@ -3,12 +3,12 @@ import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import {
   adminUser,
   areasOfInterest,
-  groupMembers,
+  groupMembership,
   groups,
   mentorProfile,
   roleAssignmentHistory,
   roles,
-  studentInterest,
+  userInterest,
   studentProfile,
   supervisorProfile,
   tracks,
@@ -46,6 +46,14 @@ export type User = {
 export type TrackOption = {
   id: number;
   trackName: string;
+};
+
+const STATUS = {
+  INVITED: "invited",
+  PENDING: "pending",
+  ACTIVE: "active",
+  SUSPENDED: "suspended",
+  DEACTIVATED: "deactivated",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -108,16 +116,14 @@ async function syncStudentInterests(
   userId: number,
   interests: string[] | undefined,
 ) {
-  await executor
-    .delete(studentInterest)
-    .where(eq(studentInterest.userId, userId));
+  await executor.delete(userInterest).where(eq(userInterest.userId, userId));
 
   const interestIds = await resolveInterestIds(executor, interests);
   if (!interestIds.length) return;
 
-  await executor.insert(studentInterest).values(
-    interestIds.map((interestId) => ({ userId, interestId })),
-  );
+  await executor
+    .insert(userInterest)
+    .values(interestIds.map((interestId) => ({ userId, interestId })));
 }
 
 async function upsertStudentProfile(
@@ -179,9 +185,7 @@ async function upsertSupervisorProfile(
 }
 
 async function deleteStudentDetails(executor: any, userId: number) {
-  await executor
-    .delete(studentInterest)
-    .where(eq(studentInterest.userId, userId));
+  await executor.delete(userInterest).where(eq(userInterest.userId, userId));
   await executor
     .delete(studentProfile)
     .where(eq(studentProfile.userId, userId));
@@ -202,7 +206,7 @@ const userSelect = {
   joinPermissionReceived: studentProfile.hasJoinPermission,
   interests: sql<
     string[]
-  >`COALESCE((SELECT array_agg(aoi.interest_desc) FROM student_interest si JOIN areas_of_interest aoi ON aoi.id = si.interest_id WHERE si.user_id = ${users.id}), ARRAY[]::text[])`,
+  >`COALESCE((SELECT array_agg(aoi.interest_desc) FROM user_interest ui JOIN areas_of_interest aoi ON aoi.id = ui.interest_id WHERE ui.user_id = ${users.id}), ARRAY[]::text[])`,
   isActive: users.isActive,
   accountStatus: sql<string>`CASE WHEN ${users.isActive} THEN 'active' ELSE 'deactivated' END`,
   invitedAt: users.dateJoined,
@@ -222,8 +226,8 @@ function baseUserQuery() {
     )
     .leftJoin(roles, eq(roles.id, roleAssignmentHistory.roleId))
     .leftJoin(tracks, eq(tracks.id, users.trackId))
-    .leftJoin(groupMembers, eq(groupMembers.userId, users.id))
-    .leftJoin(groups, eq(groups.id, groupMembers.groupId))
+    .leftJoin(groupMembership, eq(groupMembership.userId, users.id))
+    .leftJoin(groups, eq(groups.id, groupMembership.groupId))
     .leftJoin(studentProfile, eq(studentProfile.userId, users.id))
     .leftJoin(supervisorProfile, eq(supervisorProfile.userId, users.id));
 }
@@ -364,7 +368,7 @@ export async function createUser(input: CreateUserInput) {
         firstName: input.firstName,
         lastName: input.lastName,
         isActive: input.active ?? true,
-        status: input.active ?? true,
+        accountStatus: (input.active ?? true) ? STATUS.ACTIVE : STATUS.INVITED,
         dateJoined: now,
         lastLogin: null,
         trackId,
@@ -400,7 +404,13 @@ export async function createUser(input: CreateUserInput) {
     });
 
     if (input.role === "student") {
-      await upsertStudentProfile(tx, userId, input.firstName, input.lastName, input);
+      await upsertStudentProfile(
+        tx,
+        userId,
+        input.firstName,
+        input.lastName,
+        input,
+      );
       await syncStudentInterests(tx, userId, input.interests);
     }
 
@@ -540,7 +550,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       if (nextRole === "supervisor") {
         const schoolName =
           input.supervisorSchoolName?.trim() ??
-          (existing.role === "supervisor" ? existing.schoolName ?? "" : "");
+          (existing.role === "supervisor" ? (existing.schoolName ?? "") : "");
         await upsertSupervisorProfile(tx, userId, schoolName);
       } else if (existing.role === "supervisor" && nextRole !== "supervisor") {
         await tx
@@ -566,7 +576,10 @@ export async function updateStatus(id: string, input: UpdateStatusInput) {
 
   await db
     .update(users)
-    .set({ isActive: input.isActive, status: input.isActive })
+    .set({
+      isActive: input.isActive,
+      accountStatus: input.isActive ? STATUS.ACTIVE : STATUS.DEACTIVATED,
+    })
     .where(eq(users.id, userId));
 
   const updated = await fetchUserById(userId);
@@ -584,7 +597,7 @@ export async function deleteUser(id: string) {
   await db
     .delete(roleAssignmentHistory)
     .where(eq(roleAssignmentHistory.userId, userId));
-  await db.delete(studentInterest).where(eq(studentInterest.userId, userId));
+  await db.delete(userInterest).where(eq(userInterest.userId, userId));
   await db.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
   await db
     .delete(supervisorProfile)

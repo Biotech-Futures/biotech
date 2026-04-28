@@ -6,7 +6,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
-    "db:pull": "drizzle-kit pull --config=drizzle.pull.config.ts",
+    "db:pull": "drizzle-kit pull --config=drizzle.pull.config.ts && tsx scripts/split-drizzle-pull.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "test": "vitest",
     "test:run": "vitest run"

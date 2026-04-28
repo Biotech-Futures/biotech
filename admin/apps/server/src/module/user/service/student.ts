@@ -5,6 +5,7 @@ import {
   exists,
   ilike,
   inArray,
+  isNull,
   notExists,
   or,
   sql,
@@ -13,9 +14,9 @@ import type { QueryStudentsInput } from "../schema.js";
 import db from "@/lib/db.js";
 import {
   areasOfInterest,
-  groupMembers,
+  groupMembership,
   groups,
-  studentInterest,
+  userInterest,
   studentProfile,
   tracks,
   users,
@@ -65,15 +66,15 @@ export async function queryStudents(params: QueryStudentsInput) {
 
   if (interest) {
     const matchingInterest = db
-      .select({ id: studentInterest.id })
-      .from(studentInterest)
+      .select({ id: userInterest.id })
+      .from(userInterest)
       .innerJoin(
         areasOfInterest,
-        eq(areasOfInterest.id, studentInterest.interestId),
+        eq(areasOfInterest.id, userInterest.interestId),
       )
       .where(
         and(
-          eq(studentInterest.userId, users.id),
+          eq(userInterest.userId, users.id),
           ilike(areasOfInterest.interestDesc, `%${interest}%`),
         ),
       );
@@ -82,9 +83,9 @@ export async function queryStudents(params: QueryStudentsInput) {
 
   // inGroup filter: check existence in group_members table
   const membershipSubq = db
-    .select({ id: groupMembers.id })
-    .from(groupMembers)
-    .where(eq(groupMembers.userId, users.id));
+    .select({ id: groupMembership.id })
+    .from(groupMembership)
+    .where(eq(groupMembership.userId, users.id));
 
   if (inGroup === "yes") conditions.push(exists(membershipSubq));
   else if (inGroup === "no") conditions.push(notExists(membershipSubq));
@@ -144,16 +145,13 @@ export async function queryStudents(params: QueryStudentsInput) {
     .from(users)
     .innerJoin(studentProfile, eq(studentProfile.userId, users.id))
     .leftJoin(tracks, eq(tracks.id, users.trackId))
-    .leftJoin(groupMembers, eq(groupMembers.userId, users.id))
+    .leftJoin(groupMembership, eq(groupMembership.userId, users.id))
     .leftJoin(
       groups,
-      and(eq(groups.id, groupMembers.groupId), eq(groups.deletedFlag, false)),
+      and(eq(groups.id, groupMembership.groupId), isNull(groups.deletedAt)),
     )
-    .leftJoin(studentInterest, eq(studentInterest.userId, users.id))
-    .leftJoin(
-      areasOfInterest,
-      eq(areasOfInterest.id, studentInterest.interestId),
-    )
+    .leftJoin(userInterest, eq(userInterest.userId, users.id))
+    .leftJoin(areasOfInterest, eq(areasOfInterest.id, userInterest.interestId))
     .where(inArray(users.id, studentIds))
     .orderBy(asc(users.lastName), asc(users.firstName), asc(users.id));
 
@@ -205,7 +203,10 @@ export async function queryStudents(params: QueryStudentsInput) {
       row.interestDesc &&
       !item.interests.some((e) => e.id === row.interestId)
     ) {
-      item.interests.push({ id: row.interestId, description: row.interestDesc });
+      item.interests.push({
+        id: row.interestId,
+        description: row.interestDesc,
+      });
     }
   }
 

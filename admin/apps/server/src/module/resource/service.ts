@@ -13,15 +13,7 @@ import {
   tracks,
   users,
 } from "@/schema/db.js";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type {
   QueryResourcesInput,
   CreateResourceInput,
@@ -41,7 +33,7 @@ import {
 export type Role = {
   id: number;
   slug: string;
-  name?: string;
+  typeName?: string;
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
@@ -68,7 +60,7 @@ export type ResourceUploader = {
 
 export type AuthUploader = {
   id: string;
-  name?: string | null;
+  typeName?: string | null;
   email?: string | null;
 };
 
@@ -107,14 +99,23 @@ export type Resource = ResourceRow & {
 
 const ADMIN_ROLE_SLUG = "admin";
 const FALLBACK_ROLES: Role[] = demoRoles.map((item) => ({ ...item }));
-const FALLBACK_TYPES: ResourceTypeOption[] = demoResourceTypes.map((item) => ({ ...item }));
-const FALLBACK_UPLOADERS: ResourceUploader[] = demoUploaders.map((item) => ({ ...item }));
+const FALLBACK_TYPES: ResourceTypeOption[] = demoResourceTypes.map((item) => ({
+  ...item,
+}));
+const FALLBACK_UPLOADERS: ResourceUploader[] = demoUploaders.map((item) => ({
+  ...item,
+}));
 
 let demoRows: DemoResourceRow[] = demoResources.map((item) => ({ ...item }));
-let demoAudienceRows: DemoResourceAudienceRow[] = demoResourceAudience.map((item) => ({ ...item }));
-let demoUploadersState: ResourceUploader[] = FALLBACK_UPLOADERS.map((item) => ({ ...item }));
+let demoAudienceRows: DemoResourceAudienceRow[] = demoResourceAudience.map(
+  (item) => ({ ...item }),
+);
+let demoUploadersState: ResourceUploader[] = FALLBACK_UPLOADERS.map((item) => ({
+  ...item,
+}));
 let nextDemoResourceId = Math.max(0, ...demoRows.map((item) => item.id)) + 1;
-let nextDemoAudienceId = Math.max(0, ...demoAudienceRows.map((item) => item.id)) + 1;
+let nextDemoAudienceId =
+  Math.max(0, ...demoAudienceRows.map((item) => item.id)) + 1;
 let nextDemoUploaderId =
   Math.max(100, ...demoUploadersState.map((item) => Number(item.id) || 0)) + 1;
 
@@ -127,9 +128,16 @@ const demoUploadedFiles = new Map<
   }
 >();
 
-function normalizeRoleIds(roleIds: number[] = [], availableRoles: Role[]): number[] {
-  const adminRole = availableRoles.find((item) => item.slug === ADMIN_ROLE_SLUG);
-  const validIds = roleIds.filter((roleId) => availableRoles.some((item) => item.id === roleId));
+function normalizeRoleIds(
+  roleIds: number[] = [],
+  availableRoles: Role[],
+): number[] {
+  const adminRole = availableRoles.find(
+    (item) => item.slug === ADMIN_ROLE_SLUG,
+  );
+  const validIds = roleIds.filter((roleId) =>
+    availableRoles.some((item) => item.id === roleId),
+  );
   const withAdmin = adminRole ? [...validIds, adminRole.id] : validIds;
   return Array.from(new Set(withAdmin));
 }
@@ -142,7 +150,10 @@ function slugifyRole(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function resolveVisibilityScope(trackId: number | null | undefined, roleIds: number[] = []) {
+function resolveVisibilityScope(
+  trackId: number | null | undefined,
+  roleIds: number[] = [],
+) {
   if (roleIds.length > 0) return "role_based" as const;
   if (trackId !== null && trackId !== undefined) return "track_based" as const;
   return "global" as const;
@@ -161,7 +172,10 @@ function normalizeVisibilityScope(
 
 function buildStorageKey(resourceId: number, fileName?: string | null) {
   const stamp = Date.now();
-  const safeName = (fileName || "resource.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safeName = (fileName || "resource.bin").replace(
+    /[^a-zA-Z0-9._-]/g,
+    "_",
+  );
   return `resources/${stamp}-${resourceId}-${safeName}`;
 }
 
@@ -176,7 +190,9 @@ function extractFileNameFromStorageKey(storageKey?: string | null) {
 
 function buildResourceFromDemoRow(resourceRow: DemoResourceRow): Resource {
   const uploader =
-    demoUploadersState.find((item) => item.id === resourceRow.uploader_user_id) ??
+    demoUploadersState.find(
+      (item) => item.id === resourceRow.uploader_user_id,
+    ) ??
     demoUploadersState[0] ??
     FALLBACK_UPLOADERS[0];
 
@@ -204,20 +220,20 @@ function buildResourceFromDemoRow(resourceRow: DemoResourceRow): Resource {
 
 async function getRolesFromDb(): Promise<Role[]> {
   const rows = await db
-    .select({ id: roles.id, name: roles.roleName })
+    .select({ id: roles.id, typeName: roles.roleName })
     .from(roles)
     .orderBy(asc(roles.id));
 
   if (!rows.length) return [];
   return rows.map((item) => ({
     id: item.id,
-    name: item.name,
-    slug: slugifyRole(item.name),
+    typeName: item.typeName,
+    slug: slugifyRole(item.typeName),
   }));
 }
 
-function parseName(name?: string | null) {
-  const full = (name || "").trim();
+function parseName(typeName?: string | null) {
+  const full = (typeName || "").trim();
   if (!full) return { first: "Admin", last: "User" };
   const parts = full.split(/\s+/);
   return {
@@ -226,7 +242,9 @@ function parseName(name?: string | null) {
   };
 }
 
-async function resolveUploaderForDb(authUploader?: AuthUploader): Promise<ResourceUploader> {
+async function resolveUploaderForDb(
+  authUploader?: AuthUploader,
+): Promise<ResourceUploader> {
   if (authUploader?.id) {
     const userId = Number(authUploader.id);
     if (Number.isFinite(userId)) {
@@ -294,7 +312,9 @@ async function resolveUploaderForDb(authUploader?: AuthUploader): Promise<Resour
     };
   }
 
-  throw new Error("Cannot resolve uploader: missing user mapping in users table");
+  throw new Error(
+    "Cannot resolve uploader: missing user mapping in users table",
+  );
 }
 
 function resolveUploaderForDemo(authUploader?: AuthUploader): ResourceUploader {
@@ -309,7 +329,7 @@ function resolveUploaderForDemo(authUploader?: AuthUploader): ResourceUploader {
     if (byEmail) return byEmail;
   }
 
-  const parsed = parseName(authUploader.name);
+  const parsed = parseName(authUploader.typeName);
   const created: ResourceUploader = {
     id: nextDemoUploaderId++,
     first_name: parsed.first,
@@ -324,7 +344,9 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
   const conditions = [isNull(resources.deletedAt)];
 
   const uploaderId =
-    params.uploader_user_id !== undefined ? Number(params.uploader_user_id) : null;
+    params.uploader_user_id !== undefined
+      ? Number(params.uploader_user_id)
+      : null;
   if (uploaderId !== null && Number.isFinite(uploaderId)) {
     conditions.push(eq(resources.uploadedById, uploaderId));
   }
@@ -342,11 +364,13 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
   }
 
   if (params.resource_type) {
-    conditions.push(eq(resourceTypes.name, params.resource_type));
+    conditions.push(eq(resourceTypes.typeName, params.resource_type));
   }
 
   if (params.track_id !== undefined) {
-    conditions.push(sql`COALESCE(${resources.trackId}, ${groups.trackId}) = ${params.track_id}`);
+    conditions.push(
+      sql`COALESCE(${resources.trackId}, ${groups.trackId}) = ${params.track_id}`,
+    );
   }
 
   if (params.search) {
@@ -361,7 +385,9 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
       id: resources.id,
       uploader_user_id: resources.uploadedById,
       group_id: resources.groupId,
-      track_id: sql<number | null>`(COALESCE(${resources.trackId}, ${groups.trackId}))::int`,
+      track_id: sql<
+        number | null
+      >`(COALESCE(${resources.trackId}, ${groups.trackId}))::int`,
       visibility_scope: resources.visibilityScope,
       uploaded_at: resources.uploadedAt,
       deleted_at: resources.deletedAt,
@@ -369,7 +395,7 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
       resource_name: resources.name,
       resource_description: resources.description,
       resource_type_id: resources.typeId,
-      resource_type: sql<ResourceTypeName | null>`${resourceTypes.name}`,
+      resource_type: sql<ResourceTypeName | null>`${resourceTypes.typeName}`,
       content_html: sql<string | null>`null`,
       file_name: sql<string | null>`null`,
       file_mime_type: resources.fileMimeType,
@@ -389,13 +415,17 @@ async function fetchResourcesFromDbRows(params: QueryResourcesInput) {
   return rows as ResourceRow[];
 }
 
-async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> {
+async function fetchResourceByIdFromDb(
+  id: number,
+): Promise<ResourceRow | null> {
   const row = await db
     .select({
       id: resources.id,
       uploader_user_id: resources.uploadedById,
       group_id: resources.groupId,
-      track_id: sql<number | null>`(COALESCE(${resources.trackId}, ${groups.trackId}))::int`,
+      track_id: sql<
+        number | null
+      >`(COALESCE(${resources.trackId}, ${groups.trackId}))::int`,
       visibility_scope: resources.visibilityScope,
       uploaded_at: resources.uploadedAt,
       deleted_at: resources.deletedAt,
@@ -403,7 +433,7 @@ async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> 
       resource_name: resources.name,
       resource_description: resources.description,
       resource_type_id: resources.typeId,
-      resource_type: sql<ResourceTypeName | null>`${resourceTypes.name}`,
+      resource_type: sql<ResourceTypeName | null>`${resourceTypes.typeName}`,
       content_html: sql<string | null>`null`,
       file_name: sql<string | null>`null`,
       file_mime_type: resources.fileMimeType,
@@ -420,7 +450,9 @@ async function fetchResourceByIdFromDb(id: number): Promise<ResourceRow | null> 
   return row[0] as ResourceRow;
 }
 
-async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource[]> {
+async function hydrateDbResources(
+  resourceRows: ResourceRow[],
+): Promise<Resource[]> {
   if (!resourceRows.length) return [];
 
   const uploaderIds = Array.from(
@@ -434,7 +466,12 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
       email: users.email,
     })
     .from(users)
-    .where(inArray(users.id, uploaderIds.map((value) => Number(value)).filter(Number.isFinite)));
+    .where(
+      inArray(
+        users.id,
+        uploaderIds.map((value) => Number(value)).filter(Number.isFinite),
+      ),
+    );
 
   const uploaderMap = new Map(
     uploaderRows.map((item) => {
@@ -484,19 +521,23 @@ async function hydrateDbResources(resourceRows: ResourceRow[]): Promise<Resource
     const roleIds = audiences
       .map((item) => item.role_id)
       .filter((id): id is number => typeof id === "number");
-    const visibility = normalizeVisibilityScope(row.visibility_scope, row.track_id, roleIds);
+    const visibility = normalizeVisibilityScope(
+      row.visibility_scope,
+      row.track_id,
+      roleIds,
+    );
 
     return {
       ...row,
       visibility_scope: visibility,
-      file_name: row.file_name ?? extractFileNameFromStorageKey(row.storage_key),
-      uploader:
-        uploaderMap.get(Number(row.uploader_user_id)) ?? {
-          id: row.uploader_user_id,
-          first_name: "Unknown",
-          last_name: "User",
-          email: "unknown@example.com",
-        },
+      file_name:
+        row.file_name ?? extractFileNameFromStorageKey(row.storage_key),
+      uploader: uploaderMap.get(Number(row.uploader_user_id)) ?? {
+        id: row.uploader_user_id,
+        first_name: "Unknown",
+        last_name: "User",
+        email: "unknown@example.com",
+      },
       audiences,
     };
   });
@@ -528,7 +569,8 @@ export async function queryResources(params: QueryResourcesInput) {
 
   if (params.uploader_user_id !== undefined) {
     resourcesList = resourcesList.filter(
-      (item) => String(item.uploader_user_id) === String(params.uploader_user_id),
+      (item) =>
+        String(item.uploader_user_id) === String(params.uploader_user_id),
     );
   }
 
@@ -539,17 +581,22 @@ export async function queryResources(params: QueryResourcesInput) {
   }
 
   if (params.resource_type) {
-    resourcesList = resourcesList.filter((item) => item.resource_type === params.resource_type);
+    resourcesList = resourcesList.filter(
+      (item) => item.resource_type === params.resource_type,
+    );
   }
 
   if (params.resource_kind) {
-    resourcesList = resourcesList.filter((item) => item.resource_kind === params.resource_kind);
+    resourcesList = resourcesList.filter(
+      (item) => item.resource_kind === params.resource_kind,
+    );
   }
 
   if (uploader) {
     const keyword = uploader.toLowerCase();
     resourcesList = resourcesList.filter((item) => {
-      const full = `${item.uploader.first_name} ${item.uploader.last_name}`.toLowerCase();
+      const full =
+        `${item.uploader.first_name} ${item.uploader.last_name}`.toLowerCase();
       const email = item.uploader.email.toLowerCase();
       return full.includes(keyword) || email.includes(keyword);
     });
@@ -558,7 +605,9 @@ export async function queryResources(params: QueryResourcesInput) {
   if (role_slug) {
     const keyword = role_slug.toLowerCase();
     resourcesList = resourcesList.filter((item) =>
-      item.audiences.some((audience) => audience.role?.slug.toLowerCase().includes(keyword)),
+      item.audiences.some((audience) =>
+        audience.role?.slug.toLowerCase().includes(keyword),
+      ),
     );
   }
 
@@ -599,7 +648,8 @@ export async function queryResources(params: QueryResourcesInput) {
 
 export async function queryResourceById(id: number) {
   if (useResourceDemoData()) {
-    const row = demoRows.find((item) => item.id === id && !item.deleted_at) ?? null;
+    const row =
+      demoRows.find((item) => item.id === id && !item.deleted_at) ?? null;
     if (!row) {
       return {
         msg: "Resource not found",
@@ -629,7 +679,9 @@ export async function queryResourceById(id: number) {
     const blobFile = await downloadBlobFile(resource.storage_key);
     if (blobFile?.bytes) {
       try {
-        resource.content_html = new TextDecoder().decode(new Uint8Array(blobFile.bytes));
+        resource.content_html = new TextDecoder().decode(
+          new Uint8Array(blobFile.bytes),
+        );
       } catch {
         // Ignore decode issues; content_html stays null.
       }
@@ -642,11 +694,15 @@ export async function queryResourceById(id: number) {
   };
 }
 
-export async function createResource(payload: CreateResourceInput, uploader?: AuthUploader) {
+export async function createResource(
+  payload: CreateResourceInput,
+  uploader?: AuthUploader,
+) {
   if (useResourceDemoData()) {
     const requestedRoleIds = payload.role_ids ?? [];
     const visibilityScope: VisibilityScope =
-      payload.visibility_scope ?? resolveVisibilityScope(payload.track_id, requestedRoleIds);
+      payload.visibility_scope ??
+      resolveVisibilityScope(payload.track_id, requestedRoleIds);
     const roleIds = normalizeRoleIds(requestedRoleIds, FALLBACK_ROLES);
     const trackId = payload.track_id ?? null;
     const authUploader = resolveUploaderForDemo(uploader);
@@ -663,7 +719,8 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
       resource_name: payload.resource_name,
       resource_description: payload.resource_description,
       resource_type: payload.resource_type ?? "guide",
-      content_html: payload.resource_kind === "page" ? (payload.content_html ?? "") : null,
+      content_html:
+        payload.resource_kind === "page" ? (payload.content_html ?? "") : null,
       file_name: payload.resource_kind === "page" ? null : null,
       file_mime_type: payload.resource_kind === "page" ? null : null,
       file_size: payload.resource_kind === "page" ? null : null,
@@ -702,7 +759,7 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
           const matched = await db
             .select({ id: resourceTypes.id })
             .from(resourceTypes)
-            .where(eq(resourceTypes.name, requestedResourceType))
+            .where(eq(resourceTypes.typeName, requestedResourceType))
             .limit(1);
           return matched[0]?.id ?? null;
         })()
@@ -761,9 +818,13 @@ export async function createResource(payload: CreateResourceInput, uploader?: Au
   }
 
   if (roleIds.length) {
-    await db
-      .insert(resourceAudience)
-      .values(roleIds.map((roleId) => ({ resourceId: id, roleId, trackId: payload.track_id ?? null })));
+    await db.insert(resourceAudience).values(
+      roleIds.map((roleId) => ({
+        resourceId: id,
+        roleId,
+        trackId: payload.track_id ?? null,
+      })),
+    );
   }
 
   return queryResourceById(id).then((result) => ({
@@ -860,7 +921,7 @@ export async function uploadResource(payload: {
           const matched = await db
             .select({ id: resourceTypes.id })
             .from(resourceTypes)
-            .where(eq(resourceTypes.name, requestedResourceType))
+            .where(eq(resourceTypes.typeName, requestedResourceType))
             .limit(1);
           return matched[0]?.id ?? null;
         })()
@@ -898,15 +959,16 @@ export async function uploadResource(payload: {
 
   await uploadBlobFile(storageKey, payload.file_bytes, fileMimeType);
 
-  await db
-    .update(resources)
-    .set({ storageKey })
-    .where(eq(resources.id, id));
+  await db.update(resources).set({ storageKey }).where(eq(resources.id, id));
 
   if (roleIds.length) {
-    await db
-      .insert(resourceAudience)
-      .values(roleIds.map((roleId) => ({ resourceId: id, roleId, trackId: payload.track_id ?? null })));
+    await db.insert(resourceAudience).values(
+      roleIds.map((roleId) => ({
+        resourceId: id,
+        roleId,
+        trackId: payload.track_id ?? null,
+      })),
+    );
   }
 
   return queryResourceById(id).then((result) => ({
@@ -942,7 +1004,9 @@ export async function replaceResourceFile(
   const nextStorageKey = buildStorageKey(id, payload.file_name);
 
   if (useResourceDemoData()) {
-    const index = demoRows.findIndex((item) => item.id === id && !item.deleted_at);
+    const index = demoRows.findIndex(
+      (item) => item.id === id && !item.deleted_at,
+    );
     if (index === -1) {
       return { msg: "Resource not found", data: null };
     }
@@ -986,7 +1050,10 @@ export async function replaceResourceFile(
     })
     .where(eq(resources.id, id));
 
-  if (existing.data.storage_key && existing.data.storage_key !== nextStorageKey) {
+  if (
+    existing.data.storage_key &&
+    existing.data.storage_key !== nextStorageKey
+  ) {
     await deleteBlobFile(existing.data.storage_key);
   }
 
@@ -1052,7 +1119,8 @@ export async function downloadResource(id: number) {
   return {
     msg: "Resource download prepared",
     data: {
-      file_name: resourceResult.data.file_name || `resource-${resourceResult.data.id}`,
+      file_name:
+        resourceResult.data.file_name || `resource-${resourceResult.data.id}`,
       mime_type: blobFile.mime_type,
       bytes: blobFile.bytes,
     },
@@ -1061,20 +1129,27 @@ export async function downloadResource(id: number) {
 
 export async function updateResource(id: number, updates: UpdateResourceInput) {
   if (useResourceDemoData()) {
-    const index = demoRows.findIndex((item) => item.id === id && !item.deleted_at);
+    const index = demoRows.findIndex(
+      (item) => item.id === id && !item.deleted_at,
+    );
     if (index === -1) {
       return { msg: "Resource not found", data: null };
     }
 
     const current = demoRows[index];
-    const adminRoleId = FALLBACK_ROLES.find((role) => role.slug === ADMIN_ROLE_SLUG)?.id;
+    const adminRoleId = FALLBACK_ROLES.find(
+      (role) => role.slug === ADMIN_ROLE_SLUG,
+    )?.id;
     const currentNonAdminRoleIds = demoAudienceRows
       .filter((item) => item.resource_id === id && item.role_id !== null)
       .map((item) => item.role_id as number)
       .filter((roleId) => roleId !== adminRoleId);
     const requestedRoleIds =
-      updates.role_ids === undefined ? currentNonAdminRoleIds : updates.role_ids;
-    const nextTrackId = updates.track_id === undefined ? current.track_id : updates.track_id;
+      updates.role_ids === undefined
+        ? currentNonAdminRoleIds
+        : updates.role_ids;
+    const nextTrackId =
+      updates.track_id === undefined ? current.track_id : updates.track_id;
     const visibilityScope: VisibilityScope =
       updates.visibility_scope ??
       (current.visibility_scope as VisibilityScope) ??
@@ -1084,11 +1159,16 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
       ...current,
       resource_kind: updates.resource_kind ?? current.resource_kind,
       resource_name: updates.resource_name ?? current.resource_name,
-      resource_description: updates.resource_description ?? current.resource_description,
+      resource_description:
+        updates.resource_description ?? current.resource_description,
       resource_type:
-        updates.resource_type === undefined ? current.resource_type : updates.resource_type,
+        updates.resource_type === undefined
+          ? current.resource_type
+          : updates.resource_type,
       content_html:
-        updates.content_html === undefined ? current.content_html : updates.content_html,
+        updates.content_html === undefined
+          ? current.content_html
+          : updates.content_html,
       visibility_scope: visibilityScope,
       track_id: nextTrackId,
     };
@@ -1101,7 +1181,9 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
 
     if (updates.role_ids !== undefined) {
       const roleIds = normalizeRoleIds(requestedRoleIds, FALLBACK_ROLES);
-      demoAudienceRows = demoAudienceRows.filter((item) => item.resource_id !== id);
+      demoAudienceRows = demoAudienceRows.filter(
+        (item) => item.resource_id !== id,
+      );
       demoAudienceRows.push(
         ...roleIds.map((roleId) => ({
           id: nextDemoAudienceId++,
@@ -1149,7 +1231,7 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
           const matched = await db
             .select({ id: resourceTypes.id })
             .from(resourceTypes)
-            .where(eq(resourceTypes.name, requestedResourceType))
+            .where(eq(resourceTypes.typeName, requestedResourceType))
             .limit(1);
           return matched[0]?.id ?? null;
         })()
@@ -1161,11 +1243,13 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
     .update(resources)
     .set({
       name: updates.resource_name ?? current.resource_name,
-      description: updates.resource_description ?? current.resource_description ?? "",
+      description:
+        updates.resource_description ?? current.resource_description ?? "",
       typeId: finalResourceTypeId,
       kind: updateKind,
       visibilityScope: updates.visibility_scope ?? current.visibility_scope,
-      trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+      trackId:
+        updates.track_id === undefined ? current.track_id : updates.track_id,
       groupId: finalGroupId,
     })
     .where(eq(resources.id, id));
@@ -1196,18 +1280,25 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
   if (updates.role_ids !== undefined) {
     const availableRoles = await getRolesFromDb();
     const currentNonAdminRoleIds = current.audiences
-      .filter((item) => item.role_id !== null && item.role?.slug !== ADMIN_ROLE_SLUG)
+      .filter(
+        (item) => item.role_id !== null && item.role?.slug !== ADMIN_ROLE_SLUG,
+      )
       .map((item) => item.role_id as number);
     const requestedRoleIds = updates.role_ids ?? currentNonAdminRoleIds;
     const roleIds = normalizeRoleIds(requestedRoleIds, availableRoles);
 
-    await db.delete(resourceAudience).where(eq(resourceAudience.resourceId, id));
+    await db
+      .delete(resourceAudience)
+      .where(eq(resourceAudience.resourceId, id));
     if (roleIds.length) {
       await db.insert(resourceAudience).values(
         roleIds.map((roleId) => ({
           resourceId: id,
           roleId,
-          trackId: updates.track_id === undefined ? current.track_id : updates.track_id,
+          trackId:
+            updates.track_id === undefined
+              ? current.track_id
+              : updates.track_id,
         })),
       );
     }
@@ -1221,7 +1312,9 @@ export async function updateResource(id: number, updates: UpdateResourceInput) {
 
 export async function deleteResource(id: number) {
   if (useResourceDemoData()) {
-    const index = demoRows.findIndex((item) => item.id === id && !item.deleted_at);
+    const index = demoRows.findIndex(
+      (item) => item.id === id && !item.deleted_at,
+    );
     if (index === -1) {
       return { msg: "Resource not found", data: null };
     }
@@ -1296,7 +1389,9 @@ export async function assignRoleToResource(id: number, roleId: number) {
     return { msg: "Resource not found", data: null };
   }
 
-  const hasRole = existing.data.audiences.some((item) => item.role_id === roleId);
+  const hasRole = existing.data.audiences.some(
+    (item) => item.role_id === roleId,
+  );
   if (!hasRole) {
     await db.insert(resourceAudience).values({
       resourceId: id,
@@ -1312,8 +1407,12 @@ export async function assignRoleToResource(id: number, roleId: number) {
 }
 
 export async function removeRoleFromResource(id: number, roleId: number) {
-  const availableRoles = useResourceDemoData() ? FALLBACK_ROLES : await getRolesFromDb();
-  const adminRole = availableRoles.find((item) => item.slug === ADMIN_ROLE_SLUG);
+  const availableRoles = useResourceDemoData()
+    ? FALLBACK_ROLES
+    : await getRolesFromDb();
+  const adminRole = availableRoles.find(
+    (item) => item.slug === ADMIN_ROLE_SLUG,
+  );
 
   if (adminRole && roleId === adminRole.id) {
     const current = await queryResourceById(id);
@@ -1344,7 +1443,12 @@ export async function removeRoleFromResource(id: number, roleId: number) {
 
   await db
     .delete(resourceAudience)
-    .where(and(eq(resourceAudience.resourceId, id), eq(resourceAudience.roleId, roleId)));
+    .where(
+      and(
+        eq(resourceAudience.resourceId, id),
+        eq(resourceAudience.roleId, roleId),
+      ),
+    );
 
   return queryResourceById(id).then((result) => ({
     msg: "Role removed successfully",
@@ -1378,10 +1482,10 @@ export async function listResourceTypes() {
   const rows = await db
     .select({
       id: resourceTypes.id,
-      name: resourceTypes.name,
+      typeName: resourceTypes.typeName,
     })
     .from(resourceTypes)
-    .orderBy(asc(resourceTypes.name));
+    .orderBy(asc(resourceTypes.typeName));
 
   if (!rows.length) {
     return {
@@ -1394,8 +1498,8 @@ export async function listResourceTypes() {
     msg: "Resource types retrieved successfully",
     data: rows.map((row) => ({
       id: row.id,
-      value: row.name as ResourceTypeName,
-      label: row.name,
+      value: row.typeName as ResourceTypeName,
+      label: row.typeName,
     })),
   };
 }
