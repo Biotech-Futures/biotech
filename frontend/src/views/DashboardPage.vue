@@ -529,13 +529,7 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import * as THREE from 'three'
 
-import {
-  mockGroups,
-  mockResources,
-  mockAnnouncements,
-  mockEvents,
-  mockBiotechShowcaseItems
-} from '@/data/mock'
+import { mockBiotechShowcaseItems } from '@/data/mock'
 
 import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
@@ -570,7 +564,6 @@ const DASHBOARD_ENDPOINTS = {
   nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
   personalizedEvents: `${API_BASE_URL}/events/v1/?audience=me&page_size=1&ordering=start_datetime`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
-  progress: `${API_BASE_URL}/dashboard/v1/progress/`,
   tasksPreferred: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=false`,
   tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=False`,
   milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`,
@@ -580,10 +573,10 @@ const DASHBOARD_ENDPOINTS = {
 const isLoading = ref(false)
 const loadError = ref('')
 
-const groups = ref(Array.isArray(mockGroups) ? [...mockGroups] : [])
-const resources = ref(Array.isArray(mockResources) ? [...mockResources] : [])
-const announcements = ref(Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : [])
-const events = ref(Array.isArray(mockEvents) ? [...mockEvents] : [])
+const groups = ref([])
+const resources = ref([])
+const announcements = ref([])
+const events = ref([])
 
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
@@ -593,21 +586,21 @@ const dashboardSummary = ref({
 })
 
 const adminWorkflow = ref({
-  pendingMatches: 5,
-  pendingReassignments: 2,
-  pendingApprovals: 4,
-  draftBulkMessages: 1
+  pendingMatches: 0,
+  pendingReassignments: 0,
+  pendingApprovals: 0,
+  draftBulkMessages: 0
 })
 
 const adminOperationsSummary = ref(null)
 
 const progressSnapshot = ref({
-  completionRate: 42,
-  completedTasks: 3,
-  totalTasks: 7,
-  currentWeek: 'Week 3',
-  nextMilestone: 'Check-in #1',
-  nextMilestoneDate: '2026-03-28'
+  completionRate: 0,
+  completedTasks: 0,
+  totalTasks: 0,
+  currentWeek: 'No milestones yet',
+  nextMilestone: 'TBC',
+  nextMilestoneDate: ''
 })
 
 const nextEventDateParts = computed(() => {
@@ -989,14 +982,14 @@ const announcementsSectionTitle = computed(() => {
   return 'Recent Announcements'
 })
 
-function getDefaultProgressSnapshot() {
+function getEmptyProgressSnapshot() {
   return {
-    completionRate: 42,
-    completedTasks: 3,
-    totalTasks: 7,
-    currentWeek: 'Week 3',
-    nextMilestone: 'Check-in #1',
-    nextMilestoneDate: '2026-03-28'
+    completionRate: 0,
+    completedTasks: 0,
+    totalTasks: 0,
+    currentWeek: 'No milestones yet',
+    nextMilestone: 'TBC',
+    nextMilestoneDate: ''
   }
 }
 
@@ -1220,7 +1213,7 @@ function deriveDashboardSummary() {
 }
 
 function deriveProgressSnapshot(tasksData, milestonesData) {
-  const fallback = getDefaultProgressSnapshot()
+  const fallback = getEmptyProgressSnapshot()
   const visibleGroupIds = toNumberSet(groups.value.map(group => group?.id))
   let activeMilestones = extractCollectionItems(milestonesData).filter(milestone => milestone?.deleted_flag !== true)
 
@@ -1275,7 +1268,7 @@ function deriveProgressSnapshot(tasksData, milestonesData) {
 }
 
 function normalizeProgressSnapshot(payload) {
-  const fallback = getDefaultProgressSnapshot()
+  const fallback = getEmptyProgressSnapshot()
 
   if (!payload || typeof payload !== 'object') {
     return fallback
@@ -1368,7 +1361,7 @@ async function loadDashboardData() {
     loadSummary()
   } catch (error) {
     console.error('Dashboard loading error:', error)
-    loadError.value = 'Some live dashboard data could not be loaded. Mock fallback is being used where available.'
+    loadError.value = 'Some live dashboard data could not be loaded.'
   } finally {
     isLoading.value = false
   }
@@ -1422,7 +1415,7 @@ async function loadGroups() {
     const liveGroups = filterGroupsForDashboard(groupItems, memberships || [])
     groups.value = liveGroups.map(group => normalizeGroup(group, memberships || [], trackById))
   } catch (error) {
-    groups.value = Array.isArray(mockGroups) ? [...mockGroups] : []
+    groups.value = []
   }
 }
 
@@ -1432,7 +1425,7 @@ async function loadResources() {
     const liveResources = extractCollectionItems(data)
     resources.value = liveResources.map(normalizeResource)
   } catch (error) {
-    resources.value = Array.isArray(mockResources) ? [...mockResources] : []
+    resources.value = []
   }
 }
 
@@ -1442,7 +1435,7 @@ async function loadAnnouncements() {
     const liveAnnouncements = extractCollectionItems(data)
     announcements.value = liveAnnouncements.map(normalizeAnnouncement)
   } catch (error) {
-    announcements.value = Array.isArray(mockAnnouncements) ? [...mockAnnouncements] : []
+    announcements.value = []
   }
 }
 
@@ -1477,7 +1470,7 @@ async function loadEvents() {
       const liveEvents = extractCollectionItems(fallbackEvents)
       events.value = liveEvents.length ? liveEvents.map(normalizeEvent) : []
     } catch {
-      events.value = Array.isArray(mockEvents) ? [...mockEvents] : []
+      events.value = []
     }
   }
 }
@@ -1497,30 +1490,24 @@ async function loadAdminWorkflow() {
   } catch (error) {
     adminOperationsSummary.value = null
     adminWorkflow.value = {
-      pendingMatches: 5,
-      pendingReassignments: 2,
-      pendingApprovals: 4,
-      draftBulkMessages: 1
+      pendingMatches: 0,
+      pendingReassignments: 0,
+      pendingApprovals: 0,
+      draftBulkMessages: 0
     }
   }
 }
 
 async function loadProgress() {
   try {
-    const progressData = await fetchJson(DASHBOARD_ENDPOINTS.progress)
-    progressSnapshot.value = normalizeProgressSnapshot(progressData)
-    return
-  } catch (error) {
-    try {
     const [tasksData, milestonesData] = await Promise.all([
-        fetchFirstAvailable([DASHBOARD_ENDPOINTS.tasksPreferred, DASHBOARD_ENDPOINTS.tasks]),
+      fetchFirstAvailable([DASHBOARD_ENDPOINTS.tasksPreferred, DASHBOARD_ENDPOINTS.tasks]),
       fetchJson(DASHBOARD_ENDPOINTS.milestones)
     ])
 
     progressSnapshot.value = deriveProgressSnapshot(tasksData, milestonesData)
-    } catch {
-      progressSnapshot.value = getDefaultProgressSnapshot()
-    }
+  } catch {
+    progressSnapshot.value = getEmptyProgressSnapshot()
   }
 }
 
