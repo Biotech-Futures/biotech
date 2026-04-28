@@ -43,11 +43,17 @@
       <section class="pane pane--plan card">
         <div class="card-header">
           <h3 class="card-title">Plan</h3>
-          <button type="button" class="btn btn-primary btn-sm">
+          <button type="button" class="btn btn-primary btn-sm" :disabled="true" title="Milestone creation is not available yet">
             <i class="fas fa-plus"></i> Add Milestone
           </button>
         </div>
         <div class="card-content plan-content">
+          <div v-if="planError" class="chat-alert" style="margin-bottom:1rem;">
+            {{ planError }}
+          </div>
+          <div v-if="isLoadingPlan" class="chat-alert" style="margin-bottom:1rem;">
+            Loading plan...
+          </div>
           <div v-for="m in tasks" :key="m.id" class="milestone">
             <div class="milestone-header">
               <div class="milestone-title">
@@ -64,7 +70,6 @@
                 v-for="t in m.tasks"
                 :key="t.id"
                 class="task-item"
-                @click="t.completed = !t.completed"
               >
                 <div :class="['task-checkbox', { checked: t.completed }]" />
                 <div :class="['task-label', { completed: t.completed }]">{{ t.name }}</div>
@@ -77,6 +82,7 @@
                   type="button"
                   class="btn btn-outline btn-sm add-task-btn"
                   @click.stop="addTask(m)"
+                  :disabled="!backendGroupId || isLoadingPlan"
                   title="Add a new task under this milestone"
                 >
                   <i class="fas fa-plus"></i>
@@ -150,13 +156,15 @@
                   <button
                     v-for="emoji in CHAT_REACTION_OPTIONS"
                     :key="`${message.id}-${emoji}`"
-                    type="button"
-                    class="reaction-btn"
-                    @click="reactToMessage(message.id, emoji)"
-                  >
-                    <span>{{ emoji }}</span>
-                    <span v-if="message.reactions?.[emoji]" class="reaction-count">{{ message.reactions[emoji] }}</span>
-                  </button>
+                  type="button"
+                  class="reaction-btn"
+                  :disabled="!supportsMessageReactions"
+                  :title="supportsMessageReactions ? 'Add reaction' : 'Reactions are not available yet'"
+                  @click="reactToMessage(message.id, emoji)"
+                >
+                  <span>{{ emoji }}</span>
+                  <span v-if="message.reactions?.[emoji]" class="reaction-count">{{ message.reactions[emoji] }}</span>
+                </button>
                 </div>
               </div>
             </div>
@@ -167,7 +175,7 @@
           </div>
 
           <div class="chat-input">
-            <div v-if="showGifPanel" class="gif-panel">
+            <div v-if="supportsGifs && showGifPanel" class="gif-panel">
               <div class="gif-panel-header">
                 <input
                   v-model.trim="gifQuery"
@@ -205,10 +213,22 @@
                 @input="handleComposerInput"
               ></textarea>
               <div class="chat-actions">
-                <button class="chat-btn" type="button" title="GIF picker" @click="toggleGifPanel">
+                <button
+                  class="chat-btn"
+                  type="button"
+                  :title="supportsGifs ? 'GIF picker' : 'GIF search is not available yet'"
+                  :disabled="!supportsGifs"
+                  @click="toggleGifPanel"
+                >
                   <i class="fas fa-image"></i>
                 </button>
-                <button class="chat-btn" type="button" title="Attach file" :disabled="isUploadingFile" @click="openFilePicker">
+                <button
+                  class="chat-btn"
+                  type="button"
+                  title="Attach file"
+                  :disabled="isUploadingFile || !supportsAttachments"
+                  @click="openFilePicker"
+                >
                   <i class="fas fa-paperclip"></i>
                 </button>
                 <input ref="fileInputRef" type="file" class="hidden-file-input" @change="uploadAttachment" />
@@ -227,7 +247,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { mockGroups } from '../data/mock.js'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { buildSessionHeaders } from '@/utils/csrf'
@@ -236,66 +255,29 @@ const route = useRoute()
 const auth = useAuthStore()
 const themeStore = useThemeStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const supportsGifs = false
+const supportsAttachments = false
+const supportsMessageReactions = false
 const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
-const MOCK_GIF_RESULTS = [
-  { id: 'gif-1', url: 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif', previewUrl: 'https://media.tenor.com/2roX3uxz_68AAAAC/cat-space.gif', title: 'Celebration cat' },
-  { id: 'gif-2', url: 'https://media.tenor.com/mCYz5TvJ8FYAAAAC/excited-happy.gif', previewUrl: 'https://media.tenor.com/mCYz5TvJ8FYAAAAC/excited-happy.gif', title: 'Excited reaction' },
-  { id: 'gif-3', url: 'https://media.tenor.com/v6hK8g0j8MIAAAAC/thumbs-up-yes.gif', previewUrl: 'https://media.tenor.com/v6hK8g0j8MIAAAAC/thumbs-up-yes.gif', title: 'Thumbs up' }
-]
 const rawGroupId = route.params.id ? String(route.params.id) : ''
-const group = ref(mockGroups.find(g => String(g.id) === rawGroupId) || mockGroups[0])
+const group = ref({
+  id: rawGroupId || null,
+  name: rawGroupId ? `Group ${rawGroupId}` : 'Group',
+  members: 0,
+  createdAt: ''
+})
 
 // 只保留 plan / discussion
 const activeTab = ref('plan')
 
 // 示例任务数据
-const tasks = ref([
-  {
-    id: 1,
-    milestone: 'Getting Started',
-    tasks: [
-      { id: 11, name: 'Determine Group Topic', completed: false },
-      { id: 12, name: 'Determine Meeting Time', completed: false }
-    ]
-  },
-  {
-    id: 2,
-    milestone: 'Working Towards a Solution',
-    tasks: [
-      { id: 21, name: 'Meeting 1: Initialisation', completed: false },
-      { id: 22, name: 'Meeting 2: Project Planning & Poster Outline', completed: false },
-      { id: 23, name: 'Meeting 3: Draft Review & Optional Deliverables', completed: false }
-    ]
-  }
-])
+const tasks = ref([])
+const isLoadingPlan = ref(false)
+const planError = ref('')
 
 const countCompleted = (m) => m.tasks.filter(t => t.completed).length
 
-const addTask = (m) => {
-  const nextId = (m.tasks.reduce((max, t) => Math.max(max, t.id), 0) || 0) + 1
-  m.tasks.push({ id: nextId, name: 'New Task', completed: false })
-}
-
-const mockMessages = [
-  {
-    id: 1,
-    author: 'Anita Pickard',
-    text: 'Hi team! How is your idea going?',
-    time: '03:04 PM',
-    date: '2025-09-03',
-    isOwn: false
-  },
-  {
-    id: 2,
-    author: 'You',
-    text: 'Sounds great!',
-    time: '03:20 PM',
-    date: '2025-09-03',
-    isOwn: true
-  }
-]
-
-const messages = ref([...mockMessages])
+const messages = ref([])
 
 const newMessage = ref('')
 const composer = ref(null)
@@ -309,7 +291,7 @@ const chatError = ref('')
 const gifError = ref('')
 const showGifPanel = ref(false)
 const gifQuery = ref('')
-const gifResults = ref([...MOCK_GIF_RESULTS])
+const gifResults = ref([])
 const typingUsers = ref([])
 const wsConnectionState = ref('offline')
 
@@ -465,7 +447,7 @@ const normalizeGifResults = (data) => {
     title: item?.title || item?.content_description || 'GIF'
   })).filter(item => item.url)
 
-  return normalized.length ? normalized : [...MOCK_GIF_RESULTS]
+  return normalized
 }
 
 const loadGroup = async () => {
@@ -482,7 +464,78 @@ const loadGroup = async () => {
       group.value = normalizeGroup(firstGroup)
     }
   } catch (error) {
-    group.value = mockGroups.find(g => String(g.id) === rawGroupId) || mockGroups[0]
+    group.value = {
+      id: rawGroupId || null,
+      name: rawGroupId ? `Group ${rawGroupId}` : 'Group unavailable',
+      members: 0,
+      createdAt: ''
+    }
+  }
+}
+
+const buildPlanItems = (milestones, taskItems) => {
+  const tasksByMilestoneId = new Map()
+
+  taskItems.forEach((task) => {
+    const milestoneId = Number(task?.milestone)
+    if (!tasksByMilestoneId.has(milestoneId)) {
+      tasksByMilestoneId.set(milestoneId, [])
+    }
+
+    tasksByMilestoneId.get(milestoneId).push({
+      id: task?.id,
+      name: task?.task_name || 'Untitled task',
+      completed: false,
+      dueDate: task?.due_date || '',
+      description: task?.task_description || ''
+    })
+  })
+
+  return milestones.map((milestone) => {
+    const milestoneTasks = tasksByMilestoneId.get(Number(milestone?.id)) || []
+    const isCompleted = milestone?.completed === true
+
+    return {
+      id: milestone?.id,
+      milestone: milestone?.milestone_name || 'Untitled milestone',
+      completed: isCompleted,
+      tasks: milestoneTasks.map((task) => ({
+        ...task,
+        completed: isCompleted
+      }))
+    }
+  })
+}
+
+const loadPlan = async () => {
+  const currentGroupId = getBackendGroupId()
+  if (!currentGroupId) {
+    tasks.value = []
+    planError.value = 'Live plan data needs a backend numeric group id.'
+    return
+  }
+
+  isLoadingPlan.value = true
+  planError.value = ''
+
+  try {
+    const [milestonesData, tasksData] = await Promise.all([
+      requestJson(`${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100&group_id=${currentGroupId}&deleted=false`),
+      requestJson(`${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&group_id=${currentGroupId}&deleted=false`)
+    ])
+
+    const milestoneItems = extractCollectionItems(milestonesData)
+    const taskItems = extractCollectionItems(tasksData)
+
+    tasks.value = buildPlanItems(milestoneItems, taskItems)
+    if (!tasks.value.length) {
+      planError.value = 'No milestones have been created for this group yet.'
+    }
+  } catch (error) {
+    tasks.value = []
+    planError.value = error instanceof Error ? error.message : 'Plan data could not be loaded.'
+  } finally {
+    isLoadingPlan.value = false
   }
 }
 
@@ -518,8 +571,40 @@ const normalizeMessage = (item) => {
 }
 
 const getBackendGroupId = () => {
-  const id = group.value?.id
+  const id = group.value?.id || rawGroupId
   return /^\d+$/.test(String(id || '')) ? String(id) : ''
+}
+
+const backendGroupId = computed(() => getBackendGroupId())
+
+const addTask = async (milestone) => {
+  const currentGroupId = getBackendGroupId()
+  if (!currentGroupId || !milestone?.id) {
+    planError.value = 'A backend milestone is required before tasks can be added.'
+    return
+  }
+
+  const taskName = window.prompt('New task name')
+  if (!taskName || !taskName.trim()) return
+
+  const dueDate = new Date()
+  dueDate.setDate(dueDate.getDate() + 7)
+
+  try {
+    await requestJson(`${API_BASE_URL}/tasks/api/v1/createtask`, {
+      method: 'POST',
+      body: JSON.stringify({
+        task_name: taskName.trim(),
+        milestone: Number(milestone.id),
+        due_date: dueDate.toISOString(),
+        task_description: ''
+      })
+    })
+
+    await loadPlan()
+  } catch (error) {
+    planError.value = error instanceof Error ? error.message : 'Task could not be created.'
+  }
 }
 
 const typingIndicatorText = computed(() => {
@@ -722,8 +807,8 @@ const connectChatSocket = () => {
 const loadMessages = async () => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) {
-    chatError.value = 'Live discussion needs a backend group id. Showing local sample messages.'
-    messages.value = [...mockMessages]
+    chatError.value = 'Live discussion needs a backend numeric group id.'
+    messages.value = []
     await scrollMessagesToBottom()
     return
   }
@@ -741,8 +826,8 @@ const loadMessages = async () => {
 
     messages.value = liveMessages.length ? liveMessages : []
   } catch (error) {
-    chatError.value = 'Live discussion is unavailable, showing local sample messages.'
-    messages.value = [...mockMessages]
+    chatError.value = error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
+    messages.value = []
   } finally {
     isLoadingMessages.value = false
     await scrollMessagesToBottom()
@@ -753,15 +838,8 @@ const loadMessages = async () => {
 const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pendingId, keepLocalOnFailure = false }) => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) {
-    if (optimisticMessage) {
-      upsertMessage({
-        ...optimisticMessage,
-        isLocalOnly: true
-      })
-      await scrollMessagesToBottom()
-    }
-    chatError.value = 'Live discussion needs a backend group id. This update is only shown locally.'
-    return
+    chatError.value = 'Live discussion needs a backend numeric group id.'
+    throw new Error(chatError.value)
   }
 
   chatError.value = ''
@@ -800,6 +878,10 @@ const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pen
 const sendMessage = async () => {
   const text = newMessage.value.trim()
   if (!text || isSendingMessage.value) return
+  if (!getBackendGroupId()) {
+    chatError.value = 'Live discussion needs a backend numeric group id.'
+    return
+  }
 
   const now = new Date()
   const pendingId = `pending-${Date.now()}`
@@ -841,96 +923,40 @@ const sendMessage = async () => {
 }
 
 const sendGifMessage = async (gif) => {
+  if (!supportsGifs) {
+    gifError.value = 'GIF search is not available in the backend yet.'
+    return
+  }
   if (!gif?.url || isSendingMessage.value) return
-
-  const now = new Date()
-  const pendingId = `gif-${Date.now()}`
-  const optimisticMessage = {
-    id: pendingId,
-    author: 'You',
-    message_text: gif.url,
-    message_type: 'gif',
-    sent_at: now.toISOString(),
-    isOwn: true
-  }
-
-  messages.value.push(normalizeMessage(optimisticMessage))
-  showGifPanel.value = false
-  gifError.value = ''
-  await scrollMessagesToBottom()
-
-  isSendingMessage.value = true
-  try {
-    await sendMessagePayload({
-      body: 'message',
-      pendingId,
-      optimisticMessage,
-      keepLocalOnFailure: true,
-      requestOptions: {
-        method: 'POST',
-        body: JSON.stringify({
-          message_text: gif.url,
-          message_type: 'gif'
-        })
-      }
-    })
-  } catch {
-    chatError.value = 'GIF endpoint is not available yet. The GIF is shown locally for now.'
-  } finally {
-    isSendingMessage.value = false
-    composer.value?.focus()
-  }
 }
 
 const openFilePicker = () => {
+  if (!supportsAttachments) {
+    chatError.value = 'File upload is not available in the backend yet.'
+    return
+  }
   fileInputRef.value?.click()
 }
 
 const uploadAttachment = async (event) => {
+  if (!supportsAttachments) {
+    chatError.value = 'File upload is not available in the backend yet.'
+    return
+  }
   const input = event?.target
   const file = input?.files?.[0]
   if (!file || isUploadingFile.value) return
-
-  const now = new Date()
-  const pendingId = `upload-${Date.now()}`
-  const optimisticMessage = {
-    id: pendingId,
-    author: 'You',
-    message_text: file.name,
-    message_type: 'attachment',
-    sent_at: now.toISOString(),
-    attachments: [{ id: pendingId, attachment_filename: file.name }],
-    isOwn: true
-  }
-
-  messages.value.push(normalizeMessage(optimisticMessage))
-  await scrollMessagesToBottom()
-
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('message_text', '')
-
-  isUploadingFile.value = true
-  try {
-    await sendMessagePayload({
-      body: 'upload',
-      pendingId,
-      optimisticMessage,
-      keepLocalOnFailure: true,
-      requestOptions: {
-        method: 'POST',
-        body: formData
-      }
-    })
-  } catch {
-    chatError.value = 'Upload endpoint is not available yet. The attachment is shown locally for now.'
-  } finally {
-    isUploadingFile.value = false
-    if (input) input.value = ''
-  }
+  chatError.value = `Upload for ${file.name} is not available in the backend yet.`
+  if (input) input.value = ''
 }
 
 const fetchGifResults = async (mode = 'trending') => {
+  if (!supportsGifs) {
+    gifResults.value = []
+    gifError.value = 'GIF search is not available in the backend yet.'
+    return
+  }
+
   isLoadingGifs.value = true
   gifError.value = ''
 
@@ -945,14 +971,18 @@ const fetchGifResults = async (mode = 'trending') => {
     )
     gifResults.value = normalizeGifResults(data)
   } catch {
-    gifResults.value = [...MOCK_GIF_RESULTS]
-    gifError.value = 'Live GIF search is unavailable, showing fallback picks.'
+    gifResults.value = []
+    gifError.value = 'Live GIF search is unavailable right now.'
   } finally {
     isLoadingGifs.value = false
   }
 }
 
 const toggleGifPanel = async () => {
+  if (!supportsGifs) {
+    gifError.value = 'GIF search is not available in the backend yet.'
+    return
+  }
   showGifPanel.value = !showGifPanel.value
   if (showGifPanel.value) {
     await fetchGifResults('trending')
@@ -969,6 +999,11 @@ const searchGifs = async () => {
 }
 
 const reactToMessage = async (messageId, emoji) => {
+  if (!supportsMessageReactions) {
+    chatError.value = 'Message reactions are not available in the backend yet.'
+    return
+  }
+
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) return
 
@@ -988,7 +1023,7 @@ const reactToMessage = async (messageId, emoji) => {
       })
     })
   } catch {
-    chatError.value = 'Reaction endpoint is not available yet. The reaction is shown locally for now.'
+    chatError.value = 'Reaction endpoint is not available yet.'
   }
 }
 
@@ -996,6 +1031,7 @@ const focusComposer = () => composer.value?.focus()
 
 onMounted(async () => {
   await loadGroup()
+  await loadPlan()
   await loadMessages()
   connectChatSocket()
 })
