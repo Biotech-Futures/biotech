@@ -12,6 +12,15 @@ import {
 } from "@/schema/admin.js";
 
 export const auth = betterAuth({
+  user: {
+    additionalFields: {
+      userId: {
+        type: "number",
+        required: true,
+        fieldName: "userid",
+      },
+    },
+  },
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {

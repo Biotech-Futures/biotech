@@ -376,25 +376,8 @@ export async function createUser(input: CreateUserInput) {
       .returning({ id: users.id });
 
     const userId = newUser.id;
+
     newUserId = userId;
-
-    if (input.role === "admin") {
-      const createdAuthUser = await auth.api.createUser({
-        body: {
-          email: input.email,
-          name: `${input.firstName} ${input.lastName}`.trim(),
-          role: "admin",
-        },
-      });
-      const createdAuthUserId =
-        (createdAuthUser as any)?.user?.id ?? (createdAuthUser as any)?.id;
-      if (!createdAuthUserId) throw new Error("Failed to create auth user");
-
-      await tx
-        .update(adminUser)
-        .set({ emailVerified: true, userid: userId })
-        .where(eq(adminUser.id, String(createdAuthUserId)));
-    }
 
     await tx.insert(roleAssignmentHistory).values({
       userId,
@@ -424,6 +407,46 @@ export async function createUser(input: CreateUserInput) {
   });
 
   if (!newUserId) return { msg: "Failed to create user", data: null };
+  const createdPublicUserId = newUserId;
+
+  if (input.role === "admin") {
+    try {
+      const createdAuthUser = await auth.api.createUser({
+        body: {
+          email: input.email,
+          name: `${input.firstName} ${input.lastName}`.trim(),
+          role: "admin",
+          data: {
+            userId: createdPublicUserId,
+          },
+        },
+      });
+      const createdAuthUserId =
+        (createdAuthUser as any)?.user?.id ?? (createdAuthUser as any)?.id;
+      if (!createdAuthUserId) throw new Error("Failed to create auth user");
+
+      await db
+        .update(adminUser)
+        .set({ emailVerified: true })
+        .where(eq(adminUser.id, String(createdAuthUserId)));
+    } catch (error) {
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(roleAssignmentHistory)
+          .where(eq(roleAssignmentHistory.userId, createdPublicUserId));
+        await tx.delete(users).where(eq(users.id, createdPublicUserId));
+      });
+
+      return {
+        msg:
+          error instanceof Error
+            ? error.message
+            : "Unable to create admin auth account",
+        data: null,
+      };
+    }
+  }
+
   const created = await fetchUserById(newUserId);
   return { msg: "User created successfully", data: created };
 }
