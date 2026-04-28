@@ -4,14 +4,8 @@
 # Added MessageStatusSerializer for read/delivery tracking.
 
 from rest_framework import serializers
-from .models import Messages, MessageAttachments, MessageResource, MessageStatus
+from .models import Messages, MessageResource, MessageStatus
 from apps.resources.models import Resources
-
-
-class MessageAttachmentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MessageAttachments
-        fields = ["id", "attachment_id", "attachment_filename"]
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):
@@ -21,7 +15,7 @@ class MessageResourceSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     resource_name = serializers.CharField(
-        source="resource.resource_name", read_only=True
+        source="resource.name", read_only=True
     )
 
     class Meta:
@@ -37,7 +31,6 @@ class MessageStatusSerializer(serializers.ModelSerializer):
 
 
 class MessageSerializer(serializers.ModelSerializer):
-    attachments = MessageAttachmentSerializer(many=True, read_only=True)
     resources = MessageResourceSerializer(many=True, required=False)
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
@@ -59,7 +52,6 @@ class MessageSerializer(serializers.ModelSerializer):
             "deleted_at",
             "is_deleted",
             "is_edited",
-            "attachments",
             "resources",
         ]
         read_only_fields = [
