@@ -17,7 +17,8 @@ export async function getMentorList() {
   const assignedCountRows = await db
     .select({ mentorUserId: groupMembership.userId })
     .from(groupMembership)
-    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId));
+    .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
+    .where(isNull(groupMembership.leftAt));
 
   const assignedCountByMentor = new Map<number, number>();
   for (const row of assignedCountRows) {

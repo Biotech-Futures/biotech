@@ -87,7 +87,7 @@ async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
     .innerJoin(users, eq(users.id, groupMembership.userId))
     .leftJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
     .leftJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
-    .where(inArray(groupMembership.groupId, groupIds))
+    .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)))
     .orderBy(asc(groupMembership.groupId), asc(groupMembership.id));
 
   const membersByGroupId = new Map<number, GroupMember[]>();
@@ -143,7 +143,7 @@ function buildGroupWhere(
     .select({ id: groupMembership.id })
     .from(groupMembership)
     .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
-    .where(eq(groupMembership.groupId, groups.id));
+    .where(and(eq(groupMembership.groupId, groups.id), isNull(groupMembership.leftAt)));
 
   if (params.mentorStatus === "matched") {
     conditions.push(exists(mentorMembership));
@@ -161,6 +161,7 @@ function buildGroupWhere(
       .where(
         and(
           eq(groupMembership.groupId, groups.id),
+          isNull(groupMembership.leftAt),
           or(
             ilike(users.firstName, search),
             ilike(users.lastName, search),
