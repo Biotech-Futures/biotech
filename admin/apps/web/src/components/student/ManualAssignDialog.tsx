@@ -13,6 +13,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -36,7 +37,7 @@ export default function ManualAssignDialog({
     limit: 100,
     track: student?.track || undefined,
   });
-  const assignableGroups = useMemo(() => {
+  const groups = useMemo(() => {
     const groups = groupsData?.data?.items ?? [];
 
     return groups
@@ -73,8 +74,10 @@ export default function ManualAssignDialog({
   }
 
   async function handleConfirm() {
+    if (!selectedGroupId) return;
+
     const groupId = Number(selectedGroupId);
-    if (!student || !Number.isFinite(groupId)) return;
+    if (!student || !Number.isFinite(groupId) || groupId <= 0) return;
     await handleConfirmAssignment(groupId);
     setSelectedGroupId("");
   }
@@ -103,18 +106,19 @@ export default function ManualAssignDialog({
               <SelectValue placeholder="Select a group" />
             </SelectTrigger>
             <SelectContent>
-              {!assignableGroups.length ? (
-                <SelectItem value="__empty" disabled>
-                  No groups with available space
-                </SelectItem>
-              ) : (
-                assignableGroups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name} · {group.track} · {group.studentCount}/
-                    {DEFAULT_GROUP_MAX_SIZE} students
+              <SelectGroup>
+                {!groups.length ? (
+                  <SelectItem value="__empty" disabled>
+                    No groups with available space
                   </SelectItem>
-                ))
-              )}
+                ) : (
+                  groups.map((group) => (
+                    <SelectItem key={group.id} value={String(group.id)}>
+                      {group.name} · {group.track}{" "}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </div>
@@ -125,9 +129,7 @@ export default function ManualAssignDialog({
           </Button>
           <Button
             onClick={() => void handleConfirm()}
-            disabled={
-              !selectedGroupId || isPending || assignableGroups.length === 0
-            }
+            disabled={!selectedGroupId || isPending || groups.length === 0}
           >
             {isPending ? "Assigning..." : "Confirm Assignment"}
           </Button>
