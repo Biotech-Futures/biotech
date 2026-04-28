@@ -273,7 +273,7 @@ class AdminOperationalSummaryView(APIView):
         user_queryset = User.objects.all()
         group_queryset = Groups.objects.filter(deleted_at__isnull=True)
         recommendation_queryset = MatchRecommendation.objects.filter(accepted=False)
-        event_queryset = Events.objects.filter(deleted_flag=False, start_datetime__gte=timezone.now())
+        event_queryset = Events.objects.filter(deleted_at__isnull=True, start_datetime__gte=timezone.now())
 
         if track_scope is not None:
             user_queryset = user_queryset.filter(track_id__in=track_scope)

@@ -15,7 +15,7 @@ class MessageResourceSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     resource_name = serializers.CharField(
-        source="resource.resource_name", read_only=True
+        source="resource.name", read_only=True
     )
 
     class Meta:
