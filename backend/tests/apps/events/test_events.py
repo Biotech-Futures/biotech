@@ -36,7 +36,6 @@ class EventAPITests(APITestCase):
             start_datetime=timezone.now() + timezone.timedelta(days=3),
             ends_datetime=timezone.now() + timezone.timedelta(days=3, hours=2),
             location="Sydney",
-            humanitix_link="https://example.com/future",
         )
         self.past_event = Events.objects.create(
             event_name="Past Event",
@@ -44,7 +43,6 @@ class EventAPITests(APITestCase):
             start_datetime=timezone.now() - timezone.timedelta(days=5),
             ends_datetime=timezone.now() - timezone.timedelta(days=4, hours=22),
             location="Melbourne",
-            humanitix_link="https://example.com/past",
         )
 
     # --- GET TESTS ---
@@ -71,7 +69,6 @@ class EventAPITests(APITestCase):
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
             "is_virtual": False,
-            "humanitix_link": "https://example.com/event",
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -87,7 +84,6 @@ class EventAPITests(APITestCase):
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
             "is_virtual": False,
-            "humanitix_link": "https://example.com/event"
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -103,7 +99,6 @@ class EventAPITests(APITestCase):
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "location": "Sydney",
             "is_virtual": False,
-            "humanitix_link": "https://example.com/event"
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -119,7 +114,6 @@ class EventAPITests(APITestCase):
             "ends_datetime": (timezone.now() - timezone.timedelta(hours=22)).isoformat(),
             "location": "Sydney",
             "is_virtual": False,
-            "humanitix_link": "https://example.com/event"
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

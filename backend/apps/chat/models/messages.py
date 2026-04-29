@@ -4,7 +4,6 @@ from django.utils import timezone
 
 class MessageType(models.TextChoices):
     TEXT = "text", "Text"
-    ATTACHMENT = "attachment", "Attachment"
     RESOURCE = "resource", "Resource Link"
     SYSTEM = "system", "System Message"
 

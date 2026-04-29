@@ -112,12 +112,12 @@ class ResourceAudienceWriteSerializer(serializers.Serializer):
         return attrs
 
 class ResourcesSerializer(serializers.ModelSerializer):
-    uploader = ResourceUserSerializer(source='uploader_user_id', read_only=True)
+    uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
     # Resource type field - read as nested object, write as ID
-    resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
-    resource_type_id = serializers.PrimaryKeyRelatedField(
+    resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
+    type_id = serializers.PrimaryKeyRelatedField(
         queryset=ResourceType.objects.all(),
-        source='resource_type',
+        source='type',
         write_only=True,
         required=False,
         allow_null=True,
@@ -138,32 +138,34 @@ class ResourcesSerializer(serializers.ModelSerializer):
         model = Resources
         fields = [
             'id',
-            'resource_name',
-            'resource_description',
+            'name',
+            'description',
             'resource_type_detail',
-            'resource_type_id',
+            'type_id',
+            'kind',
+            'file_mime_type',
+            'file_size',
+            'storage_key',
             'track',
+            'group',
             'visibility_scope',
-            'upload_datetime',
-            # 'uploader',  # read-only field for display
-            # 'uploader_id',  # write-only field for input
+            'uploaded_at',
             'uploader',  # read-only field for display (automatically set)
-            'deleted_flag',
-            'deleted_datetime',
+            'deleted_at',
             'visible_roles', ##Custom Field (to be used for appending ResourceRoles data)
             'role_ids', ##Custom Field (to be used for appending ResourceRoles data)
             'audiences',
             'audience_rules',
         ]
-        read_only_fields = ['id', 'upload_datetime', 'deleted_datetime']
+        read_only_fields = ['id', 'uploaded_at', 'deleted_at']
 
-    def validate_resource_description(self, value):
+    def validate_description(self, value):
         """Ensure description is not empty"""
         if not value or not value.strip():
             raise serializers.ValidationError("Resource description cannot be empty.")
         return value.strip()
 
-    def validate_resource_name(self, value):
+    def validate_name(self, value):
         """Clean and validate resource name - cannot be null or empty"""
         if not value or not value.strip():
             raise serializers.ValidationError("Resource name cannot be empty.")
@@ -172,8 +174,8 @@ class ResourcesSerializer(serializers.ModelSerializer):
         
         # Check for duplicate resource names (excluding deleted resources)
         existing_resources = Resources.objects.filter(
-            resource_name__iexact=cleaned_name,
-            deleted_flag=False
+            name__iexact=cleaned_name,
+            deleted_at__isnull=True
         )
         
         # If updating, exclude current instance from duplicate check
@@ -240,8 +242,8 @@ class ResourcesSerializer(serializers.ModelSerializer):
 
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
-    uploader = ResourceUserSerializer(source='uploader_user_id', read_only=True)
-    resource_type_detail = ResourceTypeSerializer(source='resource_type', read_only=True)
+    uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+    resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
     visible_roles = serializers.SerializerMethodField()
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
 
@@ -249,12 +251,17 @@ class ResourceListSerializer(serializers.ModelSerializer):
         model = Resources
         fields = [
             'id',
-            'resource_name',
-            'resource_description',
+            'name',
+            'description',
             'resource_type_detail',
+            'kind',
+            'file_mime_type',
+            'file_size',
+            'storage_key',
             'track',
+            'group',
             'visibility_scope',
-            'upload_datetime',
+            'uploaded_at',
             'uploader',
             'visible_roles',
             'audiences',
