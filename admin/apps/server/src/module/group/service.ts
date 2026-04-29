@@ -24,6 +24,7 @@ import type {
   QueryGroupMessagesInput,
   QueryGroupsInput,
   RemoveGroupMemberInput,
+  RemoveGroupMessageInput,
   UpdateGroupInput,
 } from "./schema.js";
 
@@ -406,5 +407,37 @@ export async function removeGroupMember(
   return {
     msg: "Group member removed successfully",
     data: (await queryGroupById(id)).data,
+  };
+}
+
+export async function removeGroupMessage(input: RemoveGroupMessageInput) {
+  const existing = await fetchGroupBaseById(input.id);
+  if (!existing) return { msg: "Group not found", data: null };
+
+  const messageRows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.id, input.messageId),
+        eq(messages.groupId, input.id),
+        isNull(messages.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  const message = messageRows[0];
+  if (!message) {
+    return { msg: "Group message not found", data: null };
+  }
+
+  await db
+    .update(messages)
+    .set({ deletedAt: sql`now()` })
+    .where(eq(messages.id, message.id));
+
+  return {
+    msg: "Group message removed successfully",
+    data: { id: String(message.id), groupId: String(input.id) },
   };
 }

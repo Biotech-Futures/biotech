@@ -3,6 +3,7 @@ import { sValidator } from "@hono/standard-validator";
 import {
   queryGroupMessagesSchema,
   queryGroupsSchema,
+  removeGroupMessageSchema,
   removeGroupMemberSchema,
   updateGroupSchema,
 } from "./schema.js";
@@ -10,6 +11,7 @@ import {
   queryGroupMessages,
   queryGroups,
   queryGroupById,
+  removeGroupMessage,
   removeGroupMember,
   updateGroup,
 } from "./service.js";
@@ -31,6 +33,17 @@ groupRoute.get(
     const id = c.req.param("id");
     const params = c.req.valid("query");
     const result = await queryGroupMessages(id, params);
+    return c.json(result);
+  },
+);
+
+// DELETE /api/v1/group/:id/messages/:messageId - Remove a message from a group
+groupRoute.delete(
+  "/:id/messages/:messageId",
+  sValidator("param", removeGroupMessageSchema),
+  async (c) => {
+    const params = c.req.valid("param");
+    const result = await removeGroupMessage(params);
     return c.json(result);
   },
 );

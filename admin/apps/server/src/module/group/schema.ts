@@ -24,7 +24,13 @@ export const removeGroupMemberSchema = z.object({
   userId: z.coerce.number().int().positive(),
 });
 
+export const removeGroupMessageSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  messageId: z.coerce.number().int().positive(),
+});
+
 export type QueryGroupsInput = z.infer<typeof queryGroupsSchema>;
 export type QueryGroupMessagesInput = z.infer<typeof queryGroupMessagesSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
 export type RemoveGroupMemberInput = z.infer<typeof removeGroupMemberSchema>;
+export type RemoveGroupMessageInput = z.infer<typeof removeGroupMessageSchema>;

@@ -7,14 +7,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useQueryGroupMessages } from "@/query/group";
+import { useQueryGroupMessages, useRemoveGroupMessage } from "@/query/group";
 import type { Group } from "@/type/group";
+import { AxiosError } from "axios";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   MessageSquareIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 function formatMessageTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -41,6 +44,7 @@ export function GroupMessagesDialog({
     limit: 50,
     enabled: open && Boolean(groupId),
   });
+  const removeGroupMessage = useRemoveGroupMessage();
 
   useEffect(() => {
     setMessagePage(1);
@@ -50,6 +54,27 @@ export function GroupMessagesDialog({
   const meta = data?.data;
   const hasLoadedMessages = Boolean(meta);
   const showBlockingError = isError && !hasLoadedMessages;
+
+  async function handleRemoveMessage(messageId: string) {
+    if (!group) return;
+
+    const confirmed = window.confirm(
+      "Remove this message from the group? This will hide it from the message history.",
+    );
+    if (!confirmed) return;
+
+    try {
+      await removeGroupMessage.mutateAsync({ groupId: group.id, messageId });
+      toast.success("Message removed from group.");
+    } catch (error) {
+      const msg =
+        error instanceof AxiosError
+          ? ((error.response?.data as { msg?: string } | undefined)?.msg ??
+            error.message)
+          : "Could not remove message. Please try again.";
+      toast.error(msg);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -94,15 +119,29 @@ export function GroupMessagesDialog({
                     {message.sender.email}
                   </p>
                 </div>
-                <div className="shrink-0 text-right">
-                  {message.sender.role && (
-                    <Badge variant="outline" className="mb-1">
-                      {message.sender.role}
-                    </Badge>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {formatMessageTime(message.sentAt)}
-                  </p>
+                <div className="flex shrink-0 items-start gap-2">
+                  <div className="text-right">
+                    {message.sender.role && (
+                      <Badge variant="outline" className="mb-1">
+                        {message.sender.role}
+                      </Badge>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {formatMessageTime(message.sentAt)}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-destructive"
+                    disabled={removeGroupMessage.isPending}
+                    aria-label="Remove message from group"
+                    title="Remove message from group"
+                    onClick={() => void handleRemoveMessage(message.id)}
+                  >
+                    <Trash2Icon className="size-4" />
+                  </Button>
                 </div>
               </div>
               <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">

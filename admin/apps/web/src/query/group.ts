@@ -120,3 +120,21 @@ export function useRemoveGroupMember() {
     },
   });
 }
+
+export function useRemoveGroupMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { groupId: string; messageId: string }) => {
+      const res = await myFetch.delete<{
+        msg: string;
+        data: { id: string; groupId: string } | null;
+      }>(`/group/${data.groupId}/messages/${data.messageId}`);
+      return res.data;
+    },
+    onSuccess: (_, { groupId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["group", groupId, "messages"],
+      });
+    },
+  });
+}
