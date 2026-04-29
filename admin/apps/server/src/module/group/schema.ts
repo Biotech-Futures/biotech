@@ -20,6 +20,11 @@ export const queryGroupMessagesSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
 });
 
+export const removeGroupMemberSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+});
+
 export type QueryGroupsInput = z.infer<typeof queryGroupsSchema>;
 export type QueryGroupMessagesInput = z.infer<typeof queryGroupMessagesSchema>;
 export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
+export type RemoveGroupMemberInput = z.infer<typeof removeGroupMemberSchema>;

@@ -23,6 +23,7 @@ import {
 import type {
   QueryGroupMessagesInput,
   QueryGroupsInput,
+  RemoveGroupMemberInput,
   UpdateGroupInput,
 } from "./schema.js";
 
@@ -364,6 +365,46 @@ export async function updateGroup(id: string, updates: UpdateGroupInput) {
 
   return {
     msg: "Group updated successfully",
+    data: (await queryGroupById(id)).data,
+  };
+}
+
+export async function removeGroupMember(
+  id: string,
+  input: RemoveGroupMemberInput,
+) {
+  const groupId = Number(id);
+  if (!Number.isFinite(groupId)) {
+    return { msg: "Group not found", data: null };
+  }
+
+  const existing = await fetchGroupBaseById(groupId);
+  if (!existing) return { msg: "Group not found", data: null };
+
+  const memberRows = await db
+    .select({ membershipId: groupMembership.id })
+    .from(groupMembership)
+    .innerJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
+    .where(
+      and(
+        eq(groupMembership.groupId, groupId),
+        eq(groupMembership.userId, input.userId),
+        isNull(groupMembership.leftAt),
+      ),
+    )
+    .limit(1);
+
+  const membership = memberRows[0];
+  if (!membership) {
+    return { msg: "Group member not found", data: null };
+  }
+
+  await db
+    .delete(groupMembership)
+    .where(eq(groupMembership.id, membership.membershipId));
+
+  return {
+    msg: "Group member removed successfully",
     data: (await queryGroupById(id)).data,
   };
 }

@@ -216,6 +216,7 @@ function GroupPage() {
         group={selectedGroup}
         open={sheetOpen}
         onOpenChange={handleDrawerOpenChange}
+        onGroupChange={setSelectedGroup}
       />
 
       <GroupMessagesDialog

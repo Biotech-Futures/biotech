@@ -102,3 +102,21 @@ export function useUpdateGroup() {
     },
   });
 }
+
+export function useRemoveGroupMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { groupId: string; userId: string }) => {
+      const res = await myFetch.delete<{ msg: string; data: Group | null }>(
+        `/group/${data.groupId}/members/${data.userId}`,
+      );
+      return res.data;
+    },
+    onSuccess: (_, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}

@@ -515,6 +515,41 @@ describe("recommendGroupsByTrack", () => {
     expect(result[0].recommendGroup?.id).toBe("nsw-1");
   });
 
+  it("recommends matching groups for custom track names", () => {
+    const input: RecommendationInputByTrack = {
+      "[TEST] BioTech Alpha": {
+        students: [
+          student({
+            id: "s1",
+            trackId: "[TEST] BioTech Alpha",
+            country: "[TEST] Australia",
+            yearLevel: 11,
+            interests: ["[TEST] Genomics", "[TEST] Cell Biology"],
+          }),
+        ],
+        groups: [
+          group({
+            id: "bio-alpha",
+            trackId: "[TEST] BioTech Alpha",
+            groupStudent: [
+              member({
+                id: "m1",
+                trackId: "[TEST] BioTech Alpha",
+                country: "[TEST] Australia",
+                yearLevel: 11,
+                interests: ["[TEST] Genomics", "[TEST] Cell Biology"],
+              }),
+            ],
+          }),
+        ],
+      },
+    };
+
+    const result = recommendGroupsByTrack(input);
+    expect(result[0].recommendGroup?.id).toBe("bio-alpha");
+    expect(result[0].score).toBe(100);
+  });
+
   it("rejects groups with no shared interest overlap", () => {
     const input: RecommendationInputByTrack = {
       "AUS-NSW": {
@@ -1161,6 +1196,42 @@ describe("formatRecommendationInput", () => {
       id: 12,
       name: "Eli Brown",
       interests: ["robotics"],
+    });
+  });
+
+  it("keeps custom track names as their own recommendation buckets", () => {
+    const groupStudents: GroupStudentSource[] = [
+      {
+        groupId: "g1",
+        groupName: "Bio Alpha",
+        groupTrackCode: "[TEST] BioTech Alpha",
+        userId: "m1",
+        firstName: "Beta",
+        yearLevel: 11,
+        countryName: "[TEST] Australia",
+        interests: ["[TEST] Genomics"],
+      },
+    ];
+    const individualStudents: IndividualStudentSource[] = [
+      {
+        userId: "s1",
+        firstName: "Alpha",
+        trackCode: "[TEST] BioTech Alpha",
+        yearLevel: 11,
+        countryName: "[TEST] Australia",
+        interests: ["[TEST] Genomics"],
+      },
+    ];
+
+    const result = formatRecommendationInput(groupStudents, individualStudents);
+    expect(Object.keys(result)).toEqual(["[TEST] BioTech Alpha"]);
+    expect(result["[TEST] BioTech Alpha"]?.groups[0]).toMatchObject({
+      id: "g1",
+      trackId: "[TEST] BioTech Alpha",
+    });
+    expect(result["[TEST] BioTech Alpha"]?.students[0]).toMatchObject({
+      id: "s1",
+      trackId: "[TEST] BioTech Alpha",
     });
   });
 

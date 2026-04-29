@@ -3,12 +3,14 @@ import { sValidator } from "@hono/standard-validator";
 import {
   queryGroupMessagesSchema,
   queryGroupsSchema,
+  removeGroupMemberSchema,
   updateGroupSchema,
 } from "./schema.js";
 import {
   queryGroupMessages,
   queryGroups,
   queryGroupById,
+  removeGroupMember,
   updateGroup,
 } from "./service.js";
 
@@ -47,3 +49,15 @@ groupRoute.put("/:id", sValidator("json", updateGroupSchema), async (c) => {
   const result = await updateGroup(id, updates);
   return c.json(result);
 });
+
+// DELETE /api/v1/group/:id/members/:userId - Remove a student from a group
+groupRoute.delete(
+  "/:id/members/:userId",
+  sValidator("param", removeGroupMemberSchema),
+  async (c) => {
+    const id = c.req.param("id");
+    const params = c.req.valid("param");
+    const result = await removeGroupMember(id, params);
+    return c.json(result);
+  },
+);

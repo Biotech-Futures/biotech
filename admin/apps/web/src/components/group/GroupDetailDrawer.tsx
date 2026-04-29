@@ -20,12 +20,13 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { Group, Track } from "@/type/group";
 import { Label } from "@/components/ui/label";
-import { UserIcon, UsersIcon, UserXIcon } from "lucide-react";
+import { UserIcon, UsersIcon, UserMinusIcon, UserXIcon } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { cn } from "@/lib/utils";
+import { useRemoveGroupMember } from "@/query/group";
 import {
   useQueryMentorList,
   useMutationReplaceMentor,
@@ -54,12 +55,14 @@ interface GroupDetailDrawerProps {
   group: Group | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onGroupChange?: (group: Group) => void;
 }
 
 export function GroupDetailDrawer({
   group,
   open,
   onOpenChange,
+  onGroupChange,
 }: GroupDetailDrawerProps) {
   const queryClient = useQueryClient();
   const [mentorDialogOpen, setMentorDialogOpen] = useState(false);
@@ -71,9 +74,14 @@ export function GroupDetailDrawer({
   const replaceMentor = useMutationReplaceMentor();
   const assignMentor = useMutationConfirmMentorAssignments();
   const unassignMentor = useMutationUnassignMentors();
+  const removeGroupMember = useRemoveGroupMember();
 
   const isReplacing = !!group?.mentor;
-  const isPending = replaceMentor.isPending || assignMentor.isPending || unassignMentor.isPending;
+  const isPending =
+    replaceMentor.isPending ||
+    assignMentor.isPending ||
+    unassignMentor.isPending ||
+    removeGroupMember.isPending;
 
   function handleOpenDialog() {
     setSelectedMentorId("");
@@ -116,6 +124,31 @@ export function GroupDetailDrawer({
         error instanceof AxiosError
           ? ((error.response?.data as { msg?: string } | undefined)?.msg ?? error.message)
           : "Operation failed. Please try again.";
+      toast.error(msg);
+    }
+  }
+
+  async function handleRemoveMember(member: Group["members"][number]) {
+    if (!group) return;
+
+    const confirmed = window.confirm(
+      `Remove ${member.name || member.email} from ${group.name}?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      const result = await removeGroupMember.mutateAsync({
+        groupId: group.id,
+        userId: member.id,
+      });
+      if (result.data) onGroupChange?.(result.data);
+      toast.success("Student removed from group.");
+    } catch (error) {
+      const msg =
+        error instanceof AxiosError
+          ? ((error.response?.data as { msg?: string } | undefined)?.msg ??
+            error.message)
+          : "Could not remove student. Please try again.";
       toast.error(msg);
     }
   }
@@ -192,13 +225,27 @@ export function GroupDetailDrawer({
                     key={member.id}
                     className="flex items-center justify-between p-3 rounded-md bg-muted/50"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium">{member.name}</p>
                       <p className="text-sm text-muted-foreground">
                         {member.email}
                       </p>
                     </div>
-                    <Badge variant="outline">{member.role}</Badge>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge variant="outline">{member.role}</Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground hover:text-destructive"
+                        disabled={removeGroupMember.isPending}
+                        aria-label={`Remove ${member.name || member.email} from group`}
+                        title="Remove from group"
+                        onClick={() => void handleRemoveMember(member)}
+                      >
+                        <UserMinusIcon className="size-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

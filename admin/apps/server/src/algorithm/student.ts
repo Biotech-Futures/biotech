@@ -7,7 +7,7 @@ export const REGION_TRACKS = [
 ] as const;
 
 export type RegionTrack = (typeof REGION_TRACKS)[number];
-export type Track = RegionTrack | "GLOBAL";
+export type Track = RegionTrack | "GLOBAL" | (string & {});
 
 export type StudentInput = {
   id: string | number;
@@ -255,15 +255,8 @@ function getMemberTimezone(member: ExistingGroupMemberInput): number {
 }
 
 function resolveStudentTrack(student: StudentInput): Track {
-  if (
-    student.trackId &&
-    REGION_TRACKS.includes(student.trackId as RegionTrack)
-  ) {
-    return student.trackId as Track;
-  }
-
-  if (student.trackId === "GLOBAL") {
-    return "GLOBAL";
+  if (student.trackId !== undefined && student.trackId !== null) {
+    return stringifyId(student.trackId) as Track;
   }
 
   return assignTrack(student.region ?? "");
@@ -285,6 +278,10 @@ function resolveTrackFromSource(source: {
     return "GLOBAL";
   }
 
+  if (source.trackCode) {
+    return source.trackCode as Track;
+  }
+
   if (
     typeof source.trackId === "string" &&
     REGION_TRACKS.includes(source.trackId as RegionTrack)
@@ -294,6 +291,10 @@ function resolveTrackFromSource(source: {
 
   if (source.trackId === "GLOBAL") {
     return "GLOBAL";
+  }
+
+  if (source.trackId !== undefined && source.trackId !== null) {
+    return stringifyId(source.trackId) as Track;
   }
 
   return assignTrack(source.region ?? "");
@@ -336,15 +337,8 @@ function sameTrackId(
 }
 
 function groupTrackToOutputTrack(group: ExistingGroupInput): Track {
-  if (typeof group.trackId === "string" && group.trackId === "GLOBAL") {
-    return "GLOBAL";
-  }
-
-  if (
-    typeof group.trackId === "string" &&
-    REGION_TRACKS.includes(group.trackId as RegionTrack)
-  ) {
-    return group.trackId as Track;
+  if (group.trackId !== undefined && group.trackId !== null) {
+    return stringifyId(group.trackId) as Track;
   }
 
   const firstStudent = group.groupStudent[0];
