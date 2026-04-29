@@ -21,6 +21,7 @@ import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthDemoRouteImport } from './routes/_auth/demo'
+import { Route as AuthAnnouncementRouteImport } from './routes/_auth/announcement'
 
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
@@ -81,10 +82,16 @@ const AuthDemoRoute = AuthDemoRouteImport.update({
   path: '/demo',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthAnnouncementRoute = AuthAnnouncementRouteImport.update({
+  id: '/announcement',
+  path: '/announcement',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
   '/signin': typeof SigninRoute
+  '/announcement': typeof AuthAnnouncementRoute
   '/demo': typeof AuthDemoRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
+  '/announcement': typeof AuthAnnouncementRoute
   '/demo': typeof AuthDemoRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
@@ -112,6 +120,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_auth': typeof AuthRouteRouteWithChildren
   '/signin': typeof SigninRoute
+  '/_auth/announcement': typeof AuthAnnouncementRoute
   '/_auth/demo': typeof AuthDemoRoute
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
@@ -128,6 +137,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/signin'
+    | '/announcement'
     | '/demo'
     | '/event'
     | '/group'
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/signin'
+    | '/announcement'
     | '/demo'
     | '/event'
     | '/group'
@@ -154,6 +165,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_auth'
     | '/signin'
+    | '/_auth/announcement'
     | '/_auth/demo'
     | '/_auth/event'
     | '/_auth/group'
@@ -257,10 +269,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthDemoRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/announcement': {
+      id: '/_auth/announcement'
+      path: '/announcement'
+      fullPath: '/announcement'
+      preLoaderRoute: typeof AuthAnnouncementRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
   }
 }
 
 interface AuthRouteRouteChildren {
+  AuthAnnouncementRoute: typeof AuthAnnouncementRoute
   AuthDemoRoute: typeof AuthDemoRoute
   AuthEventRoute: typeof AuthEventRoute
   AuthGroupRoute: typeof AuthGroupRoute
@@ -274,6 +294,7 @@ interface AuthRouteRouteChildren {
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthAnnouncementRoute: AuthAnnouncementRoute,
   AuthDemoRoute: AuthDemoRoute,
   AuthEventRoute: AuthEventRoute,
   AuthGroupRoute: AuthGroupRoute,

@@ -555,11 +555,13 @@ export async function replaceMentor(input: ReplaceMentorInput) {
   }
 
   await db
-    .delete(groupMembership)
+    .update(groupMembership)
+    .set({ leftAt: new Date().toISOString() })
     .where(
       and(
         eq(groupMembership.id, input.membershipId),
         eq(groupMembership.groupId, input.groupId),
+        isNull(groupMembership.leftAt),
       ),
     );
 
@@ -591,12 +593,15 @@ export async function bulkReplaceInactiveMentors() {
 
   if (inactive.length === 0) return { removedCount: 0 };
 
-  await db.delete(groupMembership).where(
-    inArray(
-      groupMembership.id,
-      inactive.map((m) => m.id),
-    ),
-  );
+  await db
+    .update(groupMembership)
+    .set({ leftAt: new Date().toISOString() })
+    .where(
+      inArray(
+        groupMembership.id,
+        inactive.map((m) => m.id),
+      ),
+    );
 
   return { removedCount: inactive.length };
 }
@@ -667,12 +672,15 @@ export async function confirmMentorAssignments(
     .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)));
 
   if (existingMentorRows.length > 0) {
-    await db.delete(groupMembership).where(
-      inArray(
-        groupMembership.id,
-        existingMentorRows.map((r) => r.id),
-      ),
-    );
+    await db
+      .update(groupMembership)
+      .set({ leftAt: new Date().toISOString() })
+      .where(
+        inArray(
+          groupMembership.id,
+          existingMentorRows.map((r) => r.id),
+        ),
+      );
   }
 
   await db.insert(groupMembership).values(
@@ -698,12 +706,15 @@ export async function unassignMentors(groupIds: number[]) {
 
   if (mentorRows.length === 0) return { unassignedCount: 0 };
 
-  await db.delete(groupMembership).where(
-    inArray(
-      groupMembership.id,
-      mentorRows.map((r) => r.id),
-    ),
-  );
+  await db
+    .update(groupMembership)
+    .set({ leftAt: new Date().toISOString() })
+    .where(
+      inArray(
+        groupMembership.id,
+        mentorRows.map((r) => r.id),
+      ),
+    );
 
   return { unassignedCount: mentorRows.length };
 }

@@ -13,6 +13,7 @@ import {
   GraduationCapIcon,
   Link2Icon,
   FileTextIcon,
+  MegaphoneIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -55,6 +56,11 @@ const NAV_ITEMS = [
     title: "Mentor",
     url: "/mentor",
     icon: <GraduationCapIcon />,
+  },
+  {
+    title: "Announcement",
+    url: "/announcement",
+    icon: <MegaphoneIcon />,
   },
 ];
 
