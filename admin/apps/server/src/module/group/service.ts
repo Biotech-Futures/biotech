@@ -89,7 +89,7 @@ async function buildGroups(baseRows: GroupBaseRow[]): Promise<Group[]> {
     .innerJoin(users, eq(users.id, groupMembership.userId))
     .leftJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
     .leftJoin(studentProfile, eq(studentProfile.userId, groupMembership.userId))
-    .where(and(inArray(groupMembership.groupId, groupIds), isNull(groupMembership.leftAt)))
+    .where(inArray(groupMembership.groupId, groupIds))
     .orderBy(asc(groupMembership.groupId), asc(groupMembership.id));
 
   const membersByGroupId = new Map<number, GroupMember[]>();
@@ -134,7 +134,7 @@ function buildGroupWhere(
     "searchName" | "searchGroup" | "track" | "mentorStatus"
   >,
 ) {
-  const conditions = [isNull(groups.deletedAt)];
+  const conditions = [eq(groups.deletedFlag, false)];
 
   if (params.track) conditions.push(eq(tracks.trackName, params.track));
   if (params.searchGroup) {
@@ -145,7 +145,7 @@ function buildGroupWhere(
     .select({ id: groupMembership.id })
     .from(groupMembership)
     .innerJoin(mentorProfile, eq(mentorProfile.userId, groupMembership.userId))
-    .where(and(eq(groupMembership.groupId, groups.id), isNull(groupMembership.leftAt)));
+    .where(eq(groupMembership.groupId, groups.id));
 
   if (params.mentorStatus === "matched") {
     conditions.push(exists(mentorMembership));
@@ -163,7 +163,6 @@ function buildGroupWhere(
       .where(
         and(
           eq(groupMembership.groupId, groups.id),
-          isNull(groupMembership.leftAt),
           or(
             ilike(users.firstName, search),
             ilike(users.lastName, search),
@@ -183,11 +182,11 @@ async function fetchGroupBaseById(id: number): Promise<GroupBaseRow | null> {
       id: groups.id,
       name: groups.groupName,
       track: tracks.trackName,
-      createdAt: groups.createdAt,
+      createdAt: groups.creationDatetime,
     })
     .from(groups)
     .innerJoin(tracks, eq(tracks.id, groups.trackId))
-    .where(and(eq(groups.id, id), isNull(groups.deletedAt)))
+    .where(and(eq(groups.id, id), eq(groups.deletedFlag, false)))
     .limit(1);
 
   return rows[0] ?? null;
@@ -204,7 +203,7 @@ export async function queryGroups(params: QueryGroupsInput) {
         id: groups.id,
         name: groups.groupName,
         track: tracks.trackName,
-        createdAt: groups.createdAt,
+        createdAt: groups.creationDatetime,
       })
       .from(groups)
       .innerJoin(tracks, eq(tracks.id, groups.trackId))
@@ -390,7 +389,6 @@ export async function removeGroupMember(
       and(
         eq(groupMembership.groupId, groupId),
         eq(groupMembership.userId, input.userId),
-        isNull(groupMembership.leftAt),
       ),
     )
     .limit(1);
