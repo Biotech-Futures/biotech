@@ -11,11 +11,15 @@ import {
   createEventRsvp,
   queryEvents,
   queryEventById,
+  queryEventTargets,
   createEvent,
   updateEvent,
   deleteEvent,
   queryEventRsvps,
   updateEventRsvp,
+  queryGroups,
+  queryRoles,
+  queryTracks,
 } from "./service.js";
 
 export const eventRoute = new Hono();
@@ -78,3 +82,24 @@ eventRoute.post(
     return c.json(res);
   },
 );
+
+eventRoute.get("/:id/targets", async (c) => {
+  const id = c.req.param("id");
+  const res = await queryEventTargets(id);
+  return c.json(res);
+});
+
+eventRoute.get("/meta/groups", async (c) => {
+  const res = await queryGroups();
+  return c.json(res);
+});
+
+eventRoute.get("/meta/roles", async (c) => {
+  const res = await queryRoles();
+  return c.json(res);
+});
+
+eventRoute.get("/meta/tracks", async (c) => {
+  const res = await queryTracks();
+  return c.json(res);
+});

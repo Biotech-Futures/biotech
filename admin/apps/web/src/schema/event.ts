@@ -12,6 +12,9 @@ export const createEventSchema = z
     isVirtual: z.boolean().optional().default(false),
     startAt: dateTimeInput,
     endsAt: dateTimeInput,
+    targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
+    targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
+    targetTrackIds: z.array(z.number().int().positive()).optional().default([]),
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
     message: "End time must be after start time",
@@ -28,6 +31,9 @@ export const updateEventSchema = z
     isVirtual: z.boolean().optional(),
     startAt: dateTimeInput.optional(),
     endsAt: dateTimeInput.optional(),
+    targetGroupIds: z.array(z.number().int().positive()).optional(),
+    targetRoleIds: z.array(z.number().int().positive()).optional(),
+    targetTrackIds: z.array(z.number().int().positive()).optional(),
   })
   .refine(
     (data) =>
@@ -41,18 +47,13 @@ export const updateEventSchema = z
   );
 
 export const createEventRsvpSchema = z.object({
-  userId: z.coerce.number().int().positive("User ID is required"),
-  rsvpStatus: z.boolean(),
-});
-
-export const updateEventRsvpSchema = z.object({
-  rsvpStatus: z.boolean(),
+  userId: z.number().int().positive(),
+  rsvpStatus: z.enum(["going", "maybe", "declined"]),
 });
 
 export type CreateEventInput = z.input<typeof createEventSchema>;
 export type CreateEvent = z.output<typeof createEventSchema>;
 export type UpdateEventInput = z.input<typeof updateEventSchema>;
 export type UpdateEvent = z.output<typeof updateEventSchema>;
-export type CreateEventRsvpInput = z.input<typeof createEventRsvpSchema>;
 export type CreateEventRsvp = z.output<typeof createEventRsvpSchema>;
-export type UpdateEventRsvp = z.output<typeof updateEventRsvpSchema>;
+export type UpdateEventRsvp = { rsvpStatus: string };

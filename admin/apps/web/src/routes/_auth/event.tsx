@@ -28,13 +28,10 @@ import {
 import {
   createEventSchema,
   updateEventSchema,
-  createEventRsvpSchema,
   type CreateEvent,
   type CreateEventInput,
   type UpdateEvent,
   type UpdateEventInput,
-  type CreateEventRsvp,
-  type CreateEventRsvpInput,
 } from "@/schema/event";
 import {
   useCreateEvent,
@@ -42,7 +39,10 @@ import {
   useQueryEvents,
   useUpdateEvent,
   useQueryEventRsvps,
-  useCreateEventRsvp,
+  useQueryGroups,
+  useQueryRoles,
+  useQueryTracks,
+  useQueryEventTargets,
 } from "@/query/event";
 import { useQueryUsers } from "@/query/user";
 import type { Event, EventRsvp } from "@/type/event";
@@ -54,6 +54,7 @@ import {
   Trash2Icon,
   PencilIcon,
   UsersIcon,
+  EyeIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useEffect, useMemo, useState } from "react";
@@ -62,32 +63,258 @@ export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
 });
 
+const RSVP_STATUS_LABELS: Record<
+  string,
+  { label: string; variant: "default" | "outline" | "secondary" }
+> = {
+  going: { label: "Going", variant: "default" },
+  maybe: { label: "Maybe", variant: "secondary" },
+  declined: { label: "Declined", variant: "outline" },
+};
+
+// ── Shared EventForm component used by both Create and Edit ──────────────────
+interface EventFormProps {
+  formId: string;
+  control: any;
+  register: any;
+  errors: any;
+  isVirtual: boolean;
+  currentHostName: string;
+  groups: { id: number; groupName: string }[];
+  roles: { id: number; roleName: string }[];
+  tracks: { id: number; trackName: string }[];
+  watchedGroupIds: number[];
+  watchedRoleIds: number[];
+  watchedTrackIds: number[];
+  onToggleGroup: (id: number) => void;
+  onToggleRole: (id: number) => void;
+  onToggleTrack: (id: number) => void;
+  onSubmit: (e: React.FormEvent) => void;
+}
+
+function EventForm({
+  formId,
+  control,
+  register,
+  errors,
+  isVirtual,
+  currentHostName,
+  groups,
+  roles,
+  tracks,
+  watchedGroupIds,
+  watchedRoleIds,
+  watchedTrackIds,
+  onToggleGroup,
+  onToggleRole,
+  onToggleTrack,
+  onSubmit,
+}: EventFormProps) {
+  return (
+    <form id={formId} className="grid gap-5 px-4 pb-4" onSubmit={onSubmit}>
+      {/* Host — read only */}
+      <div className="space-y-1.5">
+        <Label>Host</Label>
+        <Input
+          value={currentHostName}
+          readOnly
+          disabled
+          className="bg-muted text-muted-foreground cursor-not-allowed"
+        />
+      </div>
+
+      {/* Event Name */}
+      <div className="space-y-1.5">
+        <Label>Event Name</Label>
+        <Input placeholder="Event name" {...register("eventName")} />
+        {errors.eventName && (
+          <p className="text-sm text-destructive">{errors.eventName.message}</p>
+        )}
+      </div>
+
+      {/* Description */}
+      <div className="space-y-1.5">
+        <Label>Description</Label>
+        <Input placeholder="Optional" {...register("description")} />
+      </div>
+
+      {/* Virtual toggle — placed BEFORE location/link so toggling reorders */}
+      <Controller
+        control={control}
+        name="isVirtual"
+        render={({ field }) => (
+          <div className="space-y-1.5">
+            <Label>Event Type</Label>
+            <Select
+              value={field.value ? "true" : "false"}
+              onValueChange={(val) => field.onChange(val === "true")}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="false">In-person</SelectItem>
+                <SelectItem value="true">Virtual</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      />
+
+      {/* Location — only shown for in-person */}
+      {!isVirtual && (
+        <div className="space-y-1.5">
+          <Label>Location</Label>
+          <Input placeholder="Venue address or room" {...register("location")} />
+        </div>
+      )}
+
+      {/* Humanitix Link */}
+      <div className="space-y-1.5">
+        <Label>Humanitix Link</Label>
+        <Input placeholder="https://..." {...register("humanitixLink")} />
+      </div>
+
+      {/* Start datetime */}
+      <Controller
+        control={control}
+        name="startAt"
+        render={({ field }) => (
+          <div className="space-y-1.5">
+            <Label>Start</Label>
+            <input
+              type="datetime-local"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              {...field}
+              value={field.value ?? ""}
+            />
+            {errors.startAt && (
+              <p className="text-sm text-destructive">
+                {errors.startAt.message}
+              </p>
+            )}
+          </div>
+        )}
+      />
+
+      {/* End datetime */}
+      <Controller
+        control={control}
+        name="endsAt"
+        render={({ field }) => (
+          <div className="space-y-1.5">
+            <Label>End</Label>
+            <input
+              type="datetime-local"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              {...field}
+              value={field.value ?? ""}
+            />
+            {errors.endsAt && (
+              <p className="text-sm text-destructive">{errors.endsAt.message}</p>
+            )}
+          </div>
+        )}
+      />
+
+      {/* Target Groups */}
+      {groups.length > 0 && (
+        <div className="space-y-2">
+          <Label>Target Groups</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {groups.map((g) => (
+              <label
+                key={g.id}
+                className="flex items-center gap-2 text-sm cursor-pointer"
+              >
+                <input type="checkbox"
+                  checked={watchedGroupIds.includes(g.id)}
+                  onChange={() => onToggleGroup(g.id)}
+                />
+                {g.groupName}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Target Roles */}
+      {roles.length > 0 && (
+        <div className="space-y-2">
+          <Label>Target Roles</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {roles.map((r) => (
+              <label
+                key={r.id}
+                className="flex items-center gap-2 text-sm cursor-pointer"
+              >
+                <input type="checkbox"
+                  checked={watchedRoleIds.includes(r.id)}
+                  onChange={() => onToggleRole(r.id)}
+                />
+                {r.roleName}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Target Tracks */}
+      {tracks.length > 0 && (
+        <div className="space-y-2">
+          <Label>Target Tracks</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {tracks.map((t) => (
+              <label
+                key={t.id}
+                className="flex items-center gap-2 text-sm cursor-pointer"
+              >
+                <input type="checkbox"
+                  checked={watchedTrackIds.includes(t.id)}
+                  onChange={() => onToggleTrack(t.id)}
+                />
+                {t.trackName}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </form>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 function EventPage() {
   const [page, setPage] = useState(1);
   const [upcoming, setUpcoming] = useState(true);
   const [createEventOpen, setCreateEventOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
+  const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
 
   const { data: sessionData } = authClient.useSession();
-
   const { data, isPending } = useQueryEvents({ page, limit: 10, upcoming });
   const { data: usersData } = useQueryUsers();
+  const { data: groupsData } = useQueryGroups();
+  const { data: rolesData } = useQueryRoles();
+  const { data: tracksData } = useQueryTracks();
+  const { data: eventTargetsData } = useQueryEventTargets(editingEvent?.id ?? null);
+  const { data: viewTargetsData } = useQueryEventTargets(viewingEvent?.id ?? null);
 
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
   const { data: rsvpData, isPending: isRsvpLoading } =
     useQueryEventRsvps(rsvpEventId);
-  const { mutate: createRsvp, isPending: isCreatingRsvp } =
-    useCreateEventRsvp();
 
   const allUsers = usersData?.data.items ?? [];
-  const studentUsers = allUsers.filter((u) => u.role === "student");
   const usersById = useMemo(
     () => new Map(allUsers.map((user) => [Number(user.id), user])),
     [allUsers],
   );
+  const groups = groupsData?.data ?? [];
+  const roles = rolesData?.data ?? [];
+  const tracks = tracksData?.data ?? [];
 
   const currentAdminEmail = sessionData?.user?.email ?? "";
   const currentUserRecord = allUsers.find((u) => u.email === currentAdminEmail);
@@ -96,12 +323,14 @@ function EventPage() {
     ? formatHostName(currentUserId, usersById)
     : "—";
 
-  // Create form
+  // ── Create form ──────────────────────────────────────────────────────────
   const {
     control,
     handleSubmit,
     reset,
     register,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<CreateEventInput, undefined, CreateEvent>({
     defaultValues: {
@@ -113,9 +342,17 @@ function EventPage() {
       isVirtual: false,
       startAt: "",
       endsAt: "",
+      targetGroupIds: [],
+      targetRoleIds: [],
+      targetTrackIds: [],
     },
     resolver: zodResolver(createEventSchema),
   });
+
+  const createIsVirtual = watch("isVirtual");
+  const createGroupIds = watch("targetGroupIds") ?? [];
+  const createRoleIds = watch("targetRoleIds") ?? [];
+  const createTrackIds = watch("targetTrackIds") ?? [];
 
   useEffect(() => {
     if (currentUserId) {
@@ -123,26 +360,23 @@ function EventPage() {
     }
   }, [currentUserId, reset]);
 
-  // Edit form
+  // ── Edit form ────────────────────────────────────────────────────────────
   const {
     control: editControl,
     handleSubmit: handleEditSubmit,
     reset: resetEdit,
     register: registerEdit,
+    watch: watchEdit,
+    setValue: setEditValue,
     formState: { errors: editErrors },
   } = useForm<UpdateEventInput, undefined, UpdateEvent>({
     resolver: zodResolver(updateEventSchema),
   });
 
-  // RSVP form
-  const {
-    control: rsvpControl,
-    handleSubmit: handleRsvpSubmit,
-    reset: resetRsvp,
-    formState: { errors: rsvpErrors },
-  } = useForm<CreateEventRsvpInput, undefined, CreateEventRsvp>({
-    resolver: zodResolver(createEventRsvpSchema),
-  });
+  const editIsVirtual = watchEdit("isVirtual");
+  const editGroupIds = watchEdit("targetGroupIds") ?? [];
+  const editRoleIds = watchEdit("targetRoleIds") ?? [];
+  const editTrackIds = watchEdit("targetTrackIds") ?? [];
 
   useEffect(() => {
     setPage(1);
@@ -150,17 +384,22 @@ function EventPage() {
 
   useEffect(() => {
     if (editingEvent) {
+      const targets = eventTargetsData?.data;
       resetEdit({
         hostUserId: editingEvent.hostUserId,
         eventName: editingEvent.eventName,
         description: editingEvent.description,
         location: editingEvent.location,
+        humanitixLink: editingEvent.humanitixLink,
         isVirtual: editingEvent.isVirtual,
         startAt: toDatetimeLocal(editingEvent.startDatetime),
         endsAt: toDatetimeLocal(editingEvent.endsDatetime),
+        targetGroupIds: targets?.groupIds ?? [],
+        targetRoleIds: targets?.roleIds ?? [],
+        targetTrackIds: targets?.trackIds ?? [],
       });
     }
-  }, [editingEvent, resetEdit]);
+  }, [editingEvent, eventTargetsData, resetEdit]);
 
   const eventsList = data?.data.items ?? [];
   const total = data?.data.total ?? 0;
@@ -168,6 +407,15 @@ function EventPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
+
+  // Toggle helpers
+  const toggleId = (
+    ids: number[],
+    id: number,
+    setter: (val: number[]) => void,
+  ) => {
+    setter(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  };
 
   const onSubmit = (formData: CreateEvent) => {
     createEvent(formData, {
@@ -183,6 +431,9 @@ function EventPage() {
             isVirtual: false,
             startAt: "",
             endsAt: "",
+            targetGroupIds: [],
+            targetRoleIds: [],
+            targetTrackIds: [],
           });
         }
       },
@@ -202,17 +453,9 @@ function EventPage() {
     );
   };
 
-  const onRsvpSubmit = (formData: CreateEventRsvp) => {
-    if (!rsvpEventId) return;
-    createRsvp(
-      { eventId: rsvpEventId, data: formData },
-      { onSuccess: () => resetRsvp() },
-    );
-  };
-
   const handleDelete = (event: Event) => {
     const shouldDelete = window.confirm(
-      `Delete event "${event.eventName}"? All RSVPs will also be deleted.`,
+      `Delete event ${event.eventName}? All RSVPs will also be deleted.`,
     );
     if (!shouldDelete) return;
     deleteEvent(event.id, {
@@ -247,7 +490,7 @@ function EventPage() {
               <TableHead>ID</TableHead>
               <TableHead>Event Name</TableHead>
               <TableHead>Host</TableHead>
-              <TableHead>Virtual</TableHead>
+              <TableHead>Location / Link</TableHead>
               <TableHead>Start</TableHead>
               <TableHead>End</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -271,14 +514,34 @@ function EventPage() {
                       : "Unassigned"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={event.isVirtual ? "default" : "outline"}>
-                      {event.isVirtual ? "Virtual" : "In-person"}
-                    </Badge>
+                    {event.location
+                      ? event.location
+                      : event.humanitixLink
+                        ? (
+                          <a
+                            href={event.humanitixLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 underline"
+                          >
+                            Humanitix Link
+                          </a>
+                        )
+                        : "—"}
                   </TableCell>
                   <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
                   <TableCell>{formatDateTime(event.endsDatetime)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setViewingEvent(viewingEvent?.id === event.id ? null : event)}
+                                >
+                        <EyeIcon className="size-4" />
+                        View
+                    </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -356,7 +619,95 @@ function EventPage() {
           </Button>
         </div>
       </div>
-
+      {/* ── View Event Drawer ── */}
+<Drawer
+  direction="right"
+  open={!!viewingEvent}
+  onOpenChange={(open) => { if (!open) setViewingEvent(null); }}
+>
+  <DrawerContent className="overflow-y-auto sm:max-w-xl">
+    <DrawerHeader>
+      <DrawerTitle>{viewingEvent?.eventName ?? "Event Details"}</DrawerTitle>
+      <DrawerDescription>Event #{viewingEvent?.id}</DrawerDescription>
+    </DrawerHeader>
+    <div className="grid gap-5 px-4 pb-4">
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground uppercase">Host</Label>
+        <p className="text-sm">{viewingEvent?.hostUserId ? formatHostName(viewingEvent.hostUserId, usersById) : "—"}</p>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground uppercase">Description</Label>
+        <p className="text-sm">{viewingEvent?.description || "—"}</p>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground uppercase">Event Type</Label>
+        <p className="text-sm">{viewingEvent?.isVirtual ? "Virtual" : "In-person"}</p>
+      </div>
+      {!viewingEvent?.isVirtual && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground uppercase">Location</Label>
+          <p className="text-sm">{viewingEvent?.location || "—"}</p>
+        </div>
+      )}
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground uppercase">Humanitix Link</Label>
+        <p className="text-sm">
+          {viewingEvent?.humanitixLink
+            ? <a href={viewingEvent.humanitixLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">{viewingEvent.humanitixLink}</a>
+            : "—"}
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground uppercase">Start</Label>
+          <p className="text-sm">{viewingEvent ? formatDateTime(viewingEvent.startDatetime) : "—"}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground uppercase">End</Label>
+          <p className="text-sm">{viewingEvent ? formatDateTime(viewingEvent.endsDatetime) : "—"}</p>
+        </div>
+      </div>
+      {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground uppercase">Target Groups</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {viewTargetsData!.data!.groupIds.map((id) => {
+              const g = groups.find((x) => x.id === id);
+              return g ? <Badge key={id} variant="secondary">{g.groupName}</Badge> : null;
+            })}
+          </div>
+        </div>
+      )}
+      {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground uppercase">Target Roles</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {viewTargetsData!.data!.roleIds.map((id) => {
+              const r = roles.find((x) => x.id === id);
+              return r ? <Badge key={id} variant="secondary">{r.roleName}</Badge> : null;
+            })}
+          </div>
+        </div>
+      )}
+      {(viewTargetsData?.data?.trackIds?.length ?? 0) > 0 && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground uppercase">Target Tracks</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {viewTargetsData!.data!.trackIds.map((id) => {
+              const t = tracks.find((x) => x.id === id);
+              return t ? <Badge key={id} variant="secondary">{t.trackName}</Badge> : null;
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+    <DrawerFooter>
+      <Button type="button" variant="outline" onClick={() => setViewingEvent(null)}>Close</Button>
+    </DrawerFooter>
+  </DrawerContent>
+</Drawer>
+      
+      {/* ── Create Event Drawer ── */}
       <Drawer
         direction="right"
         open={createEventOpen}
@@ -372,6 +723,9 @@ function EventPage() {
               isVirtual: false,
               startAt: "",
               endsAt: "",
+              targetGroupIds: [],
+              targetRoleIds: [],
+              targetTrackIds: [],
             });
           }
         }}
@@ -384,103 +738,41 @@ function EventPage() {
             </DrawerDescription>
           </DrawerHeader>
 
-          <form
-            id="create-event-form"
-            className="grid gap-5 px-4 pb-4"
+          <EventForm
+            formId="create-event-form"
+            control={control}
+            register={register}
+            errors={errors}
+            isVirtual={!!createIsVirtual}
+            currentHostName={currentHostName}
+            groups={groups}
+            roles={roles}
+            tracks={tracks}
+            watchedGroupIds={createGroupIds}
+            watchedRoleIds={createRoleIds}
+            watchedTrackIds={createTrackIds}
+            onToggleGroup={(id) =>
+              toggleId(createGroupIds, id, (v) =>
+                setValue("targetGroupIds", v),
+              )
+            }
+            onToggleRole={(id) =>
+              toggleId(createRoleIds, id, (v) => setValue("targetRoleIds", v))
+            }
+            onToggleTrack={(id) =>
+              toggleId(createTrackIds, id, (v) =>
+                setValue("targetTrackIds", v),
+              )
+            }
             onSubmit={handleSubmit(onSubmit)}
-          >
-            <div className="space-y-1.5">
-              <Label>Host</Label>
-              <Input
-                value={currentHostName}
-                readOnly
-                disabled
-                className="bg-muted text-muted-foreground cursor-not-allowed"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Event Name</Label>
-              <Input placeholder="Event name" {...register("eventName")} />
-              {errors.eventName && (
-                <p className="text-sm text-destructive">
-                  {errors.eventName.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Input placeholder="Optional" {...register("description")} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Location</Label>
-              <Input placeholder="Optional" {...register("location")} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Humanitix Link</Label>
-              <Input placeholder="https://..." {...register("humanitixLink")} />
-            </div>
-
-            <Controller
-              control={control}
-              name="isVirtual"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>Virtual Event?</Label>
-                  <Select
-                    value={field.value ? "true" : "false"}
-                    onValueChange={(val) => field.onChange(val === "true")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="false">No (In-person)</SelectItem>
-                      <SelectItem value="true">Yes (Virtual)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="startAt"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>Start</Label>
-                  <Input type="datetime-local" {...field} />
-                  {errors.startAt && (
-                    <p className="text-sm text-destructive">
-                      {errors.startAt.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="endsAt"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>End</Label>
-                  <Input type="datetime-local" {...field} />
-                  {errors.endsAt && (
-                    <p className="text-sm text-destructive">
-                      {errors.endsAt.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            />
-          </form>
+          />
 
           <DrawerFooter>
-            <Button form="create-event-form" type="submit" disabled={isCreating}>
+            <Button
+              form="create-event-form"
+              type="submit"
+              disabled={isCreating}
+            >
               <CalendarIcon className="size-4" />
               {isCreating ? "Creating..." : "Create Event"}
             </Button>
@@ -495,20 +787,18 @@ function EventPage() {
         </DrawerContent>
       </Drawer>
 
+      {/* ── RSVP View Drawer ── */}
       <Drawer
         direction="right"
         open={rsvpEventId !== null}
         onOpenChange={(open) => {
-          if (!open) {
-            setRsvpEventId(null);
-            resetRsvp();
-          }
+          if (!open) setRsvpEventId(null);
         }}
       >
         <DrawerContent className="overflow-y-auto sm:max-w-3xl">
           <DrawerHeader>
             <DrawerTitle>
-              RSVP List {rsvpEvent ? `- ${rsvpEvent.eventName}` : ""}
+              RSVP List {rsvpEvent ? `- ${rsvpEvent.eventName}` : ``}
             </DrawerTitle>
             <DrawerDescription>
               Event #{rsvpEventId} has {rsvps.length} RSVP
@@ -517,81 +807,6 @@ function EventPage() {
           </DrawerHeader>
 
           <div className="space-y-4 px-4 pb-4">
-            <form
-              id="event-rsvp-form"
-              className="grid gap-3 sm:grid-cols-[1fr_180px]"
-              onSubmit={handleRsvpSubmit(onRsvpSubmit)}
-            >
-              <Controller
-                control={rsvpControl}
-                name="userId"
-                render={({ field }) => (
-                  <div className="space-y-1.5">
-                    <Label>Student</Label>
-                    <Select
-                      value={field.value ? String(field.value) : ""}
-                      onValueChange={(val) => field.onChange(Number(val))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select student" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {studentUsers.length === 0 ? (
-                          <SelectItem value="__empty" disabled>
-                            No students found
-                          </SelectItem>
-                        ) : (
-                          studentUsers.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.name} ({u.email})
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {rsvpErrors.userId && (
-                      <p className="text-sm text-destructive">
-                        {rsvpErrors.userId.message}
-                      </p>
-                    )}
-                  </div>
-                )}
-              />
-
-              <Controller
-                control={rsvpControl}
-                name="rsvpStatus"
-                render={({ field }) => (
-                  <div className="space-y-1.5">
-                    <Label>RSVP Status</Label>
-                    <Select
-                      value={
-                        field.value === true
-                          ? "true"
-                          : field.value === false
-                            ? "false"
-                            : ""
-                      }
-                      onValueChange={(val) => field.onChange(val === "true")}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="true">Attending</SelectItem>
-                        <SelectItem value="false">Declined</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {rsvpErrors.rsvpStatus && (
-                      <p className="text-sm text-destructive">
-                        {rsvpErrors.rsvpStatus.message}
-                      </p>
-                    )}
-                  </div>
-                )}
-              />
-            </form>
-
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-medium">RSVPs</h3>
@@ -603,8 +818,8 @@ function EventPage() {
                     <TableRow>
                       <TableHead>RSVP ID</TableHead>
                       <TableHead>Student</TableHead>
-                      <TableHead>RSVP Status</TableHead>
-                      <TableHead>Attended</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Responded At</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -619,6 +834,12 @@ function EventPage() {
                         const student = allUsers.find(
                           (u) => Number(u.id) === rsvp.userId,
                         );
+                        const statusInfo = RSVP_STATUS_LABELS[
+                          rsvp.rsvpStatus
+                        ] ?? {
+                          label: rsvp.rsvpStatus,
+                          variant: "outline" as const,
+                        };
                         return (
                           <TableRow key={rsvp.id}>
                             <TableCell>{rsvp.id}</TableCell>
@@ -628,22 +849,14 @@ function EventPage() {
                                 : `User #${rsvp.userId}`}
                             </TableCell>
                             <TableCell>
-                              <Badge
-                                variant={
-                                  rsvp.rsvpStatus ? "default" : "outline"
-                                }
-                              >
-                                {rsvp.rsvpStatus ? "Attending" : "Declined"}
+                              <Badge variant={statusInfo.variant}>
+                                {statusInfo.label}
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <Badge
-                                variant={
-                                  rsvp.attendanceStatus ? "default" : "outline"
-                                }
-                              >
-                                {rsvp.attendanceStatus ? "Yes" : "No"}
-                              </Badge>
+                              {rsvp.respondedAt
+                                ? formatDateTime(rsvp.respondedAt)
+                                : "—"}
                             </TableCell>
                           </TableRow>
                         );
@@ -663,19 +876,9 @@ function EventPage() {
 
           <DrawerFooter>
             <Button
-              form="event-rsvp-form"
-              type="submit"
-              disabled={isCreatingRsvp}
-            >
-              {isCreatingRsvp ? "Adding..." : "Add RSVP"}
-            </Button>
-            <Button
               type="button"
               variant="outline"
-              onClick={() => {
-                setRsvpEventId(null);
-                resetRsvp();
-              }}
+              onClick={() => setRsvpEventId(null)}
             >
               Close
             </Button>
@@ -683,6 +886,7 @@ function EventPage() {
         </DrawerContent>
       </Drawer>
 
+      {/* ── Edit Event Drawer ── */}
       <Drawer
         direction="right"
         open={!!editingEvent}
@@ -696,110 +900,47 @@ function EventPage() {
             <DrawerDescription>Update the event details.</DrawerDescription>
           </DrawerHeader>
 
-          <form
-            id="edit-event-form"
-            className="grid gap-5 px-4 pb-4"
+          <EventForm
+            formId="edit-event-form"
+            control={editControl}
+            register={registerEdit}
+            errors={editErrors}
+            isVirtual={!!editIsVirtual}
+            currentHostName={
+              editingEvent?.hostUserId
+                ? formatHostName(editingEvent.hostUserId, usersById)
+                : currentHostName
+            }
+            groups={groups}
+            roles={roles}
+            tracks={tracks}
+            watchedGroupIds={editGroupIds}
+            watchedRoleIds={editRoleIds}
+            watchedTrackIds={editTrackIds}
+            onToggleGroup={(id) =>
+              toggleId(editGroupIds, id, (v) =>
+                setEditValue("targetGroupIds", v),
+              )
+            }
+            onToggleRole={(id) =>
+              toggleId(editRoleIds, id, (v) =>
+                setEditValue("targetRoleIds", v),
+              )
+            }
+            onToggleTrack={(id) =>
+              toggleId(editTrackIds, id, (v) =>
+                setEditValue("targetTrackIds", v),
+              )
+            }
             onSubmit={handleEditSubmit(onEditSubmit)}
-          >
-            <div className="space-y-1.5">
-              <Label>Host</Label>
-              <Input
-                value={
-                  editingEvent?.hostUserId
-                    ? formatHostName(editingEvent.hostUserId, usersById)
-                    : currentHostName
-                }
-                readOnly
-                disabled
-                className="bg-muted text-muted-foreground cursor-not-allowed"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Event Name</Label>
-              <Input {...registerEdit("eventName")} />
-              {editErrors.eventName && (
-                <p className="text-sm text-destructive">
-                  {editErrors.eventName.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Input {...registerEdit("description")} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Location</Label>
-              <Input {...registerEdit("location")} />
-            </div>
-
-            <Controller
-              control={editControl}
-              name="isVirtual"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>Virtual Event?</Label>
-                  <Select
-                    value={field.value ? "true" : "false"}
-                    onValueChange={(val) => field.onChange(val === "true")}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="false">No (In-person)</SelectItem>
-                      <SelectItem value="true">Yes (Virtual)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            />
-
-            <Controller
-              control={editControl}
-              name="startAt"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>Start</Label>
-                  <Input
-                    type="datetime-local"
-                    {...field}
-                    value={field.value ?? ""}
-                  />
-                  {editErrors.startAt && (
-                    <p className="text-sm text-destructive">
-                      {editErrors.startAt.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            />
-
-            <Controller
-              control={editControl}
-              name="endsAt"
-              render={({ field }) => (
-                <div className="space-y-1.5">
-                  <Label>End</Label>
-                  <Input
-                    type="datetime-local"
-                    {...field}
-                    value={field.value ?? ""}
-                  />
-                  {editErrors.endsAt && (
-                    <p className="text-sm text-destructive">
-                      {editErrors.endsAt.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            />
-          </form>
+          />
 
           <DrawerFooter>
-            <Button form="edit-event-form" type="submit" disabled={isUpdating}>
+            <Button
+              form="edit-event-form"
+              type="submit"
+              disabled={isUpdating}
+            >
               {isUpdating ? "Saving..." : "Save Changes"}
             </Button>
             <Button
@@ -820,7 +961,7 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "Australia/Sydney",
+    timeZone: "UTC",
   }).format(new Date(value));
 }
 

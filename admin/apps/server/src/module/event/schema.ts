@@ -22,6 +22,9 @@ export const createEventSchema = z
     isVirtual: z.boolean().optional().default(false),
     startAt: dateTimeString,
     endsAt: dateTimeString,
+    targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
+    targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
+    targetTrackIds: z.array(z.number().int().positive()).optional().default([]),
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
     message: "endsAt must be after startAt",
@@ -38,6 +41,9 @@ export const updateEventSchema = z
     isVirtual: z.boolean().optional(),
     startAt: dateTimeString.optional(),
     endsAt: dateTimeString.optional(),
+    targetGroupIds: z.array(z.number().int().positive()).optional(),
+    targetRoleIds: z.array(z.number().int().positive()).optional(),
+    targetTrackIds: z.array(z.number().int().positive()).optional(),
   })
   .refine(
     (data) =>
@@ -50,10 +56,9 @@ export const updateEventSchema = z
     },
   );
 
-// rsvpStatus is now boolean: true = attending, false = declined
 export const createEventRsvpSchema = z.object({
   userId: z.number().int().positive(),
-  rsvpStatus: z.boolean(),
+  rsvpStatus: z.enum(["going", "maybe", "declined"]),
 });
 
 export const updateEventRsvpSchema = z.object({
