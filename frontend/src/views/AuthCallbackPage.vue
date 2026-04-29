@@ -5,6 +5,7 @@
         <div class="spinner"></div>
         <p>Authenticating...</p>
       </div>
+
       <div v-else-if="error" class="error-state">
         <div class="error-icon">⚠️</div>
         <h2>Authentication Failed</h2>
@@ -31,36 +32,29 @@ const error = ref('')
 
 onMounted(async () => {
   try {
-    // Extract JWT tokens and user data from URL query parameters (sent by Django after magic link click)
-    const accessToken = route.query.access_token
-    const refreshToken = route.query.refresh_token
-    const userId = route.query.user_id
+    const success = route.query.success
     const email = route.query.email
-    const firstName = route.query.first_name
-    const lastName = route.query.last_name
 
-    if (accessToken && refreshToken && userId) {
-      // Create user object from URL parameters
-      const userData = {
-        id: parseInt(userId),
-        email: email,
-        first_name: firstName,
-        last_name: lastName,
-        name: `${firstName || ''} ${lastName || ''}`.trim() || email
-      }
-
-      // Use auth store to login with JWT tokens
-      auth.loginWithTokens(userData, accessToken, refreshToken)
-
-      // Redirect to dashboard on successful authentication
-      await router.push('/dashboard')
-    } else {
-      // No valid tokens found in URL, redirect to login
+    if (success !== 'true') {
       error.value = 'Invalid authentication link. Please try logging in again.'
       setTimeout(redirectToLogin, 3000)
+      return
     }
+
+    const userData = await auth.fetchUserData()
+
+    if (userData) {
+      await router.push('/dashboard')
+      return
+    }
+
+    error.value = email
+      ? `Authentication succeeded for ${email}, but the user session could not be loaded. Please try again.`
+      : 'Authentication succeeded, but the user session could not be loaded. Please try again.'
+
+    setTimeout(redirectToLogin, 3000)
   } catch (err) {
-    console.error('Authentication failed:', err)
+    console.error('Authentication callback failed:', err)
     error.value = 'Authentication failed. Please try logging in again.'
     setTimeout(redirectToLogin, 3000)
   } finally {
