@@ -40,6 +40,7 @@ export const userInAdmin = admin.table(
       .defaultNow()
       .notNull(),
     role: text(),
+    tracks: jsonb(),
     banned: boolean().default(false),
     banReason: text("ban_reason"),
     banExpires: timestamp("ban_expires", { mode: "string" }),

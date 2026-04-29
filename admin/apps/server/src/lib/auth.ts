@@ -19,6 +19,11 @@ export const auth = betterAuth({
         required: true,
         fieldName: "userid",
       },
+      tracks: {
+        type: "json",
+        required: false,
+        fieldName: "tracks",
+      },
     },
   },
   database: drizzleAdapter(db, {
