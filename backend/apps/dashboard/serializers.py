@@ -1,6 +1,19 @@
 from rest_framework import serializers
 
 
+class ProgressQuerySerializer(serializers.Serializer):
+    group_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class ProgressSnapshotSerializer(serializers.Serializer):
+    completionRate = serializers.IntegerField()
+    completedTasks = serializers.IntegerField()
+    totalTasks = serializers.IntegerField()
+    currentWeek = serializers.CharField(allow_null=True)
+    nextMilestone = serializers.CharField(allow_null=True)
+    nextMilestoneDate = serializers.DateTimeField(allow_null=True)
+
+
 class DashboardNextEventSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     event_name = serializers.CharField()

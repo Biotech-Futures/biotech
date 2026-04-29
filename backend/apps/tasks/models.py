@@ -1,7 +1,43 @@
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Count, Q
+
+
+class TaskQuerySet(models.QuerySet):
+    def get_dashboard_tasks(self):
+        return (
+            self.filter(deleted_at__isnull=True)
+            .select_related("milestone", "milestone__group")
+            .prefetch_related("assignments")
+            .values(
+                "milestone__id",
+                "milestone__milestone_name",
+                "milestone__group__id",
+            )
+            .annotate(
+                total_tasks=Count("id"),
+                completed_tasks=Count("id", filter=Q(completed=True)),
+            )
+        )
+
+    def get_task_totals(self):
+        from django.db.models import Count, Q
+        return self.filter(deleted_at__isnull=True).aggregate(
+            total_tasks=Count("id"),
+            completed_tasks=Count("id", filter=Q(completed=True)),
+        )
+
+
+class TaskManager(models.Manager):
+    def get_queryset(self):
+        return TaskQuerySet(self.model, using=self._db)
+
+    def get_dashboard_tasks(self):
+        return self.get_queryset().get_dashboard_tasks()
+
+    def get_task_totals(self):
+        return self.get_queryset().get_task_totals()
 
 
 class Milestone(models.Model):
@@ -61,9 +97,12 @@ class TaskAssignees(models.Model):
 
 
 class Tasks(models.Model):
+    objects = TaskManager()
+
     task_name = models.CharField(max_length=255)
     due_date = models.DateTimeField()
     deleted_at = models.DateTimeField(null=True, blank=True)
+    completed = models.BooleanField(default=False)
     milestone = models.ForeignKey('Milestone', null=True, blank=True, on_delete=models.SET_NULL)
     task_description = models.CharField(max_length=255, blank=True, null=True)
 

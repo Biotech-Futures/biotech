@@ -11,12 +11,38 @@ from .serializers import (
     DashboardGroupPreviewSerializer,
     DashboardNextEventSerializer,
     DashboardSummarySerializer,
+    ProgressQuerySerializer,
+    ProgressSnapshotSerializer,
 )
 from .services import (
     get_dashboard_summary,
     get_groups_preview,
     get_personalized_next_event,
 )
+from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
+
+class DashboardProgressView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        query_serializer = ProgressQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        group_id = query_serializer.validated_data.get("group_id")
+
+        allowed_ids = list(get_allowed_group_ids(request.user))
+
+        if group_id is not None:
+            if group_id not in allowed_ids:
+                return Response(
+                    {"detail": "You do not have access to this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            snapshot = build_progress_snapshot(group_id=group_id)
+        else:
+            snapshot = build_progress_snapshot(allowed_group_ids=allowed_ids)
+
+        return Response(ProgressSnapshotSerializer(snapshot).data, status=status.HTTP_200_OK)
+
 
 class DashboardViewSet(GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
