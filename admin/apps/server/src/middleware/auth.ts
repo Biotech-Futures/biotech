@@ -8,6 +8,9 @@ export const authRequirement = createMiddleware(async (c, next) => {
     throw new HTTPException(401, { message: "Unauthorized" });
   }
   const { user, session: sessionData } = session;
+
+  user.tracks = user.tracks || [];
+
   c.set("user", user);
   c.set("session", sessionData);
   await next();
