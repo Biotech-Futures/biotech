@@ -1,14 +1,19 @@
 <template>
   <div class="content-area">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;">
-      <h1>Admin Dashboard</h1>
-      <div style="display:flex;gap:1rem;">
-        <select v-model="activeTrack" class="form-control" style="width:220px;">
-          <option value="AUS-NSW">Track: AUS-NSW</option>
-          <option value="Brazil">Track: Brazil</option>
-          <option value="Global">Track: Global</option>
-        </select>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <h1 style="margin-bottom:0.35rem;">Admin Dashboard</h1>
+        <p style="margin:0;color:#6c757d;">
+          {{ scopeSummary }}
+        </p>
       </div>
+      <button class="btn btn-outline" @click="loadAdminData" :disabled="loading">
+        <i class="fas fa-rotate-right"></i> Refresh
+      </button>
+    </div>
+
+    <div v-if="error" class="card" style="margin-bottom:1rem;border-left:4px solid var(--danger);">
+      <p style="margin:0;color:#6c757d;">{{ error }}</p>
     </div>
 
     <div class="grid grid-4" style="margin-bottom:2rem;">
@@ -17,9 +22,9 @@
           <span class="widget-title">Total Users</span>
           <i class="fas fa-users" style="color:var(--eucalypt);"></i>
         </div>
-        <div class="widget-value">{{ users.length }}</div>
+        <div class="widget-value">{{ totalUsers }}</div>
         <div class="widget-footer">
-          <span style="color:var(--success);">demo</span>
+          <span>{{ summary.active_users }} active users</span>
         </div>
       </div>
       <div class="widget">
@@ -27,118 +32,152 @@
           <span class="widget-title">Active Groups</span>
           <i class="fas fa-layer-group" style="color:var(--mint-green);"></i>
         </div>
-        <div class="widget-value">{{ groupsCount }}</div>
+        <div class="widget-value">{{ summary.active_groups }}</div>
         <div class="widget-footer">
-          <span>{{ pendingMatches }} pending matches</span>
+          <span>{{ summary.groups_without_mentor }} groups without mentor</span>
         </div>
       </div>
       <div class="widget">
         <div class="widget-header">
-          <span class="widget-title">Mentors</span>
+          <span class="widget-title">Pending Matches</span>
           <i class="fas fa-user-tie" style="color:var(--air-force-blue);"></i>
         </div>
-        <div class="widget-value">{{ mentorCount }}</div>
+        <div class="widget-value">{{ summary.unassigned_match_recommendations }}</div>
         <div class="widget-footer">
-          <span>{{ mentorActive }} active, {{ mentorPending }} pending</span>
+          <span>{{ summary.invited_or_pending_users }} invited or pending users</span>
         </div>
       </div>
       <div class="widget">
         <div class="widget-header">
-          <span class="widget-title">Students</span>
+          <span class="widget-title">Upcoming Events</span>
           <i class="fas fa-graduation-cap" style="color:var(--yellow);"></i>
         </div>
-        <div class="widget-value">{{ studentCount }}</div>
+        <div class="widget-value">{{ summary.upcoming_events }}</div>
         <div class="widget-footer">
-          <span>Year 9-12 students</span>
+          <span>{{ summary.suspended_or_deactivated_users }} suspended or deactivated users</span>
         </div>
       </div>
     </div>
 
-    <div class="data-table">
-      <div class="table-header">
-        <h3 style="margin:0;">User Management</h3>
-        <div class="table-actions">
-          <input v-model="userSearch" type="text" class="form-control" placeholder="Search users..." style="width:250px;">
-          <button class="btn btn-outline"><i class="fas fa-filter"></i> Filter</button>
-          <button class="btn btn-outline"><i class="fas fa-download"></i> Export</button>
-          <button class="btn btn-primary"><i class="fas fa-user-plus"></i> Add User</button>
-        </div>
+    <div class="card">
+      <div class="card-header" style="margin-bottom:0.75rem;">
+        <h3 class="card-title">User Management</h3>
       </div>
-
-      <div class="table-wrapper">
-        <table>
-          <thead>
-          <tr>
-            <th><input type="checkbox" class="table-checkbox" @change="toggleSelectAll($event)"></th>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Role</th>
-            <th>Track</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-          </thead>
-          <tbody>
-          <tr v-for="u in filteredUsers" :key="u.id">
-            <td><input type="checkbox" class="table-checkbox" v-model="selected" :value="u.id"></td>
-            <td>{{ u.name }}</td>
-            <td>{{ u.email }}</td>
-            <td>{{ u.role }}</td>
-            <td>{{ u.track }}</td>
-            <td>
-                <span :class="['status-badge', u.status === 'active' ? 'status-active' : (u.status === 'pending' ? 'status-pending' : 'status-inactive')]">
-                  {{ u.status }}
-                </span>
-            </td>
-            <td>
-              <button class="btn btn-outline btn-sm" style="margin-right:0.5rem;">Edit</button>
-              <button class="btn btn-outline btn-sm">View</button>
-            </td>
-          </tr>
-          <tr v-if="filteredUsers.length === 0">
-            <td colspan="7" style="text-align:center;color:#6c757d;">No users found</td>
-          </tr>
-          </tbody>
-        </table>
+      <p style="margin:0 0 1rem;color:#6c757d;line-height:1.6;">
+        This page now loads live operational summary data from the backend. The detailed user table has been hidden because the current backend user list endpoint is HTML-only and not consumable as JSON from the SPA.
+      </p>
+      <div v-if="scopeLabels.length" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <span
+          v-for="label in scopeLabels"
+          :key="label"
+          class="status-badge status-info"
+        >
+          {{ label }}
+        </span>
       </div>
     </div>
-
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { mockUsers, mockGroups } from '../data/mock.js'
+import { computed, onMounted, ref } from 'vue'
 
-const users = ref(mockUsers)
-const activeTrack = ref('AUS-NSW')
+import { buildSessionHeaders } from '@/utils/csrf'
 
-// Widgets（简单 demo 统计）
-const groupsCount = computed(() => mockGroups.length)
-const pendingMatches = 8 // demo 占位
-const mentorCount = computed(() => users.value.filter(u => u.role === 'mentor').length)
-const mentorActive = computed(() => users.value.filter(u => u.role === 'mentor' && u.status === 'active').length)
-const mentorPending = computed(() => users.value.filter(u => u.role === 'mentor' && u.status === 'pending').length)
-const studentCount = computed(() => users.value.filter(u => u.role === 'student').length)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-// Users 过滤与选择
-const userSearch = ref('')
-const selected = ref([])
+const loading = ref(false)
+const error = ref('')
+const tracksById = ref(new Map())
 
-const filteredUsers = computed(() => {
-  const q = userSearch.value.trim().toLowerCase()
-  return users.value.filter(u => {
-    const inTrack = activeTrack.value === 'Global' ? true : u.track === activeTrack.value
-    const match = !q || [u.name, u.email, u.role, u.track].some(f => String(f).toLowerCase().includes(q))
-    return inTrack && match
-  })
+const summary = ref({
+  track_scope: [],
+  active_users: 0,
+  invited_or_pending_users: 0,
+  suspended_or_deactivated_users: 0,
+  active_groups: 0,
+  groups_without_mentor: 0,
+  unassigned_match_recommendations: 0,
+  upcoming_events: 0
 })
 
-const toggleSelectAll = (e) => {
-  if (e.target.checked) {
-    selected.value = filteredUsers.value.map(u => u.id)
-  } else {
-    selected.value = []
+const totalUsers = computed(() => {
+  return Number(summary.value.active_users || 0)
+    + Number(summary.value.invited_or_pending_users || 0)
+    + Number(summary.value.suspended_or_deactivated_users || 0)
+})
+
+const scopeLabels = computed(() => {
+  const scopeIds = Array.isArray(summary.value.track_scope) ? summary.value.track_scope : []
+  if (!scopeIds.length) return ['All assigned tracks']
+
+  return scopeIds.map((trackId) => tracksById.value.get(Number(trackId)) || `Track ${trackId}`)
+})
+
+const scopeSummary = computed(() => {
+  if (loading.value) return 'Loading admin scope...'
+  if (!scopeLabels.value.length) return 'Scope unavailable'
+  return `Current scope: ${scopeLabels.value.join(', ')}`
+})
+
+async function fetchJson(path) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: buildSessionHeaders({
+      headers: {
+        Accept: 'application/json'
+      }
+    })
+  })
+
+  const text = await response.text()
+  const data = text ? JSON.parse(text) : null
+
+  if (!response.ok) {
+    throw new Error(data?.detail || data?.error || `Request failed: ${response.status}`)
+  }
+
+  return data
+}
+
+async function loadAdminData() {
+  loading.value = true
+  error.value = ''
+
+  try {
+    const [summaryData, tracksData] = await Promise.all([
+      fetchJson('/api/v1/admin/summary/'),
+      fetchJson('/groups/tracks/?page_size=100')
+    ])
+
+    summary.value = {
+      track_scope: Array.isArray(summaryData?.track_scope) ? summaryData.track_scope : [],
+      active_users: Number(summaryData?.active_users || 0),
+      invited_or_pending_users: Number(summaryData?.invited_or_pending_users || 0),
+      suspended_or_deactivated_users: Number(summaryData?.suspended_or_deactivated_users || 0),
+      active_groups: Number(summaryData?.active_groups || 0),
+      groups_without_mentor: Number(summaryData?.groups_without_mentor || 0),
+      unassigned_match_recommendations: Number(summaryData?.unassigned_match_recommendations || 0),
+      upcoming_events: Number(summaryData?.upcoming_events || 0)
+    }
+
+    const trackItems = Array.isArray(tracksData?.results) ? tracksData.results : (Array.isArray(tracksData) ? tracksData : [])
+    tracksById.value = new Map(
+      trackItems
+        .map((track) => [Number(track?.id), track?.track_name])
+        .filter((entry) => entry[0] && entry[1])
+    )
+  } catch (loadError) {
+    error.value = loadError instanceof Error
+      ? loadError.message
+      : 'Admin summary could not be loaded right now.'
+  } finally {
+    loading.value = false
   }
 }
+
+onMounted(() => {
+  loadAdminData()
+})
 </script>

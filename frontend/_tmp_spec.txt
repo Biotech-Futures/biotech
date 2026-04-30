@@ -1,0 +1,69 @@
+   Project ID: CS17
+
+   Project Source: Faculty of Engineering, BIOTech Futures (Outreach)
+
+   Project Title: BIOTech Futures - Mentoring Portal
+
+    Project Description and Scope:
+    BIOTech Futures is a large inter-institutional STEM mentoring pro-
+gramme connecting secondary school students with industry and univer-
+sity mentors across multiple Australian states and international regions. In
+2025, initial capstone teams developed a foundational mentoring platform
+comprising a core database schema, API layer, and front-end user interface.
+    This Phase II capstone project seeks to transition the existing prototype
+into a production-ready, scalable mentoring platform suitable for launch in
+July 2026. The focus is on:
+    Completing and refining the front-end and back-end implementations
+    Hardening security and authentication mechanisms
+    Integrating automated mentor matching, communication tools, and ad-
+ministrative workflows
+    Extending functionality to support real-world program operations
+    Student teams will work with an existing codebase and database design,
+performing integration, feature completion, optimisation, and extensibility
+planning, rather than developing a system from scratch.
+    The resulting system will replace existing third-party mentoring plat-
+forms currently in use, centralising BIOTech Futures’ national and interna-
+tional mentoring operations into a custom-built solution.
+
+    Expected outcomes/deliverables:
+    By the conclusion of the project, student teams are expected to deliver:
+    - A fully integrated web-based mentoring platform deployed to a cloud
+environment (Azure). - Completed authentication and role-based access
+control for: Students, Mentors, Supervisors, Local Administrators, Global
+Administrators - Fully operational mentoring groups featuring: Group chat
+with document sharing, controlled access to program resources, an auto-
+mated mentor allocation and reallocation system based on defined match-
+ing criteria. - Administrative dashboards supporting: Bulk group formation,
+mentor reassignment workflows, user filtering and bulk communications - A
+documented deployment architecture and system handover package suitable
+for real-world operation.
+
+    Specific required knowledge, skills, and/or technology:
+    Must have: - Software development for full-stack web applications -
+RESTful API design and integration - Front-end frameworks (Vue, or equiv-
+alent) - Back-end frameworks (Django, or equivalent)
+
+
+
+                                     1
+   Good to have: - Database design and data modelling - Cloud deploy-
+ment and environment configuration (Azure) - Authentication and security
+practices (passwordless login, token handling, access control) - Algorithmic
+matching / scoring systems - Systems integration and external API con-
+sumption
+
+    Fields that this project may involve:
+    Algorithms;Web Development;Software Development;Data Science/An-
+alytics;Cloud Computing;Information Systems;
+
+   Dataset provided by the client:
+   Not applicable
+
+   Resources provided by the client:
+   To be provided upon joining the project
+
+
+
+
+                                     2
+
