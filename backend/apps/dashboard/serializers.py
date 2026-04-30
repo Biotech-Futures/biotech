@@ -46,19 +46,17 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
     aggregation).
     """
 
-    id = serializers.IntegerField()
+    group_id = serializers.IntegerField(source="id")
     group_name = serializers.CharField()
     track_id = serializers.IntegerField()
     track_name = serializers.CharField(source="track.track_name")
     member_count = serializers.IntegerField()
-    # Lead and status are not plain model fields: they come from annotations / soft-delete.
     lead_user = serializers.SerializerMethodField()
     lead_name = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
 
     @staticmethod
     def _read(obj, attr, default=None):
-        # ORM instances in production; dict-like or SimpleNamespace in tests.
         if isinstance(obj, dict):
             return obj.get(attr, default)
         return getattr(obj, attr, default)
@@ -84,5 +82,20 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
         return full or None
 
     def get_status(self, obj):
-        # Stable API values for the widget; list endpoint only returns non-deleted groups today.
         return "active" if self._read(obj, "deleted_at") is None else "deleted"
+
+
+class GroupsPreviewQuerySerializer(serializers.Serializer):
+    """Validates query parameters for GET /dashboard/v1/groups-preview/"""
+    mine = serializers.BooleanField(default=False)
+    track_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    page = serializers.IntegerField(default=1, min_value=1)
+    page_size = serializers.IntegerField(default=20, min_value=1, max_value=100)
+
+
+class GroupsPreviewResponseSerializer(serializers.Serializer):
+    """Envelope for the paginated groups-preview response."""
+    count = serializers.IntegerField()
+    next = serializers.IntegerField(allow_null=True)
+    previous = serializers.IntegerField(allow_null=True)
+    results = DashboardGroupPreviewSerializer(many=True)
