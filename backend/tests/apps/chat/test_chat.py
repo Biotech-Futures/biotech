@@ -1,35 +1,42 @@
-import contextlib
-from django.test import TestCase, override_settings
-from django.test import Client
 import asyncio
+import contextlib
 from datetime import timedelta
+from unittest.mock import patch
 
-from django.urls import reverse
-from django.utils import timezone
+from asgiref.sync import async_to_sync, sync_to_async
+from channels.testing import WebsocketCommunicator
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import connection, models
-from django.conf import settings
+from django.test import Client
+from django.test import TransactionTestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework.test import APIClient
-from channels.testing import WebsocketCommunicator
-from asgiref.sync import async_to_sync
 
 from config.asgi import application  # ASGI entrypoint (Channels)
-from apps.chat.models import Messages
+from apps.chat.models import MessageStatus, Messages
+from apps.chat.tasks import process_chat_message_created
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
 
 
-# Create your tests here.
-
-# Use in-memory channel layer for tests
+# The websocket tests do not need Redis itself; an in-memory layer keeps the suite fast
+# and avoids depending on external infrastructure.
 CHANNEL_TEST_SETTINGS = {
     "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
 }
 
+CELERY_TEST_SETTINGS = {
+    "CELERY_BROKER_URL": "memory://",
+    "CELERY_RESULT_BACKEND": "cache+memory://",
+    "CELERY_TASK_ALWAYS_EAGER": True,
+    "CELERY_TASK_EAGER_PROPAGATES": True,
+}
 
-@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-class ChatFeatureTests(TestCase):
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS, **CELERY_TEST_SETTINGS)
+class ChatFeatureTests(TransactionTestCase):
     """
     Integration tests for chat:
       - POST /chat/groups/{id}/messages/
@@ -37,6 +44,9 @@ class ChatFeatureTests(TestCase):
       - DELETE /chat/groups/{id}/messages/{mid}/  (soft delete)
       - WebSocket broadcasts (message.created / message.deleted)
       - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
+
+    TransactionTestCase is used instead of TestCase because the websocket communicator
+    and async DB access need committed rows that are visible across async boundaries.
     """
 
     def setUp(self):
@@ -82,26 +92,37 @@ class ChatFeatureTests(TestCase):
         GroupMembership.objects.create(user=self.mentor, group=self.group)
         GroupMembership.objects.create(user=self.supervisor, group=self.group)
         # admin has global access; they don't need membership
-        
+        self.non_participant = User.objects.create_user(email="outsider@test.com", password="pw")
+
         # --- resources ---
         self.res1 = Resources.objects.create(
-            resource_name="R1",
-            resource_description="d1",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(minutes=1),
+            name="R1",
+            description="d1",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(minutes=1),
         )
         self.res2 = Resources.objects.create(
-            resource_name="R2",
-            resource_description="d2",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(minutes=1),
+            name="R2",
+            description="d2",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(minutes=1),
         )
 
-        # API clients
+        # REST coverage uses force_authenticate; websocket coverage separately creates
+        # real Django sessions because AuthMiddlewareStack reads request.user from cookies.
         self.client_student = APIClient(); self.client_student.force_authenticate(user=self.student)
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
+
+        # Pre-build session cookies so each websocket test can connect without repeating
+        # the login setup inside the async scenario itself.
+        self._session_cookies = {
+            self.student.id: self._build_session_cookie(self.student),
+            self.mentor.id: self._build_session_cookie(self.mentor),
+            self.supervisor.id: self._build_session_cookie(self.supervisor),
+            self.non_participant.id: self._build_session_cookie(self.non_participant),
+        }
 
 
     # --------- helpers ---------
@@ -222,244 +243,411 @@ class ChatFeatureTests(TestCase):
         self.assertIn(m1.id, ids)
         self.assertNotIn(m2.id, ids)
 
-    def _session_cookie(self, user):
+    def _build_session_cookie(self, user):
         c = Client()
         c.force_login(user)
         return c.cookies[settings.SESSION_COOKIE_NAME].value
-    
-    def _ws_connect_with_session(self, user):
+
+    def _session_cookie(self, user):
+        return self._session_cookies[user.id]
+
+    async def _ws_connect_with_session(self, user):
         """
         Helper: create a Django session for 'user' and connect a WebsocketCommunicator
         with the sessionid cookie so AuthMiddlewareStack resolves request.user.
         """
-        # Create session cookie for this user
-        # Using Django client to login and capture session key
-
         cookie = self._session_cookie(user)
         headers = [(b"cookie", f"{settings.SESSION_COOKIE_NAME}={cookie}".encode())]
 
-        # Connect
         communicator = WebsocketCommunicator(
-            application, f"/ws/chat/groups/{self.group.id}/",
+            application, f"/ws/chat/{self.group.id}/",
             headers=headers,
         )
-        connected, _ = async_to_sync(communicator.connect)()
+        connected, _ = await communicator.connect()
         self.assertTrue(connected, "WebSocket failed to connect")
         return communicator
 
-    def test_ws_broadcast_on_create(self):
-        # Open WS as student (group member)
-        comm = self._ws_connect_with_session(self.student)
+    async def _receive_ws_event(self, communicator, expected_type, attempts=3):
+        # Some websocket tests may receive unrelated frames before the target event; this
+        # helper retries a few reads so individual tests can focus on the assertion.
+        for _ in range(attempts):
+            event = await communicator.receive_json_from(timeout=5)
+            if event.get("event") == "chat.connected":
+                continue
+            if event.get("type") == expected_type:
+                return event
+        self.fail(f"Did not receive websocket event of type {expected_type!r}")
 
-        api = APIClient()
-        api.force_authenticate(self.student)
-        
-        try:
-            # Create a message via REST (as student)
-            resp = api.post(
-                f"/chat/groups/{self.group.id}/messages/",
-                {"message_text": "hi from test", "resources": []},
-                format="json",
+    async def _receive_ws_payload_event(self, communicator, expected_event, attempts=3):
+        for _ in range(attempts):
+            event = await communicator.receive_json_from(timeout=5)
+            if event.get("event") == "chat.connected":
+                continue
+            if event.get("event") == expected_event:
+                return event
+        self.fail(f"Did not receive websocket payload event {expected_event!r}")
+
+    async def _send_ws_json(self, communicator, payload):
+        await communicator.send_json_to(payload)
+
+    async def _send_ws_text(self, communicator, text_data):
+        await communicator.send_to(text_data=text_data)
+
+    async def _disconnect_ws(self, communicator):
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await communicator.disconnect()
+
+    async def _message_exists(self, *, sender_user, message_text):
+        return await sync_to_async(
+            Messages.objects.filter(
+                group=self.group,
+                sender_user=sender_user,
+                message_text=message_text,
+            ).exists
+        )()
+
+    async def _message_count(self):
+        return await sync_to_async(Messages.objects.count)()
+
+    async def _remove_participation(self, user):
+        await sync_to_async(
+            GroupMembership.objects.filter(
+                user=user,
+                group=self.group,
+                left_at__isnull=True,
+            ).update
+        )(left_at=timezone.now())
+
+    def test_ws_connect_allowed_for_participant(self):
+        async def scenario():
+            comm = await self._ws_connect_with_session(self.student)
+            try:
+                self.assertIsNotNone(comm)
+            finally:
+                await self._disconnect_ws(comm)
+
+        # Each websocket flow runs inside one async function so the communicator stays on
+        # a single event loop for connect/send/receive/disconnect.
+        async_to_sync(scenario)()
+
+    def test_ws_connect_denied_for_non_participant(self):
+        async def scenario():
+            cookie = self._session_cookie(self.non_participant)
+            headers = [(b"cookie", f"{settings.SESSION_COOKIE_NAME}={cookie}".encode())]
+            communicator = WebsocketCommunicator(
+                application,
+                f"/ws/chat/{self.group.id}/",
+                headers=headers,
             )
-            self.assertEqual(resp.status_code, 201, resp.content)
+            connected, _ = await communicator.connect()
+            self.assertFalse(connected)
 
-            async_to_sync(asyncio.sleep)(0.05)
+        async_to_sync(scenario)()
 
-            # Expect a broadcast
-            event = async_to_sync(comm.receive_json_from)(timeout=5)
-            self.assertEqual(event["payload"]["event"], "message.created")
-            self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message"]["text"], "hi from test")
-            self.assertEqual(event["payload"]["message"]["sender_id"], self.student.id)
-        finally:
-            # Prevent CancelledError bubbling if a prior await timed out/cancelled
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                async_to_sync(asyncio.sleep)(0.05)
-                async_to_sync(comm.disconnect)()
+    def test_ws_connect_denied_for_anonymous_user(self):
+        async def scenario():
+            communicator = WebsocketCommunicator(application, f"/ws/chat/{self.group.id}/")
+            connected, _ = await communicator.connect()
+            self.assertFalse(connected)
 
+        async_to_sync(scenario)()
 
-    def test_ws_broadcast_on_delete(self):
-        # create a message to delete
+    def test_ws_send_persists_and_broadcasts_to_all_clients(self):
+        async def scenario():
+            sender_comm = await self._ws_connect_with_session(self.student)
+            listener_comm = await self._ws_connect_with_session(self.mentor)
+
+            try:
+                await self._send_ws_json(sender_comm, {"type": "message.send", "body": "hello"})
+
+                sender_event = await self._receive_ws_event(sender_comm, "message.created")
+                listener_event = await self._receive_ws_event(listener_comm, "message.created")
+
+                self.assertEqual(sender_event, listener_event)
+                self.assertEqual(sender_event["message"]["conversation_id"], self.group.id)
+                self.assertEqual(sender_event["message"]["sender_id"], self.student.id)
+                self.assertEqual(sender_event["message"]["body"], "hello")
+                self.assertIn("created_at", sender_event["message"])
+
+                self.assertTrue(await self._message_exists(sender_user=self.student, message_text="hello"))
+            finally:
+                await self._disconnect_ws(sender_comm)
+                await self._disconnect_ws(listener_comm)
+
+        async_to_sync(scenario)()
+
+    def test_ws_broadcast_on_rest_create(self):
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.student)
+            try:
+                response = await sync_to_async(self.client_student.post)(
+                    self._list_url(),
+                    {"message_text": "hi from rest", "resources": []},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 201, response.content)
+
+                event = await self._receive_ws_payload_event(communicator, "message.created")
+                self.assertEqual(event["group_id"], self.group.id)
+                self.assertEqual(event["message"]["text"], "hi from rest")
+                self.assertEqual(event["message"]["sender_id"], self.student.id)
+            finally:
+                await self._disconnect_ws(communicator)
+
+        async_to_sync(scenario)()
+
+    def test_ws_broadcast_on_rest_delete(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
 
-        # Open WS as mentor (has moderation in this group)
-        comm = self._ws_connect_with_session(self.mentor)
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.mentor)
+            try:
+                response = await sync_to_async(self.client_mentor.delete)(self._detail_url(msg.id))
+                self.assertEqual(response.status_code, 204, response.content)
 
-        api = APIClient()
-        api.force_authenticate(self.mentor)
+                event = await self._receive_ws_payload_event(communicator, "message.deleted")
+                self.assertEqual(event["group_id"], self.group.id)
+                self.assertEqual(event["message_id"], msg.id)
+            finally:
+                await self._disconnect_ws(communicator)
 
-        try:
-            # Delete via REST (mentor)
-            resp = api.delete(f"/chat/groups/{self.group.id}/messages/{msg.id}/")
-            self.assertEqual(resp.status_code, 204, resp.content)
-
-            async_to_sync(asyncio.sleep)(0.05)
-
-            # Expect broadcast
-            event = async_to_sync(comm.receive_json_from)(timeout=5)
-            self.assertEqual(event["payload"]["event"], "message.deleted")
-            self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message_id"], msg.id)
-        finally:
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                async_to_sync(asyncio.sleep)(0.05)
-                async_to_sync(comm.disconnect)()
+        async_to_sync(scenario)()
 
     def test_reaction_toggle_adds_new(self):
-        """Verify DB count increments on first react."""
+        from apps.chat.models import MessageReaction
+
         msg = Messages.objects.create(
             group=self.group,
             sender_user=self.student,
-            message_text="react to me"
+            message_text="react to me",
         )
-        url = reverse(
-            "group-messages-react",
-            kwargs={"group_pk": self.group.id, "pk": msg.id}
-        )
+        url = reverse("group-messages-react", kwargs={"group_pk": self.group.id, "pk": msg.id})
 
-        resp = self.client_student.post(
-            url,
-            {"emoji_string": "👍"},
-            format="json"
-        )
+        resp = self.client_student.post(url, {"emoji_string": "👍"}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.data["message_id"], msg.id)
         self.assertEqual(resp.data["reactions"]["👍"], 1)
-
-        # Confirm DB record exists
-        from apps.chat.models import MessageReaction
         self.assertEqual(
-            MessageReaction.objects.filter(
-                message=msg, user=self.student, emoji_string="👍"
-            ).count(),
-            1
+            MessageReaction.objects.filter(message=msg, user=self.student, emoji_string="👍").count(),
+            1,
         )
 
     def test_reaction_toggle_removes_existing(self):
-        """Verify DB count decrements when the same emoji is POSTed twice."""
         from apps.chat.models import MessageReaction
 
         msg = Messages.objects.create(
             group=self.group,
             sender_user=self.student,
-            message_text="react to me twice"
+            message_text="react to me twice",
         )
-        url = reverse(
-            "group-messages-react",
-            kwargs={"group_pk": self.group.id, "pk": msg.id}
-        )
+        url = reverse("group-messages-react", kwargs={"group_pk": self.group.id, "pk": msg.id})
 
-        # First POST — adds reaction
         self.client_student.post(url, {"emoji_string": "❤️"}, format="json")
         self.assertEqual(
-            MessageReaction.objects.filter(
-                message=msg, user=self.student, emoji_string="❤️"
-            ).count(),
-            1
+            MessageReaction.objects.filter(message=msg, user=self.student, emoji_string="❤️").count(),
+            1,
         )
 
-        # Second POST — removes reaction (toggle off)
         resp = self.client_student.post(url, {"emoji_string": "❤️"}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.data["reactions"].get("❤️", 0), 0)
-
-        # Confirm DB record is gone
         self.assertEqual(
-            MessageReaction.objects.filter(
-                message=msg, user=self.student, emoji_string="❤️"
-            ).count(),
-            0
+            MessageReaction.objects.filter(message=msg, user=self.student, emoji_string="❤️").count(),
+            0,
         )
-    def test_ws_typing_broadcast(self):
-        """Connect a WS consumer, dispatch client.typing, assert group receives typing.updated."""
-        comm = self._ws_connect_with_session(self.student)
 
-        try:
-            # Send typing event over WebSocket
-            async_to_sync(comm.send_json_to)({
-                "type": "client.typing",
-                "status": "started"
-            })
+    def test_ws_typing_events_broadcast_to_other_participants_only(self):
+        async def scenario():
+            sender_comm = await self._ws_connect_with_session(self.student)
+            listener_comm = await self._ws_connect_with_session(self.mentor)
+            initial_message_count = await self._message_count()
 
-            async_to_sync(asyncio.sleep)(0.05)
-
-            # Expect typing.updated broadcast
-            event = async_to_sync(comm.receive_json_from)(timeout=5)
-            self.assertEqual(event["type"], "typing.updated")
-            self.assertEqual(event["user_id"], self.student.id)
-            self.assertEqual(event["status"], "started")
-            self.assertEqual(event["group_id"], str(self.group.id))
-
-        finally:
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                async_to_sync(asyncio.sleep)(0.05)
-                async_to_sync(comm.disconnect)()
-
-    def test_ws_typing_rate_limit(self):
-        """Dispatch 10 typing events instantly, assert group only receives 1 broadcast within the debounce window."""
-        comm = self._ws_connect_with_session(self.student)
-
-        try:
-            # Send 10 typing events rapidly
-            for _ in range(10):
-                async_to_sync(comm.send_json_to)({
-                    "type": "client.typing",
-                    "status": "started"
-                })
-
-            async_to_sync(asyncio.sleep)(0.1)
-
-            # Should only receive 1 broadcast due to rate limiting
-            event = async_to_sync(comm.receive_json_from)(timeout=5)
-            self.assertEqual(event["type"], "typing.updated")
-
-            # Try to receive another — should timeout (no more broadcasts)
             try:
-                async_to_sync(comm.receive_json_from)(timeout=1)
-                self.fail("Expected no more typing broadcasts due to rate limit")
-            except Exception:
-                pass  # Expected — no second broadcast within rate limit window
+                await self._send_ws_json(sender_comm, {"type": "typing.start"})
+                listener_started = await self._receive_ws_event(listener_comm, "typing.started")
 
-        finally:
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                async_to_sync(asyncio.sleep)(0.05)
-                async_to_sync(comm.disconnect)()
+                self.assertEqual(
+                    listener_started,
+                    {
+                        "type": "typing.started",
+                        "conversation_id": self.group.id,
+                        "user_id": self.student.id,
+                    },
+                )
+                # Typing events should be fan-out only; the sender must not receive its own
+                # indicator back from the consumer.
+                self.assertTrue(await sender_comm.receive_nothing(timeout=0.2))
 
-class TypingRateLimitTest(TestCase):
-        """Unit tests for typing indicator rate limit logic."""
+                await self._send_ws_json(sender_comm, {"type": "typing.stop"})
+                listener_stopped = await self._receive_ws_event(listener_comm, "typing.stopped")
 
-        def test_rate_limit_key_format(self):
-            """Rate limit key should be unique per group and user."""
-            group_id = 1
-            user_id = 5
-            key = f"group_{group_id}_user_{user_id}"
-            self.assertEqual(key, "group_1_user_5")
+                self.assertEqual(
+                    listener_stopped,
+                    {
+                        "type": "typing.stopped",
+                        "conversation_id": self.group.id,
+                        "user_id": self.student.id,
+                    },
+                )
+                self.assertTrue(await sender_comm.receive_nothing(timeout=0.2))
+                # Typing signals are transient websocket-only events and should not create
+                # or mutate message rows.
+                self.assertEqual(await self._message_count(), initial_message_count)
+            finally:
+                await self._disconnect_ws(sender_comm)
+                await self._disconnect_ws(listener_comm)
 
-        def test_rate_limit_blocks_rapid_events(self):
-            """Second typing event within 2s window should be blocked."""
-            import time
-            from apps.chat.management.consumers import GroupChatConsumer, TYPING_RATE_LIMIT_SECONDS
+        async_to_sync(scenario)()
 
-            rate_key = "group_1_user_1"
-            now = time.monotonic()
+    def test_ws_typing_start_is_debounced(self):
+        async def scenario():
+            sender_comm = await self._ws_connect_with_session(self.student)
+            listener_comm = await self._ws_connect_with_session(self.mentor)
 
-            # Simulate first broadcast
-            GroupChatConsumer._typing_timestamps[rate_key] = now
+            try:
+                await self._send_ws_json(sender_comm, {"type": "typing.start"})
+                await self._send_ws_json(sender_comm, {"type": "typing.start"})
 
-            # Immediately check — should be blocked
-            last_sent = GroupChatConsumer._typing_timestamps.get(rate_key, 0)
-            should_block = (now - last_sent) < TYPING_RATE_LIMIT_SECONDS
-            self.assertTrue(should_block)
+                listener_event = await self._receive_ws_event(listener_comm, "typing.started")
+                self.assertEqual(listener_event["conversation_id"], self.group.id)
+                self.assertEqual(listener_event["user_id"], self.student.id)
+                # A second immediate typing.start from the same socket should be suppressed.
+                self.assertTrue(await listener_comm.receive_nothing(timeout=0.2))
+                self.assertTrue(await sender_comm.receive_nothing(timeout=0.2))
+            finally:
+                await self._disconnect_ws(sender_comm)
+                await self._disconnect_ws(listener_comm)
 
-        def test_rate_limit_allows_after_window(self):
-            """Typing event after 2s window should be allowed."""
-            import time
-            from apps.chat.management.consumers import GroupChatConsumer, TYPING_RATE_LIMIT_SECONDS
+        async_to_sync(scenario)()
 
-            rate_key = "group_1_user_2"
-            # Simulate last broadcast was 3 seconds ago
-            GroupChatConsumer._typing_timestamps[rate_key] = time.monotonic() - 3
+    def test_ws_send_enqueues_chat_message_side_effects(self):
+        with patch("apps.chat.management.consumers.enqueue_process_chat_message_created") as mock_enqueue:
+            async def scenario():
+                communicator = await self._ws_connect_with_session(self.student)
+                try:
+                    await self._send_ws_json(communicator, {"type": "message.send", "body": "queued"})
 
-            last_sent = GroupChatConsumer._typing_timestamps.get(rate_key, 0)
-            should_block = (time.monotonic() - last_sent) < TYPING_RATE_LIMIT_SECONDS
-            self.assertFalse(should_block)
+                    event = await self._receive_ws_event(communicator, "message.created")
+                    mock_enqueue.assert_called_once_with(event["message"]["id"])
+                finally:
+                    await self._disconnect_ws(communicator)
+
+            async_to_sync(scenario)()
+
+    def test_ws_send_logs_enqueue_failure_without_blocking_delivery(self):
+        with patch(
+            "apps.chat.tasks.process_chat_message_created.delay",
+            side_effect=RuntimeError("broker down"),
+        ):
+            with self.assertLogs("apps.chat.tasks", level="ERROR") as captured:
+                async def scenario():
+                    sender_comm = await self._ws_connect_with_session(self.student)
+                    listener_comm = await self._ws_connect_with_session(self.mentor)
+
+                    try:
+                        await self._send_ws_json(
+                            sender_comm,
+                            {"type": "message.send", "body": "still delivered"},
+                        )
+
+                        sender_event = await self._receive_ws_event(sender_comm, "message.created")
+                        listener_event = await self._receive_ws_event(listener_comm, "message.created")
+
+                        self.assertEqual(sender_event, listener_event)
+                        self.assertTrue(
+                            await self._message_exists(
+                                sender_user=self.student,
+                                message_text="still delivered",
+                            )
+                        )
+                    finally:
+                        await self._disconnect_ws(sender_comm)
+                        await self._disconnect_ws(listener_comm)
+
+                async_to_sync(scenario)()
+
+        self.assertTrue(
+            any(
+                "Failed to enqueue chat message created side effects" in line
+                for line in captured.output
+            )
+        )
+
+    def test_ws_send_rejects_empty_message(self):
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.student)
+            try:
+                await self._send_ws_json(communicator, {"type": "message.send", "body": "   "})
+
+                event = await self._receive_ws_event(communicator, "error")
+                self.assertEqual(event["error"]["code"], "invalid_payload")
+                self.assertEqual(event["error"]["detail"], "Message body cannot be empty.")
+            finally:
+                await self._disconnect_ws(communicator)
+
+        async_to_sync(scenario)()
+
+    def test_process_chat_message_created_creates_recipient_statuses_idempotently(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="task side effects",
+        )
+
+        # Run the task twice to prove retries do not duplicate recipient-side state.
+        first_result = process_chat_message_created(message.id)
+        second_result = process_chat_message_created(message.id)
+
+        self.assertEqual(first_result["status"], "processed")
+        self.assertCountEqual(
+            first_result["recipient_ids"],
+            [self.mentor.id, self.supervisor.id],
+        )
+        self.assertEqual(first_result["created_status_count"], 2)
+        self.assertEqual(first_result["existing_status_count"], 0)
+
+        self.assertEqual(second_result["created_status_count"], 0)
+        self.assertEqual(second_result["existing_status_count"], 2)
+        self.assertCountEqual(
+            list(
+                MessageStatus.objects.filter(message=message)
+                .values_list("user_id", flat=True)
+            ),
+            [self.mentor.id, self.supervisor.id],
+        )
+        self.assertEqual(
+            MessageStatus.objects.filter(message=message).count(),
+            2,
+        )
+
+    def test_ws_send_rejects_non_participant_after_membership_removed(self):
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.student)
+            await self._remove_participation(self.student)
+
+            try:
+                await self._send_ws_json(communicator, {"type": "message.send", "body": "should fail"})
+
+                event = await self._receive_ws_event(communicator, "error")
+                self.assertEqual(event["error"]["code"], "not_participant")
+                self.assertFalse(
+                    await self._message_exists(sender_user=self.student, message_text="should fail")
+                )
+            finally:
+                await self._disconnect_ws(communicator)
+
+        async_to_sync(scenario)()
+
+    def test_ws_send_rejects_malformed_json(self):
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.student)
+            try:
+                await self._send_ws_text(communicator, '{"type": "message.send", ')
+
+                event = await self._receive_ws_event(communicator, "error")
+                self.assertEqual(event["error"]["code"], "invalid_json")
+                self.assertEqual(event["error"]["detail"], "Malformed JSON payload.")
+            finally:
+                await self._disconnect_ws(communicator)
+
+        async_to_sync(scenario)()

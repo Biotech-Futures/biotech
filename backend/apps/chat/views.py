@@ -15,6 +15,7 @@ from channels.layers import get_channel_layer
 from .models import Messages, MessageReaction
 from .serializers import MessageSerializer, MessageUpdateSerializer, MessageReactionSerializer
 from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
+from .tasks import enqueue_process_chat_message_created
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -78,6 +79,12 @@ class MessageViewSet(viewsets.ModelViewSet):
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
 
         channel_layer = get_channel_layer()
+        # REST-created messages still broadcast immediately; background work is queued
+        # afterwards through the same helper used by the websocket path.
+        #
+        # This path uses Channels from a normal DRF view rather than from inside a websocket
+        # consumer. `async_to_sync(...)` bridges that sync request/response code into the async
+        # channel-layer publish call.
         async_to_sync(channel_layer.group_send)(
             f"group_{gid}",
             {
@@ -99,6 +106,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 },
             },
         )
+        enqueue_process_chat_message_created(msg.id)
 
     def create(self, request, *args, **kwargs):
         resp = super().create(request, *args, **kwargs)
@@ -151,8 +159,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
-        # POST /chat/groups/{gid}/messages/{id}/react/
+
+    # POST /chat/groups/{gid}/messages/{id}/react/
     @action(detail=True, methods=["post"], url_path="react")
     def react(self, request, *args, **kwargs):
         instance = self.get_object()

@@ -17,5 +17,71 @@ services:
       timeout: 5s
       retries: 10
 
+  web:
+    build:
+      context: ./backend
+    container_name: biotech-web-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings_local
+      DB_NAME: ${DB_NAME:-biotech_dev}
+      DB_USER: ${DB_USER:-biotech}
+      DB_PASSWORD: ${DB_PASSWORD:-biotech}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    command: python manage.py runserver 0.0.0.0:8000
+
+  celery-worker:
+    build:
+      context: ./backend
+    container_name: biotech-celery-worker-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings_local
+      DB_NAME: ${DB_NAME:-biotech_dev}
+      DB_USER: ${DB_USER:-biotech}
+      DB_PASSWORD: ${DB_PASSWORD:-biotech}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - ./backend:/app
+    command: celery -A config worker --loglevel=info --pool=solo
+
+  redis:
+    image: redis:7-alpine
+    container_name: biotech-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - biotech-redis-dev-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   biotech-postgres-dev-data:
+  biotech-redis-dev-data:

@@ -34,10 +34,3 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Dev callback
 MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"
-
-# Channels dev config
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    }
-}

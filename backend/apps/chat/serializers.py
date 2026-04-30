@@ -5,7 +5,9 @@
 
 from rest_framework import serializers
 
-from .models import Messages, MessageAttachments, MessageResource, MessageStatus, MessageReaction
+from apps.resources.models import Resources
+
+from .models import Messages, MessageResource, MessageStatus, MessageReaction
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):
