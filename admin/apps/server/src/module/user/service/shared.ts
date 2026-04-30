@@ -174,6 +174,11 @@ export async function createAdminRelation(
   input: CreateUserInput,
   userId: number,
 ) {
+  const adminTracks = Array.from(
+    new Set(
+      (input.adminTracks ?? []).map((track) => track.trim()).filter(Boolean),
+    ),
+  );
   const createdAuthUser = await auth.api.createUser({
     body: {
       email: input.email,
@@ -181,6 +186,7 @@ export async function createAdminRelation(
       role: "admin",
       data: {
         userId,
+        tracks: adminTracks,
       },
     },
   });
@@ -190,7 +196,7 @@ export async function createAdminRelation(
 
   await db
     .update(adminUser)
-    .set({ emailVerified: true })
+    .set({ emailVerified: true, tracks: adminTracks })
     .where(eq(adminUser.id, String(createdAuthUserId)));
 }
 

@@ -45,6 +45,7 @@ const initialValues: UserFormValues = {
   email: "",
   role: "student",
   track: null,
+  adminTracks: [],
   schoolName: "",
   yearLevel: null,
   interests: [],
@@ -89,6 +90,7 @@ export function UserEditorSheet({
         email: user.email,
         role: user.role,
         track: user.track,
+        adminTracks: [],
         schoolName: user.schoolName ?? "",
         yearLevel: user.age,
         interests: user.interests,
@@ -199,7 +201,12 @@ export function UserEditorSheet({
             <Select
               value={values.role}
               onValueChange={(value) =>
-                setValues((current) => ({ ...current, role: value as UserRole }))
+                setValues((current) => ({
+                  ...current,
+                  role: value as UserRole,
+                  track: value === "admin" ? null : current.track,
+                  adminTracks: value === "admin" ? current.adminTracks : [],
+                }))
               }
             >
               <SelectTrigger id="user-role-select">
@@ -215,30 +222,71 @@ export function UserEditorSheet({
             </Select>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="user-track-select">Track</Label>
-            <Select
-              value={values.track ?? "none"}
-              onValueChange={(value) =>
-                setValues((current) => ({
-                  ...current,
-                  track: value === "none" ? null : (value as UserTrack),
-                }))
-              }
-            >
-              <SelectTrigger id="user-track-select">
-              <SelectValue placeholder="Select a track" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Unassigned</SelectItem>
-                {availableTracks.map((track) => (
-                  <SelectItem key={track} value={track}>
-                    {track}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {values.role === "admin" ? (
+            <div className="space-y-2">
+              <Label>Admin Tracks</Label>
+              <div className="max-h-40 overflow-auto rounded-md border p-3">
+                {availableTracks.length ? (
+                  <div className="space-y-2">
+                    {availableTracks.map((track) => {
+                      const checked = values.adminTracks.includes(track);
+
+                      return (
+                        <label
+                          key={track}
+                          className="flex cursor-pointer items-center gap-2 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border-border"
+                            checked={checked}
+                            onChange={() =>
+                              setValues((current) => ({
+                                ...current,
+                                adminTracks: checked
+                                  ? current.adminTracks.filter((item) => item !== track)
+                                  : [...current.adminTracks, track],
+                              }))
+                            }
+                          />
+                          <span>{track}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No tracks are available.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="user-track-select">Track</Label>
+              <Select
+                value={values.track ?? "none"}
+                onValueChange={(value) =>
+                  setValues((current) => ({
+                    ...current,
+                    track: value === "none" ? null : (value as UserTrack),
+                  }))
+                }
+              >
+                <SelectTrigger id="user-track-select">
+                  <SelectValue placeholder="Select a track" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {availableTracks.map((track) => (
+                    <SelectItem key={track} value={track}>
+                      {track}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {values.role === "student" ? (
             <>

@@ -21,6 +21,7 @@ type CreateUserPayload = {
   email: string;
   role: UserRole;
   track?: UserTrack;
+  adminTracks?: UserTrack[];
   schoolName?: string;
   yearLevel?: number;
   interests?: string[];
@@ -354,6 +355,7 @@ export function parseCsvUsers(text: string) {
         email: (row[headerIndex.email] ?? "").trim(),
         role,
         track,
+        adminTracks: [],
         schoolName,
         yearLevel: yearLevelRaw ? Number(yearLevelRaw) : null,
         interests: parseInterestList(interestsRaw),

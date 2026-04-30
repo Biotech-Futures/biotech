@@ -43,6 +43,7 @@ export type UserFormValues = {
   email: string;
   role: UserRole;
   track: UserTrack | null;
+  adminTracks: UserTrack[];
   schoolName: string;
   yearLevel: number | null;
   interests: string[];

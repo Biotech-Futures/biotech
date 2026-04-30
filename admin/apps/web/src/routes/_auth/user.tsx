@@ -170,6 +170,7 @@ function UserManagementPage() {
           email: values.email,
           role: values.role,
           track: values.track ?? undefined,
+          adminTracks: values.role === "admin" ? values.adminTracks : undefined,
           schoolName: values.role === "student" ? values.schoolName : undefined,
           yearLevel:
             values.role === "student"

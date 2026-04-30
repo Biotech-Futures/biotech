@@ -37,6 +37,7 @@ export const createUserSchema = z.object({
   email: z.string().email(),
   role: z.enum(ROLES),
   track: trackNameSchema.optional(),
+  adminTracks: z.array(trackNameSchema).optional(),
   interests: interestListSchema.optional(),
   // Student-only fields
   schoolName: z.string().trim().max(255).optional(),
