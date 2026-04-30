@@ -76,7 +76,7 @@ export function UserBulkUploadSheet({
         <SheetHeader>
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
-            Upload a CSV with columns `firstName,lastName,email,role,track,status`.
+            Upload a CSV with columns `firstName,lastName,email,role,track,interests,status`.
           </SheetDescription>
         </SheetHeader>
 

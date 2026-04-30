@@ -288,7 +288,10 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     schoolName: values.role === "student" ? values.schoolName || null : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
-    interests: values.role === "student" ? values.interests : [],
+    interests:
+      values.role === "student" || values.role === "mentor"
+        ? values.interests
+        : [],
     createdAt: timestamp,
     updatedAt: timestamp,
     active: values.active,

@@ -47,22 +47,35 @@ export function UserDetailSheet({
             ]}
           />
 
-          <DetailSection
-            title="Student Profile"
-            items={[
-              { label: "School", value: user.schoolName || "-" },
-              { label: "Age / Year Level", value: user.age ?? "-" },
-              {
-                label: "Join Permission",
-                value: user.joinPermissionReceived ? "Received" : "Not received",
-              },
-              {
-                label: "Interests",
-                value: user.interests.length ? user.interests.join(", ") : "-",
-              },
-              { label: "Group", value: user.groupName || "-" },
-            ]}
-          />
+          {user.role === "mentor" ? (
+            <DetailSection
+              title="Mentor Profile"
+              items={[
+                {
+                  label: "Interests / Expertise",
+                  value: user.interests.length ? user.interests.join(", ") : "-",
+                },
+                { label: "Group", value: user.groupName || "-" },
+              ]}
+            />
+          ) : (
+            <DetailSection
+              title="Student Profile"
+              items={[
+                { label: "School", value: user.schoolName || "-" },
+                { label: "Age / Year Level", value: user.age ?? "-" },
+                {
+                  label: "Join Permission",
+                  value: user.joinPermissionReceived ? "Received" : "Not received",
+                },
+                {
+                  label: "Interests",
+                  value: user.interests.length ? user.interests.join(", ") : "-",
+                },
+                { label: "Group", value: user.groupName || "-" },
+              ]}
+            />
+          )}
         </div>
       </SheetContent>
     </Sheet>

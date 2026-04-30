@@ -178,7 +178,10 @@ function UserManagementPage() {
             values.role === "student"
               ? (values.yearLevel ?? undefined)
               : undefined,
-          interests: values.role === "student" ? values.interests : undefined,
+          interests:
+            values.role === "student" || values.role === "mentor"
+              ? values.interests
+              : undefined,
           joinPermissionReceived:
             values.role === "student"
               ? values.joinPermissionReceived
@@ -211,7 +214,10 @@ function UserManagementPage() {
           track: values.track,
           schoolName: values.role === "student" ? values.schoolName : null,
           yearLevel: values.role === "student" ? values.yearLevel : null,
-          interests: values.role === "student" ? values.interests : [],
+          interests:
+            values.role === "student" || values.role === "mentor"
+              ? values.interests
+              : [],
           joinPermissionReceived:
             values.role === "student" ? values.joinPermissionReceived : false,
         },
@@ -292,7 +298,10 @@ function UserManagementPage() {
           schoolName: row.role === "student" ? row.schoolName : undefined,
           yearLevel:
             row.role === "student" ? (row.yearLevel ?? undefined) : undefined,
-          interests: row.role === "student" ? row.interests : undefined,
+          interests:
+            row.role === "student" || row.role === "mentor"
+              ? row.interests
+              : undefined,
           joinPermissionReceived:
             row.role === "student" ? row.joinPermissionReceived : undefined,
           active: row.active,

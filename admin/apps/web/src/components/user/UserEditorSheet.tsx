@@ -56,6 +56,10 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function roleUsesInterests(role: UserRole) {
+  return role === "student" || role === "mentor";
+}
+
 export function UserEditorSheet({
   open,
   onOpenChange,
@@ -127,10 +131,10 @@ export function UserEditorSheet({
         window.alert("Year level must be between 9 and 12.");
         return;
       }
-      if (!values.interests.length) {
-        window.alert("At least one interest is required for student users.");
-        return;
-      }
+    }
+    if (roleUsesInterests(values.role) && !values.interests.length) {
+      window.alert(`At least one interest is required for ${values.role} users.`);
+      return;
     }
 
     await onSubmit({
@@ -273,24 +277,6 @@ export function UserEditorSheet({
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="user-interests">Interests</Label>
-                <Textarea
-                  id="user-interests"
-                  value={values.interests.join(", ")}
-                  onChange={(event) =>
-                    setValues((current) => ({
-                      ...current,
-                      interests: event.target.value
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  placeholder="biology, genetics, ai"
-                />
-              </div>
-
               <div className="space-y-2">
                 <Label>Join Permission Received</Label>
                 <div className="flex gap-2">
@@ -321,6 +307,28 @@ export function UserEditorSheet({
                 </div>
               </div>
             </>
+          ) : null}
+
+          {roleUsesInterests(values.role) ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="user-interests">
+                {values.role === "mentor" ? "Interests / Expertise" : "Interests"}
+              </Label>
+              <Textarea
+                id="user-interests"
+                value={values.interests.join(", ")}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    interests: event.target.value
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                placeholder="biology, genetics, ai"
+              />
+            </div>
           ) : null}
 
         </div>
