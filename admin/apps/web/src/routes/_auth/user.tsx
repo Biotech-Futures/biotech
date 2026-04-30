@@ -139,10 +139,7 @@ function UserManagementPage() {
     });
   };
 
-  const pageItems = useMemo(
-    () => data?.data?.items ?? [],
-    [data?.data?.items],
-  );
+  const pageItems = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
 
   const total = data?.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -324,39 +321,31 @@ function UserManagementPage() {
   };
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setBulkOpen(true)}>
-            <UploadIcon />
-            Bulk Upload CSV
-          </Button>
-          <Button onClick={openCreate}>
-            <PlusIcon />
-            Add User
-          </Button>
-        </div>
+    <div className="p-4 space-y-6">
+      <div className="flex flex-wrap gap-2 justify-end w-full">
+        <Button variant="outline" onClick={() => setBulkOpen(true)}>
+          <UploadIcon />
+          Bulk Upload CSV
+        </Button>
+        <Button onClick={openCreate}>
+          <PlusIcon />
+          Add User
+        </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <UserFilters
-            search={search}
-            onSearchChange={(value) => updateFilters({ search: value })}
-            role={role}
-            onRoleChange={(value) => updateFilters({ role: value })}
-            track={track}
-            onTrackChange={(value) => updateFilters({ track: value })}
-            tracks={tracksData?.data ?? []}
-            status={status}
-            onStatusChange={(value) => updateFilters({ status: value })}
-          />
-
-        </CardContent>
-      </Card>
+      <div>
+        <UserFilters
+          search={search}
+          onSearchChange={(value) => updateFilters({ search: value })}
+          role={role}
+          onRoleChange={(value) => updateFilters({ role: value })}
+          track={track}
+          onTrackChange={(value) => updateFilters({ track: value })}
+          tracks={tracksData?.data ?? []}
+          status={status}
+          onStatusChange={(value) => updateFilters({ status: value })}
+        />
+      </div>
 
       <Card>
         <CardHeader>
