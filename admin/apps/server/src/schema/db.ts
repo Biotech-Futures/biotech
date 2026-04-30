@@ -343,11 +343,20 @@ export const users = pgTable(
     firstName: varchar("first_name", { length: 255 }).notNull(),
     lastName: varchar("last_name", { length: 255 }).notNull(),
     isActive: boolean("is_active").notNull(),
-    status: boolean("status").notNull(),
+    accountStatus: varchar("account_status", { length: 50 }).notNull(),
+    invitedAt: timestamp("invited_at", { withTimezone: true, mode: "string" }),
+    activatedAt: timestamp("activated_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     trackId: bigint("track_id", { mode: "number" }),
   },
   (table) => [
+    index("users_account_33da0c_idx").using(
+      "btree",
+      table.accountStatus.asc().nullsLast().op("text_ops"),
+    ),
     index("users_email_0ea73cca_like").using(
       "btree",
       table.email.asc().nullsLast().op("varchar_pattern_ops"),
@@ -1576,50 +1585,70 @@ export const eventRsvp = pgTable(
 );
 
 export const groupMembership = pgTable(
-  "group_members",
+  "group_membership",
   {
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     id: bigint({ mode: "number" }).primaryKey().generatedByDefaultAsIdentity({
-      name: "group_members_id_seq",
+      name: "group_membership_id_seq",
       startWith: 1,
       increment: 1,
       minValue: 1,
       maxValue: 9223372036854775807,
       cache: 1,
     }),
+    membershipRole: varchar("membership_role", { length: 50 }).notNull(),
+    joinedAt: timestamp("joined_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    leftAt: timestamp("left_at", { withTimezone: true, mode: "string" }),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     userId: bigint("user_id", { mode: "number" }).notNull(),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     groupId: bigint("group_id", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("group_membe_group_i_d2cebc_idx").using(
+    index("group_membe_group_i_e52645_idx").using(
       "btree",
       table.groupId.asc().nullsLast().op("int8_ops"),
     ),
-    index("group_membe_user_id_88c209_idx").using(
+    index("group_membe_left_at_e9e6a8_idx").using(
+      "btree",
+      table.leftAt.asc().nullsLast().op("timestamptz_ops"),
+    ),
+    index("group_membe_user_id_9eabd2_idx").using(
       "btree",
       table.userId.asc().nullsLast().op("int8_ops"),
     ),
-    index("group_members_group_id_68d06a36").using(
+    index("group_membership_group_id_45c6964f").using(
       "btree",
       table.groupId.asc().nullsLast().op("int8_ops"),
     ),
-    index("group_members_user_id_cffc0595").using(
+    index("group_membership_user_id_35a27eaa").using(
       "btree",
       table.userId.asc().nullsLast().op("int8_ops"),
     ),
+    uniqueIndex("unique_active_group_membership")
+      .using(
+        "btree",
+        table.groupId.asc().nullsLast().op("int8_ops"),
+        table.userId.asc().nullsLast().op("int8_ops"),
+      )
+      .where(sql`(left_at IS NULL)`),
     foreignKey({
       columns: [table.groupId],
       foreignColumns: [groups.id],
-      name: "group_members_group_id_68d06a36_fk_groups_id",
+      name: "group_membership_group_id_45c6964f_fk_groups_id",
     }),
     foreignKey({
       columns: [table.userId],
       foreignColumns: [users.id],
-      name: "group_members_user_id_cffc0595_fk_users_id",
+      name: "group_membership_user_id_35a27eaa_fk_users_id",
     }),
-    unique("unique_group_user").on(table.userId, table.groupId),
+    check(
+      "group_membership_left_after_joined",
+      sql`(left_at >= joined_at) OR (left_at IS NULL)`,
+    ),
   ],
 );
 
@@ -1636,26 +1665,22 @@ export const groups = pgTable(
       cache: 1,
     }),
     groupName: varchar("group_name", { length: 255 }).notNull(),
-    creationDatetime: timestamp("creation_datetime", {
+    createdAt: timestamp("created_at", {
       withTimezone: true,
       mode: "string",
     }).notNull(),
-    deletedFlag: boolean("deleted_flag").notNull(),
-    deletedDatetime: timestamp("deleted_datetime", {
-      withTimezone: true,
-      mode: "string",
-    }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "string" }),
     // You can use { mode: "bigint" } if numbers are exceeding js number limitations
     trackId: bigint("track_id", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("groups_creatio_f6499a_idx").using(
+    index("groups_created_d34ebd_idx").using(
       "btree",
-      table.creationDatetime.asc().nullsLast().op("timestamptz_ops"),
+      table.createdAt.asc().nullsLast().op("timestamptz_ops"),
     ),
-    index("groups_deleted_f0201e_idx").using(
+    index("groups_deleted_8ee2fc_idx").using(
       "btree",
-      table.deletedFlag.asc().nullsLast().op("bool_ops"),
+      table.deletedAt.asc().nullsLast().op("timestamptz_ops"),
     ),
     index("groups_track_i_093220_idx").using(
       "btree",
@@ -1665,20 +1690,21 @@ export const groups = pgTable(
       "btree",
       table.trackId.asc().nullsLast().op("int8_ops"),
     ),
-    uniqueIndex("unique_group_name_per_track")
+    uniqueIndex("unique_active_group_name_per_track")
       .using(
         "btree",
-        table.groupName.asc().nullsLast().op("text_ops"),
-        table.trackId.asc().nullsLast().op("int8_ops"),
-      ),
+        table.trackId.asc().nullsLast().op("text_ops"),
+        table.groupName.asc().nullsLast().op("int8_ops"),
+      )
+      .where(sql`(deleted_at IS NULL)`),
     foreignKey({
       columns: [table.trackId],
       foreignColumns: [tracks.id],
       name: "groups_track_id_f29fde9a_fk_tracks_id",
     }),
     check(
-      "deleted_after_creation",
-      sql`(deleted_datetime >= creation_datetime) OR (deleted_datetime IS NULL)`,
+      "group_deleted_after_created",
+      sql`(deleted_at >= created_at) OR (deleted_at IS NULL)`,
     ),
     check(
       "group_name_not_empty",
