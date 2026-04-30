@@ -13,7 +13,7 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from .models import Messages, MessageReaction
-from .serializers import MessageSerializer, MessageUpdateSerializer, MessageReactionSerializer, ReactRequestSerializer
+from .serializers import MessageSerializer, MessageUpdateSerializer, MessageReactionSerializer
 from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
 from .tasks import enqueue_process_chat_message_created
 
@@ -34,8 +34,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        # Scopes all queryset access (including get_object()) to this group,
-        # so a user cannot react to a message in another group by guessing its ID.
+        # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
@@ -164,12 +163,14 @@ class MessageViewSet(viewsets.ModelViewSet):
     # POST /chat/groups/{gid}/messages/{id}/react/
     @action(detail=True, methods=["post"], url_path="react")
     def react(self, request, *args, **kwargs):
-        # get_object() uses get_queryset() which is already scoped to group_pk
         instance = self.get_object()
+        emoji = request.data.get("emoji_string", "").strip()
 
-        req_serializer = ReactRequestSerializer(data=request.data)
-        req_serializer.is_valid(raise_exception=True)
-        emoji = req_serializer.validated_data["emoji_string"]
+        if not emoji:
+            return Response(
+                {"detail": "emoji_string is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Toggle logic — add if not exists, remove if exists
         reaction, created = MessageReaction.objects.get_or_create(

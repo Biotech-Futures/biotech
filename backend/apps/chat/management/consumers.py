@@ -5,9 +5,6 @@ from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-import redis.asyncio as aioredis
-from decouple import config
-
 from apps.chat.models import Messages
 from apps.chat.tasks import enqueue_process_chat_message_created
 from apps.groups.models import GroupMembership
@@ -15,9 +12,6 @@ from apps.groups.models import GroupMembership
 MAX_MESSAGE_BODY_LENGTH = 2000
 TYPING_EVENT_DEBOUNCE_SECONDS = 1.0
 INVALID_JSON_SENTINEL = "__invalid_json__"
-
-VALID_TYPING_STATUSES = {"started", "stopped"}
-TYPING_RATE_LIMIT_SECONDS = 2
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -37,7 +31,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def connect(self):
         self.conversation_id = int(self.scope["url_route"]["kwargs"]["conversation_id"])
+        # `conversation_<id>` is the primary group used by the new websocket contract.
         self.room_group_name = f"conversation_{self.conversation_id}"
+        # `group_<id>` is kept as a compatibility bridge for existing REST broadcasts.
         self.legacy_room_group_name = f"group_{self.conversation_id}"
 
         user = self.scope["user"]
@@ -52,6 +48,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.channel_layer.group_add(self.legacy_room_group_name, self.channel_name)
         await self.accept()
+        # This state lives only for the lifetime of the socket connection.
         self._typing_started_last_sent_at = 0.0
 
     async def receive_json(self, content, **kwargs):
@@ -65,6 +62,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self._send_error("not_authenticated", "Authentication required.")
             return
 
+        # Re-check membership on every event so an already-open socket cannot keep sending
+        # after the user has been removed from the conversation.
         if not await self._is_participant(user.id):
             await self._send_error("not_participant", "You are not a participant in this conversation.")
             return
@@ -107,6 +106,12 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
 
         message_payload = await self._create_message(user_id, body)
+        # Live websocket delivery happens before Celery enqueue so chat stays responsive
+        # even if the broker is temporarily unavailable.
+        #
+        # `group_send` publishes an internal event onto the channel layer. Channels routes the
+        # event to `chat_message_created` below because the `type` value is
+        # `chat.message_created` -> method name `chat_message_created`.
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -117,6 +122,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 },
             },
         )
+        # Celery's `.delay()` API is synchronous at the call site: it just pushes a job onto the
+        # broker and returns quickly. We still wrap it with `sync_to_async` because the consumer
+        # itself is async and should not directly call sync functions on the event loop thread.
         await sync_to_async(enqueue_process_chat_message_created)(message_payload["id"])
 
     async def _handle_typing_event(self, outbound_type):
@@ -132,6 +140,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                     "conversation_id": self.conversation_id,
                     "user_id": self.scope["user"].id,
                 },
+                # Group fan-out is still used for typing, but the originating socket is
+                # tagged so we can suppress the echo in chat_typing_event.
                 "sender_channel_name": self.channel_name,
             },
         )
@@ -144,12 +154,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         return False
 
     async def chat_message_created(self, event):
+        # This handler name is derived from the `type` used in `group_send`.
         await self.send_json(event["payload"])
 
     async def chat_message(self, event):
+        # Compatibility bridge for REST paths that still publish the older payload shape.
         await self.send_json(event["payload"])
 
     async def chat_typing_event(self, event):
+        # Typing indicators are only intended for the other participants in the conversation.
         if event.get("sender_channel_name") == self.channel_name:
             return
         await self.send_json(event["payload"])
@@ -169,6 +182,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _is_participant(self, user_id):
+        # ORM work is wrapped with `database_sync_to_async` because Django's ORM is still
+        # synchronous here, while the websocket consumer runs in an async context.
         return GroupMembership.objects.filter(
             user_id=user_id,
             group_id=self.conversation_id,
@@ -177,6 +192,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _create_message(self, user_id, body):
+        # Message persistence stays on the request/socket path; Celery is only for follow-up
+        # work after the message already exists in the database.
         message = Messages.objects.create(
             group_id=self.conversation_id,
             sender_user_id=user_id,
@@ -200,112 +217,3 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 },
             }
         )
-
-
-class GroupChatConsumer(AsyncJsonWebsocketConsumer):
-    """
-    Legacy consumer kept for backwards compatibility and PR #250 rate-limit tests.
-    New code should use ChatConsumer.
-    """
-
-    _redis = None
-
-    @classmethod
-    async def get_redis(cls):
-        """Return a shared async Redis client, creating it on first use."""
-        redis_url = config("REDIS_URL", default=None)
-        if not redis_url:
-            return None
-        if cls._redis is None:
-            cls._redis = aioredis.from_url(redis_url, decode_responses=True)
-        return cls._redis
-
-    async def connect(self):
-        self.group_id = self.scope["url_route"]["kwargs"]["group_id"]
-        self.room_group_name = f"group_{self.group_id}"
-
-        user = self.scope["user"]
-        if not user.is_authenticated:
-            await self.close(code=4403)
-            return
-
-        if not await self.is_member(user.id):
-            await self.close(code=4403)
-            return
-
-        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-        await self.accept()
-
-    @database_sync_to_async
-    def is_member(self, uid):
-        return GroupMembership.objects.filter(
-            user_id=uid,
-            group_id=self.group_id,
-            left_at__isnull=True,
-        ).exists()
-
-    async def receive_json(self, content, **kwargs):
-        event_type = content.get("type")
-
-        if event_type == "client.typing":
-            await self._handle_typing(content)
-            return
-
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "client.message",
-                    "group_id": self.group_id,
-                    "message": {
-                        "text": content.get("content"),
-                        "resource_ids": content.get("resource_ids", []),
-                        "sender_id": self.scope["user"].id,
-                    },
-                },
-            },
-        )
-
-    async def _handle_typing(self, content):
-        """
-        Rate-limited typing broadcast.
-        Uses Redis SET NX EX for cross-process rate limiting.
-        Falls back to always-broadcast when Redis is not configured (local dev).
-        """
-        user = self.scope["user"]
-        status = content.get("status")
-
-        if status not in VALID_TYPING_STATUSES:
-            return
-
-        rate_key = f"typing_rate_limit:{self.group_id}:{user.id}"
-        redis = await self.get_redis()
-        if redis is not None:
-            acquired = await redis.set(rate_key, 1, nx=True, ex=TYPING_RATE_LIMIT_SECONDS)
-            if not acquired:
-                return
-
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "typing.updated",
-                "user_id": user.id,
-                "status": status,
-                "group_id": self.group_id,
-            },
-        )
-
-    async def typing_updated(self, event):
-        await self.send_json({
-            "type": "typing.updated",
-            "user_id": event["user_id"],
-            "status": event["status"],
-            "group_id": event["group_id"],
-        })
-
-    async def chat_message(self, event):
-        await self.send_json(event["payload"])
-
-    async def disconnect(self, code):
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
