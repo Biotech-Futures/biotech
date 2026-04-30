@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { DownloadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +21,53 @@ interface UserBulkUploadSheetProps {
   onImport: (rows: CsvUserRow[]) => Promise<void> | void;
   isPending?: boolean;
 }
+
+const USER_IMPORT_TEMPLATE = [
+  [
+    "firstName",
+    "lastName",
+    "email",
+    "role",
+    "track",
+    "school",
+    "yearLevel",
+    "interests",
+    "status",
+  ],
+  [
+    "Ava",
+    "Nguyen",
+    "ava.nguyen@example.com",
+    "student",
+    "Replace with an existing track",
+    "Example High School",
+    "10",
+    "Biotechnology, Data Science",
+    "active",
+  ],
+  [
+    "Noah",
+    "Patel",
+    "noah.patel@example.com",
+    "mentor",
+    "Replace with an existing track",
+    "",
+    "",
+    "Biotechnology, Research",
+    "active",
+  ],
+  [
+    "Mia",
+    "Chen",
+    "mia.chen@example.com",
+    "supervisor",
+    "Replace with an existing track",
+    "",
+    "",
+    "",
+    "active",
+  ],
+];
 
 export function UserBulkUploadSheet({
   open,
@@ -70,17 +118,50 @@ export function UserBulkUploadSheet({
     setRows([]);
   };
 
+  const handleDownloadTemplate = () => {
+    const csv = USER_IMPORT_TEMPLATE.map((row) =>
+      row.map(formatCsvCell).join(","),
+    ).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "user-bulk-upload-template.csv";
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
-            Upload a CSV with columns `firstName,lastName,email,role,track,interests,status`.
+            Upload a CSV with columns firstName, lastName, email, role, track,
+            school, yearLevel, interests, and status.
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-4 px-4">
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">CSV template</p>
+              <p className="text-xs text-muted-foreground">
+                Start with the required columns and sample rows.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadTemplate}
+            >
+              <DownloadIcon />
+              Download
+            </Button>
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="user-csv-file">CSV file</Label>
             <Input
@@ -151,4 +232,12 @@ export function UserBulkUploadSheet({
       </SheetContent>
     </Sheet>
   );
+}
+
+function formatCsvCell(value: string) {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replaceAll('"', '""')}"`;
+  }
+
+  return value;
 }
