@@ -41,7 +41,8 @@ type StudentListItem = {
 };
 
 export async function queryStudents(params: QueryStudentsInput) {
-  const { page, limit, search, yearLevel, track, interest, inGroup } = params;
+  const { page, limit, search, yearLevel, track, interest, inGroup, active } =
+    params;
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -62,6 +63,10 @@ export async function queryStudents(params: QueryStudentsInput) {
 
   if (track) {
     conditions.push(eq(tracks.trackName, track));
+  }
+
+  if (active !== undefined) {
+    conditions.push(eq(users.isActive, active));
   }
 
   if (interest) {

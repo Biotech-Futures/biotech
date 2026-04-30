@@ -49,6 +49,15 @@ type MutationResponse<T> = {
   data: T;
 };
 
+interface QueryUsersParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  role?: UserRole;
+  track?: UserTrack;
+  active?: boolean;
+}
+
 function readStorage<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);
@@ -62,9 +71,11 @@ function writeStorage<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-export function useQueryUsers() {
+export function useQueryUsers(params: QueryUsersParams = {}) {
+  const { page = 1, limit = 100, search, role, track, active } = params;
+
   return useQuery({
-    queryKey: ["users"],
+    queryKey: ["users", page, limit, search, role, track, active],
     queryFn: async (): Promise<UserPaginatedResponse> => {
       const res = await myFetch.get<{
         msg: string;
@@ -86,8 +97,12 @@ export function useQueryUsers() {
         };
       }>("/user", {
         params: {
-          page: 1,
-          limit: 100,
+          page,
+          limit,
+          search,
+          role,
+          track,
+          active,
         },
       });
 

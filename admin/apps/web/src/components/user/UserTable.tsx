@@ -8,11 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  labelizeTrack,
-  labelizeUserRole,
-  type UserAccount,
-} from "@/type/user";
+import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
 
 interface UserTableProps {
   data: UserAccount[];
@@ -46,7 +42,6 @@ export function UserTable({
               <TableHead>Role</TableHead>
               <TableHead>Track</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Source</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -71,7 +66,9 @@ export function UserTable({
                   </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{labelizeUserRole(user.role)}</Badge>
+                    <Badge variant="outline">
+                      {labelizeUserRole(user.role)}
+                    </Badge>
                   </TableCell>
                   <TableCell>{labelizeTrack(user.track)}</TableCell>
                   <TableCell>
@@ -80,11 +77,12 @@ export function UserTable({
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="ghost">{user.source}</Badge>
-                  </TableCell>
-                  <TableCell>
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => onEdit(user)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onEdit(user)}
+                      >
                         Edit
                       </Button>
                       <Button

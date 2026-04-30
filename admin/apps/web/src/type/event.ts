@@ -17,9 +17,8 @@ export type EventRsvp = {
   id: number;
   eventId: number;
   userId: number;
-  sentDatetime: string;
-  attendanceStatus: boolean;
-  rsvpStatus: boolean;
+  rsvpStatus: "going" | "maybe" | "declined";
+  respondedAt: string | null;
 };
 
 export type ApiResponse<T> = {

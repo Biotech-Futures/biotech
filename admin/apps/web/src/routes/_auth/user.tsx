@@ -1,13 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlusIcon, UploadIcon } from "lucide-react";
 import {
   useQueryTracks,
@@ -19,7 +13,7 @@ import {
   useUpdateUserStatus,
 } from "@/query/user";
 import {
-  getUserStatus,
+  USER_ROLES,
   type CsvUserRow,
   type UserAccount,
   type UserFormValues,
@@ -33,24 +27,83 @@ import { UserBulkUploadSheet } from "@/components/user/UserBulkUploadSheet";
 import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 
 const PAGE_SIZE = 10;
+type UserStatusFilter = "all" | "active" | "inactive";
+type UserSearchParams = {
+  page: number;
+  search?: string;
+  role?: UserRole;
+  track?: UserTrack;
+  status?: UserStatusFilter;
+};
+type EditableUserSearchParams = Omit<
+  Partial<UserSearchParams>,
+  "role" | "track"
+> & {
+  role?: UserRole | "all";
+  track?: UserTrack | "all";
+};
 
 export const Route = createFileRoute("/_auth/user")({
+  validateSearch: (search): UserSearchParams => {
+    const params: UserSearchParams = {
+      page:
+        typeof search.page === "number" && search.page >= 1
+          ? search.page
+          : typeof search.page === "string" && Number(search.page) >= 1
+            ? Number(search.page)
+            : 1,
+    };
+
+    if (typeof search.search === "string" && search.search.trim()) {
+      params.search = search.search;
+    }
+
+    if (
+      typeof search.role === "string" &&
+      USER_ROLES.includes(search.role as UserRole)
+    ) {
+      params.role = search.role as UserRole;
+    }
+
+    if (typeof search.track === "string" && search.track.trim()) {
+      params.track = search.track;
+    }
+
+    if (
+      search.status === "active" ||
+      search.status === "inactive" ||
+      search.status === "all"
+    ) {
+      params.status = search.status;
+    }
+
+    return params;
+  },
   component: UserManagementPage,
 });
 
 function UserManagementPage() {
-  const [search, setSearch] = useState("");
-  const [role, setRole] = useState<UserRole | "all">("all");
-  const [track, setTrack] = useState<UserTrack | "all">("all");
-  const [status, setStatus] = useState<"all" | "active" | "inactive">("all");
-  const [page, setPage] = useState(1);
+  const navigate = useNavigate();
+  const searchParams = Route.useSearch();
+  const search = searchParams.search ?? "";
+  const role = searchParams.role ?? "all";
+  const track = searchParams.track ?? "all";
+  const status = searchParams.status ?? "all";
+  const page = searchParams.page;
   const [editorOpen, setEditorOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
 
-  const { data, isPending } = useQueryUsers();
+  const { data, isPending } = useQueryUsers({
+    page,
+    limit: PAGE_SIZE,
+    search: search.trim() || undefined,
+    role: role === "all" ? undefined : role,
+    track: track === "all" ? undefined : track,
+    active: status === "all" ? undefined : status === "active",
+  });
   const { data: tracksData } = useQueryTracks();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -58,50 +111,41 @@ function UserManagementPage() {
   const deleteUser = useDeleteUser();
   const bulkCreateUsers = useBulkCreateUsers();
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, role, track, status]);
+  const updateFilters = (
+    filters: Partial<{
+      search: string;
+      role: UserRole | "all";
+      track: UserTrack | "all";
+      status: UserStatusFilter;
+    }>,
+  ) => {
+    void navigate({
+      to: "/user",
+      search: () =>
+        cleanSearchParams({
+          ...searchParams,
+          ...filters,
+          page: 1,
+        }),
+      replace: true,
+    });
+  };
 
-  const mergedUsers = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
+  const updatePage = (nextPage: number) => {
+    void navigate({
+      to: "/user",
+      search: () => cleanSearchParams({ ...searchParams, page: nextPage }),
+      replace: true,
+    });
+  };
 
-  const filteredUsers = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    return mergedUsers
-      .filter((user) => {
-        if (query) {
-          const matches = [user.name ?? "", user.email ?? "", user.groupName ?? ""].some((value) =>
-            value.toLowerCase().includes(query),
-          );
-          if (!matches) return false;
-        }
-
-        if (role !== "all" && user.role !== role) return false;
-        if (track !== "all" && user.track !== track) return false;
-        if (status !== "all" && getUserStatus(user) !== status) return false;
-
-        return true;
-      })
-      .sort((left, right) => {
-        if (left.active !== right.active) {
-          return left.active ? -1 : 1;
-        }
-        return (left.name ?? "").localeCompare(right.name ?? "");
-      });
-  }, [mergedUsers, role, search, status, track]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
-  const pageItems = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  const summary = useMemo(
-    () => ({
-      total: mergedUsers.length,
-      active: mergedUsers.filter((user) => user.active).length,
-      inactive: mergedUsers.filter((user) => !user.active).length,
-      supervisors: mergedUsers.filter((user) => user.role === "supervisor").length,
-    }),
-    [mergedUsers],
+  const pageItems = useMemo(
+    () => data?.data?.items ?? [],
+    [data?.data?.items],
   );
+
+  const total = data?.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const openCreate = () => {
     setSelectedUser(null);
@@ -130,10 +174,15 @@ function UserManagementPage() {
           role: values.role,
           track: values.track ?? undefined,
           schoolName: values.role === "student" ? values.schoolName : undefined,
-          yearLevel: values.role === "student" ? values.yearLevel ?? undefined : undefined,
+          yearLevel:
+            values.role === "student"
+              ? (values.yearLevel ?? undefined)
+              : undefined,
           interests: values.role === "student" ? values.interests : undefined,
           joinPermissionReceived:
-            values.role === "student" ? values.joinPermissionReceived : undefined,
+            values.role === "student"
+              ? values.joinPermissionReceived
+              : undefined,
           active: values.active,
         });
 
@@ -180,7 +229,9 @@ function UserManagementPage() {
         });
 
         if (!statusResponse.data) {
-          window.alert(statusResponse.msg || "Unable to update the account status.");
+          window.alert(
+            statusResponse.msg || "Unable to update the account status.",
+          );
           return;
         }
       }
@@ -207,7 +258,9 @@ function UserManagementPage() {
   };
 
   const handleDeleteUser = async (user: UserAccount) => {
-    const confirmed = window.confirm(`Delete user "${user.name}"? This cannot be undone.`);
+    const confirmed = window.confirm(
+      `Delete user "${user.name}"? This cannot be undone.`,
+    );
     if (!confirmed) return;
 
     try {
@@ -237,7 +290,8 @@ function UserManagementPage() {
           role: row.role,
           track: row.track ?? undefined,
           schoolName: row.role === "student" ? row.schoolName : undefined,
-          yearLevel: row.role === "student" ? row.yearLevel ?? undefined : undefined,
+          yearLevel:
+            row.role === "student" ? (row.yearLevel ?? undefined) : undefined,
           interests: row.role === "student" ? row.interests : undefined,
           joinPermissionReceived:
             row.role === "student" ? row.joinPermissionReceived : undefined,
@@ -275,13 +329,6 @@ function UserManagementPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="Total Users" value={summary.total} />
-        <SummaryCard title="Active Accounts" value={summary.active} />
-        <SummaryCard title="Inactive Accounts" value={summary.inactive} />
-        <SummaryCard title="Supervisors" value={summary.supervisors} />
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
@@ -289,21 +336,16 @@ function UserManagementPage() {
         <CardContent className="space-y-4">
           <UserFilters
             search={search}
-            onSearchChange={setSearch}
+            onSearchChange={(value) => updateFilters({ search: value })}
             role={role}
-            onRoleChange={setRole}
+            onRoleChange={(value) => updateFilters({ role: value })}
             track={track}
-            onTrackChange={setTrack}
+            onTrackChange={(value) => updateFilters({ track: value })}
             tracks={tracksData?.data ?? []}
             status={status}
-            onStatusChange={setStatus}
+            onStatusChange={(value) => updateFilters({ status: value })}
           />
 
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline">{filteredUsers.length} matched users</Badge>
-            <Badge variant="outline">{summary.supervisors} supervisor records</Badge>
-            <Badge variant="outline">{summary.inactive} inactive accounts</Badge>
-          </div>
         </CardContent>
       </Card>
 
@@ -316,7 +358,7 @@ function UserManagementPage() {
             data={pageItems}
             page={page}
             totalPages={totalPages}
-            onPageChange={setPage}
+            onPageChange={updatePage}
             onView={openDetail}
             onEdit={openEdit}
             onToggleActive={handleToggleActive}
@@ -365,20 +407,16 @@ function UserManagementPage() {
   );
 }
 
-function SummaryCard({
-  title,
-  value,
-}: {
-  title: string;
-  value: number;
-}) {
-  return (
-    <Card size="sm">
-      <CardHeader>
-        <p className="text-sm text-muted-foreground">{title}</p>
-        <CardTitle>{value}</CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0" />
-    </Card>
-  );
+function cleanSearchParams(params: EditableUserSearchParams): UserSearchParams {
+  const next: UserSearchParams = {
+    page: params.page && params.page > 1 ? params.page : 1,
+  };
+  const search = params.search?.trim();
+
+  if (search) next.search = search;
+  if (params.role && params.role !== "all") next.role = params.role;
+  if (params.track && params.track !== "all") next.track = params.track;
+  if (params.status && params.status !== "all") next.status = params.status;
+
+  return next;
 }

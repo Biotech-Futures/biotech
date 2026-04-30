@@ -1,9 +1,13 @@
 import { z } from "zod";
-
-export const ROLES = ["student", "mentor", "supervisor", "admin"] as const;
+import { ROLES } from "./const.js";
 
 const trackNameSchema = z.string().trim().min(1);
 const interestListSchema = z.array(z.string().trim().min(1)).default([]);
+const queryBooleanSchema = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
 // DB CHECK constraint: year_lvl IN ('9','10','11','12')
 const yearLevelSchema = z.coerce.number().int().min(9).max(12);
 
@@ -13,7 +17,7 @@ export const queryUsersSchema = z.object({
   search: z.string().optional(),
   role: z.enum(ROLES).optional(),
   track: trackNameSchema.optional(),
-  active: z.coerce.boolean().optional(),
+  active: queryBooleanSchema.optional(),
 });
 
 export const queryStudentsSchema = z.object({
@@ -24,7 +28,7 @@ export const queryStudentsSchema = z.object({
   track: z.string().optional(),
   interest: z.string().optional(),
   inGroup: z.enum(["yes", "no"]).optional(),
-  active: z.coerce.boolean().optional(),
+  active: queryBooleanSchema.optional(),
 });
 
 export const createUserSchema = z.object({
@@ -33,10 +37,10 @@ export const createUserSchema = z.object({
   email: z.string().email(),
   role: z.enum(ROLES),
   track: trackNameSchema.optional(),
+  interests: interestListSchema.optional(),
   // Student-only fields
   schoolName: z.string().trim().max(255).optional(),
   yearLevel: yearLevelSchema.optional(),
-  interests: interestListSchema.optional(),
   joinPermissionReceived: z.coerce.boolean().optional(),
   // Supervisor-only field
   supervisorSchoolName: z.string().trim().max(255).optional(),
@@ -53,10 +57,10 @@ export const updateUserSchema = z.object({
   email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
   track: trackNameSchema.nullable().optional(),
+  interests: interestListSchema.optional(),
   // Student-only fields
   schoolName: z.string().trim().max(255).nullable().optional(),
   yearLevel: yearLevelSchema.nullable().optional(),
-  interests: interestListSchema.optional(),
   joinPermissionReceived: z.coerce.boolean().optional(),
   // Supervisor-only field
   supervisorSchoolName: z.string().trim().max(255).nullable().optional(),
