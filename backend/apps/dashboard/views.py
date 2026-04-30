@@ -11,15 +11,19 @@ from .serializers import (
     DashboardGroupPreviewSerializer,
     DashboardNextEventSerializer,
     DashboardSummarySerializer,
+    GroupsPreviewQuerySerializer,
+    GroupsPreviewResponseSerializer,
     ProgressQuerySerializer,
     ProgressSnapshotSerializer,
 )
+
 from .services import (
     get_dashboard_summary,
     get_groups_preview,
     get_personalized_next_event,
 )
 from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
+
 
 class DashboardProgressView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -64,6 +68,7 @@ class DashboardNextEventView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(DashboardNextEventSerializer(payload).data, status=status.HTTP_200_OK)
 
+
 class GroupsPreviewView(APIView):
     """
     GET /dashboard/v1/groups-preview/
@@ -75,32 +80,23 @@ class GroupsPreviewView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        mine = request.query_params.get("mine", "false").lower() == "true"
+        params = GroupsPreviewQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        p = params.validated_data
 
-        # Optional filter aligned with the dashboard widget (integer track primary key).
-        track_id_param = request.query_params.get("track_id")
-        track_id = None
-        if track_id_param not in (None, ""):
-            try:
-                track_id = int(track_id_param)
-            except (TypeError, ValueError):
-                return Response(
-                    {"detail": "track_id must be an integer."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        results = get_groups_preview(
+            user=request.user,
+            mine=p["mine"],
+            track_id=p.get("track_id"),
+        )
 
-        results = get_groups_preview(user=request.user, mine=mine, track_id=track_id)
+        paginator = Paginator(results, p["page_size"])
+        page = paginator.get_page(p["page"])
 
-        page_size = int(request.query_params.get("page_size", 20))
-        page_number = int(request.query_params.get("page", 1))
-        paginator = Paginator(results, page_size)
-        page = paginator.get_page(page_number)
-
-        # Materialize one page so serialization does not issue extra queries per row.
-        serializer = DashboardGroupPreviewSerializer(list(page.object_list), many=True)
-        return Response({
+        response = GroupsPreviewResponseSerializer({
             "count": paginator.count,
-            "next": page_number + 1 if page.has_next() else None,
-            "previous": page_number - 1 if page.has_previous() else None,
-            "results": serializer.data,
+            "next": p["page"] + 1 if page.has_next() else None,
+            "previous": p["page"] - 1 if page.has_previous() else None,
+            "results": list(page.object_list),
         })
+        return Response(response.data)
