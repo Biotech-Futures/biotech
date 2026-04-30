@@ -2040,6 +2040,80 @@ export const matchingMentoravailability = pgTable(
   ],
 );
 
+export const matchRecommendation = pgTable(
+  "match_recommendation",
+  {
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    id: bigint({ mode: "number" }).primaryKey().generatedByDefaultAsIdentity({
+      name: "match_recommendation_id_seq",
+      startWith: 1,
+      increment: 1,
+      minValue: 1,
+      maxValue: 9223372036854775807,
+      cache: 1,
+    }),
+    score: numeric({ precision: 10, scale: 4 }),
+    explanation: jsonb(),
+    accepted: boolean().notNull(),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    groupId: bigint("group_id", { mode: "number" }).notNull(),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    mentorUserId: bigint("mentor_user_id", { mode: "number" }).notNull(),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    matchRunId: bigint("match_run_id", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("match_recom_accepte_50fa36_idx").using(
+      "btree",
+      table.accepted.asc().nullsLast().op("bool_ops"),
+    ),
+    index("match_recom_group_i_56802c_idx").using(
+      "btree",
+      table.groupId.asc().nullsLast().op("int8_ops"),
+    ),
+    index("match_recom_match_r_e5666c_idx").using(
+      "btree",
+      table.matchRunId.asc().nullsLast().op("int8_ops"),
+    ),
+    index("match_recom_mentor__d96f14_idx").using(
+      "btree",
+      table.mentorUserId.asc().nullsLast().op("int8_ops"),
+    ),
+    index("match_recommendation_group_id_07fa28f8").using(
+      "btree",
+      table.groupId.asc().nullsLast().op("int8_ops"),
+    ),
+    index("match_recommendation_match_run_id_7af23874").using(
+      "btree",
+      table.matchRunId.asc().nullsLast().op("int8_ops"),
+    ),
+    index("match_recommendation_mentor_user_id_c7242756").using(
+      "btree",
+      table.mentorUserId.asc().nullsLast().op("int8_ops"),
+    ),
+    foreignKey({
+      columns: [table.groupId],
+      foreignColumns: [groups.id],
+      name: "match_recommendation_group_id_07fa28f8_fk_groups_id",
+    }),
+    foreignKey({
+      columns: [table.matchRunId],
+      foreignColumns: [matchRun.id],
+      name: "match_recommendation_match_run_id_7af23874_fk_match_run_id",
+    }),
+    foreignKey({
+      columns: [table.mentorUserId],
+      foreignColumns: [users.id],
+      name: "match_recommendation_mentor_user_id_c7242756_fk_users_id",
+    }),
+    unique("unique_match_recommendation_per_run_group_mentor").on(
+      table.groupId,
+      table.mentorUserId,
+      table.matchRunId,
+    ),
+  ],
+);
+
 export const roleAssignmentHistory = pgTable(
   "role_assignment_history",
   {

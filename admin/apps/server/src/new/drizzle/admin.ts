@@ -21,41 +21,9 @@ import {
   serial,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./public.js";
+import { tracks, users } from "./public.js";
 
 export const admin = pgSchema("admin");
-
-export const userInAdmin = admin.table(
-  "user",
-  {
-    id: text().primaryKey().notNull(),
-    name: text().notNull(),
-    email: text().notNull(),
-    emailVerified: boolean("email_verified").default(false).notNull(),
-    image: text(),
-    createdAt: timestamp("created_at", { mode: "string" })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { mode: "string" })
-      .defaultNow()
-      .notNull(),
-    role: text(),
-    tracks: jsonb(),
-    banned: boolean().default(false),
-    banReason: text("ban_reason"),
-    banExpires: timestamp("ban_expires", { mode: "string" }),
-    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
-    userId: bigint("user_id", { mode: "number" }).notNull(),
-  },
-  (table) => [
-    foreignKey({
-      columns: [table.userId],
-      foreignColumns: [users.id],
-      name: "user_user_id_users_id_fk",
-    }).onDelete("cascade"),
-    unique("user_email_unique").on(table.email),
-  ],
-);
 
 export const accountInAdmin = admin.table(
   "account",
@@ -90,6 +58,38 @@ export const accountInAdmin = admin.table(
       foreignColumns: [userInAdmin.id],
       name: "account_user_id_user_id_fk",
     }).onDelete("cascade"),
+  ],
+);
+
+export const userInAdmin = admin.table(
+  "user",
+  {
+    id: text().primaryKey().notNull(),
+    name: text().notNull(),
+    email: text().notNull(),
+    emailVerified: boolean("email_verified").default(false).notNull(),
+    image: text(),
+    createdAt: timestamp("created_at", { mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { mode: "string" })
+      .defaultNow()
+      .notNull(),
+    role: text(),
+    banned: boolean().default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires", { mode: "string" }),
+    // You can use { mode: "bigint" } if numbers are exceeding js number limitations
+    userId: bigint("user_id", { mode: "number" }).notNull(),
+    tracks: jsonb(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [users.id],
+      name: "user_user_id_users_id_fk",
+    }).onDelete("cascade"),
+    unique("user_email_unique").on(table.email),
   ],
 );
 
