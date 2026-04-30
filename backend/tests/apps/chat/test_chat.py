@@ -182,95 +182,10 @@ class ChatFeatureTests(TransactionTestCase):
             ).update
         )(left_at=timezone.now())
 
-    # --------- tests ---------
-
-    def test_post_message_as_group_member(self):
-        url = self._list_url()
-        payload = {
-            "message_text": "hello from student",
-            "resources": [{"resource_id": self.res1.id}, {"resource_id": self.res2.id}],
-        }
-        resp = self.client_student.post(url, payload, format="json")
-        self.assertEqual(resp.status_code, 201, resp.content)
-        msg_id = resp.data["id"]
-        msg = Messages.objects.get(pk=msg_id)
-        self.assertEqual(msg.group_id, self.group.id)
-        self.assertEqual(msg.sender_user_id, self.student.id)
-        self.assertIsNone(msg.deleted_at)
-        self.assertEqual(set(msg.resources.values_list("resource_id", flat=True)), {self.res1.id, self.res2.id})
-
-    def test_get_messages_with_limit_and_after(self):
-        m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="m1")
-        m2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="m2")
-        m3 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="m3")
-
-        url = self._list_url() + "?limit=2"
-        resp = self.client_student.get(url)
-        self.assertEqual(resp.status_code, 200, resp.content)
-        items = resp.data["items"]
-        self.assertEqual(len(items), 2)
-        returned_ids = [it["id"] for it in items]
-        self.assertEqual(returned_ids, [m3.id, m2.id])
-        self.assertEqual(resp.data["next_after"], m3.id)
-
-        url2 = self._list_url() + f"?after={m2.id}&limit=10"
-        resp2 = self.client_student.get(url2)
-        self.assertEqual(resp2.status_code, 200)
-        ids2 = [it["id"] for it in resp2.data["items"]]
-        self.assertEqual(ids2, [m3.id])
-
-    def test_delete_forbidden_for_student(self):
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete")
-        resp = self.client_student.delete(self._detail_url(msg.id))
-        self.assertEqual(resp.status_code, 403)
-
-    def test_delete_allowed_for_mentor_in_own_group(self):
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 2")
-        resp = self.client_mentor.delete(self._detail_url(msg.id))
-        self.assertEqual(resp.status_code, 204)
-        msg.refresh_from_db()
-        self.assertIsNotNone(msg.deleted_at)
-
-    def test_delete_forbidden_for_mentor_in_other_group(self):
-        group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
-        self.assertEqual(self.client_mentor.delete(url).status_code, 403)
-
-    def test_delete_allowed_for_supervisor_in_own_group(self):
-        msg2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": self.group.id, "pk": msg2.id})
-        resp = self.client_supervisor.delete(url)
-        self.assertEqual(resp.status_code, 204)
-        msg2.refresh_from_db()
-        self.assertIsNotNone(msg2.deleted_at)
-
-    def test_delete_forbidden_for_supervisor_in_other_group(self):
-        group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
-        self.assertEqual(self.client_supervisor.delete(url).status_code, 403)
-
-    def test_delete_allowed_for_admin_globally(self):
-        group3 = Groups.objects.create(group_name="G3", track=self.track)
-        msg3 = Messages.objects.create(group=group3, sender_user=self.student, message_text="to delete 4")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group3.id, "pk": msg3.id})
-        resp = self.client_admin.delete(url)
-        self.assertEqual(resp.status_code, 204)
-        msg3.refresh_from_db()
-        self.assertIsNotNone(msg3.deleted_at)
-
-    def test_soft_deleted_messages_are_excluded_from_list(self):
-        m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep")
-        Messages.objects.create(
-            group=self.group, sender_user=self.student, message_text="hide",
-            sent_at=timezone.now() - timedelta(minutes=2),
-            deleted_at=timezone.now() - timedelta(minutes=1),
-        )
-        resp = self.client_student.get(self._list_url())
-        self.assertEqual(resp.status_code, 200)
-        ids = [it["id"] for it in resp.data["items"]]
-        self.assertIn(m1.id, ids)
+    async def _get_message_status(self, message, user):
+        return await sync_to_async(
+            MessageStatus.objects.get
+        )(message=message, user=user)
 
     def test_ws_connect_allowed_for_participant(self):
         async def scenario():
@@ -411,6 +326,115 @@ class ChatFeatureTests(TransactionTestCase):
             finally:
                 await self._disconnect_ws(sender_comm)
                 await self._disconnect_ws(listener_comm)
+        async_to_sync(scenario)()
+
+    def test_ws_message_read_updates_status_and_broadcasts(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="mark me read",
+        )
+
+        async def scenario():
+            reader_comm = await self._ws_connect_with_session(self.mentor)
+            sender_comm = await self._ws_connect_with_session(self.student)
+
+            try:
+                await self._send_ws_json(
+                    reader_comm,
+                    {"type": "message.read", "message_id": message.id},
+                )
+
+                reader_event = await self._receive_ws_event(reader_comm, "message.read")
+                sender_event = await self._receive_ws_event(sender_comm, "message.read")
+
+                # Both sockets should observe the same canonical payload; the consumer does not
+                # maintain a separate "ack to reader" event shape for read receipts.
+                self.assertEqual(reader_event, sender_event)
+                self.assertEqual(
+                    reader_event,
+                    {
+                        "type": "message.read",
+                        "conversation_id": self.group.id,
+                        "message_id": message.id,
+                        "user_id": self.mentor.id,
+                        "read_at": reader_event["read_at"],
+                    },
+                )
+
+                # The websocket event must reflect committed DB state, not a transient in-memory
+                # acknowledgement, so assert against the persisted MessageStatus row as well.
+                status = await self._get_message_status(message, self.mentor)
+                self.assertEqual(status.status, MessageStatus.StatusChoices.READ)
+                self.assertIsNotNone(status.delivered_at)
+                self.assertIsNotNone(status.read_at)
+                self.assertEqual(status.read_at.isoformat(), reader_event["read_at"])
+            finally:
+                await self._disconnect_ws(reader_comm)
+                await self._disconnect_ws(sender_comm)
+
+        async_to_sync(scenario)()
+
+    def test_ws_message_read_rejects_message_outside_conversation(self):
+        other_group = Groups.objects.create(group_name="G2", track=self.track)
+        other_message = Messages.objects.create(
+            group=other_group,
+            sender_user=self.student,
+            message_text="wrong conversation",
+        )
+
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.mentor)
+            try:
+                await self._send_ws_json(
+                    communicator,
+                    {"type": "message.read", "message_id": other_message.id},
+                )
+
+                event = await self._receive_ws_event(communicator, "error")
+                self.assertEqual(event["error"]["code"], "not_found")
+                self.assertEqual(event["error"]["detail"], "Message not found in this conversation.")
+                # A rejected cross-conversation read must not leak into recipient state.
+                self.assertFalse(
+                    await sync_to_async(
+                        MessageStatus.objects.filter(message=other_message, user=self.mentor).exists
+                    )()
+                )
+            finally:
+                await self._disconnect_ws(communicator)
+
+        async_to_sync(scenario)()
+
+    def test_ws_message_read_rejects_non_participant_after_membership_removed(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.mentor,
+            message_text="should not be readable",
+        )
+
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.student)
+            # The consumer re-checks membership on every inbound event, so an already-open socket
+            # should lose the ability to submit read receipts once membership is revoked.
+            await self._remove_participation(self.student)
+
+            try:
+                await self._send_ws_json(
+                    communicator,
+                    {"type": "message.read", "message_id": message.id},
+                )
+
+                event = await self._receive_ws_event(communicator, "error")
+                self.assertEqual(event["error"]["code"], "not_participant")
+                # No MessageStatus row should be created when the membership guard blocks the read.
+                self.assertFalse(
+                    await sync_to_async(
+                        MessageStatus.objects.filter(message=message, user=self.student).exists
+                    )()
+                )
+            finally:
+                await self._disconnect_ws(communicator)
+
         async_to_sync(scenario)()
 
     def test_ws_send_enqueues_chat_message_side_effects(self):

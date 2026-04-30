@@ -8,7 +8,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import redis.asyncio as aioredis
 from decouple import config
 
-from apps.chat.models import Messages
+from apps.chat.models import MessageStatus, Messages
 from apps.chat.tasks import enqueue_process_chat_message_created
 from apps.groups.models import GroupMembership
 
@@ -24,8 +24,10 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     """
     WebSocket contract:
       inbound:  {"type": "message.send", "body": "<text>"}
+      inbound:  {"type": "message.read", "message_id": <id>}
       inbound:  {"type": "typing.start"} / {"type": "typing.stop"}
       outbound: {"type": "message.created", "message": {...}}
+      outbound: {"type": "message.read", "conversation_id": <id>, "message_id": <id>, ...}
       outbound: {"type": "typing.started", "conversation_id": <id>, "user_id": <id>}
       outbound: {"type": "typing.stopped", "conversation_id": <id>, "user_id": <id>}
       errors:   {"type": "error", "error": {"code": "...", "detail": "..."}}
@@ -78,6 +80,10 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self._handle_message_send(user.id, content)
             return
 
+        if event_type == "message.read":
+            await self._handle_message_read(user.id, content)
+            return
+
         if event_type == "typing.start":
             await self._handle_typing_event("typing.started")
             return
@@ -119,6 +125,40 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         )
         await sync_to_async(enqueue_process_chat_message_created)(message_payload["id"])
 
+    async def _handle_message_read(self, user_id, content):
+        message_id = content.get("message_id")
+        # `bool` is a subclass of `int` in Python, so reject it explicitly instead of silently
+        # treating `true`/`false` as message ids `1`/`0`.
+        if isinstance(message_id, bool):
+            message_id = None
+
+        try:
+            message_id = int(message_id)
+        except (TypeError, ValueError):
+            await self._send_error("invalid_payload", "message_id must be an integer.")
+            return
+
+        receipt_payload = await self._mark_message_read(user_id, message_id)
+        if receipt_payload is None:
+            # Keep the error generic to avoid leaking whether a message exists in some other
+            # conversation the current socket should not be able to inspect.
+            await self._send_error("not_found", "Message not found in this conversation.")
+            return
+
+        # Read receipts are lightweight state updates, so the current implementation simply
+        # fan-outs the normalized state to every socket in the conversation, including the
+        # reader, instead of introducing a separate acknowledgement path.
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                "type": "chat.message_read",
+                "payload": {
+                    "type": "message.read",
+                    **receipt_payload,
+                },
+            },
+        )
+
     async def _handle_typing_event(self, outbound_type):
         if outbound_type == "typing.started" and self._should_debounce_typing_started():
             return
@@ -147,6 +187,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(event["payload"])
 
     async def chat_message(self, event):
+        await self.send_json(event["payload"])
+
+    async def chat_message_read(self, event):
+        # Read-receipt fan-out uses the same `group_send` -> handler-name convention as the
+        # message-created path; the payload is already normalized by `_handle_message_read`.
         await self.send_json(event["payload"])
 
     async def chat_typing_event(self, event):
@@ -188,6 +233,35 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             "sender_id": message.sender_user_id,
             "body": message.message_text,
             "created_at": message.sent_at.isoformat(),
+        }
+
+    @database_sync_to_async
+    def _mark_message_read(self, user_id, message_id):
+        try:
+            message = Messages.objects.get(
+                pk=message_id,
+                group_id=self.conversation_id,
+                deleted_at__isnull=True,
+            )
+        except Messages.DoesNotExist:
+            return None
+
+        # The existing model is already "one message / one user", which is enough for the
+        # current requirement. This deliberately avoids introducing per-device tracking.
+        # The status row may already exist from the message-created side-effect path, but a
+        # get_or_create keeps read receipts working even if Celery is delayed or unavailable.
+        status, _ = MessageStatus.objects.get_or_create(
+            message=message,
+            user_id=user_id,
+            defaults={"status": MessageStatus.StatusChoices.SENT},
+        )
+        status.mark_read()
+
+        return {
+            "conversation_id": message.group_id,
+            "message_id": message.id,
+            "user_id": user_id,
+            "read_at": status.read_at.isoformat(),
         }
 
     async def _send_error(self, code, detail):
