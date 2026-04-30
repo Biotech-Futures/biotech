@@ -234,6 +234,6 @@ export const useAuthStore = defineStore('auth', {
           this.user = JSON.parse(rawUser)
         }
       } catch {}
-    }
-  }
+    },
+  },
 })

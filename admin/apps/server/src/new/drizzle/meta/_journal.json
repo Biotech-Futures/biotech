@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1776685976681,
+      "tag": "0000_panoramic_frog_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777258328382,
+      "tag": "0001_mighty_archangel",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777293420552,
+      "tag": "0002_resource_schema_align",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777449185946,
+      "tag": "0003_shocking_brother_voodoo",
+      "breakpoints": true
+    }
+  ]
+}

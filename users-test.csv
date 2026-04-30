@@ -1,0 +1,6 @@
+name,email,role,track,school,yearLevel,interests,status
+Alice Zhang,alice.zhang@example.com,student,AUS-NSW,Sydney High School,11,"biology, genetics",active
+Ben Turner,ben.turner@example.com,student,AUS-VIC,Melbourne High School,10,"ai, robotics",active
+Chloe Park,chloe.park@example.com,student,AUS-QLD,Brisbane State High School,12,"medicine, chemistry",inactive
+Mia Chen,mia.chen@example.com,mentor,AUS-SA,,,,active
+Noah Silva,noah.silva@example.com,supervisor,BRA,,,,active
