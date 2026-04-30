@@ -10,6 +10,7 @@ from decouple import config
 
 from apps.chat.models import MessageStatus, Messages
 from apps.chat.tasks import enqueue_process_chat_message_created
+from apps.chat.utils import sanitize_text
 from apps.groups.models import GroupMembership
 
 MAX_MESSAGE_BODY_LENGTH = 2000
@@ -111,6 +112,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 f"Message body must be at most {MAX_MESSAGE_BODY_LENGTH} characters.",
             )
             return
+
+        # The WebSocket path doesn't go through the DRF serializer, so apply the
+        # same sanitisation here to keep the persisted body and the broadcast
+        # payload consistent with the REST path.
+        body = sanitize_text(body)
 
         message_payload = await self._create_message(user_id, body)
         await self.channel_layer.group_send(

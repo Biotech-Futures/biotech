@@ -6,6 +6,7 @@
 from rest_framework import serializers
 
 from .models import Messages, MessageResource, MessageStatus, MessageReaction
+from .utils import sanitize_text
 from apps.resources.models import Resources
 
 
@@ -76,6 +77,11 @@ class MessageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
+        # Intercept blacklisted words before serializer.save() runs.
+        # Done here (not in the view) so every code path that goes through this
+        # serializer — REST create plus any future callers — gets sanitised input.
+        if "message_text" in attrs:
+            attrs["message_text"] = sanitize_text(attrs["message_text"])
         return attrs
 
 
@@ -86,7 +92,8 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         from django.utils import timezone
-        instance.message_text = validated_data.get("message_text", instance.message_text)
+        new_text = validated_data.get("message_text", instance.message_text)
+        instance.message_text = sanitize_text(new_text)
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
