@@ -146,17 +146,29 @@ export async function upsertSupervisorProfile(
   await executor.insert(supervisorProfile).values({ userId, schoolName });
 }
 
-export async function upsertMentorProfile(executor: any, userId: number) {
+export async function upsertMentorProfile(
+  executor: any,
+  userId: number,
+  values: Partial<typeof mentorProfile.$inferInsert> = {},
+) {
   const existing = await executor
     .select({ userId: mentorProfile.userId })
     .from(mentorProfile)
     .where(eq(mentorProfile.userId, userId));
 
-  if (existing[0]) return;
+  const nextValues = { ...DEFAULT_MENTOR_PROFILE, ...values };
+
+  if (existing[0]) {
+    await executor
+      .update(mentorProfile)
+      .set(nextValues)
+      .where(eq(mentorProfile.userId, userId));
+    return;
+  }
 
   await executor
     .insert(mentorProfile)
-    .values({ userId, ...DEFAULT_MENTOR_PROFILE });
+    .values({ userId, ...nextValues });
 }
 
 export async function ensureAdminEmailAvailable(
@@ -234,6 +246,10 @@ export const userSelect = {
   schoolName: sql<
     string | null
   >`COALESCE(${studentProfile.schoolName}, ${supervisorProfile.schoolName})`,
+  mentorBackground: mentorProfile.background,
+  mentorInstitution: mentorProfile.institution,
+  mentorReason: mentorProfile.mentorReason,
+  mentorMaxGroupCount: mentorProfile.maxGroupCount,
   yearLevel: sql<number | null>`NULLIF(${studentProfile.yearLvl}, '')::int`,
   joinPermissionReceived: studentProfile.hasJoinPermission,
   interests: sql<
@@ -252,6 +268,7 @@ export function baseUserQuery() {
     .leftJoin(tracks, eq(tracks.id, users.trackId))
     .leftJoin(studentProfile, eq(studentProfile.userId, users.id))
     .leftJoin(supervisorProfile, eq(supervisorProfile.userId, users.id))
+    .leftJoin(mentorProfile, eq(mentorProfile.userId, users.id))
     .orderBy(desc(users.dateJoined));
 }
 

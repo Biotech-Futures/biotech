@@ -176,6 +176,15 @@ function UserManagementPage() {
             values.role === "supervisor"
               ? values.supervisorSchoolName
               : undefined,
+          mentorBackground:
+            values.role === "mentor" ? values.mentorBackground || null : undefined,
+          mentorInstitution:
+            values.role === "mentor" ? values.mentorInstitution : undefined,
+          mentorReason: values.role === "mentor" ? values.mentorReason : undefined,
+          mentorMaxGroupCount:
+            values.role === "mentor"
+              ? (values.mentorMaxGroupCount ?? undefined)
+              : undefined,
           yearLevel:
             values.role === "student"
               ? (values.yearLevel ?? undefined)
@@ -217,6 +226,13 @@ function UserManagementPage() {
           schoolName: values.role === "student" ? values.schoolName : null,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : null,
+          mentorBackground:
+            values.role === "mentor" ? values.mentorBackground || null : null,
+          mentorInstitution:
+            values.role === "mentor" ? values.mentorInstitution : null,
+          mentorReason: values.role === "mentor" ? values.mentorReason : null,
+          mentorMaxGroupCount:
+            values.role === "mentor" ? values.mentorMaxGroupCount : null,
           yearLevel: values.role === "student" ? values.yearLevel : null,
           interests:
             values.role === "student" || values.role === "mentor"
@@ -302,6 +318,15 @@ function UserManagementPage() {
           schoolName: row.role === "student" ? row.schoolName : undefined,
           supervisorSchoolName:
             row.role === "supervisor" ? row.supervisorSchoolName : undefined,
+          mentorBackground:
+            row.role === "mentor" ? row.mentorBackground || null : undefined,
+          mentorInstitution:
+            row.role === "mentor" ? row.mentorInstitution : undefined,
+          mentorReason: row.role === "mentor" ? row.mentorReason : undefined,
+          mentorMaxGroupCount:
+            row.role === "mentor"
+              ? (row.mentorMaxGroupCount ?? undefined)
+              : undefined,
           yearLevel:
             row.role === "student" ? (row.yearLevel ?? undefined) : undefined,
           interests:

@@ -9,6 +9,10 @@ export type User = {
   track: string | null;
   groupName: string | null;
   schoolName: string | null;
+  mentorBackground: string | null;
+  mentorInstitution: string | null;
+  mentorReason: string | null;
+  mentorMaxGroupCount: number | null;
   yearLevel: number | null;
   joinPermissionReceived: boolean;
   interests: string[];

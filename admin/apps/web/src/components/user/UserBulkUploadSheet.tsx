@@ -32,6 +32,10 @@ const USER_IMPORT_TEMPLATE = [
     "school",
     "yearLevel",
     "interests",
+    "institution",
+    "mentorReason",
+    "maxGroupCount",
+    "background",
     "status",
   ],
   [
@@ -43,6 +47,10 @@ const USER_IMPORT_TEMPLATE = [
     "Example High School",
     "10",
     "Biotechnology, Data Science",
+    "",
+    "",
+    "",
+    "",
     "active",
   ],
   [
@@ -54,6 +62,10 @@ const USER_IMPORT_TEMPLATE = [
     "",
     "",
     "Biotechnology, Research",
+    "University of Sydney",
+    "Interested in supporting student research projects",
+    "2",
+    "Research",
     "active",
   ],
   [
@@ -63,6 +75,10 @@ const USER_IMPORT_TEMPLATE = [
     "supervisor",
     "Replace with an existing track",
     "Example High School",
+    "",
+    "",
+    "",
+    "",
     "",
     "",
     "active",
@@ -123,6 +139,20 @@ export function UserBulkUploadSheet({
       );
       return;
     }
+    const mentorMissingProfile = rows.find(
+      (row) =>
+        row.role === "mentor" &&
+        (!row.mentorInstitution.trim() ||
+          !row.mentorReason.trim() ||
+          row.mentorMaxGroupCount === null ||
+          row.mentorMaxGroupCount < 0),
+    );
+    if (mentorMissingProfile) {
+      window.alert(
+        `Institution, mentor reason, and max group count are required for mentor user ${mentorMissingProfile.email}.`,
+      );
+      return;
+    }
 
     await onImport(rows);
     setFile(null);
@@ -145,17 +175,17 @@ export function UserBulkUploadSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
+      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
             Upload a CSV with columns firstName, lastName, email, role, track,
-            school, yearLevel, interests, and status. School is required for
-            student and supervisor users.
+            school, yearLevel, interests, institution, mentorReason,
+            maxGroupCount, background, and status.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-4 px-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
           <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-4 py-3">
             <div>
               <p className="text-sm font-medium">CSV template</p>
@@ -233,7 +263,7 @@ export function UserBulkUploadSheet({
           </div>
         </div>
 
-        <SheetFooter>
+        <SheetFooter className="shrink-0 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

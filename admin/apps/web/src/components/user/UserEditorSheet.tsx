@@ -48,6 +48,10 @@ const initialValues: UserFormValues = {
   adminTracks: [],
   schoolName: "",
   supervisorSchoolName: "",
+  mentorBackground: "",
+  mentorInstitution: "",
+  mentorReason: "",
+  mentorMaxGroupCount: 2,
   yearLevel: null,
   interests: [],
   joinPermissionReceived: false,
@@ -95,6 +99,12 @@ export function UserEditorSheet({
         schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
         supervisorSchoolName:
           user.role === "supervisor" ? (user.schoolName ?? "") : "",
+        mentorBackground: user.role === "mentor" ? (user.mentorBackground ?? "") : "",
+        mentorInstitution:
+          user.role === "mentor" ? (user.mentorInstitution ?? "") : "",
+        mentorReason: user.role === "mentor" ? (user.mentorReason ?? "") : "",
+        mentorMaxGroupCount:
+          user.role === "mentor" ? (user.mentorMaxGroupCount ?? 2) : 2,
         yearLevel: user.age,
         interests: user.interests,
         joinPermissionReceived: user.joinPermissionReceived,
@@ -141,6 +151,23 @@ export function UserEditorSheet({
       window.alert("School is required for supervisor users.");
       return;
     }
+    if (values.role === "mentor") {
+      if (!values.mentorInstitution.trim()) {
+        window.alert("Institution is required for mentor users.");
+        return;
+      }
+      if (!values.mentorReason.trim()) {
+        window.alert("Mentor reason is required for mentor users.");
+        return;
+      }
+      if (
+        values.mentorMaxGroupCount === null ||
+        values.mentorMaxGroupCount < 0
+      ) {
+        window.alert("Max group count must be 0 or greater.");
+        return;
+      }
+    }
     if (roleUsesInterests(values.role) && !values.interests.length) {
       window.alert(`At least one interest is required for ${values.role} users.`);
       return;
@@ -153,12 +180,15 @@ export function UserEditorSheet({
       email: values.email.trim(),
       schoolName: values.schoolName.trim(),
       supervisorSchoolName: values.supervisorSchoolName.trim(),
+      mentorBackground: values.mentorBackground.trim(),
+      mentorInstitution: values.mentorInstitution.trim(),
+      mentorReason: values.mentorReason.trim(),
     });
   };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
+      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{mode === "create" ? "Add User" : "Edit User"}</SheetTitle>
           <SheetDescription>
@@ -166,7 +196,7 @@ export function UserEditorSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-4 px-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
           <div className="space-y-1.5">
             <Label htmlFor="user-first-name">First Name</Label>
             <Input
@@ -382,6 +412,74 @@ export function UserEditorSheet({
             </div>
           ) : null}
 
+          {values.role === "mentor" ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-institution">Institution</Label>
+                <Input
+                  id="user-mentor-institution"
+                  value={values.mentorInstitution}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorInstitution: event.target.value,
+                    }))
+                  }
+                  placeholder="University of Sydney"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-background">Background</Label>
+                <Input
+                  id="user-mentor-background"
+                  value={values.mentorBackground}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorBackground: event.target.value,
+                    }))
+                  }
+                  placeholder="Research"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-reason">Mentor Reason</Label>
+                <Textarea
+                  id="user-mentor-reason"
+                  value={values.mentorReason}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorReason: event.target.value,
+                    }))
+                  }
+                  placeholder="Interested in supporting student research projects."
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-max-group-count">Max Groups</Label>
+                <Input
+                  id="user-mentor-max-group-count"
+                  type="number"
+                  min={0}
+                  value={values.mentorMaxGroupCount ?? ""}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorMaxGroupCount: event.target.value
+                        ? Number(event.target.value)
+                        : null,
+                    }))
+                  }
+                  placeholder="2"
+                />
+              </div>
+            </>
+          ) : null}
+
           {roleUsesInterests(values.role) ? (
             <div className="space-y-1.5">
               <Label htmlFor="user-interests">
@@ -406,7 +504,7 @@ export function UserEditorSheet({
 
         </div>
 
-        <SheetFooter>
+        <SheetFooter className="shrink-0 border-t">
           {mode === "edit" && user && onDelete ? (
             <Button
               variant="destructive"

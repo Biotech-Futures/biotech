@@ -24,6 +24,10 @@ type CreateUserPayload = {
   adminTracks?: UserTrack[];
   schoolName?: string;
   supervisorSchoolName?: string;
+  mentorBackground?: string | null;
+  mentorInstitution?: string;
+  mentorReason?: string;
+  mentorMaxGroupCount?: number;
   yearLevel?: number;
   interests?: string[];
   joinPermissionReceived?: boolean;
@@ -38,6 +42,10 @@ type UpdateUserPayload = {
   track?: UserTrack | null;
   schoolName?: string | null;
   supervisorSchoolName?: string | null;
+  mentorBackground?: string | null;
+  mentorInstitution?: string | null;
+  mentorReason?: string | null;
+  mentorMaxGroupCount?: number | null;
   yearLevel?: number | null;
   interests?: string[];
   joinPermissionReceived?: boolean;
@@ -90,6 +98,10 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
             invitedAt?: string | null;
             activatedAt?: string | null;
             schoolName?: string | null;
+            mentorBackground?: string | null;
+            mentorInstitution?: string | null;
+            mentorReason?: string | null;
+            mentorMaxGroupCount?: number | null;
             yearLevel?: number | null;
             joinPermissionReceived?: boolean | null;
           }>;
@@ -263,6 +275,10 @@ export function normalizeServerUser(
     groupName: user.groupName ?? null,
     age: user.age ?? user.yearLevel ?? null,
     schoolName: user.schoolName ?? null,
+    mentorBackground: user.mentorBackground ?? null,
+    mentorInstitution: user.mentorInstitution ?? null,
+    mentorReason: user.mentorReason ?? null,
+    mentorMaxGroupCount: user.mentorMaxGroupCount ?? null,
     joinPermissionReceived: Boolean(user.joinPermissionReceived),
     interests: Array.isArray(user.interests) ? user.interests : [],
     createdAt:
@@ -294,6 +310,13 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
         : values.role === "supervisor"
           ? values.supervisorSchoolName || null
           : null,
+    mentorBackground:
+      values.role === "mentor" ? values.mentorBackground || null : null,
+    mentorInstitution:
+      values.role === "mentor" ? values.mentorInstitution || null : null,
+    mentorReason: values.role === "mentor" ? values.mentorReason || null : null,
+    mentorMaxGroupCount:
+      values.role === "mentor" ? values.mentorMaxGroupCount : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
     interests:
@@ -354,6 +377,11 @@ export function parseCsvUsers(text: string) {
       const yearLevelRaw =
         (row[headerIndex.yearlevel] ?? row[headerIndex.age] ?? "").trim();
       const interestsRaw = (row[headerIndex.interests] ?? "").trim();
+      const mentorMaxGroupCountRaw =
+        (row[headerIndex.maxgroupcount] ?? row[headerIndex.maxgroups] ?? "").trim();
+      const mentorMaxGroupCount = mentorMaxGroupCountRaw
+        ? Number(mentorMaxGroupCountRaw)
+        : null;
 
       return {
         id: `csv-${rowIndex + 1}`,
@@ -365,6 +393,12 @@ export function parseCsvUsers(text: string) {
         adminTracks: [],
         schoolName,
         supervisorSchoolName: role === "supervisor" ? schoolName : "",
+        mentorBackground: (row[headerIndex.background] ?? "").trim(),
+        mentorInstitution: (row[headerIndex.institution] ?? "").trim(),
+        mentorReason: (row[headerIndex.mentorreason] ?? "").trim(),
+        mentorMaxGroupCount: Number.isFinite(mentorMaxGroupCount)
+          ? mentorMaxGroupCount
+          : null,
         yearLevel: yearLevelRaw ? Number(yearLevelRaw) : null,
         interests: parseInterestList(interestsRaw),
         joinPermissionReceived: false,

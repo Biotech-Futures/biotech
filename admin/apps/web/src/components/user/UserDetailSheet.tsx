@@ -23,12 +23,12 @@ export function UserDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
+      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{user.name || "User Details"}</SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-6 px-4 pb-4">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
           <DetailSection
             title="Account"
             items={[

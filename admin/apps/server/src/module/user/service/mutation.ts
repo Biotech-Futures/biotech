@@ -71,6 +71,33 @@ async function addUsersByRole(
       }
     }
 
+    if (input.role === "mentor") {
+      if (!input.mentorInstitution?.trim()) {
+        results.push({
+          input,
+          msg: "Institution is required for mentor users",
+          data: null,
+        });
+        continue;
+      }
+      if (!input.mentorReason?.trim()) {
+        results.push({
+          input,
+          msg: "Mentor reason is required for mentor users",
+          data: null,
+        });
+        continue;
+      }
+      if (input.mentorMaxGroupCount === undefined) {
+        results.push({
+          input,
+          msg: "Max group count is required for mentor users",
+          data: null,
+        });
+        continue;
+      }
+    }
+
     if (input.role === "student" || input.role === "mentor") {
       if (!input.interests?.length) {
         results.push({
@@ -167,7 +194,12 @@ async function addUsersByRole(
       }
 
       if (input.role === "mentor") {
-        await upsertMentorProfile(tx, userId);
+        await upsertMentorProfile(tx, userId, {
+          background: input.mentorBackground?.trim() || null,
+          institution: input.mentorInstitution?.trim() ?? "",
+          mentorReason: input.mentorReason?.trim() ?? "",
+          maxGroupCount: input.mentorMaxGroupCount ?? 0,
+        });
       }
 
       if (input.role === "student" || input.role === "mentor") {
@@ -268,6 +300,20 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       data: null,
     };
 
+  if (nextRole === "mentor") {
+    const nextInstitution =
+      input.mentorInstitution ?? existing.mentorInstitution;
+    const nextReason = input.mentorReason ?? existing.mentorReason;
+    const nextMaxGroupCount =
+      input.mentorMaxGroupCount ?? existing.mentorMaxGroupCount;
+    if (!nextInstitution?.trim())
+      return { msg: "Institution is required for mentor users", data: null };
+    if (!nextReason?.trim())
+      return { msg: "Mentor reason is required for mentor users", data: null };
+    if (nextMaxGroupCount === null || nextMaxGroupCount === undefined)
+      return { msg: "Max group count is required for mentor users", data: null };
+  }
+
   if (input.track !== undefined) {
     if (nextRole === "admin") {
       if (input.track === null) userUpdates.trackId = null;
@@ -341,7 +387,20 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       }
 
       if (nextRole === "mentor") {
-        await upsertMentorProfile(tx, userId);
+        await upsertMentorProfile(tx, userId, {
+          background:
+            input.mentorBackground !== undefined
+              ? input.mentorBackground?.trim() || null
+              : existing.mentorBackground,
+          institution:
+            input.mentorInstitution?.trim() ??
+            existing.mentorInstitution ??
+            "",
+          mentorReason:
+            input.mentorReason?.trim() ?? existing.mentorReason ?? "",
+          maxGroupCount:
+            input.mentorMaxGroupCount ?? existing.mentorMaxGroupCount ?? 0,
+        });
       } else if (existing.role === "mentor" && nextRole !== "mentor") {
         await tx.delete(mentorProfile).where(eq(mentorProfile.userId, userId));
       }

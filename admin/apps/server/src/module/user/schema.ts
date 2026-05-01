@@ -45,6 +45,11 @@ export const createUserSchema = z.object({
   joinPermissionReceived: z.coerce.boolean().optional(),
   // Supervisor-only field
   supervisorSchoolName: z.string().trim().max(255).optional(),
+  // Mentor-only fields
+  mentorBackground: z.string().trim().max(50).nullable().optional(),
+  mentorInstitution: z.string().trim().max(255).optional(),
+  mentorReason: z.string().trim().max(255).optional(),
+  mentorMaxGroupCount: z.coerce.number().int().min(0).optional(),
   active: z.coerce.boolean().optional(),
 });
 
@@ -65,6 +70,11 @@ export const updateUserSchema = z.object({
   joinPermissionReceived: z.coerce.boolean().optional(),
   // Supervisor-only field
   supervisorSchoolName: z.string().trim().max(255).nullable().optional(),
+  // Mentor-only fields
+  mentorBackground: z.string().trim().max(50).nullable().optional(),
+  mentorInstitution: z.string().trim().max(255).nullable().optional(),
+  mentorReason: z.string().trim().max(255).nullable().optional(),
+  mentorMaxGroupCount: z.coerce.number().int().min(0).nullable().optional(),
   active: z.coerce.boolean().optional(),
 });
 
