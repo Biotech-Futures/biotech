@@ -23,6 +23,7 @@ type CreateUserPayload = {
   track?: UserTrack;
   adminTracks?: UserTrack[];
   schoolName?: string;
+  supervisorSchoolName?: string;
   yearLevel?: number;
   interests?: string[];
   joinPermissionReceived?: boolean;
@@ -36,6 +37,7 @@ type UpdateUserPayload = {
   role?: UserRole;
   track?: UserTrack | null;
   schoolName?: string | null;
+  supervisorSchoolName?: string | null;
   yearLevel?: number | null;
   interests?: string[];
   joinPermissionReceived?: boolean;
@@ -286,7 +288,12 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     groupId: null,
     groupName: null,
     age: values.role === "student" ? values.yearLevel : null,
-    schoolName: values.role === "student" ? values.schoolName || null : null,
+    schoolName:
+      values.role === "student"
+        ? values.schoolName || null
+        : values.role === "supervisor"
+          ? values.supervisorSchoolName || null
+          : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
     interests:
@@ -357,6 +364,7 @@ export function parseCsvUsers(text: string) {
         track,
         adminTracks: [],
         schoolName,
+        supervisorSchoolName: role === "supervisor" ? schoolName : "",
         yearLevel: yearLevelRaw ? Number(yearLevelRaw) : null,
         interests: parseInterestList(interestsRaw),
         joinPermissionReceived: false,

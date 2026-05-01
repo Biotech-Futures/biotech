@@ -45,6 +45,7 @@ export type UserFormValues = {
   track: UserTrack | null;
   adminTracks: UserTrack[];
   schoolName: string;
+  supervisorSchoolName: string;
   yearLevel: number | null;
   interests: string[];
   joinPermissionReceived: boolean;

@@ -62,7 +62,7 @@ const USER_IMPORT_TEMPLATE = [
     "mia.chen@example.com",
     "supervisor",
     "Replace with an existing track",
-    "",
+    "Example High School",
     "",
     "",
     "active",
@@ -112,6 +112,17 @@ export function UserBulkUploadSheet({
       window.alert("Please choose a valid CSV file first.");
       return;
     }
+    const rowMissingSchool = rows.find(
+      (row) =>
+        (row.role === "student" && !row.schoolName.trim()) ||
+        (row.role === "supervisor" && !row.supervisorSchoolName.trim()),
+    );
+    if (rowMissingSchool) {
+      window.alert(
+        `School is required for ${rowMissingSchool.role} user ${rowMissingSchool.email}.`,
+      );
+      return;
+    }
 
     await onImport(rows);
     setFile(null);
@@ -139,7 +150,8 @@ export function UserBulkUploadSheet({
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
             Upload a CSV with columns firstName, lastName, email, role, track,
-            school, yearLevel, interests, and status.
+            school, yearLevel, interests, and status. School is required for
+            student and supervisor users.
           </SheetDescription>
         </SheetHeader>
 

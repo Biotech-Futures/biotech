@@ -47,6 +47,7 @@ const initialValues: UserFormValues = {
   track: null,
   adminTracks: [],
   schoolName: "",
+  supervisorSchoolName: "",
   yearLevel: null,
   interests: [],
   joinPermissionReceived: false,
@@ -91,7 +92,9 @@ export function UserEditorSheet({
         role: user.role,
         track: user.track,
         adminTracks: [],
-        schoolName: user.schoolName ?? "",
+        schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
+        supervisorSchoolName:
+          user.role === "supervisor" ? (user.schoolName ?? "") : "",
         yearLevel: user.age,
         interests: user.interests,
         joinPermissionReceived: user.joinPermissionReceived,
@@ -134,6 +137,10 @@ export function UserEditorSheet({
         return;
       }
     }
+    if (values.role === "supervisor" && !values.supervisorSchoolName.trim()) {
+      window.alert("School is required for supervisor users.");
+      return;
+    }
     if (roleUsesInterests(values.role) && !values.interests.length) {
       window.alert(`At least one interest is required for ${values.role} users.`);
       return;
@@ -145,6 +152,7 @@ export function UserEditorSheet({
       lastName: values.lastName.trim(),
       email: values.email.trim(),
       schoolName: values.schoolName.trim(),
+      supervisorSchoolName: values.supervisorSchoolName.trim(),
     });
   };
 
@@ -355,6 +363,23 @@ export function UserEditorSheet({
                 </div>
               </div>
             </>
+          ) : null}
+
+          {values.role === "supervisor" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="user-supervisor-school-name">School</Label>
+              <Input
+                id="user-supervisor-school-name"
+                value={values.supervisorSchoolName}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    supervisorSchoolName: event.target.value,
+                  }))
+                }
+                placeholder="Sydney High School"
+              />
+            </div>
           ) : null}
 
           {roleUsesInterests(values.role) ? (
