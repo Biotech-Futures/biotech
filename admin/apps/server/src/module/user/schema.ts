@@ -65,6 +65,7 @@ export const updateUserSchema = z.object({
   email: z.string().email().optional(),
   role: z.enum(ROLES).optional(),
   track: trackNameSchema.nullable().optional(),
+  adminTracks: z.array(trackNameSchema).optional(),
   interests: interestListSchema.optional(),
   // Student-only fields
   schoolName: z.string().trim().max(255).nullable().optional(),

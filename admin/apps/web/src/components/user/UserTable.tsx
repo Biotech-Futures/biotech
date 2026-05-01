@@ -66,9 +66,13 @@ export function UserTable({
                   </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">
-                      {labelizeUserRole(user.role)}
-                    </Badge>
+                    {user.role ? (
+                      <Badge variant="outline">
+                        {labelizeUserRole(user.role)}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>{labelizeTrack(user.track)}</TableCell>
                   <TableCell>

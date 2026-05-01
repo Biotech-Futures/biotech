@@ -112,8 +112,8 @@ export function UserFilters({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="createdAt_desc">Newest first</SelectItem>
-            <SelectItem value="createdAt_asc">Oldest first</SelectItem>
+            <SelectItem value="createdAt_desc">Date created (newest first)</SelectItem>
+            <SelectItem value="createdAt_asc">Date created (oldest first)</SelectItem>
             <SelectItem value="name_asc">Name A → Z</SelectItem>
             <SelectItem value="name_desc">Name Z → A</SelectItem>
           </SelectContent>

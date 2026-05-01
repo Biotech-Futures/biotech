@@ -39,6 +39,7 @@ type UpdateUserPayload = {
   lastName?: string;
   role?: UserRole;
   track?: UserTrack | null;
+  adminTracks?: string[];
   schoolName?: string | null;
   supervisorSchoolName?: string | null;
   mentorBackground?: string | null;
@@ -272,7 +273,7 @@ export function normalizeServerUser(
     firstName: resolvedFirstName || fallbackFirstName,
     lastName: resolvedLastName || fallbackLastName,
     email: user.email ?? "",
-    role: (user.role ?? "student") as UserRole,
+    role: (user.role ?? "") as UserRole,
     track: user.track ?? null,
     groupId: user.groupId ?? null,
     groupName: user.groupName ?? null,
@@ -284,6 +285,7 @@ export function normalizeServerUser(
     mentorMaxGroupCount: user.mentorMaxGroupCount ?? null,
     joinPermissionReceived: Boolean(user.joinPermissionReceived),
     interests: Array.isArray(user.interests) ? user.interests : [],
+    adminTracks: Array.isArray((user as any).adminTracks) ? (user as any).adminTracks : [],
     createdAt:
       user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
     updatedAt:
@@ -322,6 +324,7 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
       values.role === "mentor" ? values.mentorMaxGroupCount : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
+    adminTracks: values.role === "admin" ? values.adminTracks : [],
     interests:
       values.role === "student" || values.role === "mentor"
         ? values.interests

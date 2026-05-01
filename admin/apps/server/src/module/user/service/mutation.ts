@@ -1,6 +1,7 @@
 import db from "@/lib/db.js";
 import { and, eq, isNull } from "drizzle-orm";
 import {
+  adminUser,
   mentorProfile,
   roleAssignmentHistory,
   studentProfile,
@@ -435,6 +436,16 @@ export async function updateUser(id: string, input: UpdateUserInput) {
       msg: error instanceof Error ? error.message : "Unable to update user",
       data: null,
     };
+  }
+
+  if (input.adminTracks !== undefined && nextRole === "admin") {
+    const normalizedTracks = Array.from(
+      new Set(input.adminTracks.map((t: string) => t.trim()).filter(Boolean)),
+    );
+    await db
+      .update(adminUser)
+      .set({ tracks: normalizedTracks })
+      .where(eq(adminUser.email, existing.email));
   }
 
   const updated = await fetchUserById(userId);

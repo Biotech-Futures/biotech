@@ -237,7 +237,8 @@ function UserManagementPage() {
           firstName: values.firstName,
           lastName: values.lastName,
           role: values.role,
-          track: values.track,
+          track: values.role === "admin" ? null : values.track,
+          adminTracks: values.role === "admin" ? values.adminTracks : undefined,
           schoolName: values.role === "student" ? values.schoolName : null,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : null,

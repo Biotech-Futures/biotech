@@ -22,6 +22,7 @@ export type UserAccount = {
   mentorMaxGroupCount: number | null;
   joinPermissionReceived: boolean;
   interests: string[];
+  adminTracks: string[];
   createdAt: string;
   updatedAt: string;
   active: boolean;
