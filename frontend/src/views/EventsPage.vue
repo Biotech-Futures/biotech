@@ -120,7 +120,7 @@ const error = ref('')
 
 const defaultLong = 'Join this session and explore more insights.'
 
-// ✅ Map backend → frontend
+//  Map backend → frontend
 const events = computed(() => {
   return backendEvents.value.map(e => {
     const start = new Date(e.start_datetime)
@@ -140,7 +140,7 @@ const events = computed(() => {
   })
 })
 
-// ✅ Load from API
+//  Load from API
 onMounted(async () => {
   loading.value = true
   try {
