@@ -220,7 +220,6 @@ function UserManagementPage() {
         updates: {
           firstName: values.firstName,
           lastName: values.lastName,
-          email: values.email,
           role: values.role,
           track: values.track,
           schoolName: values.role === "student" ? values.schoolName : null,
@@ -315,6 +314,7 @@ function UserManagementPage() {
           email: row.email,
           role: row.role,
           track: row.track ?? undefined,
+          adminTracks: row.role === "admin" ? row.adminTracks : undefined,
           schoolName: row.role === "student" ? row.schoolName : undefined,
           supervisorSchoolName:
             row.role === "supervisor" ? row.supervisorSchoolName : undefined,

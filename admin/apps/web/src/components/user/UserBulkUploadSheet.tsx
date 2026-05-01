@@ -29,6 +29,7 @@ const USER_IMPORT_TEMPLATE = [
     "email",
     "role",
     "track",
+    "adminTracks",
     "school",
     "yearLevel",
     "interests",
@@ -44,6 +45,7 @@ const USER_IMPORT_TEMPLATE = [
     "ava.nguyen@example.com",
     "student",
     "Replace with an existing track",
+    "",
     "Example High School",
     "10",
     "Biotechnology, Data Science",
@@ -61,6 +63,7 @@ const USER_IMPORT_TEMPLATE = [
     "Replace with an existing track",
     "",
     "",
+    "",
     "Biotechnology, Research",
     "University of Sydney",
     "Interested in supporting student research projects",
@@ -74,7 +77,24 @@ const USER_IMPORT_TEMPLATE = [
     "mia.chen@example.com",
     "supervisor",
     "Replace with an existing track",
+    "",
     "Example High School",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "active",
+  ],
+  [
+    "Liam",
+    "Taylor",
+    "liam.taylor@example.com",
+    "admin",
+    "",
+    "Biotech|Health Innovation",
+    "",
     "",
     "",
     "",
@@ -139,6 +159,15 @@ export function UserBulkUploadSheet({
       );
       return;
     }
+    const adminMissingTracks = rows.find(
+      (row) => row.role === "admin" && !row.adminTracks.length,
+    );
+    if (adminMissingTracks) {
+      window.alert(
+        `At least one admin track is required for admin user ${adminMissingTracks.email}.`,
+      );
+      return;
+    }
     const mentorMissingProfile = rows.find(
       (row) =>
         row.role === "mentor" &&
@@ -180,7 +209,7 @@ export function UserBulkUploadSheet({
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
             Upload a CSV with columns firstName, lastName, email, role, track,
-            school, yearLevel, interests, institution, mentorReason,
+            adminTracks, school, yearLevel, interests, institution, mentorReason,
             maxGroupCount, background, and status.
           </SheetDescription>
         </SheetHeader>

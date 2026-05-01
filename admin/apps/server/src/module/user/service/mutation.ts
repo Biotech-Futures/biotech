@@ -52,6 +52,20 @@ async function addUsersByRole(
       continue;
     }
 
+    if (input.role === "admin") {
+      const adminTracks = (input.adminTracks ?? [])
+        .map((track) => track.trim())
+        .filter(Boolean);
+      if (!adminTracks.length) {
+        results.push({
+          input,
+          msg: "At least one admin track is required for admin users",
+          data: null,
+        });
+        continue;
+      }
+    }
+
     if (input.role === "student") {
       if (!input.schoolName?.trim()) {
         results.push({
@@ -278,7 +292,12 @@ export async function updateUser(id: string, input: UpdateUserInput) {
 
   if (input.firstName !== undefined) userUpdates.firstName = input.firstName;
   if (input.lastName !== undefined) userUpdates.lastName = input.lastName;
-  if (input.email !== undefined) userUpdates.email = input.email;
+  if (
+    input.email !== undefined &&
+    input.email.trim().toLowerCase() !== existing.email.trim().toLowerCase()
+  ) {
+    return { msg: "Email cannot be changed", data: null };
+  }
 
   const nextInterests = input.interests ?? existing.interests;
 

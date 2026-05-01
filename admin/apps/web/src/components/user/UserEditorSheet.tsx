@@ -137,6 +137,10 @@ export function UserEditorSheet({
       window.alert("Track is required for non-admin users.");
       return;
     }
+    if (mode === "create" && values.role === "admin" && !values.adminTracks.length) {
+      window.alert("At least one admin track is required for admin users.");
+      return;
+    }
     if (values.role === "student") {
       if (!values.schoolName.trim()) {
         window.alert("School is required for student users.");
@@ -227,9 +231,12 @@ export function UserEditorSheet({
               id="user-email"
               type="email"
               value={values.email}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, email: event.target.value }))
-              }
+              onChange={(event) => {
+                if (mode === "edit") return;
+                setValues((current) => ({ ...current, email: event.target.value }));
+              }}
+              readOnly={mode === "edit"}
+              disabled={mode === "edit"}
               placeholder="jane@example.com"
             />
           </div>

@@ -37,7 +37,6 @@ type CreateUserPayload = {
 type UpdateUserPayload = {
   firstName?: string;
   lastName?: string;
-  email?: string;
   role?: UserRole;
   track?: UserTrack | null;
   schoolName?: string | null;
@@ -372,6 +371,7 @@ export function parseCsvUsers(text: string) {
       const roleValue = (row[headerIndex.role] ?? "").trim().toLowerCase();
       const role = normalizeRole(roleValue);
       const track = normalizeTrack((row[headerIndex.track] ?? "").trim());
+      const adminTracksRaw = (row[headerIndex.admintracks] ?? "").trim();
       const statusRaw = (row[headerIndex.status] ?? "").trim().toLowerCase();
       const schoolName = (row[headerIndex.school] ?? "").trim();
       const yearLevelRaw =
@@ -390,7 +390,7 @@ export function parseCsvUsers(text: string) {
         email: (row[headerIndex.email] ?? "").trim(),
         role,
         track,
-        adminTracks: [],
+        adminTracks: parseTrackList(adminTracksRaw),
         schoolName,
         supervisorSchoolName: role === "supervisor" ? schoolName : "",
         mentorBackground: (row[headerIndex.background] ?? "").trim(),
@@ -427,6 +427,17 @@ export function parseInterestList(input: string) {
     new Set(
       input
         .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function parseTrackList(input: string) {
+  return Array.from(
+    new Set(
+      input
+        .split(/[|;,]/)
         .map((item) => item.trim())
         .filter(Boolean),
     ),
