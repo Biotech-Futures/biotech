@@ -1,171 +1,2521 @@
-<script setup>
-import { ref, computed } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
-import { storeToRefs } from 'pinia'
-import { useAuthStore } from '@/stores/auth' // Pinia Auth
-import { mockGroups, mockResources, mockAnnouncements } from '../data/mock.js'
-
-const router = useRouter()
-
-// 从 Pinia 取当前登录用户与是否管理员
-const auth = useAuthStore()
-const { user, isAdmin } = storeToRefs(auth)
-// 若 store 没有 isAdmin getter，则兜底判断 role
-const effectiveIsAdmin = computed(() => (isAdmin?.value ?? (user.value?.role === 'admin')))
-
-const groups = ref(mockGroups)
-const resources = ref(mockResources)
-const announcements = ref(mockAnnouncements)
-const announcementsCount = computed(() => announcements.value.length)
-
-const getCurrentDate = () =>
-  new Date().toLocaleDateString('en-AU', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  })
-
-const getResourceIcon = (type) => {
-  const icons = { document: 'fas fa-file-alt', video: 'fas fa-video', link: 'fas fa-link' }
-  return icons[type] || 'fas fa-file'
-}
-</script>
-
 <template>
-  <div class="content-area">
-    <div style="margin-bottom: 2rem;">
-      <h1>Welcome back, {{ user?.name || 'User' }}!</h1>
-      <p style="color:#6c757d;">
-        {{ getCurrentDate() }} - Track: {{ user?.track || '—' }}
-      </p>
-    </div>
+  <!-- Dashboard shell -->
+  <div
+    ref="dashboardShellRef"
+    class="content-area dashboard-page-shell"
+    :class="[isDayMode ? 'is-day-mode' : 'is-night-mode', { 'is-fx-disabled': !isDashboardFxRunningAllowed }]"
+    :style="dashboardThemeStyle"
+  >
 
-    <div class="grid grid-3" style="margin-bottom: 2rem;">
-      <!-- Active Groups：仅管理员可见 -->
-      <div class="widget" v-if="effectiveIsAdmin">
-        <div class="widget-header">
-          <span class="widget-title">Active Groups</span>
-          <i class="fas fa-users" style="color: var(--eucalypt);"></i>
-        </div>
-        <div class="widget-value">{{ groups.length }}</div>
-        <div class="widget-footer">
-          <RouterLink to="/groups" style="color: var(--dark-green);">View all groups →</RouterLink>
-        </div>
-      </div>
 
-      <div class="widget">
-        <div class="widget-header">
-          <span class="widget-title">Upcoming Events</span>
-          <i class="fas fa-calendar" style="color: var(--mint-green);"></i>
-        </div>
-        <div class="widget-value">3</div>
-        <div class="widget-footer">
-          <RouterLink to="/events" style="color: var(--dark-green);">View calendar →</RouterLink>
-        </div>
-      </div>
+    <div class="dashboard-page-inner">
+      <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
 
-      <!-- Resources -> Recent Announcements -->
-      <div class="widget">
-        <div class="widget-header">
-          <span class="widget-title">Recent Announcements</span>
-          <i class="fas fa-bullhorn" style="color: var(--air-force-blue);"></i>
-        </div>
-        <div class="widget-value">{{ announcementsCount }}</div>
-        <div class="widget-footer">
-          <RouterLink to="/announcements" style="color: var(--dark-green);">
-            View announcements →
-          </RouterLink>
-        </div>
-      </div>
-    </div>
+      <div class="dashboard-backdrop-orb orb-one" aria-hidden="true"></div>
+      <div class="dashboard-backdrop-orb orb-two" aria-hidden="true"></div>
+      <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-    <!-- My Active Groups：所有用户可见 -->
-    <div class="card" v-if="groups.length">
-      <div class="card-header">
-        <h3 class="card-title">My Active Groups ({{ groups.length }})</h3>
-        <RouterLink to="/groups" style="color: var(--dark-green);">View all</RouterLink>
-      </div>
 
-      <div class="grid grid-2">
-        <div
-          v-for="group in groups"
-          :key="group.id"
-          class="group-card"
-          @click="router.push('/groups/' + group.id)"
-        >
-          <div class="group-header">
-            <div class="group-avatars">
-              <div class="group-avatar">AP</div>
-              <div class="group-avatar" style="background-color: var(--mint-green);">YG</div>
-              <div class="group-avatar" style="background-color: var(--air-force-blue);">
-                +{{ group.members - 2 }}
+      <section class="dashboard-hero-shell">
+
+
+        <div class="dashboard-hero-card interactive-surface">
+
+
+          <div class="dashboard-theme-rail">
+            <button
+              type="button"
+              class="theme-rail-trigger"
+              :aria-pressed="isDayMode"
+              :title="isDayMode ? 'Switch to night mode' : 'Switch to day mode'"
+              @click.stop="toggleSurfaceMode"
+            >
+              <i :class="isDayMode ? 'fas fa-sun' : 'fas fa-moon'"></i>
+              <span>{{ currentSurfaceModeLabel }}</span>
+            </button>
+            <button
+              type="button"
+              class="theme-rail-trigger fx-rail-trigger"
+              :class="{ 'is-muted': !isDashboardFxRunningAllowed }"
+              :aria-pressed="isDashboardFxRunningAllowed"
+              :title="dashboardFxToggleTitle"
+              @click.stop="toggleDashboardFx"
+            >
+              <i :class="isDashboardFxRunningAllowed ? 'fas fa-bolt' : 'fas fa-battery-half'"></i>
+              <span>{{ dashboardFxToggleLabel }}</span>
+            </button>
+          </div>
+
+
+          <div class="dashboard-hero-main">
+
+
+            <div class="dashboard-hero-copy">
+
+
+              <div class="hero-eyebrow-row">
+
+
+                <span class="hero-eyebrow">{{ heroEyebrow }}</span>
+
+
+              </div>
+
+
+              <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
+
+
+              <div class="hero-meta-row">
+                <span
+                  v-for="chip in heroMetaChips"
+                  :key="chip.key"
+                  class="hero-meta-chip"
+                  :class="`hero-meta-chip--${chip.tone}`"
+                >
+                  <span class="hero-meta-chip-label">{{ chip.label }}</span>
+                  <strong class="hero-meta-chip-value">{{ chip.value }}</strong>
+                </span>
+              </div>
+
+              <p class="dashboard-subtext">
+                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current milestones, and the next best actions.
+              </p>
+
+              <p class="dashboard-hero-message">
+                {{ heroMessage }}
+              </p>
+
+
+              <div class="hero-highlight-wrap">
+                <span
+                  v-for="item in headerHighlights"
+                  :key="item.key"
+                  class="status-pill"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+
+
+            </div>
+
+
+            <div class="dashboard-hero-aside">
+
+
+              <div
+                v-if="activeShowcaseItem"
+                class="showcase-card interactive-surface"
+                @mouseenter="stopShowcaseAutoplay"
+                @mouseleave="startShowcaseAutoplay"
+              >
+
+
+
+                <div class="showcase-heading-row">
+                  <div>
+
+                    <div class="showcase-kicker">BIOTECH HIGHLIGHTS</div>
+
+
+                    <div class="showcase-mini-label">Official-style image and info rotation</div>
+                  </div>
+
+
+                  <div class="showcase-controls">
+                    <button type="button" class="showcase-nav-btn" @click="goToPrevShowcase">
+                      <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <button type="button" class="showcase-nav-btn" @click="goToNextShowcase">
+                      <i class="fas fa-chevron-right"></i>
+                    </button>
+                  </div>
+                </div>
+
+
+                <transition name="showcase-fade" mode="out-in">
+
+
+                  <div :key="activeShowcaseItem.id" class="showcase-body">
+
+
+                    <div
+                      class="showcase-image"
+                      :style="{ backgroundImage: `url(${activeShowcaseItem.image})` }"
+                    >
+
+                      <div class="showcase-image-overlay"></div>
+                    </div>
+
+
+                    <div class="showcase-copy">
+
+
+                      <h3 class="showcase-title">{{ activeShowcaseItem.title }}</h3>
+
+
+                      <p class="showcase-summary">{{ activeShowcaseItem.summary }}</p>
+
+                      <div class="showcase-footer">
+
+
+                        <div class="showcase-dots">
+                          <button
+                            v-for="(item, index) in biotechShowcaseItems"
+                            :key="item.id || index"
+                            type="button"
+                            class="showcase-dot"
+                            :class="{ active: index === activeShowcaseIndex }"
+                            @click="goToShowcase(index)"
+                          ></button>
+                        </div>
+
+
+                        <button
+                          type="button"
+                          class="showcase-link-btn"
+                          @click="openShowcaseLink(activeShowcaseItem)"
+                        >
+                          Explore
+                          <i class="fas fa-arrow-right"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </transition>
               </div>
             </div>
-            <div class="group-info">
-              <div class="group-name">{{ group.name }}</div>
-              <!-- 胶囊样式的操作标签；.stop 防止触发整卡跳转 -->
-              <!-- <button type="button" class="chip-action" @click.stop>
-                {{ group.status }}
-              </button> -->
+          </div>
+
+        </div>
+      </section>
+
+
+      <div v-if="loadError" class="dashboard-alert">
+        <i class="fas fa-circle-info"></i>
+        <span>{{ loadError }}</span>
+      </div>
+
+
+      <section class="dashboard-section">
+        <div class="dashboard-section-grid summary-grid">
+
+
+          <article
+            v-for="item in summaryWidgets"
+            :key="item.key"
+            class="summary-card interactive-surface"
+            :class="getAccentClass(item.accent)"
+          >
+            <div class="summary-card-top">
+              <div class="summary-icon-wrap">
+                <i :class="item.icon"></i>
+              </div>
+              <span class="summary-label">{{ item.title }}</span>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- 资源区（所有用户可见） -->
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">Learn more with resources</h3>
-        <RouterLink to="/resources" style="color: var(--dark-green);">View all</RouterLink>
-      </div>
-
-      <div class="resource-grid">
-        <div
-          v-for="resource in resources.slice(0, 6)"
-          :key="resource.id"
-          class="resource-card"
-          @click="router.push('/resources/' + resource.id)"
-        >
-          <div class="resource-icon">
-            <i :class="getResourceIcon(resource.type)"></i>
-          </div>
-          <div class="resource-content">
-            <div class="resource-title">{{ resource.title }}</div>
-            <div class="resource-meta">Updated {{ resource.updated }}</div>
-          </div>
+            <div class="summary-card-value">{{ item.value }}</div>
+            <div class="summary-card-subtext">{{ item.subtext }}</div>
+          </article>
         </div>
+      </section>
+
+
+      <section class="dashboard-section">
+          <article class="surface-card feature-card progress-card">
+            <div class="surface-card-header">
+              <div>
+                <p class="surface-kicker">Overview</p>
+                <h3 class="surface-card-title">Progress Snapshot</h3>
+              </div>
+            </div>
+
+            <div class="progress-layout">
+
+
+              <div class="progress-ring-shell">
+                <div class="progress-ring-aura"></div>
+                <div class="progress-ring-track"></div>
+                <div class="progress-ring-orbit progress-ring-orbit--outer"></div>
+                <div class="progress-ring-orbit progress-ring-orbit--inner"></div>
+                <span class="progress-ring-marker" :style="progressMarkerStyle"></span>
+                <span class="progress-ring-spark progress-ring-spark--one"></span>
+                <span class="progress-ring-spark progress-ring-spark--two"></span>
+                <div class="progress-ring" :style="progressCircleStyle">
+                  <div class="progress-ring-inner">
+
+
+                    <div class="progress-value">{{ progressSnapshot.completionRate }}%</div>
+
+
+                    <div class="progress-label">Completion</div>
+                    <div class="progress-caption">{{ progressStatusCaption }}</div>
+                  </div>
+                </div>
+              </div>
+
+
+              <div class="progress-details">
+
+
+                <div class="progress-detail-row">
+                  <span>Tasks</span>
+                  <strong>{{ progressSnapshot.completedTasks }}/{{ progressSnapshot.totalTasks }}</strong>
+                </div>
+
+
+                <div class="progress-detail-row">
+                  <span>Current stage</span>
+                  <strong>{{ progressSnapshot.currentWeek }}</strong>
+                </div>
+
+
+                <div class="progress-detail-row">
+                  <span>Next milestone</span>
+                  <strong>{{ progressSnapshot.nextMilestone }}</strong>
+                </div>
+
+
+                <div class="progress-detail-row">
+                  <span>Due</span>
+                  <strong>{{ formatDateAU(progressSnapshot.nextMilestoneDate) || 'TBC' }}</strong>
+                </div>
+
+
+                <div class="progress-bar-shell">
+                  <div class="progress-bar-fill" :style="progressPercentStyle"></div>
+                </div>
+              </div>
+            </div>
+          </article>
+      </section>
+
+
+      <section class="dashboard-section">
+        <div class="dashboard-section-grid two-col-layout">
+
+          <article class="surface-card interactive-surface">
+            <div class="surface-card-header">
+              <div>
+                <p class="surface-kicker">Calendar</p>
+                <h3 class="surface-card-title">Next Event</h3>
+              </div>
+
+
+              <RouterLink to="/events" class="surface-link">Open calendar</RouterLink>
+            </div>
+
+
+            <div v-if="nextEvent" class="event-detail-card">
+
+
+              <div class="event-date-badge">
+                <span class="event-date-day">{{ nextEventDateParts.day }}</span>
+                <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
+              </div>
+
+              <div class="event-content">
+
+                <div class="event-title">{{ nextEvent.title }}</div>
+
+
+                <div class="event-meta-row">
+                  <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
+                  <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
+                </div>
+
+
+                <div class="event-meta-row location-row">
+                  <span><i class="fas fa-location-dot"></i>{{ nextEvent.location || 'Location TBC' }}</span>
+                </div>
+
+
+                <div class="event-actions">
+                  <RouterLink to="/events" class="primary-chip">
+                    {{ isAdmin ? 'Manage event' : isTeacher ? 'Open session' : 'View event' }}
+                  </RouterLink>
+                </div>
+              </div>
+            </div>
+
+
+            <div v-else class="empty-state">
+              <i class="fas fa-calendar-xmark"></i>
+              <p>No upcoming event is available yet.</p>
+            </div>
+          </article>
+
+
+          <article class="surface-card interactive-surface">
+            <div class="surface-card-header">
+              <div>
+                <p class="surface-kicker">Updates</p>
+
+
+                <h3 class="surface-card-title">{{ announcementsSectionTitle }}</h3>
+              </div>
+              <RouterLink to="/announcements" class="surface-link">View all</RouterLink>
+            </div>
+
+
+            <div v-if="announcementsPreview.length" class="list-stack">
+              <RouterLink
+                v-for="announcement in announcementsPreview"
+                :key="announcement.id || getAnnouncementTitle(announcement)"
+                to="/announcements"
+                class="list-row premium-row"
+              >
+                <div class="list-row-icon announcement-icon">
+                  <i class="fas fa-bullhorn"></i>
+                </div>
+
+                <div class="list-row-content">
+
+                  <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
+
+
+                  <div class="list-row-meta">{{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}</div>
+
+
+                  <div class="list-row-description">{{ getAnnouncementSnippet(announcement) }}</div>
+                </div>
+
+                <div class="list-row-tail">
+                  <i class="fas fa-chevron-right"></i>
+                </div>
+              </RouterLink>
+            </div>
+
+
+            <div v-else class="empty-state">
+              <i class="fas fa-bell-slash"></i>
+              <p>No recent announcements are available yet.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+
+      <section class="dashboard-section">
+        <article class="surface-card interactive-surface">
+          <div class="surface-card-header">
+            <div>
+              <p class="surface-kicker">Groups</p>
+              <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
+            </div>
+            <RouterLink to="/groups" class="surface-link">View all</RouterLink>
+          </div>
+
+
+          <div v-if="groupsPreview.length" class="groups-grid">
+            <RouterLink
+              v-for="group in groupsPreview"
+              :key="group.id || getGroupName(group)"
+              :to="group.id ? '/groups/' + group.id : '/groups'"
+              class="group-card-link"
+            >
+              <div class="group-card-surface interactive-surface">
+
+
+                <div class="group-card-top">
+                  <div class="group-avatars">
+
+
+                    <div class="group-avatar primary-avatar">
+                      {{ getInitials(getGroupName(group)) }}
+                    </div>
+
+
+                    <div class="group-avatar secondary-avatar">
+                      {{ getGroupSecondaryLabel(group) }}
+                    </div>
+
+
+                    <div class="group-avatar tertiary-avatar">
+                      +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
+                    </div>
+                  </div>
+
+                  <span class="group-open-indicator">
+                    <i class="fas fa-arrow-up-right-from-square"></i>
+                  </span>
+                </div>
+
+
+                <div class="group-name">{{ getGroupName(group) }}</div>
+
+
+                <div class="group-meta">{{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}</div>
+              </div>
+            </RouterLink>
+          </div>
+
+
+          <div v-else class="empty-state">
+            <i class="fas fa-users-slash"></i>
+            <p>No group is available yet.</p>
+          </div>
+        </article>
+      </section>
+
+
+      <section class="dashboard-section">
+        <div class="dashboard-section-grid two-col-layout">
+
+
+          <article class="surface-card interactive-surface">
+            <div class="surface-card-header">
+              <div>
+                <p class="surface-kicker">Library</p>
+                <h3 class="surface-card-title">{{ resourcesSectionTitle }}</h3>
+              </div>
+              <RouterLink to="/resources" class="surface-link">View all</RouterLink>
+            </div>
+
+
+            <div v-if="resourcesPreview.length" class="resource-grid">
+              <RouterLink
+                v-for="resource in resourcesPreview"
+                :key="resource.id || getResourceTitle(resource)"
+                :to="resource.id ? '/resources/' + resource.id : '/resources'"
+                class="resource-card-link"
+              >
+                <div class="resource-card-surface interactive-surface">
+
+
+                  <div class="resource-icon">
+                    <i :class="getResourceIcon(resource.type)"></i>
+                  </div>
+
+                  <div class="resource-content">
+
+                    <div class="resource-title">{{ getResourceTitle(resource) }}</div>
+
+
+                    <div class="resource-meta">
+                      {{ getResourceCategory(resource) }} · Updated {{ getResourceMeta(resource) }}
+                    </div>
+                  </div>
+                </div>
+              </RouterLink>
+            </div>
+
+
+            <div v-else class="empty-state">
+              <i class="fas fa-folder-open"></i>
+              <p>No resource is available yet.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <div v-if="isLoading" class="dashboard-loading">
+        <div class="loading-ring"></div>
+        <span>Loading dashboard...</span>
       </div>
     </div>
   </div>
 </template>
 
+<script setup>
+// Dashboard page
+// Core imports
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+
+import { RouterLink, useRouter } from 'vue-router'
+
+import { storeToRefs } from 'pinia'
+
+import { useAuthStore } from '@/stores/auth'
+import * as THREE from 'three'
+
+import { mockBiotechShowcaseItems } from '@/data/mock'
+
+import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
+import { getResourceIcon } from '@/utils/resource'
+import { getInitials } from '@/utils/string'
+import { buildSessionHeaders } from '@/utils/csrf'
+import { safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
+import { useThemeStore } from '@/stores/theme'
+import { getAccentClass } from '@/utils/ui'
+
+const router = useRouter()
+const auth = useAuthStore()
+const {
+  isAdmin,
+  isTeacher,
+  displayName,
+  displayTrack,
+  organizationLabel,
+  roleLabel,
+  normalizedRole,
+  user
+} = storeToRefs(auth)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const DASHBOARD_FX_ENABLED_KEY = 'dashboard-fx-enabled'
+const DASHBOARD_ENDPOINTS = {
+  groupsPreview: (mine = false) => `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
+  groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
+  groupsMine: `${API_BASE_URL}/groups/groups/?page_size=20&mine=true`,
+  groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
+  tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
+  resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
+  announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
+  nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
+  personalizedEvents: `${API_BASE_URL}/events/v1/?audience=me&page_size=1&ordering=start_datetime`,
+  events: `${API_BASE_URL}/events/v1/?page_size=10`,
+  tasksPreferred: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=false`,
+  tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=False`,
+  milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`,
+  adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`
+}
+
+const isLoading = ref(false)
+const loadError = ref('')
+
+const groups = ref([])
+const resources = ref([])
+const announcements = ref([])
+const events = ref([])
+
+const dashboardSummary = ref({
+  activeGroups: groups.value.length,
+  upcomingEvents: events.value.length,
+  resources: resources.value.length,
+  announcements: announcements.value.length
+})
+
+const adminWorkflow = ref({
+  pendingMatches: 0,
+  pendingReassignments: 0,
+  pendingApprovals: 0,
+  draftBulkMessages: 0
+})
+
+const adminOperationsSummary = ref(null)
+
+const progressSnapshot = ref({
+  completionRate: 0,
+  completedTasks: 0,
+  totalTasks: 0,
+  currentWeek: 'No milestones yet',
+  nextMilestone: 'TBC',
+  nextMilestoneDate: ''
+})
+
+const nextEventDateParts = computed(() => {
+  const formatted = formatDateAU(nextEvent.value?.date || '') || 'TBC'
+  const parts = formatted.split(' ')
+  return {
+    day: parts[0] || 'TBC',
+    rest: parts.slice(1).join(' ')
+  }
+})
+
+const themeStore = useThemeStore()
+const isDayMode = computed(() => themeStore.isDayMode)
+const currentSurfaceModeLabel = computed(() => themeStore.isDayMode ? 'Day' : 'Night')
+
+function toggleSurfaceMode() {
+  themeStore.toggleMode()
+}
+
+const dashboardShellRef = ref(null)
+const dashboardFxCanvasRef = ref(null)
+const prefersReducedMotion = ref(false)
+const isDashboardFxEnabled = ref(safeLocalStorageGet(DASHBOARD_FX_ENABLED_KEY, 'true') !== 'false')
+const isDashboardFxRunningAllowed = computed(() => isDashboardFxEnabled.value && !prefersReducedMotion.value)
+const dashboardFxToggleLabel = computed(() => isDashboardFxRunningAllowed.value ? 'FX On' : 'FX Off')
+const dashboardFxToggleTitle = computed(() => {
+  if (prefersReducedMotion.value) return 'Animated background is disabled by system reduced-motion preference'
+  return isDashboardFxEnabled.value ? 'Turn off animated background' : 'Turn on animated background'
+})
+
+let reduceMotionQuery = null
+let dashboardResizeRaf = null
+
+const dashboardFxState = {
+  renderer: null,
+  scene: null,
+  camera: null,
+  material: null,
+  clock: null,
+  animationId: null
+}
+
+const nightPalette = {
+  textPrimary: '#edfff5',
+  textSecondary: '#9ac8b0',
+  textMuted: '#6a9a82',
+  textLink: '#7adfc8',
+  surfaceBase: 'rgba(6, 18, 12, 0.84)',
+  surfaceElevated: 'rgba(8, 22, 16, 0.92)',
+  surfaceSoft: 'rgba(255, 255, 255, 0.06)',
+  borderDefault: 'rgba(255, 255, 255, 0.10)',
+  borderStrong: 'rgba(255, 255, 255, 0.18)',
+  accentBlue: '#6cb6ff',
+  accentTeal: '#41d9c6',
+  accentViolet: '#b197ff',
+  accentAmber: '#ffc56e',
+  accentRose: '#ff8cab',
+  shadowLg: '0 24px 70px rgba(0, 6, 2, 0.48)',
+  shadowMd: '0 16px 40px rgba(0, 6, 2, 0.34)',
+  heroOverlayA: 'rgba(7, 22, 14, 0.86)',
+  heroOverlayB: 'rgba(6, 18, 11, 0.74)',
+  shellBackdrop: 'linear-gradient(180deg, #071410 0%, #091e17 55%, #0b2318 100%)',
+  pageGlowOne: 'rgba(48, 200, 120, 0.08)',
+  pageGlowTwo: 'rgba(168, 85, 247, 0.07)',
+  pageGlowThree: 'rgba(48, 200, 150, 0.06)',
+  fxOpacity: '0.90'
+}
+
+const dayPalette = {
+  textPrimary: '#1a3818',
+  textSecondary: '#3a5e2c',
+  textMuted: '#5e8040',
+  textLink: '#265c3c',
+  surfaceBase: 'rgba(182, 214, 142, 0.84)',
+  surfaceElevated: 'rgba(196, 226, 158, 0.94)',
+  surfaceSoft: 'rgba(80, 140, 40, 0.08)',
+  borderDefault: 'rgba(70, 120, 30, 0.16)',
+  borderStrong: 'rgba(70, 120, 30, 0.24)',
+  accentBlue: '#2a6048',
+  accentTeal: '#1f8a6a',
+  accentViolet: '#7450c6',
+  accentAmber: '#6a9820',
+  accentRose: '#b74d7e',
+  shadowLg: '0 26px 72px rgba(30, 70, 14, 0.16)',
+  shadowMd: '0 18px 42px rgba(30, 70, 14, 0.12)',
+  heroOverlayA: 'rgba(196, 222, 162, 0.96)',
+  heroOverlayB: 'rgba(180, 210, 144, 0.84)',
+  shellBackdrop: 'linear-gradient(180deg, #d4eac0 0%, #c8e0b2 52%, #bcd6a4 100%)',
+  pageGlowOne: 'rgba(80, 180, 50, 0.13)',
+  pageGlowTwo: 'rgba(100, 180, 80, 0.09)',
+  pageGlowThree: 'rgba(60, 160, 80, 0.08)',
+  fxOpacity: '0.12'
+}
+
+const dashboardPalette = computed(() => {
+  return isDayMode.value ? dayPalette : nightPalette
+})
+
+const dashboardThemeStyle = computed(() => {
+  return {
+    '--text-primary': dashboardPalette.value.textPrimary,
+    '--text-secondary': dashboardPalette.value.textSecondary,
+    '--text-muted': dashboardPalette.value.textMuted,
+    '--text-link': dashboardPalette.value.textLink,
+    '--surface-base': dashboardPalette.value.surfaceBase,
+    '--surface-elevated': dashboardPalette.value.surfaceElevated,
+    '--surface-soft': dashboardPalette.value.surfaceSoft,
+    '--border-default': dashboardPalette.value.borderDefault,
+    '--border-strong': dashboardPalette.value.borderStrong,
+    '--accent-blue': dashboardPalette.value.accentBlue,
+    '--accent-teal': dashboardPalette.value.accentTeal,
+    '--accent-violet': dashboardPalette.value.accentViolet,
+    '--accent-amber': dashboardPalette.value.accentAmber,
+    '--accent-rose': dashboardPalette.value.accentRose,
+    '--shadow-lg': dashboardPalette.value.shadowLg,
+    '--shadow-md': dashboardPalette.value.shadowMd,
+    '--hero-overlay-a': dashboardPalette.value.heroOverlayA,
+    '--hero-overlay-b': dashboardPalette.value.heroOverlayB,
+    '--dashboard-shell-backdrop': dashboardPalette.value.shellBackdrop,
+    '--page-glow-one': dashboardPalette.value.pageGlowOne,
+    '--page-glow-two': dashboardPalette.value.pageGlowTwo,
+    '--page-glow-three': dashboardPalette.value.pageGlowThree,
+    '--dashboard-fx-opacity': dashboardPalette.value.fxOpacity
+  }
+})
+
+const biotechShowcaseItems = ref(
+  Array.isArray(mockBiotechShowcaseItems) ? [...mockBiotechShowcaseItems] : []
+)
+
+const activeShowcaseIndex = ref(0)
+let showcaseInterval = null
+
+const activeShowcaseItem = computed(() => {
+  if (!biotechShowcaseItems.value.length) return null
+  return biotechShowcaseItems.value[activeShowcaseIndex.value] || biotechShowcaseItems.value[0]
+})
+
+const currentDateText = computed(() => {
+  return formatLongDateAU(new Date(), true)
+})
+
+const heroMetaChips = computed(() => {
+  return [
+    { key: 'date', label: 'Today', value: currentDateText.value, tone: 'neutral' },
+    { key: 'track', label: 'Track', value: displayTrack.value || 'General', tone: 'cyan' },
+    { key: 'role', label: 'Role', value: roleLabel.value || 'Member', tone: 'violet' }
+  ]
+})
+
+const heroMessage = computed(() => {
+  if (isAdmin.value) {
+    return 'Review operational workload, monitor matching, and process critical platform actions from one unified dashboard.'
+  }
+
+  if (isTeacher.value) {
+    return 'Track mentoring sessions, group activity, and support materials through a cleaner and more practical workspace.'
+  }
+
+  return 'Stay focused on your next event, active group, and current milestones with a dashboard designed for fast decisions.'
+})
+
+const heroShowcaseFacts = computed(() => {
+  return [
+    { key: 'groups', label: `${groupsCount.value} groups` },
+    { key: 'resources', label: `${resourcesCount.value} resources` },
+    { key: 'updates', label: `${announcementsCount.value} updates` }
+  ]
+})
+
+const headerHighlights = computed(() => {
+  if (isAdmin.value) {
+    return [
+      { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
+      { key: 'matches', label: `${adminWorkflow.value.pendingMatches} pending matches` },
+      { key: 'approvals', label: `${adminWorkflow.value.pendingApprovals} approvals` }
+    ]
+  }
+
+  if (isTeacher.value) {
+    return [
+      { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
+      { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
+      { key: 'progress', label: `${progressSnapshot.value.completionRate}% progress` }
+    ]
+  }
+
+  return [
+    { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
+    { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming events` },
+    { key: 'tasks', label: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks} tasks done` }
+  ]
+})
+
+const heroEyebrow = computed(() => {
+  if (isAdmin.value) return 'Platform Operations'
+  if (isTeacher.value) return 'Mentor Workspace'
+  return 'Student Workspace'
+})
+
+const announcementsCount = computed(() => announcements.value.length)
+const resourcesCount = computed(() => resources.value.length)
+const groupsCount = computed(() => groups.value.length)
+
+const nextEvent = computed(() => {
+  return events.value[0] || null
+})
+
+const announcementsPreview = computed(() => {
+  return announcements.value.slice(0, 3)
+})
+
+const resourcesPreview = computed(() => {
+  return filterResourcesByRole(resources.value).slice(0, 6)
+})
+
+const groupsPreview = computed(() => {
+  return groups.value.slice(0, isAdmin.value ? 4 : 3)
+})
+
+const progressPercentStyle = computed(() => {
+  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
+  return {
+    width: `${value}%`
+  }
+})
+
+const progressCircleStyle = computed(() => {
+  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
+  return {
+    background: `conic-gradient(var(--accent-blue) 0deg ${value * 2.2}deg, var(--accent-teal) ${value * 2.2}deg ${value * 3.1}deg, var(--accent-violet) ${value * 3.1}deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`
+  }
+})
+
+const progressMarkerStyle = computed(() => {
+  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
+  const angle = (value / 100) * Math.PI * 2 - Math.PI / 2
+  const radius = 86
+  const x = Math.cos(angle) * radius
+  const y = Math.sin(angle) * radius
+
+  return {
+    transform: `translate(${x}px, ${y}px)`
+  }
+})
+
+const progressStatusCaption = computed(() => {
+  if (progressSnapshot.value.completionRate >= 80) return 'Strong momentum'
+  if (progressSnapshot.value.completionRate >= 45) return 'On track'
+  return 'Early cycle'
+})
+
+const summaryWidgets = computed(() => {
+  if (isAdmin.value) {
+    return [
+      {
+        key: 'groups',
+        title: 'Active Groups',
+        value: dashboardSummary.value.activeGroups,
+        subtext: 'Current mentoring groups across the platform',
+        icon: 'fas fa-users',
+        accent: 'blue'
+      },
+      {
+        key: 'events',
+        title: 'Upcoming Events',
+        value: dashboardSummary.value.upcomingEvents,
+        subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming event',
+        icon: 'fas fa-calendar-days',
+        accent: 'violet'
+      },
+      {
+        key: 'matches',
+        title: 'Pending Matches',
+        value: adminWorkflow.value.pendingMatches,
+        subtext: 'Items waiting for mentor allocation review',
+        icon: 'fas fa-arrows-rotate',
+        accent: 'teal'
+      },
+      {
+        key: 'approvals',
+        title: 'Open Approvals',
+        value: adminWorkflow.value.pendingApprovals,
+        subtext: 'Requests that need admin action',
+        icon: 'fas fa-badge-check',
+        accent: 'amber'
+      }
+    ]
+  }
+
+  if (isTeacher.value) {
+    return [
+      {
+        key: 'groups',
+        title: 'My Groups',
+        value: dashboardSummary.value.activeGroups,
+        subtext: 'Groups currently assigned to you',
+        icon: 'fas fa-users',
+        accent: 'blue'
+      },
+      {
+        key: 'events',
+        title: 'Upcoming Sessions',
+        value: dashboardSummary.value.upcomingEvents,
+        subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming session',
+        icon: 'fas fa-calendar-check',
+        accent: 'violet'
+      },
+      {
+        key: 'resources',
+        title: 'Mentor Resources',
+        value: resourcesCount.value,
+        subtext: 'Guides, rubrics, and support materials',
+        icon: 'fas fa-book-open',
+        accent: 'teal'
+      },
+      {
+        key: 'updates',
+        title: 'Announcements',
+        value: announcementsCount.value,
+        subtext: 'Latest program communication',
+        icon: 'fas fa-bullhorn',
+        accent: 'rose'
+      }
+    ]
+  }
+
+  return [
+    {
+      key: 'groups',
+      title: 'My Groups',
+      value: dashboardSummary.value.activeGroups,
+      subtext: 'Your current mentoring spaces',
+      icon: 'fas fa-users',
+      accent: 'blue'
+    },
+    {
+      key: 'events',
+      title: 'Upcoming Events',
+      value: dashboardSummary.value.upcomingEvents,
+      subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming event',
+      icon: 'fas fa-calendar-star',
+      accent: 'violet'
+    },
+    {
+      key: 'tasks',
+      title: 'Tasks Completed',
+      value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
+      subtext: 'Your progress in the current program cycle',
+      icon: 'fas fa-circle-check',
+      accent: 'teal'
+    },
+    {
+      key: 'resources',
+      title: 'Resources',
+      value: resourcesCount.value,
+      subtext: 'Materials available to you',
+      icon: 'fas fa-book',
+      accent: 'amber'
+    }
+  ]
+})
+
+const groupsSectionTitle = computed(() => {
+  if (isAdmin.value) return `Active Mentoring Groups (${groupsCount.value})`
+  if (isTeacher.value) return `My Mentoring Groups (${groupsCount.value})`
+  return `My Active Groups (${groupsCount.value})`
+})
+
+const resourcesSectionTitle = computed(() => {
+  if (isAdmin.value) return 'Resource Library Snapshot'
+  if (isTeacher.value) return 'Mentor Resources'
+  return 'Learning Resources'
+})
+
+const announcementsSectionTitle = computed(() => {
+  if (isAdmin.value) return 'Latest Broadcasts'
+  if (isTeacher.value) return 'Program Updates'
+  return 'Recent Announcements'
+})
+
+function getEmptyProgressSnapshot() {
+  return {
+    completionRate: 0,
+    completedTasks: 0,
+    totalTasks: 0,
+    currentWeek: 'No milestones yet',
+    nextMilestone: 'TBC',
+    nextMilestoneDate: ''
+  }
+}
+
+function extractCollectionItems(data) {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.results)) return data.results
+  return []
+}
+
+function getCurrentUserId() {
+  return user.value?.id ?? auth.user?.id ?? null
+}
+
+function toNumberSet(items) {
+  return new Set(
+    items
+      .map(item => Number(item))
+      .filter(item => Number.isFinite(item))
+  )
+}
+
+function truncateText(value, maxLength = 160) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength - 1).trim()}...`
+}
+
+function isValidDate(value) {
+  if (!value) return false
+  const date = value instanceof Date ? value : new Date(value)
+  return !Number.isNaN(date.getTime())
+}
+
+function formatEventTime(startValue, endValue) {
+  if (!isValidDate(startValue)) return ''
+
+  const options = {
+    hour: 'numeric',
+    minute: '2-digit'
+  }
+  const start = new Date(startValue).toLocaleTimeString('en-AU', options)
+
+  if (!isValidDate(endValue)) {
+    return start
+  }
+
+  const end = new Date(endValue).toLocaleTimeString('en-AU', options)
+  return `${start} - ${end}`
+}
+
+function resolveResourceIconType(value) {
+  const text = String(value || '').toLowerCase()
+
+  if (text.includes('pdf')) return 'pdf'
+  if (text.includes('video') || text.includes('recording')) return 'video'
+  if (text.includes('link') || text.includes('url')) return 'link'
+  if (text.includes('article') || text.includes('news')) return 'article'
+  return 'document'
+}
+
+function normalizeRoleName(value) {
+  const role = String(value || '').trim().toLowerCase()
+
+  if (!role) return ''
+  if (['all', 'public', 'everyone'].includes(role)) return 'all'
+  if (['administrator', 'admin', 'global_admin', 'local_admin'].includes(role)) return 'admin'
+  if (['teacher', 'mentor'].includes(role)) return 'mentor'
+  if (role === 'supervisor') return 'supervisor'
+  if (role === 'student') return 'student'
+  return role
+}
+
+function normalizeGroup(group, memberships = [], trackById = new Map()) {
+  const groupId = group?.id
+  const matchingMemberships = memberships.filter(item => String(item?.group) === String(groupId))
+  const activeMentors = matchingMemberships.filter(item => {
+    const role = String(item?.membership_role || '').toLowerCase()
+    return role.includes('mentor') || role.includes('supervisor')
+  })
+  const leadName = group?.lead_name || group?.lead_user
+    ? [
+        group?.lead_user?.first_name,
+        group?.lead_user?.last_name
+      ].filter(Boolean).join(' ').trim() || group?.lead_user?.email || group?.lead_name
+    : ''
+  const trackLabel =
+    group?.track_name ||
+    trackById.get(Number(group?.track)) ||
+    (group?.track ? `Track ${group.track}` : group?.category)
+  const memberCount = Number(
+    group?.member_count ??
+    group?.memberCount ??
+    group?.members ??
+    matchingMemberships.length ??
+    0
+  )
+
+  return {
+    ...group,
+    id: groupId,
+    name: group?.group_name || group?.name || group?.title || 'Untitled group',
+    title: group?.group_name || group?.title || group?.name || 'Untitled group',
+    members: memberCount,
+    memberCount,
+    status: group?.deleted_at ? 'archived' : group?.status || 'active',
+    mentor:
+      leadName ||
+      group?.mentor ||
+      group?.lead ||
+      (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
+    track: trackLabel || 'General'
+  }
+}
+
+function filterGroupsForDashboard(items, memberships = []) {
+  if (isAdmin.value) return items
+
+  const currentUserId = getCurrentUserId()
+  if (!currentUserId || !Array.isArray(memberships)) return items
+
+  const groupIds = toNumberSet(
+    memberships
+      .filter(item => String(item?.user) === String(currentUserId))
+      .map(item => item?.group)
+  )
+
+  return items.filter(group => groupIds.has(Number(group?.id)))
+}
+
+function normalizeResource(resource) {
+  const typeLabel =
+    resource?.resource_type_detail?.type_name ||
+    resource?.category ||
+    resource?.type ||
+    'General'
+  const visibleRoles = Array.isArray(resource?.visible_roles)
+    ? resource.visible_roles.map(role => role?.role_name)
+    : []
+  const audienceRoles = Array.isArray(resource?.audiences)
+    ? resource.audiences.map(rule => rule?.role_name)
+    : []
+  const roles = [...visibleRoles, ...audienceRoles]
+    .map(normalizeRoleName)
+    .filter(Boolean)
+  const scope = String(resource?.visibility_scope || '').toLowerCase()
+  const normalizedRoles = scope === 'public' || roles.length === 0 ? ['all'] : Array.from(new Set(roles))
+
+  return {
+    ...resource,
+    id: resource?.id,
+    title: resource?.resource_name || resource?.title || resource?.name || 'Untitled resource',
+    name: resource?.resource_name || resource?.name || resource?.title || 'Untitled resource',
+    type: resolveResourceIconType(typeLabel),
+    category: typeLabel,
+    updated: resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
+    role: normalizedRoles[0] || 'all',
+    roles: normalizedRoles
+  }
+}
+
+function normalizeAnnouncement(announcement) {
+  const body = announcement?.body || announcement?.summary || announcement?.description || ''
+  const audienceRoles = Array.isArray(announcement?.audiences)
+    ? announcement.audiences.map(rule => rule?.role_name)
+    : []
+  const normalizedRoles = audienceRoles.map(normalizeRoleName).filter(Boolean)
+  const visibilityScope = normalizeRoleName(announcement?.visibility_scope)
+  const audience = visibilityScope === 'public'
+    ? 'all'
+    : (normalizedRoles[0] || visibilityScope || 'all')
+
+  return {
+    ...announcement,
+    id: announcement?.id,
+    title: announcement?.title || announcement?.name || 'Untitled announcement',
+    summary: truncateText(body),
+    description: body,
+    content: body,
+    date: announcement?.published_at || announcement?.date || announcement?.created_at,
+    updated: announcement?.published_at || announcement?.updated || announcement?.created_at,
+    author: announcement?.author_email || announcement?.author || 'Program Team',
+    audience
+  }
+}
+
+function normalizeEvent(event) {
+  const start = event?.start_datetime || event?.date || ''
+  const end = event?.ends_datetime || event?.end_datetime || event?.end || ''
+  const isVirtual = event?.is_virtual === true
+
+  return {
+    ...event,
+    id: event?.id,
+    title: event?.event_name || event?.title || event?.name || 'Untitled event',
+    date: start,
+    time: formatEventTime(start, end) || event?.time || '',
+    location: isVirtual ? 'Online' : event?.location || 'Location TBC',
+    mode: isVirtual ? 'Virtual event' : event?.mode || 'In-person event',
+    link: event?.humanitix_link || event?.link
+  }
+}
+
+function deriveDashboardSummary() {
+  if (isAdmin.value && adminOperationsSummary.value) {
+    dashboardSummary.value = {
+      activeGroups: Number(adminOperationsSummary.value.active_groups || groups.value.length),
+      upcomingEvents: Number(adminOperationsSummary.value.upcoming_events || events.value.length),
+      resources: resources.value.length,
+      announcements: announcements.value.length
+    }
+    return
+  }
+
+  dashboardSummary.value = {
+    activeGroups: groups.value.length,
+    upcomingEvents: events.value.length,
+    resources: resources.value.length,
+    announcements: announcements.value.length
+  }
+}
+
+function deriveProgressSnapshot(tasksData, milestonesData) {
+  const fallback = getEmptyProgressSnapshot()
+  const visibleGroupIds = toNumberSet(groups.value.map(group => group?.id))
+  let activeMilestones = extractCollectionItems(milestonesData).filter(milestone => milestone?.deleted_flag !== true)
+
+  if (!isAdmin.value && !visibleGroupIds.size) {
+    return fallback
+  }
+
+  if (visibleGroupIds.size) {
+    activeMilestones = activeMilestones.filter(milestone => visibleGroupIds.has(Number(milestone?.group)))
+  }
+
+  const visibleMilestoneIds = toNumberSet(activeMilestones.map(milestone => milestone?.id))
+  let activeTasks = extractCollectionItems(tasksData).filter(task => task?.deleted_flag !== true)
+
+  if (visibleMilestoneIds.size) {
+    activeTasks = activeTasks.filter(task => visibleMilestoneIds.has(Number(task?.milestone)))
+  }
+
+  if (!activeTasks.length && !activeMilestones.length) {
+    return fallback
+  }
+
+  const completedMilestoneIds = new Set(
+    activeMilestones
+      .filter(milestone => milestone?.completed === true)
+      .map(milestone => Number(milestone?.id))
+  )
+  const completedTasks = activeTasks.filter(task => completedMilestoneIds.has(Number(task?.milestone))).length
+  const fallbackCompleted = activeMilestones.filter(milestone => milestone?.completed === true).length
+  const totalTasks = activeTasks.length || activeMilestones.length || fallback.totalTasks
+  const doneTasks = activeTasks.length ? completedTasks : fallbackCompleted
+  const completionRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : fallback.completionRate
+  const nextMilestone =
+    activeMilestones.find(milestone => milestone?.completed !== true) ||
+    activeMilestones[0] ||
+    null
+  const nextTask =
+    activeTasks.find(task => Number(task?.milestone) === Number(nextMilestone?.id)) ||
+    [...activeTasks].sort((a, b) => new Date(a?.due_date || 0) - new Date(b?.due_date || 0))[0] ||
+    null
+
+  return {
+    completionRate,
+    completedTasks: doneTasks,
+    totalTasks,
+    currentWeek: activeMilestones.length
+      ? `${fallbackCompleted}/${activeMilestones.length} milestones`
+      : fallback.currentWeek,
+    nextMilestone: nextMilestone?.milestone_name || nextTask?.task_name || fallback.nextMilestone,
+    nextMilestoneDate: nextTask?.due_date || fallback.nextMilestoneDate
+  }
+}
+
+function normalizeProgressSnapshot(payload) {
+  const fallback = getEmptyProgressSnapshot()
+
+  if (!payload || typeof payload !== 'object') {
+    return fallback
+  }
+
+  return {
+    completionRate: Number(payload?.completion_rate ?? fallback.completionRate),
+    completedTasks: Number(payload?.completed_tasks ?? fallback.completedTasks),
+    totalTasks: Number(payload?.total_tasks ?? fallback.totalTasks),
+    currentWeek: payload?.current_stage || fallback.currentWeek,
+    nextMilestone: payload?.next_milestone?.name || fallback.nextMilestone,
+    nextMilestoneDate: payload?.next_milestone?.due_date || fallback.nextMilestoneDate
+  }
+}
+
+function hasGroupPreviewShape(items) {
+  return Array.isArray(items) && items.some(item =>
+    item &&
+    (
+      'track_name' in item ||
+      'member_count' in item ||
+      'lead_name' in item ||
+      'lead_user' in item
+    )
+  )
+}
+
+async function fetchJson(url, options = {}) {
+  const { allowNoContent = false } = options
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: buildSessionHeaders({
+      headers: {
+        Accept: 'application/json'
+      }
+    })
+  })
+
+  if (allowNoContent && response.status === 204) {
+    return null
+  }
+
+  const text = await response.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = null
+  }
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`)
+  }
+
+  return data
+}
+
+async function fetchFirstAvailable(urls, options = {}) {
+  let lastError = null
+
+  for (const url of urls) {
+    try {
+      return await fetchJson(url, options)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
+
+  return null
+}
+
+async function loadDashboardData() {
+  isLoading.value = true
+  loadError.value = ''
+
+  try {
+    await Promise.allSettled([
+      loadGroups(),
+      loadResources(),
+      loadAnnouncements(),
+      loadEvents(),
+      loadAdminWorkflow()
+    ])
+    await loadProgress()
+    loadSummary()
+  } catch (error) {
+    console.error('Dashboard loading error:', error)
+    loadError.value = 'Some live dashboard data could not be loaded.'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function loadSummary() {
+  deriveDashboardSummary()
+}
+
+async function loadGroups() {
+  try {
+    const primaryGroupUrl = isAdmin.value
+      ? DASHBOARD_ENDPOINTS.groupsPreview(false)
+      : DASHBOARD_ENDPOINTS.groupsPreview(true)
+    const fallbackGroupUrls = isAdmin.value
+      ? [DASHBOARD_ENDPOINTS.groups]
+      : [DASHBOARD_ENDPOINTS.groupsMine, DASHBOARD_ENDPOINTS.groups]
+    const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
+    const groupItems = extractCollectionItems(data)
+
+    if (Array.isArray(groupItems) && groupItems.length === 0 && String(primaryGroupUrl).includes('/dashboard/v1/groups-preview/')) {
+      groups.value = []
+      return
+    }
+
+    if (hasGroupPreviewShape(groupItems)) {
+      groups.value = groupItems.map(group => normalizeGroup(group))
+      return
+    }
+
+    let memberships = null
+    let trackById = new Map()
+
+    try {
+      memberships = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.groupMembers))
+    } catch (error) {
+      memberships = null
+    }
+
+    try {
+      const tracks = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.tracks))
+      trackById = new Map(tracks.map(track => [Number(track?.id), track?.track_name]).filter(item => item[1]))
+    } catch (error) {
+      trackById = new Map()
+    }
+
+    if (!isAdmin.value && memberships === null) {
+      throw new Error('Group memberships unavailable')
+    }
+
+    const liveGroups = filterGroupsForDashboard(groupItems, memberships || [])
+    groups.value = liveGroups.map(group => normalizeGroup(group, memberships || [], trackById))
+  } catch (error) {
+    groups.value = []
+  }
+}
+
+async function loadResources() {
+  try {
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.resources)
+    const liveResources = extractCollectionItems(data)
+    resources.value = liveResources.map(normalizeResource)
+  } catch (error) {
+    resources.value = []
+  }
+}
+
+async function loadAnnouncements() {
+  try {
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.announcements)
+    const liveAnnouncements = extractCollectionItems(data)
+    announcements.value = liveAnnouncements.map(normalizeAnnouncement)
+  } catch (error) {
+    announcements.value = []
+  }
+}
+
+async function loadEvents() {
+  try {
+    const nextEventData = await fetchJson(DASHBOARD_ENDPOINTS.nextEvent, {
+      allowNoContent: true
+    })
+
+    if (nextEventData) {
+      events.value = [normalizeEvent(nextEventData)]
+      return
+    }
+
+    if (nextEventData === null) {
+      events.value = []
+      return
+    }
+
+    const fallbackEvents = await fetchFirstAvailable([
+      DASHBOARD_ENDPOINTS.personalizedEvents,
+      DASHBOARD_ENDPOINTS.events
+    ])
+    const liveEvents = extractCollectionItems(fallbackEvents)
+    events.value = liveEvents.map(normalizeEvent)
+  } catch (error) {
+    try {
+      const fallbackEvents = await fetchFirstAvailable([
+        DASHBOARD_ENDPOINTS.personalizedEvents,
+        DASHBOARD_ENDPOINTS.events
+      ])
+      const liveEvents = extractCollectionItems(fallbackEvents)
+      events.value = liveEvents.length ? liveEvents.map(normalizeEvent) : []
+    } catch {
+      events.value = []
+    }
+  }
+}
+
+async function loadAdminWorkflow() {
+  if (!isAdmin.value) return
+
+  try {
+    const data = await fetchJson(DASHBOARD_ENDPOINTS.adminSummary)
+    adminOperationsSummary.value = data
+    adminWorkflow.value = {
+      pendingMatches: Number(data?.unassigned_match_recommendations || 0),
+      pendingReassignments: Number(data?.groups_without_mentor || 0),
+      pendingApprovals: Number(data?.invited_or_pending_users || 0),
+      draftBulkMessages: 0
+    }
+  } catch (error) {
+    adminOperationsSummary.value = null
+    adminWorkflow.value = {
+      pendingMatches: 0,
+      pendingReassignments: 0,
+      pendingApprovals: 0,
+      draftBulkMessages: 0
+    }
+  }
+}
+
+async function loadProgress() {
+  try {
+    const [tasksData, milestonesData] = await Promise.all([
+      fetchFirstAvailable([DASHBOARD_ENDPOINTS.tasksPreferred, DASHBOARD_ENDPOINTS.tasks]),
+      fetchJson(DASHBOARD_ENDPOINTS.milestones)
+    ])
+
+    progressSnapshot.value = deriveProgressSnapshot(tasksData, milestonesData)
+  } catch {
+    progressSnapshot.value = getEmptyProgressSnapshot()
+  }
+}
+
+async function loadBiotechShowcase() {
+  restartShowcaseAutoplay()
+}
+
+
+function goToNextShowcase() {
+  if (!biotechShowcaseItems.value.length) return
+  activeShowcaseIndex.value = (activeShowcaseIndex.value + 1) % biotechShowcaseItems.value.length
+}
+
+function goToPrevShowcase() {
+  if (!biotechShowcaseItems.value.length) return
+  activeShowcaseIndex.value =
+    (activeShowcaseIndex.value - 1 + biotechShowcaseItems.value.length) % biotechShowcaseItems.value.length
+}
+
+function goToShowcase(index) {
+  if (index < 0 || index >= biotechShowcaseItems.value.length) return
+  activeShowcaseIndex.value = index
+  restartShowcaseAutoplay()
+}
+
+function startShowcaseAutoplay() {
+  stopShowcaseAutoplay()
+
+  if (biotechShowcaseItems.value.length <= 1) return
+
+  showcaseInterval = window.setInterval(() => {
+    goToNextShowcase()
+  }, 5000)
+}
+
+function stopShowcaseAutoplay() {
+  if (showcaseInterval) {
+    window.clearInterval(showcaseInterval)
+    showcaseInterval = null
+  }
+}
+
+function restartShowcaseAutoplay() {
+  stopShowcaseAutoplay()
+  startShowcaseAutoplay()
+}
+
+
+function openShowcaseLink(item) {
+  if (!item) return
+
+  if (typeof item.link === 'string' && item.link.startsWith('http')) {
+    window.open(item.link, '_blank', 'noopener')
+    return
+  }
+
+  if (typeof item.link === 'string' && item.link.startsWith('/')) {
+    router.push(item.link)
+  }
+}
+
+function filterResourcesByRole(items) {
+  const role = normalizedRole.value
+
+  return items.filter(item => {
+    const resourceRoles = Array.isArray(item?.roles) && item.roles.length
+      ? item.roles.map(normalizeRoleName)
+      : [normalizeRoleName(item?.role || 'all')]
+
+    if (resourceRoles.includes('all')) return true
+    if (role === 'teacher' && resourceRoles.some(resourceRole => ['mentor', 'supervisor'].includes(resourceRole))) return true
+    if (role === 'admin' && resourceRoles.includes('admin')) return true
+    if (role === 'student' && resourceRoles.includes('student')) return true
+    if (role === 'admin') return true
+
+    return false
+  })
+}
+
+function getAnnouncementTitle(item) {
+  return item?.title || item?.name || item?.subject || 'Untitled announcement'
+}
+
+function getAnnouncementMeta(item) {
+  return item?.updated || item?.date || item?.created_at || 'Recently posted'
+}
+
+function getAnnouncementSnippet(item) {
+  return item?.summary || item?.description || item?.content || item?.excerpt || 'Open the announcement to read more details.'
+}
+
+function getResourceTitle(item) {
+  return item?.title || item?.name || 'Untitled resource'
+}
+
+function getResourceMeta(item) {
+  return item?.updated || item?.date || item?.created_at || 'Recently updated'
+}
+
+function getResourceCategory(item) {
+  return item?.category || item?.typeLabel || item?.tag || item?.type || 'General'
+}
+
+function getGroupName(group) {
+  return group?.name || group?.title || 'Untitled group'
+}
+
+function getGroupMemberCount(group) {
+  return Number(group?.members || group?.memberCount || 0)
+}
+
+function getGroupLead(group) {
+  return group?.mentor || group?.lead || group?.supervisor || group?.owner || 'Mentor team'
+}
+
+function getGroupSecondaryLabel(group) {
+  const source = group?.track || group?.category || group?.status || 'BF'
+  return String(source).slice(0, 2).toUpperCase()
+}
+
+const DASHBOARD_FX_VERT = `
+varying vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`
+
+const DASHBOARD_FX_FRAG = `
+precision highp float;
+
+varying vec2 vUv;
+
+uniform float uTime;
+uniform vec2 uResolution;
+
+mat2 rotate2d(float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return mat2(c, -s, s, c);
+}
+
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 hash22(vec2 p) {
+  float n = hash12(p);
+  return vec2(n, hash12(p + n + 19.19));
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+
+  float a = hash12(i);
+  float b = hash12(i + vec2(1.0, 0.0));
+  float c = hash12(i + vec2(0.0, 1.0));
+  float d = hash12(i + vec2(1.0, 1.0));
+
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  float amplitude = 0.56;
+
+  for (int i = 0; i < 5; i++) {
+    value += amplitude * noise(p);
+    p = rotate2d(0.67) * p * 2.03 + vec2(4.81, 3.17);
+    amplitude *= 0.52;
+  }
+
+  return value;
+}
+
+float voronoi(vec2 x) {
+  vec2 n = floor(x);
+  vec2 f = fract(x);
+  float minDist = 10.0;
+
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 o = hash22(n + g);
+      o = 0.5 + 0.35 * sin(uTime * 0.22 + 6.283185 * o);
+      vec2 r = g + o - f;
+      minDist = min(minDist, dot(r, r));
+    }
+  }
+
+  return sqrt(minDist);
+}
+
+void main() {
+  vec2 uv = vUv;
+  vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
+  vec2 p = (uv - 0.5) * aspect;
+
+  vec2 warpA = vec2(
+    fbm(p * 1.25 + vec2(uTime * 0.032, -uTime * 0.018)),
+    fbm(rotate2d(0.74) * p * 1.5 + vec2(-uTime * 0.024, uTime * 0.028))
+  );
+
+  vec2 warpB = vec2(
+    fbm(rotate2d(-0.38) * p * 2.1 + warpA * 1.2 + vec2(uTime * 0.014, uTime * 0.018)),
+    fbm(rotate2d(0.46) * p * 2.45 - warpA * 1.1 + vec2(-uTime * 0.016, uTime * 0.01))
+  );
+
+  vec2 q = p + (warpA - 0.5) * 0.42 + (warpB - 0.5) * 0.16;
+
+  float fieldA = fbm(q * 1.45 + vec2(0.0, uTime * 0.022));
+  float fieldB = fbm(rotate2d(0.85) * q * 2.25 - vec2(uTime * 0.018, 0.0));
+  float fieldC = fbm(rotate2d(-0.52) * q * 3.15 + vec2(uTime * 0.011, uTime * 0.014));
+
+  float membraneDistance = voronoi(q * 3.25 + warpA * 1.6);
+  float membrane = 1.0 - smoothstep(0.13, 0.24, abs(membraneDistance - 0.22));
+
+  float nebula = smoothstep(0.42, 0.98, fieldA * 0.82 + fieldB * 0.28);
+  float stream = smoothstep(0.5, 1.05, fieldB * 0.86 + fieldC * 0.24);
+  float bloom = smoothstep(0.58, 1.08, fieldC * 0.92 + fieldA * 0.18);
+
+  float pulseA = exp(-pow((q.y + 0.18 + sin(uTime * 0.34 + q.x * 2.7) * 0.09) / 0.34, 2.0));
+  float pulseB = exp(-pow((q.y - 0.24 + cos(uTime * 0.26 - q.x * 2.2) * 0.07) / 0.28, 2.0));
+
+  float spores = smoothstep(0.88, 0.995, noise(q * 16.0 + vec2(uTime * 0.08, -uTime * 0.05)));
+  spores *= 0.16 + membrane * 0.12;
+
+  vec3 base = vec3(0.018, 0.028, 0.064);
+  vec3 teal = vec3(0.08, 0.82, 0.72);
+  vec3 azure = vec3(0.21, 0.56, 0.98);
+  vec3 violet = vec3(0.62, 0.38, 0.98);
+  vec3 coral = vec3(0.97, 0.47, 0.66);
+  vec3 amber = vec3(0.95, 0.72, 0.33);
+  vec3 pearl = vec3(0.92, 0.98, 1.0);
+
+  vec3 color = base;
+  color += teal * nebula * 0.24;
+  color += azure * stream * 0.26;
+  color += violet * bloom * 0.18;
+  color += coral * membrane * 0.12;
+  color += amber * (pulseA * 0.035 + pulseB * 0.025);
+  color += pearl * spores * 0.22;
+
+  float vignette = smoothstep(1.22, 0.14, length((uv - 0.5) * vec2(1.02, 0.9)));
+  float alpha = clamp((nebula * 0.18 + stream * 0.16 + bloom * 0.12 + membrane * 0.12 + spores * 0.12 + pulseA * 0.04 + pulseB * 0.03) * vignette, 0.0, 0.42);
+
+  gl_FragColor = vec4(color, alpha);
+}
+`
+
+function handleReduceMotionChange(event) {
+  prefersReducedMotion.value = event.matches
+
+  if (prefersReducedMotion.value) {
+    disposeDashboardFx()
+  } else {
+    initDashboardFx()
+  }
+}
+
+function toggleDashboardFx() {
+  isDashboardFxEnabled.value = !isDashboardFxEnabled.value
+  safeLocalStorageSet(DASHBOARD_FX_ENABLED_KEY, isDashboardFxEnabled.value ? 'true' : 'false')
+
+  if (isDashboardFxEnabled.value) {
+    nextTick(() => initDashboardFx())
+  } else {
+    disposeDashboardFx()
+  }
+}
+
+function initDashboardFx() {
+  if (!dashboardFxCanvasRef.value || !isDashboardFxEnabled.value || prefersReducedMotion.value || dashboardFxState.renderer) return
+
+  const shell = dashboardShellRef.value
+  if (!shell) return
+
+  const rect = shell.getBoundingClientRect()
+
+  dashboardFxState.renderer = new THREE.WebGLRenderer({
+    canvas: dashboardFxCanvasRef.value,
+    alpha: true,
+    antialias: true,
+    powerPreference: 'high-performance'
+  })
+  dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
+  dashboardFxState.renderer.setSize(rect.width, rect.height, false)
+  dashboardFxState.renderer.setClearColor(0x000000, 0)
+
+  dashboardFxState.scene = new THREE.Scene()
+  dashboardFxState.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+  dashboardFxState.camera.position.z = 1
+  dashboardFxState.clock = new THREE.Clock()
+
+  dashboardFxState.material = new THREE.ShaderMaterial({
+    vertexShader: DASHBOARD_FX_VERT,
+    fragmentShader: DASHBOARD_FX_FRAG,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uResolution: { value: new THREE.Vector2(rect.width, rect.height) }
+    }
+  })
+
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), dashboardFxState.material)
+  dashboardFxState.scene.add(plane)
+
+  animateDashboardFx()
+}
+
+function resizeDashboardFx() {
+  if (!dashboardFxState.renderer || !dashboardShellRef.value || !dashboardFxState.material) return
+
+  if (dashboardResizeRaf) cancelAnimationFrame(dashboardResizeRaf)
+
+  dashboardResizeRaf = requestAnimationFrame(() => {
+    dashboardResizeRaf = null
+
+    const rect = dashboardShellRef.value.getBoundingClientRect()
+    dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
+    dashboardFxState.renderer.setSize(rect.width, rect.height, false)
+    dashboardFxState.material.uniforms.uResolution.value.set(rect.width, rect.height)
+  })
+}
+
+function animateDashboardFx() {
+  if (!dashboardFxState.renderer || !dashboardFxState.scene || !dashboardFxState.camera || !dashboardFxState.material || !dashboardFxState.clock) {
+    return
+  }
+
+  dashboardFxState.animationId = requestAnimationFrame(animateDashboardFx)
+
+  const elapsed = dashboardFxState.clock.getElapsedTime()
+
+  dashboardFxState.material.uniforms.uTime.value = elapsed
+
+  dashboardFxState.renderer.render(dashboardFxState.scene, dashboardFxState.camera)
+}
+
+function disposeDashboardFx() {
+  if (dashboardResizeRaf) {
+    cancelAnimationFrame(dashboardResizeRaf)
+    dashboardResizeRaf = null
+  }
+
+  if (dashboardFxState.animationId) {
+    cancelAnimationFrame(dashboardFxState.animationId)
+    dashboardFxState.animationId = null
+  }
+
+  if (dashboardFxState.material) {
+    dashboardFxState.material.dispose()
+    dashboardFxState.material = null
+  }
+
+  if (dashboardFxState.scene) {
+    dashboardFxState.scene.traverse((item) => {
+      if (item.geometry) item.geometry.dispose()
+    })
+    dashboardFxState.scene = null
+  }
+
+  if (dashboardFxState.renderer) {
+    dashboardFxState.renderer.dispose()
+    dashboardFxState.renderer = null
+  }
+
+  dashboardFxState.camera = null
+  dashboardFxState.clock = null
+}
+
+watch(
+  () => biotechShowcaseItems.value.length,
+  () => {
+    if (activeShowcaseIndex.value >= biotechShowcaseItems.value.length) {
+      activeShowcaseIndex.value = 0
+    }
+    restartShowcaseAutoplay()
+  }
+)
+
+onMounted(async () => {
+  await loadDashboardData()
+  await loadBiotechShowcase()
+
+  window.addEventListener('resize', resizeDashboardFx)
+
+  reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  prefersReducedMotion.value = reduceMotionQuery.matches
+
+  if (reduceMotionQuery.addEventListener) {
+    reduceMotionQuery.addEventListener('change', handleReduceMotionChange)
+  } else if (reduceMotionQuery.addListener) {
+    reduceMotionQuery.addListener(handleReduceMotionChange)
+  }
+
+  await nextTick()
+  initDashboardFx()
+  startShowcaseAutoplay()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resizeDashboardFx)
+  stopShowcaseAutoplay()
+  disposeDashboardFx()
+
+  if (reduceMotionQuery) {
+    if (reduceMotionQuery.removeEventListener) {
+      reduceMotionQuery.removeEventListener('change', handleReduceMotionChange)
+    } else if (reduceMotionQuery.removeListener) {
+      reduceMotionQuery.removeListener(handleReduceMotionChange)
+    }
+
+    reduceMotionQuery = null
+  }
+})
+</script>
+
 <style scoped>
-/* 更精致的“Schedule Workshop”胶囊按钮 */
-.chip-action {
+/* ================================================================
+   BIOTECH FUTURES HUB — DASHBOARD
+   Design Language: Cyberpunk / Bioluminescent
+   ================================================================ */
+
+/* ──────────────────────────────────────────────────────────────
+   § 1  DESIGN TOKENS
+   ────────────────────────────────────────────────────────────── */
+.dashboard-page-shell {
+  --text-primary:   #eef5ff;
+  --text-secondary: #94b8d8;
+  --text-muted:     #5c7a9a;
+  --text-link:      #7ec8ff;
+
+  --surface-base:     rgba(6, 18, 12, 0.82);
+  --surface-elevated: rgba(8, 22, 16, 0.90);
+
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+
+  --accent-blue:   #60a5fa;
+  --accent-teal:   #2dd4bf;
+  --accent-violet: #a78bfa;
+  --accent-amber:  #fbbf24;
+  --accent-rose:   #f87171;
+
+  --shadow-lg: 0 24px 64px rgba(0, 6, 2, 0.52);
+  --shadow-md: 0 14px 38px rgba(0, 6, 2, 0.40);
+  --shadow-sm: 0 8px 22px rgba(0, 6, 2, 0.30);
+
+  --radius-card: 24px;
+  --radius-hero: 28px;
+  --radius-chip: 999px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 180ms;
+  --t-base: 260ms;
+  --t-slow: 400ms;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  overflow: visible;
+  padding: 1.5rem 1.2rem 3rem;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 10% 8%, var(--page-glow-one), transparent 26%),
+    radial-gradient(circle at 86% 12%, var(--page-glow-two), transparent 24%),
+    radial-gradient(circle at 68% 84%, var(--page-glow-three), transparent 26%);
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   § 2  PAGE SHELL & BACKGROUND
+   ────────────────────────────────────────────────────────────── */
+.dashboard-page-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -5;
+  background: var(--dashboard-shell-backdrop, linear-gradient(135deg, #060c1a, #0a1224));
+}
+
+.dashboard-page-inner {
+  position: relative;
+  max-width: 1520px;
+  margin: 0 auto;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   § 3  BACKGROUND EFFECTS
+   ────────────────────────────────────────────────────────────── */
+.dashboard-fx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -6;
+  pointer-events: none;
+  opacity: var(--dashboard-fx-opacity, 0.92);
+}
+
+.dashboard-page-shell.is-fx-disabled .dashboard-fx-canvas {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.dashboard-backdrop-orb {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: -3;
+}
+
+.orb-one {
+  width: 520px;
+  height: 520px;
+  top: -60px;
+  right: 1%;
+  background: radial-gradient(circle, rgba(48, 200, 120, 0.28), rgba(40, 180, 100, 0.10) 52%, transparent 74%);
+  filter: blur(56px);
+  animation: orbFloat 18s ease-in-out infinite;
+}
+
+.orb-two {
+  width: 440px;
+  height: 440px;
+  left: -2%;
+  bottom: 60px;
+  background: radial-gradient(circle, rgba(45, 212, 170, 0.24), rgba(16, 185, 110, 0.08) 52%, transparent 74%);
+  filter: blur(56px);
+  animation: orbFloat 22s ease-in-out infinite reverse;
+}
+
+.dashboard-backdrop-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -4;
+  pointer-events: none;
+  opacity: 0.13;
+  background-image:
+    linear-gradient(rgba(80, 200, 120, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80, 200, 120, 0.32) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 95% 55% at 50% 0%, black 30%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 95% 55% at 50% 0%, black 30%, transparent 78%);
+}
+
+@keyframes orbFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%       { transform: translate3d(-22px, 20px, 0) scale(1.04); }
+  66%       { transform: translate3d(18px, -16px, 0) scale(0.97); }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   § 4  SECTION LAYOUT
+   ────────────────────────────────────────────────────────────── */
+.dashboard-section { margin-bottom: 1.6rem; }
+
+.dashboard-section-grid {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.two-col-layout   { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.summary-grid     { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* ──────────────────────────────────────────────────────────────
+   § 5  HERO CARD
+   ────────────────────────────────────────────────────────────── */
+.dashboard-hero-shell { margin-bottom: 1.5rem; }
+
+.dashboard-hero-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-hero);
+  padding: 1.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: linear-gradient(145deg, rgba(6, 18, 12, 0.92), rgba(7, 16, 11, 0.78));
+  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base);
+}
+
+/* Blue aurora top-left */
+.dashboard-hero-card::before {
+  content: '';
+  position: absolute;
+  top: -35%; left: -6%;
+  width: 52%; height: 72%;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.22), transparent 66%);
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+/* Teal aurora bottom-right */
+.dashboard-hero-card::after {
+  content: '';
+  position: absolute;
+  bottom: -32%; right: -8%;
+  width: 46%; height: 72%;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.18), transparent 68%);
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   § 6  THEME RAIL
+   ────────────────────────────────────────────────────────────── */
+.dashboard-theme-rail {
+  position: absolute;
+  top: 1.1rem; right: 1.1rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.theme-rail-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  line-height: 1;
-  border-radius: 999px;
-  background-color: var(--light-green);
-  color: var(--dark-green);
-  border: 1px solid var(--dark-green);
+  gap: 0.55rem;
+  min-height: 40px;
+  padding: 0.48rem 1rem;
+  border-radius: var(--radius-chip);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(7, 13, 28, 0.76);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  font-size: 0.86rem;
+  font-weight: 600;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: border-color var(--t-fast), transform var(--t-fast), background var(--t-fast);
 }
-.chip-action:hover {
-  background-color: var(--dark-green);
-  color: var(--white);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px var(--shadow);
+
+.theme-rail-trigger:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
 }
-<<<<<<< Updated upstream
-=======
+
+.fx-rail-trigger.is-muted {
+  color: var(--text-muted);
+  border-color: color-mix(in srgb, var(--accent-amber) 18%, var(--border-default));
+}
+
+/* ──────────────────────────────────────────────────────────────
+   § 7  HERO CONTENT
+   ────────────────────────────────────────────────────────────── */
+.dashboard-hero-main {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 1.4rem;
+  align-items: stretch;
+  padding-top: 2.6rem;
+}
+
+.dashboard-hero-copy,
+.dashboard-hero-aside {
+  min-width: 0;
+  display: flex;
+}
+
+.dashboard-hero-copy {
+  position: relative;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100%;
+  padding: 1.35rem 1.45rem 1.4rem;
+  border-radius: 28px;
+  background:
+    linear-gradient(160deg, rgba(6, 20, 12, 0.62), rgba(5, 16, 10, 0.40)),
+    radial-gradient(circle at top left, rgba(60, 200, 110, 0.12), transparent 44%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.dashboard-hero-copy::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 28%, transparent 72%, rgba(125, 211, 252, 0.06));
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  padding: 1px;
+}
+
+.hero-eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.95rem;
+}
+
+.hero-eyebrow {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0.3rem 0.88rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.hero-eyebrow {
+  color: #d9ffed;
+  border-radius: 999px;
+  border: 1px solid rgba(60, 190, 110, 0.26);
+  background: linear-gradient(135deg, rgba(40, 150, 70, 0.18), rgba(10, 28, 16, 0.56));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 24px rgba(30, 120, 60, 0.14);
+}
+
+.hero-eyebrow::after {
+  content: '';
+  position: absolute;
+  inset: -30% auto -30% -24%;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transform: skewX(-18deg);
+  animation: heroSheen 7s linear infinite;
+}
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 3.08rem);
+  line-height: 0.98;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  color: #f5fbff;
+  text-wrap: balance;
+  text-shadow: 0 10px 34px rgba(0, 0, 0, 0.24), 0 0 54px rgba(60, 200, 110, 0.18);
+}
+
+.hero-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.78rem;
+  margin-top: 1.08rem;
+}
+
+.hero-meta-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 58px;
+  padding: 0.78rem 1.05rem;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text-primary);
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+}
+
+.hero-meta-chip:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 48px rgba(0, 3, 18, 0.26);
+}
+
+.hero-meta-chip::before,
+.hero-meta-chip::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.hero-meta-chip::before {
+  inset: -1px;
+  opacity: 0.75;
+  background: linear-gradient(115deg, transparent 10%, rgba(255, 255, 255, 0.14) 30%, transparent 48%, transparent 70%, rgba(255, 255, 255, 0.08) 88%, transparent);
+  transform: translateX(-72%);
+  transition: transform 0.9s var(--ease-out);
+}
+
+.hero-meta-chip:hover::before {
+  transform: translateX(52%);
+}
+
+.hero-meta-chip::after {
+  inset: 1px;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+.hero-meta-chip--neutral {
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(8, 22, 12, 0.82), rgba(5, 14, 9, 0.72));
+  border-color: rgba(200, 240, 220, 0.14);
+}
+
+.hero-meta-chip--neutral::after {
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.10), transparent 42%), linear-gradient(145deg, rgba(140, 200, 170, 0.12), rgba(8, 22, 12, 0.08));
+}
+
+.hero-meta-chip--cyan {
+  border-radius: 20px 20px 20px 12px;
+  background: linear-gradient(135deg, rgba(20, 80, 50, 0.34), rgba(6, 18, 11, 0.72));
+  border-color: rgba(34, 211, 180, 0.28);
+}
+
+.hero-meta-chip--cyan::after {
+  background: radial-gradient(circle at top left, rgba(34, 211, 180, 0.24), transparent 38%), linear-gradient(135deg, rgba(34, 211, 180, 0.10), rgba(6, 18, 11, 0.02));
+}
+
+.hero-meta-chip--violet {
+  border-radius: 16px 22px 16px 22px;
+  background: linear-gradient(135deg, rgba(91, 33, 182, 0.26), rgba(8, 20, 12, 0.74));
+  border-color: rgba(167, 139, 250, 0.30);
+}
+
+.hero-meta-chip--violet::after {
+  background: radial-gradient(circle at top left, rgba(192, 132, 252, 0.22), transparent 38%), linear-gradient(135deg, rgba(167, 139, 250, 0.10), rgba(6, 18, 11, 0.02));
+}
+
+.hero-meta-chip-label {
+  position: relative;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--text-secondary) 78%, white);
+}
+
+.hero-meta-chip-value {
+  position: relative;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.dashboard-subtext {
+  margin-top: 0.95rem;
+  font-size: 0.98rem;
+  color: color-mix(in srgb, var(--text-secondary) 92%, white 8%);
+  line-height: 1.72;
+  max-width: 58ch;
+}
+
+.dashboard-hero-message {
+  margin-top: 1rem;
+  color: rgba(222, 234, 255, 0.94);
+  line-height: 1.8;
+  font-size: 1rem;
+  max-width: 64ch;
+}
+
+.hero-highlight-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1.18rem;
+}
+
+.status-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0.42rem 0.94rem;
+  border-radius: 999px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.status-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-right: 0.56rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent), 0 0 18px color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.status-pill:nth-child(1) { border: 1px solid rgba(96, 165, 250, 0.24); color: #bfdbfe; }
+.status-pill:nth-child(2) { border: 1px solid rgba(45, 212, 191, 0.24); color: #99f6e4; }
+.status-pill:nth-child(3) { border: 1px solid rgba(244, 114, 182, 0.24); color: #fbcfe8; }
+
+/* ──────────────────────────────────────────────────────────────
+   § 8  SHOWCASE CAROUSEL
+   ────────────────────────────────────────────────────────────── */
+.dashboard-hero-aside {
+  align-self: stretch;
+}
+
+.showcase-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  padding: 1rem;
+  border-radius: 28px;
+  background:
+    linear-gradient(160deg, rgba(5, 16, 10, 0.88), rgba(7, 20, 12, 0.78)),
+    radial-gradient(circle at top right, rgba(60, 200, 110, 0.12), transparent 32%),
+    radial-gradient(circle at bottom left, rgba(167, 139, 250, 0.10), transparent 28%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
+}
+
+.showcase-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, transparent 0deg 40deg, rgba(60, 200, 110, 0.54) 78deg, transparent 126deg, transparent 185deg, rgba(167, 139, 250, 0.42) 230deg, transparent 286deg, rgba(45, 212, 170, 0.42) 326deg, transparent 360deg);
+  opacity: 0.72;
+  animation: showcaseBorderSpin 9s linear infinite;
+  z-index: -2;
+}
+
+.showcase-card::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(28px - 1px);
+  background: linear-gradient(160deg, rgba(6, 18, 11, 0.94), rgba(8, 20, 12, 0.84));
+  z-index: -1;
+}
+
+.showcase-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(125, 211, 252, 0.22);
+  box-shadow: 0 36px 92px rgba(0, 3, 18, 0.50), 0 0 0 1px rgba(96, 165, 250, 0.06) inset;
+}
+
+.showcase-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+.showcase-kicker {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-weight: 900;
+  color: #8fd4ff;
+}
+
+.showcase-mini-label {
+  margin-top: 0.28rem;
+  color: color-mix(in srgb, var(--text-secondary) 90%, white 10%);
+  font-size: 0.82rem;
+}
+
+.showcase-controls {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.26rem;
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.showcase-nav-btn {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+}
+
+.showcase-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 10px 24px rgba(0, 3, 18, 0.22);
+}
 
 .showcase-nav-btn:first-child:hover { transform: translateX(-2px) translateY(-1px) scale(1.04); }
 .showcase-nav-btn:last-child:hover  { transform: translateX(2px) translateY(-1px) scale(1.04); }
@@ -2014,33 +4364,34 @@ const getResourceIcon = (type) => {
 .dashboard-page-shell,
 .dashboard-page-shell.is-day-mode,
 .dashboard-page-shell.is-night-mode {
-  --text-primary: var(--charcoal);
-  --text-secondary: #6c757d;
-  --text-muted: #8a949e;
-  --text-link: var(--dark-green);
-  --text-hero-accent: var(--dark-green);
-  --text-card-accent: #6c757d;
-  --surface-base: var(--white);
-  --surface-elevated: var(--white);
-  --surface-soft: #f8f9fa;
-  --border-default: var(--border-light);
-  --border-strong: #cfd6dc;
-  --accent-blue: #39687b;
-  --accent-teal: #5ea99e;
-  --accent-violet: #6f63a8;
-  --accent-amber: #b88a2d;
-  --accent-rose: #b95670;
-  --shadow-lg: 0 4px 12px var(--shadow);
-  --shadow-md: 0 2px 4px var(--shadow);
-  --shadow-sm: 0 1px 2px var(--shadow);
-  --hero-overlay-a: var(--white);
-  --hero-overlay-b: var(--white);
-  --dashboard-shell-backdrop: var(--bg-light);
-  --page-glow-one: transparent;
-  --page-glow-two: transparent;
-  --page-glow-three: transparent;
-  color: var(--charcoal);
-  background: var(--bg-light);
+  --text-primary: var(--charcoal) !important;
+  --text-secondary: #6c757d !important;
+  --text-muted: #8a949e !important;
+  --text-link: #4f5f6f !important;
+  --text-hero-accent: #4f5f6f !important;
+  --text-card-accent: #6c757d !important;
+  --surface-base: var(--white) !important;
+  --surface-elevated: var(--white) !important;
+  --surface-soft: #f8f9fa !important;
+  --border-default: var(--border-light) !important;
+  --border-strong: #cfd6dc !important;
+  --accent-blue: #5f6f7f !important;
+  --accent-teal: #6f7c83 !important;
+  --accent-violet: #70747c !important;
+  --accent-amber: #7a7568 !important;
+  --accent-rose: #7a6970 !important;
+  --shadow-lg: 0 4px 12px var(--shadow) !important;
+  --shadow-md: 0 2px 4px var(--shadow) !important;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  --hero-overlay-a: var(--white) !important;
+  --hero-overlay-b: var(--white) !important;
+  --dashboard-shell-backdrop: var(--bg-light) !important;
+  --page-glow-one: transparent !important;
+  --page-glow-two: transparent !important;
+  --page-glow-three: transparent !important;
+  color: var(--charcoal) !important;
+  background: var(--bg-light) !important;
+  padding: 2rem;
 }
 
 .dashboard-page-shell::before {
@@ -2049,7 +4400,11 @@ const getResourceIcon = (type) => {
 
 .dashboard-fx-canvas,
 .dashboard-backdrop-orb,
-.dashboard-backdrop-grid {
+.dashboard-backdrop-grid,
+.progress-ring-aura,
+.progress-ring-orbit,
+.progress-ring-marker,
+.progress-ring-spark {
   display: none !important;
 }
 
@@ -2059,6 +4414,7 @@ const getResourceIcon = (type) => {
 }
 
 .dashboard-hero-card,
+.dashboard-hero-copy,
 .surface-card,
 .summary-card,
 .showcase-card,
@@ -2081,17 +4437,11 @@ const getResourceIcon = (type) => {
 
 .dashboard-hero-card,
 .surface-card,
-.summary-card {
+.summary-card,
+.showcase-card,
+.group-card-surface,
+.resource-card-surface {
   overflow: hidden;
-}
-
-.dashboard-hero-copy,
-.dashboard-page-shell.is-day-mode .dashboard-hero-copy,
-.dashboard-page-shell.is-night-mode .dashboard-hero-copy {
-  background: var(--white) !important;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 8px !important;
-  box-shadow: none !important;
 }
 
 .dashboard-hero-card:hover,
@@ -2104,8 +4454,27 @@ const getResourceIcon = (type) => {
 .hero-meta-chip:hover,
 .status-pill:hover {
   transform: translateY(-2px) !important;
-  box-shadow: 0 4px 12px var(--shadow) !important;
   border-color: var(--border-light) !important;
+  box-shadow: 0 4px 12px var(--shadow) !important;
+}
+
+.dashboard-hero-card::before,
+.dashboard-hero-card::after,
+.dashboard-hero-copy::before,
+.showcase-card::before,
+.showcase-card::after,
+.summary-card::before,
+.summary-card::after,
+.group-card-surface::after,
+.resource-card-surface::before,
+.hero-meta-chip::before,
+.hero-meta-chip::after,
+.status-pill::before,
+.status-pill::after,
+.progress-card::after {
+  display: none !important;
+  content: none !important;
+  background: none !important;
 }
 
 .dashboard-hero-card {
@@ -2122,32 +4491,29 @@ const getResourceIcon = (type) => {
   padding-top: 3rem;
 }
 
-.dashboard-hero-aside {
-  align-items: stretch !important;
-  border-radius: 8px !important;
-  overflow: hidden !important;
+.dashboard-theme-rail {
+  gap: 0.5rem;
 }
 
-.dashboard-hero-aside > .showcase-card {
-  flex: 1 1 auto !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  margin: 0 !important;
+.theme-rail-trigger,
+.showcase-nav-btn,
+.showcase-link-btn,
+.primary-chip,
+.surface-link {
+  color: #4f5f6f !important;
+  background: #f8f9fa !important;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: none !important;
 }
 
-.dashboard-hero-card::before,
-.dashboard-hero-card::after,
-.dashboard-hero-copy::before,
-.showcase-card::before,
-.showcase-card::after,
-.hero-meta-chip::before,
-.hero-meta-chip::after,
-.status-pill::before,
-.status-pill::after {
-  display: none !important;
-  content: none !important;
-  background: none !important;
+.theme-rail-trigger:hover,
+.showcase-nav-btn:hover,
+.showcase-link-btn:hover,
+.primary-chip:hover,
+.surface-link:hover {
+  color: var(--charcoal) !important;
+  background: #eef1f3 !important;
+  border-color: #cfd6dc !important;
 }
 
 .hero-title,
@@ -2180,55 +4546,45 @@ const getResourceIcon = (type) => {
 .list-row-meta,
 .progress-detail-row span,
 .progress-label,
-.progress-caption {
+.progress-caption,
+.event-date-rest,
+.dashboard-alert,
+.dashboard-loading {
   color: #6c757d !important;
 }
 
 .surface-kicker,
 .hero-eyebrow,
-.showcase-kicker,
-.surface-link,
-.theme-rail-trigger,
-.showcase-link-btn,
-.primary-chip {
-  color: var(--dark-green) !important;
+.showcase-kicker {
+  color: #6c757d !important;
 }
 
 .summary-icon-wrap,
 .list-row-icon,
 .resource-icon,
-.event-date-badge {
+.event-date-badge,
+.progress-ring-inner {
   background: #f8f9fa !important;
   border: 1px solid var(--border-light) !important;
-  color: var(--dark-green) !important;
+  color: #4f5f6f !important;
   box-shadow: none !important;
 }
 
 .primary-avatar,
 .secondary-avatar,
 .tertiary-avatar {
-  background: var(--eucalypt) !important;
+  background: #8a949e !important;
   color: var(--white) !important;
   border-color: var(--white) !important;
 }
 
-.progress-ring-aura,
-.progress-ring-orbit,
-.progress-ring-marker,
-.progress-ring-spark {
-  display: none !important;
+.progress-ring {
+  background: #f8f9fa !important;
+  box-shadow: inset 0 0 0 1px var(--border-light), 0 2px 4px var(--shadow) !important;
 }
 
 .progress-ring-track {
   border-color: var(--border-light) !important;
-}
-
-.progress-ring {
-  box-shadow: inset 0 0 0 1px var(--border-light), 0 2px 4px var(--shadow) !important;
-}
-
-.progress-ring-inner {
-  background: var(--white) !important;
 }
 
 .progress-bar-shell {
@@ -2236,15 +4592,27 @@ const getResourceIcon = (type) => {
 }
 
 .progress-bar-fill {
-  background: var(--dark-green) !important;
+  background: #6c757d !important;
 }
 
+.showcase-image {
+  border-radius: 8px;
+  border-color: var(--border-light) !important;
+  box-shadow: none !important;
+}
+
+.showcase-image::before,
 .showcase-image-overlay {
-  background: transparent !important;
+  display: none !important;
+}
+
+.showcase-dot {
+  background: #d7dde2 !important;
 }
 
 .showcase-dot.active {
-  background: var(--dark-green) !important;
+  background: #6c757d !important;
+  box-shadow: none !important;
 }
 
 .dashboard-page-shell.is-day-mode .resource-card-link:nth-child(n) .resource-card-surface,
@@ -2261,10 +4629,12 @@ const getResourceIcon = (type) => {
 }
 
 @media (max-width: 880px) {
+  .dashboard-page-shell {
+    padding: 1.25rem;
+  }
+
   .dashboard-hero-main {
     padding-top: 0;
   }
 }
-
->>>>>>> Stashed changes
 </style>
