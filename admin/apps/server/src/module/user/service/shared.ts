@@ -166,9 +166,7 @@ export async function upsertMentorProfile(
     return;
   }
 
-  await executor
-    .insert(mentorProfile)
-    .values({ userId, ...nextValues });
+  await executor.insert(mentorProfile).values({ userId, ...nextValues });
 }
 
 export async function ensureAdminEmailAvailable(
@@ -255,9 +253,7 @@ export const userSelect = {
   interests: sql<
     string[]
   >`COALESCE((SELECT array_agg(aoi.interest_desc) FROM user_interest ui JOIN areas_of_interest aoi ON aoi.id = ui.interest_id WHERE ui.user_id = ${users.id}), ARRAY[]::text[])`,
-  adminTracks: sql<
-    string[] | null
-  >`(SELECT au.tracks FROM admin.admin_user au WHERE au.email = ${users.email} LIMIT 1)`,
+  adminTracks: adminUser.tracks,
   isActive: users.isActive,
   accountStatus: sql<string>`CASE WHEN ${users.isActive} THEN 'active' ELSE 'deactivated' END`,
   invitedAt: users.dateJoined,
@@ -272,6 +268,7 @@ export function baseUserQuery() {
     .leftJoin(studentProfile, eq(studentProfile.userId, users.id))
     .leftJoin(supervisorProfile, eq(supervisorProfile.userId, users.id))
     .leftJoin(mentorProfile, eq(mentorProfile.userId, users.id))
+    .leftJoin(adminUser, eq(adminUser.userid, users.id))
     .orderBy(desc(users.dateJoined));
 }
 
