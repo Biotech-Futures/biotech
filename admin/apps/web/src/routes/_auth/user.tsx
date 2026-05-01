@@ -28,12 +28,14 @@ import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 
 const PAGE_SIZE = 10;
 type UserStatusFilter = "all" | "active" | "inactive";
+type SortOption = "createdAt_desc" | "createdAt_asc" | "name_asc" | "name_desc";
 type UserSearchParams = {
   page: number;
   search?: string;
   role?: UserRole;
   track?: UserTrack;
   status?: UserStatusFilter;
+  sort?: SortOption;
 };
 type EditableUserSearchParams = Omit<
   Partial<UserSearchParams>,
@@ -77,6 +79,15 @@ export const Route = createFileRoute("/_auth/user")({
       params.status = search.status;
     }
 
+    if (
+      search.sort === "createdAt_desc" ||
+      search.sort === "createdAt_asc" ||
+      search.sort === "name_asc" ||
+      search.sort === "name_desc"
+    ) {
+      params.sort = search.sort;
+    }
+
     return params;
   },
   component: UserManagementPage,
@@ -89,7 +100,9 @@ function UserManagementPage() {
   const role = searchParams.role ?? "all";
   const track = searchParams.track ?? "all";
   const status = searchParams.status ?? "all";
+  const sort = searchParams.sort ?? "createdAt_desc";
   const page = searchParams.page;
+  const [sortBy, sortOrder] = sort.split("_") as ["name" | "createdAt", "asc" | "desc"];
   const [editorOpen, setEditorOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -103,6 +116,8 @@ function UserManagementPage() {
     role: role === "all" ? undefined : role,
     track: track === "all" ? undefined : track,
     active: status === "all" ? undefined : status === "active",
+    sortBy,
+    sortOrder,
   });
   const { data: tracksData } = useQueryTracks();
   const createUser = useCreateUser();
@@ -117,6 +132,7 @@ function UserManagementPage() {
       role: UserRole | "all";
       track: UserTrack | "all";
       status: UserStatusFilter;
+      sort: SortOption;
     }>,
   ) => {
     void navigate({
@@ -378,6 +394,8 @@ function UserManagementPage() {
           tracks={tracksData?.data ?? []}
           status={status}
           onStatusChange={(value) => updateFilters({ status: value })}
+          sort={sort}
+          onSortChange={(value) => updateFilters({ sort: value })}
         />
       </div>
 
@@ -449,6 +467,7 @@ function cleanSearchParams(params: EditableUserSearchParams): UserSearchParams {
   if (params.role && params.role !== "all") next.role = params.role;
   if (params.track && params.track !== "all") next.track = params.track;
   if (params.status && params.status !== "all") next.status = params.status;
+  if (params.sort && params.sort !== "createdAt_desc") next.sort = params.sort;
 
   return next;
 }

@@ -66,6 +66,8 @@ interface QueryUsersParams {
   role?: UserRole;
   track?: UserTrack;
   active?: boolean;
+  sortBy?: "name" | "createdAt";
+  sortOrder?: "asc" | "desc";
 }
 
 function readStorage<T>(key: string, fallback: T): T {
@@ -82,10 +84,10 @@ function writeStorage<T>(key: string, value: T) {
 }
 
 export function useQueryUsers(params: QueryUsersParams = {}) {
-  const { page = 1, limit = 100, search, role, track, active } = params;
+  const { page = 1, limit = 100, search, role, track, active, sortBy, sortOrder } = params;
 
   return useQuery({
-    queryKey: ["users", page, limit, search, role, track, active],
+    queryKey: ["users", page, limit, search, role, track, active, sortBy, sortOrder],
     queryFn: async (): Promise<UserPaginatedResponse> => {
       const res = await myFetch.get<{
         msg: string;
@@ -117,6 +119,8 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
           role,
           track,
           active,
+          sortBy,
+          sortOrder,
         },
       });
 

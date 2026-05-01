@@ -23,7 +23,7 @@ import type { TrackOption, User } from "../type.js";
 import { baseUserQuery, fetchUserById } from "./shared.js";
 
 export async function queryUsers(params: QueryUsersInput) {
-  const { page, limit, search, role, track, active } = params;
+  const { page, limit, search, role, track, active, sortBy, sortOrder } = params;
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -86,8 +86,16 @@ export async function queryUsers(params: QueryUsersInput) {
       groups,
       and(eq(groups.id, groupMembership.groupId), isNull(groups.deletedAt)),
     )
-    .groupBy(users.id, users.dateJoined)
-    .orderBy(desc(users.dateJoined), asc(users.id))
+    .groupBy(users.id, users.dateJoined, users.firstName, users.lastName)
+    .orderBy(
+      ...(sortBy === "name"
+        ? sortOrder === "asc"
+          ? [asc(users.firstName), asc(users.lastName), asc(users.id)]
+          : [desc(users.firstName), desc(users.lastName), asc(users.id)]
+        : sortOrder === "asc"
+          ? [asc(users.dateJoined), asc(users.id)]
+          : [desc(users.dateJoined), asc(users.id)]),
+    )
     .limit(limit)
     .offset(offset);
 
