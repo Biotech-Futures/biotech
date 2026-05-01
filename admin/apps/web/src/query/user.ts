@@ -39,6 +39,7 @@ type UpdateUserPayload = {
   lastName?: string;
   role?: UserRole;
   track?: UserTrack | null;
+  adminTracks?: string[];
   schoolName?: string | null;
   supervisorSchoolName?: string | null;
   mentorBackground?: string | null;
@@ -66,6 +67,8 @@ interface QueryUsersParams {
   role?: UserRole;
   track?: UserTrack;
   active?: boolean;
+  sortBy?: "name" | "createdAt";
+  sortOrder?: "asc" | "desc";
 }
 
 function readStorage<T>(key: string, fallback: T): T {
@@ -82,10 +85,10 @@ function writeStorage<T>(key: string, value: T) {
 }
 
 export function useQueryUsers(params: QueryUsersParams = {}) {
-  const { page = 1, limit = 100, search, role, track, active } = params;
+  const { page = 1, limit = 100, search, role, track, active, sortBy, sortOrder } = params;
 
   return useQuery({
-    queryKey: ["users", page, limit, search, role, track, active],
+    queryKey: ["users", page, limit, search, role, track, active, sortBy, sortOrder],
     queryFn: async (): Promise<UserPaginatedResponse> => {
       const res = await myFetch.get<{
         msg: string;
@@ -117,6 +120,8 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
           role,
           track,
           active,
+          sortBy,
+          sortOrder,
         },
       });
 
@@ -268,7 +273,7 @@ export function normalizeServerUser(
     firstName: resolvedFirstName || fallbackFirstName,
     lastName: resolvedLastName || fallbackLastName,
     email: user.email ?? "",
-    role: (user.role ?? "student") as UserRole,
+    role: (user.role ?? "") as UserRole,
     track: user.track ?? null,
     groupId: user.groupId ?? null,
     groupName: user.groupName ?? null,
@@ -280,6 +285,7 @@ export function normalizeServerUser(
     mentorMaxGroupCount: user.mentorMaxGroupCount ?? null,
     joinPermissionReceived: Boolean(user.joinPermissionReceived),
     interests: Array.isArray(user.interests) ? user.interests : [],
+    adminTracks: Array.isArray((user as any).adminTracks) ? (user as any).adminTracks : [],
     createdAt:
       user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
     updatedAt:
@@ -318,6 +324,7 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
       values.role === "mentor" ? values.mentorMaxGroupCount : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
+    adminTracks: values.role === "admin" ? values.adminTracks : [],
     interests:
       values.role === "student" || values.role === "mentor"
         ? values.interests

@@ -16,6 +16,7 @@ export type User = {
   yearLevel: number | null;
   joinPermissionReceived: boolean;
   interests: string[];
+  adminTracks: string[] | null;
   isActive: boolean;
   accountStatus: string;
   invitedAt: string | null;

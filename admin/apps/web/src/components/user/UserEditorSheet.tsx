@@ -95,7 +95,7 @@ export function UserEditorSheet({
         email: user.email,
         role: user.role,
         track: user.track,
-        adminTracks: [],
+        adminTracks: user.role === "admin" ? (user.adminTracks ?? []) : [],
         schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
         supervisorSchoolName:
           user.role === "supervisor" ? (user.schoolName ?? "") : "",
