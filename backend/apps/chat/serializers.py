@@ -53,6 +53,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_deleted",
             "is_edited",
             "resources",
+            "parent_id"
         ]
         read_only_fields = [
             "id", "group", "sender_user",
