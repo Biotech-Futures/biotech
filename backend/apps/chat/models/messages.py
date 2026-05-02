@@ -12,6 +12,7 @@ class Messages(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT
     )
     group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE)
+    parent_id = models.BigIntegerField(null=True, blank=True)
     message_text = models.TextField(blank=True, default="")
     sent_at = models.DateTimeField(default=timezone.now)
     edited_at = models.DateTimeField(null=True, blank=True)
