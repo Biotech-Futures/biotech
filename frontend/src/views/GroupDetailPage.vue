@@ -1,7 +1,6 @@
 <template>
   <div
     class="content-area group-detail"
-    :class="themeStore.isDayMode ? 'group-detail--day' : 'group-detail--night'"
     :data-active="activeTab"
   >
     <!-- Header -->
@@ -248,12 +247,10 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
 import { buildSessionHeaders } from '@/utils/csrf'
 
 const route = useRoute()
 const auth = useAuthStore()
-const themeStore = useThemeStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const supportsGifs = false
 const supportsAttachments = false
@@ -1736,5 +1733,245 @@ onBeforeUnmount(() => {
   .card {
     min-height: 220px;
   }
+}
+
+/* Clean page treatment to match Events and Resources. */
+.group-detail {
+  isolation: auto;
+  min-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 2rem;
+  color: var(--charcoal);
+  background: var(--bg-light);
+  --text-primary: var(--charcoal);
+  --text-secondary: #6c757d;
+  --text-muted: #8a949e;
+  --surface-base: var(--white);
+  --surface-elevated: var(--white);
+  --border-default: var(--border-light);
+  --border-strong: #cfd6dd;
+  --accent-blue: var(--air-force-blue);
+  --accent-teal: var(--mint-green);
+  --accent-amber: var(--warning);
+  --shadow-sm: 0 1px 2px var(--shadow);
+  --shadow-md: 0 2px 4px var(--shadow);
+  --shadow-lg: 0 4px 12px var(--shadow);
+}
+
+.group-detail::before,
+.group-hero-card::before,
+.group-hero-card::after,
+.card::before {
+  display: none;
+}
+
+.group-hero-card {
+  margin-bottom: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.gd-head {
+  padding: 1.5rem;
+  margin-bottom: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.gd-title {
+  margin: 0;
+  color: var(--charcoal);
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.gd-subtitle {
+  margin-top: 0.15rem;
+  color: #6c757d;
+  font-size: 1rem;
+}
+
+.group-avatar {
+  background: var(--air-force-blue);
+  color: var(--white);
+  border-color: var(--white);
+}
+
+.mobile-tabs {
+  border-bottom-color: var(--border-light);
+}
+
+.tab-btn {
+  color: var(--charcoal);
+}
+
+.tab-btn.active {
+  color: var(--air-force-blue);
+  border-bottom-color: var(--air-force-blue);
+}
+
+.card,
+.pane--discussion .chat-container {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover,
+.pane--discussion .chat-container:hover {
+  border-color: var(--border-light);
+  box-shadow: 0 4px 12px var(--shadow);
+  transform: translateY(-2px);
+}
+
+.card-header,
+.pane--discussion .chat-header {
+  background: var(--white) !important;
+  color: var(--charcoal) !important;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.card-title,
+.pane--discussion .chat-header h3,
+.milestone-title,
+.task-label {
+  color: var(--charcoal) !important;
+}
+
+.chat-status,
+.milestone-status,
+.message-date,
+.message-time,
+.typing-indicator,
+.gif-status {
+  color: #6c757d !important;
+}
+
+.chat-alert {
+  color: #6c4b00;
+  background: #fff7d6;
+  border-bottom: 1px solid #f1dd97;
+}
+
+.pane--discussion .chat-messages {
+  background: #f8f9fa;
+}
+
+.pane--discussion .chat-input,
+.gif-panel {
+  background: var(--white);
+  border-color: var(--border-light);
+}
+
+.chat-input-field,
+.gif-search-input {
+  background: var(--white);
+  color: var(--charcoal);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+}
+
+.chat-input-field::placeholder {
+  color: #8a949e;
+}
+
+.chat-input-field:focus,
+.gif-search-input:focus {
+  outline: none;
+  border-color: var(--air-force-blue);
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+
+.chat-btn {
+  border: 1px solid var(--border-light);
+  background: var(--white);
+  color: var(--air-force-blue);
+}
+
+.chat-btn:hover {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+}
+
+.chat-btn:disabled,
+.chat-btn:disabled:hover {
+  color: #98a2ad;
+  border-color: var(--border-light);
+  background: var(--white);
+}
+
+.message-avatar {
+  background: #8a949e;
+}
+
+.message-content,
+.message-preview,
+.attachment-chip,
+.reaction-btn,
+.gif-card {
+  border: 1px solid var(--border-light);
+  background: var(--white);
+  color: var(--charcoal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.message.own .message-content {
+  background: var(--air-force-blue);
+  color: var(--white);
+  border-color: var(--air-force-blue);
+}
+
+.message.own .message-author,
+.message.own .message-time,
+.message.own .message-date,
+.pane--discussion .message.own .message-text {
+  color: var(--white) !important;
+}
+
+.message-edited {
+  background: #eef3f5;
+  color: var(--air-force-blue);
+}
+
+.reaction-btn:hover {
+  border-color: var(--air-force-blue);
+  background: #f8f9fa;
+}
+
+.milestone {
+  border-bottom-color: var(--border-light);
+}
+
+.task-item:hover {
+  background-color: #f8f9fa;
+}
+
+.task-checkbox.checked {
+  background-color: var(--air-force-blue);
+  border-color: var(--air-force-blue);
+}
+
+.add-task-btn {
+  color: var(--air-force-blue);
+  border-color: var(--border-light);
+}
+
+.add-task-btn:hover {
+  background: #f1f5f7;
+  border-color: var(--air-force-blue);
 }
 </style>

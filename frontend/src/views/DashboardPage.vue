@@ -4360,4 +4360,281 @@ onBeforeUnmount(() => {
   box-shadow: 0 18px 42px rgba(0, 8, 3, 0.26);
 }
 
+/* Clean white/grey dashboard theme, aligned with Events and Resources pages. */
+.dashboard-page-shell,
+.dashboard-page-shell.is-day-mode,
+.dashboard-page-shell.is-night-mode {
+  --text-primary: var(--charcoal) !important;
+  --text-secondary: #6c757d !important;
+  --text-muted: #8a949e !important;
+  --text-link: #4f5f6f !important;
+  --text-hero-accent: #4f5f6f !important;
+  --text-card-accent: #6c757d !important;
+  --surface-base: var(--white) !important;
+  --surface-elevated: var(--white) !important;
+  --surface-soft: #f8f9fa !important;
+  --border-default: var(--border-light) !important;
+  --border-strong: #cfd6dc !important;
+  --accent-blue: #5f6f7f !important;
+  --accent-teal: #6f7c83 !important;
+  --accent-violet: #70747c !important;
+  --accent-amber: #7a7568 !important;
+  --accent-rose: #7a6970 !important;
+  --shadow-lg: 0 4px 12px var(--shadow) !important;
+  --shadow-md: 0 2px 4px var(--shadow) !important;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  --hero-overlay-a: var(--white) !important;
+  --hero-overlay-b: var(--white) !important;
+  --dashboard-shell-backdrop: var(--bg-light) !important;
+  --page-glow-one: transparent !important;
+  --page-glow-two: transparent !important;
+  --page-glow-three: transparent !important;
+  color: var(--charcoal) !important;
+  background: var(--bg-light) !important;
+  padding: 2rem;
+}
+
+.dashboard-page-shell::before {
+  background: var(--bg-light) !important;
+}
+
+.dashboard-fx-canvas,
+.dashboard-backdrop-orb,
+.dashboard-backdrop-grid,
+.progress-ring-aura,
+.progress-ring-orbit,
+.progress-ring-marker,
+.progress-ring-spark {
+  display: none !important;
+}
+
+.dashboard-page-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-hero-card,
+.dashboard-hero-copy,
+.surface-card,
+.summary-card,
+.showcase-card,
+.group-card-surface,
+.resource-card-surface,
+.list-row,
+.hero-meta-chip,
+.status-pill,
+.event-detail-card,
+.theme-rail-trigger,
+.dashboard-alert,
+.dashboard-loading {
+  background: var(--white) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 4px var(--shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dashboard-hero-card,
+.surface-card,
+.summary-card,
+.showcase-card,
+.group-card-surface,
+.resource-card-surface {
+  overflow: hidden;
+}
+
+.dashboard-hero-card:hover,
+.surface-card:hover,
+.summary-card:hover,
+.showcase-card:hover,
+.group-card-link:hover .group-card-surface,
+.resource-card-link:hover .resource-card-surface,
+.list-row:hover,
+.hero-meta-chip:hover,
+.status-pill:hover {
+  transform: translateY(-2px) !important;
+  border-color: var(--border-light) !important;
+  box-shadow: 0 4px 12px var(--shadow) !important;
+}
+
+.dashboard-hero-card::before,
+.dashboard-hero-card::after,
+.dashboard-hero-copy::before,
+.showcase-card::before,
+.showcase-card::after,
+.summary-card::before,
+.summary-card::after,
+.group-card-surface::after,
+.resource-card-surface::before,
+.hero-meta-chip::before,
+.hero-meta-chip::after,
+.status-pill::before,
+.status-pill::after,
+.progress-card::after {
+  display: none !important;
+  content: none !important;
+  background: none !important;
+}
+
+.dashboard-hero-card {
+  padding: 1.5rem;
+}
+
+.dashboard-hero-shell,
+.dashboard-hero-main {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.dashboard-hero-main {
+  padding-top: 3rem;
+}
+
+.dashboard-theme-rail {
+  gap: 0.5rem;
+}
+
+.theme-rail-trigger,
+.showcase-nav-btn,
+.showcase-link-btn,
+.primary-chip,
+.surface-link {
+  color: #4f5f6f !important;
+  background: #f8f9fa !important;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: none !important;
+}
+
+.theme-rail-trigger:hover,
+.showcase-nav-btn:hover,
+.showcase-link-btn:hover,
+.primary-chip:hover,
+.surface-link:hover {
+  color: var(--charcoal) !important;
+  background: #eef1f3 !important;
+  border-color: #cfd6dc !important;
+}
+
+.hero-title,
+.surface-card-title,
+.group-name,
+.resource-title,
+.showcase-title,
+.summary-card-value,
+.event-title,
+.progress-value,
+.hero-meta-chip-value,
+.list-row-title {
+  color: var(--charcoal) !important;
+  letter-spacing: 0 !important;
+}
+
+.dashboard-subtext,
+.dashboard-hero-message,
+.showcase-summary,
+.summary-card-subtext,
+.list-row-description,
+.resource-meta,
+.group-meta,
+.event-meta-row,
+.empty-state,
+.hero-meta-chip-label,
+.summary-label,
+.status-pill,
+.showcase-mini-label,
+.list-row-meta,
+.progress-detail-row span,
+.progress-label,
+.progress-caption,
+.event-date-rest,
+.dashboard-alert,
+.dashboard-loading {
+  color: #6c757d !important;
+}
+
+.surface-kicker,
+.hero-eyebrow,
+.showcase-kicker {
+  color: #6c757d !important;
+}
+
+.summary-icon-wrap,
+.list-row-icon,
+.resource-icon,
+.event-date-badge,
+.progress-ring-inner {
+  background: #f8f9fa !important;
+  border: 1px solid var(--border-light) !important;
+  color: #4f5f6f !important;
+  box-shadow: none !important;
+}
+
+.primary-avatar,
+.secondary-avatar,
+.tertiary-avatar {
+  background: #8a949e !important;
+  color: var(--white) !important;
+  border-color: var(--white) !important;
+}
+
+.progress-ring {
+  background: #f8f9fa !important;
+  box-shadow: inset 0 0 0 1px var(--border-light), 0 2px 4px var(--shadow) !important;
+}
+
+.progress-ring-track {
+  border-color: var(--border-light) !important;
+}
+
+.progress-bar-shell {
+  background: #eef1f3 !important;
+}
+
+.progress-bar-fill {
+  background: #6c757d !important;
+}
+
+.showcase-image {
+  border-radius: 8px;
+  border-color: var(--border-light) !important;
+  box-shadow: none !important;
+}
+
+.showcase-image::before,
+.showcase-image-overlay {
+  display: none !important;
+}
+
+.showcase-dot {
+  background: #d7dde2 !important;
+}
+
+.showcase-dot.active {
+  background: #6c757d !important;
+  box-shadow: none !important;
+}
+
+.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(n) .resource-card-surface,
+.dashboard-page-shell.is-day-mode .group-card-link:nth-child(n) .group-card-surface,
+.dashboard-page-shell.is-night-mode .resource-card-link:nth-child(n) .resource-card-surface,
+.dashboard-page-shell.is-night-mode .group-card-link:nth-child(n) .group-card-surface {
+  background: var(--white) !important;
+  border-color: var(--border-light) !important;
+}
+
+.dashboard-page-shell.is-day-mode .status-pill:nth-child(n),
+.dashboard-page-shell.is-night-mode .status-pill:nth-child(n) {
+  color: #6c757d !important;
+}
+
+@media (max-width: 880px) {
+  .dashboard-page-shell {
+    padding: 1.25rem;
+  }
+
+  .dashboard-hero-main {
+    padding-top: 0;
+  }
+}
 </style>
