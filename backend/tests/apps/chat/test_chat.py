@@ -17,7 +17,7 @@ from rest_framework.test import APIClient
 from config.asgi import application
 from apps.chat.models import MessageStatus, Messages
 from apps.chat.tasks import process_chat_message_created
-from apps.chat.management.consumers import GroupChatConsumer
+from apps.chat.management.consumers import ChatConsumer
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
 
@@ -187,6 +187,8 @@ class ChatFeatureTests(TransactionTestCase):
             MessageStatus.objects.get
         )(message=message, user=user)
 
+    # --------- tests ---------
+
     def test_ws_connect_allowed_for_participant(self):
         async def scenario():
             comm = await self._ws_connect_with_session(self.student)
@@ -348,8 +350,6 @@ class ChatFeatureTests(TransactionTestCase):
                 reader_event = await self._receive_ws_event(reader_comm, "message.read")
                 sender_event = await self._receive_ws_event(sender_comm, "message.read")
 
-                # Both sockets should observe the same canonical payload; the consumer does not
-                # maintain a separate "ack to reader" event shape for read receipts.
                 self.assertEqual(reader_event, sender_event)
                 self.assertEqual(
                     reader_event,
@@ -362,8 +362,6 @@ class ChatFeatureTests(TransactionTestCase):
                     },
                 )
 
-                # The websocket event must reflect committed DB state, not a transient in-memory
-                # acknowledgement, so assert against the persisted MessageStatus row as well.
                 status = await self._get_message_status(message, self.mentor)
                 self.assertEqual(status.status, MessageStatus.StatusChoices.READ)
                 self.assertIsNotNone(status.delivered_at)
@@ -394,7 +392,6 @@ class ChatFeatureTests(TransactionTestCase):
                 event = await self._receive_ws_event(communicator, "error")
                 self.assertEqual(event["error"]["code"], "not_found")
                 self.assertEqual(event["error"]["detail"], "Message not found in this conversation.")
-                # A rejected cross-conversation read must not leak into recipient state.
                 self.assertFalse(
                     await sync_to_async(
                         MessageStatus.objects.filter(message=other_message, user=self.mentor).exists
@@ -414,8 +411,6 @@ class ChatFeatureTests(TransactionTestCase):
 
         async def scenario():
             communicator = await self._ws_connect_with_session(self.student)
-            # The consumer re-checks membership on every inbound event, so an already-open socket
-            # should lose the ability to submit read receipts once membership is revoked.
             await self._remove_participation(self.student)
 
             try:
@@ -426,7 +421,6 @@ class ChatFeatureTests(TransactionTestCase):
 
                 event = await self._receive_ws_event(communicator, "error")
                 self.assertEqual(event["error"]["code"], "not_participant")
-                # No MessageStatus row should be created when the membership guard blocks the read.
                 self.assertFalse(
                     await sync_to_async(
                         MessageStatus.objects.filter(message=message, user=self.student).exists
@@ -531,64 +525,67 @@ class TypingRateLimitTest(TestCase):
         self.group = Groups.objects.create(group_name="RateGroup", track=track)
         GroupMembership.objects.create(user=self.user, group=self.group)
 
-    @patch("apps.chat.management.consumers.GroupChatConsumer.get_redis")
+    @patch("apps.chat.management.consumers.ChatConsumer.get_redis")
     def test_rate_limit_blocks_rapid_events(self, mock_get_redis):
         """Second typing event within 2s window should be blocked."""
         mock_redis = AsyncMock()
         mock_redis.set = AsyncMock(side_effect=[True, None])
         mock_get_redis.return_value = mock_redis
 
-        consumer = GroupChatConsumer()
-        consumer.group_id = self.group.id
-        consumer.room_group_name = f"group_{self.group.id}"
+        consumer = ChatConsumer()
+        consumer.conversation_id = self.group.id
+        consumer.room_group_name = f"conversation_{self.group.id}"
+        consumer.channel_name = "test_channel"
         consumer.scope = {"user": self.user}
         consumer.channel_layer = AsyncMock()
         consumer.channel_layer.group_send = AsyncMock()
 
         async def run():
-            await consumer._handle_typing({"status": "started"})
-            await consumer._handle_typing({"status": "started"})
+            await consumer._handle_typing_event("typing.started")
+            await consumer._handle_typing_event("typing.started")
 
         async_to_sync(run)()
         self.assertEqual(consumer.channel_layer.group_send.call_count, 1)
 
-    @patch("apps.chat.management.consumers.GroupChatConsumer.get_redis")
+    @patch("apps.chat.management.consumers.ChatConsumer.get_redis")
     def test_rate_limit_allows_after_window(self, mock_get_redis):
         """Typing event after 2s window should be allowed."""
         mock_redis = AsyncMock()
         mock_redis.set = AsyncMock(return_value=True)
         mock_get_redis.return_value = mock_redis
 
-        consumer = GroupChatConsumer()
-        consumer.group_id = self.group.id
-        consumer.room_group_name = f"group_{self.group.id}"
+        consumer = ChatConsumer()
+        consumer.conversation_id = self.group.id
+        consumer.room_group_name = f"conversation_{self.group.id}"
+        consumer.channel_name = "test_channel"
         consumer.scope = {"user": self.user}
         consumer.channel_layer = AsyncMock()
         consumer.channel_layer.group_send = AsyncMock()
 
         async def run():
-            await consumer._handle_typing({"status": "started"})
-            await consumer._handle_typing({"status": "started"})
+            await consumer._handle_typing_event("typing.started")
+            await consumer._handle_typing_event("typing.started")
 
         async_to_sync(run)()
         self.assertEqual(consumer.channel_layer.group_send.call_count, 2)
 
-    @patch("apps.chat.management.consumers.GroupChatConsumer.get_redis")
+    @patch("apps.chat.management.consumers.ChatConsumer.get_redis")
     def test_rate_limit_rejects_invalid_status(self, mock_get_redis):
-        """Unknown status values should be silently dropped."""
+        """typing.stopped should always broadcast — only typing.started is rate limited."""
         mock_redis = AsyncMock()
         mock_redis.set = AsyncMock(return_value=True)
         mock_get_redis.return_value = mock_redis
 
-        consumer = GroupChatConsumer()
-        consumer.group_id = self.group.id
-        consumer.room_group_name = f"group_{self.group.id}"
+        consumer = ChatConsumer()
+        consumer.conversation_id = self.group.id
+        consumer.room_group_name = f"conversation_{self.group.id}"
+        consumer.channel_name = "test_channel"
         consumer.scope = {"user": self.user}
         consumer.channel_layer = AsyncMock()
         consumer.channel_layer.group_send = AsyncMock()
 
         async def run():
-            await consumer._handle_typing({"status": "invalid_value"})
+            await consumer._handle_typing_event("typing.stopped")
 
         async_to_sync(run)()
-        self.assertEqual(consumer.channel_layer.group_send.call_count, 0)
+        self.assertEqual(consumer.channel_layer.group_send.call_count, 1)
