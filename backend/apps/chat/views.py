@@ -8,12 +8,14 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
-from .models import Messages
-from .serializers import MessageSerializer, MessageUpdateSerializer
+from .models import Messages, MessageReaction
+from .serializers import MessageSerializer, MessageUpdateSerializer, MessageReactionSerializer, ReactRequestSerializer
 from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
+from .tasks import enqueue_process_chat_message_created
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -32,7 +34,8 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
+        # Scopes all queryset access (including get_object()) to this group,
+        # so a user cannot react to a message in another group by guessing its ID.
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
@@ -77,6 +80,12 @@ class MessageViewSet(viewsets.ModelViewSet):
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
 
         channel_layer = get_channel_layer()
+        # REST-created messages still broadcast immediately; background work is queued
+        # afterwards through the same helper used by the websocket path.
+        #
+        # This path uses Channels from a normal DRF view rather than from inside a websocket
+        # consumer. `async_to_sync(...)` bridges that sync request/response code into the async
+        # channel-layer publish call.
         async_to_sync(channel_layer.group_send)(
             f"group_{gid}",
             {
@@ -98,6 +107,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 },
             },
         )
+        enqueue_process_chat_message_created(msg.id)
 
     def create(self, request, *args, **kwargs):
         resp = super().create(request, *args, **kwargs)
@@ -150,3 +160,48 @@ class MessageViewSet(viewsets.ModelViewSet):
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # POST /chat/groups/{gid}/messages/{id}/react/
+    @action(detail=True, methods=["post"], url_path="react")
+    def react(self, request, *args, **kwargs):
+        # get_object() uses get_queryset() which is already scoped to group_pk
+        instance = self.get_object()
+
+        req_serializer = ReactRequestSerializer(data=request.data)
+        req_serializer.is_valid(raise_exception=True)
+        emoji = req_serializer.validated_data["emoji_string"]
+
+        # Toggle logic — add if not exists, remove if exists
+        reaction, created = MessageReaction.objects.get_or_create(
+            message=instance,
+            user=request.user,
+            emoji_string=emoji,
+        )
+        if not created:
+            reaction.delete()
+
+        # Build updated reaction counts
+        all_reactions = MessageReaction.objects.filter(message=instance)
+        reaction_counts = {}
+        for r in all_reactions:
+            reaction_counts[r.emoji_string] = reaction_counts.get(r.emoji_string, 0) + 1
+
+        # Broadcast to WebSocket group
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"group_{instance.group_id}",
+            {
+                "type": "chat.message",
+                "payload": {
+                    "event": "message.reaction_updated",
+                    "group_id": instance.group_id,
+                    "message_id": instance.id,
+                    "reactions": reaction_counts,
+                },
+            },
+        )
+
+        serializer = MessageReactionSerializer(
+            {"message_id": instance.id, "reactions": reaction_counts}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)

@@ -4,7 +4,8 @@
 # Added MessageStatusSerializer for read/delivery tracking.
 
 from rest_framework import serializers
-from .models import Messages, MessageResource, MessageStatus
+
+from .models import Messages, MessageResource, MessageStatus, MessageReaction
 from apps.resources.models import Resources
 
 
@@ -89,3 +90,17 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
+
+
+class MessageReactionSerializer(serializers.Serializer):
+    message_id = serializers.IntegerField()
+    reactions = serializers.DictField(child=serializers.IntegerField())
+
+
+class ReactRequestSerializer(serializers.Serializer):
+    """Validates the emoji input for the react action."""
+    emoji_string = serializers.CharField(
+        required=True,
+        max_length=64,
+        trim_whitespace=True,
+    )
