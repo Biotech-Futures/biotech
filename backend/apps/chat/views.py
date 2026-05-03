@@ -12,6 +12,7 @@ from rest_framework.decorators import action
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
+from .contracts import build_chat_message_payload
 from .models import Messages, MessageReaction
 from .serializers import MessageSerializer, MessageUpdateSerializer, MessageReactionSerializer, ReactRequestSerializer
 from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
@@ -39,10 +40,10 @@ class MessageViewSet(viewsets.ModelViewSet):
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
-            .prefetch_related("resources__resource")
+            .prefetch_related("resources__resource", "reactions", "statuses")
         )
 
-    # GET /chat/groups/{gid}/messages/
+    # GET /api/v1/chat/groups/{gid}/messages/
     def list(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
         # Phase 2 change: ordering uses sent_at instead of sent_datetime
@@ -66,7 +67,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = self.get_serializer(items, many=True).data
+        data = [build_chat_message_payload(item) for item in items]
         next_after = items[0].id if items else None
 
         return Response(
@@ -74,47 +75,38 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
-    # POST /chat/groups/{gid}/messages/
+    def _broadcast_payload(self, group_id, payload):
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"conversation_{group_id}",
+            {
+                "type": "chat.message",
+                "payload": payload,
+            },
+        )
+
+    # POST /api/v1/chat/groups/{gid}/messages/
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-
-        channel_layer = get_channel_layer()
-        # REST-created messages still broadcast immediately; background work is queued
-        # afterwards through the same helper used by the websocket path.
-        #
-        # This path uses Channels from a normal DRF view rather than from inside a websocket
-        # consumer. `async_to_sync(...)` bridges that sync request/response code into the async
-        # channel-layer publish call.
-        async_to_sync(channel_layer.group_send)(
-            f"group_{gid}",
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.created",
-                    "group_id": gid,
-                    "message": {
-                        "id": msg.id,
-                        "sender_id": msg.sender_user_id,
-                        "text": msg.message_text,
-                        "message_type": msg.message_type,
-                        # Phase 2 change: was sent_datetime, now sent_at
-                        "sent_at": msg.sent_at.isoformat(),
-                        "resource_ids": list(
-                            msg.resources.values_list("resource_id", flat=True)
-                        ),
-                    },
-                },
-            },
-        )
+        payload = {
+            "type": "message.created",
+            "message": build_chat_message_payload(msg),
+        }
+        self._broadcast_payload(gid, payload)
         enqueue_process_chat_message_created(msg.id)
 
     def create(self, request, *args, **kwargs):
-        resp = super().create(request, *args, **kwargs)
-        resp.status_code = status.HTTP_201_CREATED
-        return resp
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        message = Messages.objects.select_related("sender_user").prefetch_related(
+            "resources__resource", "reactions", "statuses"
+        ).get(pk=serializer.instance.pk)
+        headers = self.get_success_headers(serializer.data)
+        return Response(build_chat_message_payload(message), status=status.HTTP_201_CREATED, headers=headers)
 
-    # Phase 2 addition: PATCH /chat/groups/{gid}/messages/{id}/
+    # PATCH /api/v1/chat/groups/{gid}/messages/{id}/
     # Allows editing a message — automatically sets edited_at via MessageUpdateSerializer
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -122,46 +114,39 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # Broadcast edit event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        instance = Messages.objects.select_related("sender_user").prefetch_related(
+            "resources__resource", "reactions", "statuses"
+        ).get(pk=instance.pk)
+        self._broadcast_payload(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.edited",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                    "message_text": instance.message_text,
-                    "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
-                },
+                "type": "message.edited",
+                "conversation_id": instance.group_id,
+                "message_id": instance.id,
+                "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
+                "message": build_chat_message_payload(instance),
             },
         )
-        return Response(MessageSerializer(instance).data)
+        return Response(build_chat_message_payload(instance))
 
-    # DELETE /chat/groups/{gid}/messages/{id}/
+    # DELETE /api/v1/chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         # Phase 2 change: was instance.deleted_flag = True → instance.save()
         # Now calls soft_delete() which sets deleted_at = timezone.now()
         instance.soft_delete()
 
-        # Broadcast delete event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        self._broadcast_payload(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.deleted",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                },
+                "type": "message.deleted",
+                "conversation_id": instance.group_id,
+                "message_id": instance.id,
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    # POST /chat/groups/{gid}/messages/{id}/react/
+    # POST /api/v1/chat/groups/{gid}/messages/{id}/react/
     @action(detail=True, methods=["post"], url_path="react")
     def react(self, request, *args, **kwargs):
         # get_object() uses get_queryset() which is already scoped to group_pk
@@ -186,18 +171,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         for r in all_reactions:
             reaction_counts[r.emoji_string] = reaction_counts.get(r.emoji_string, 0) + 1
 
-        # Broadcast to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        self._broadcast_payload(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.reaction_updated",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                    "reactions": reaction_counts,
-                },
+                "type": "message.reaction_updated",
+                "conversation_id": instance.group_id,
+                "message_id": instance.id,
+                "reactions": reaction_counts,
             },
         )
 

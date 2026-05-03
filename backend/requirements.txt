@@ -6,6 +6,8 @@ channels==4.3.1
 channels_redis==4.2.0
 charset-normalizer==3.4.3
 coverage==7.11.0
+# Default dev/runtime websocket entrypoint now uses Daphne instead of plain runserver.
+daphne==4.1.2
 Django==5.2.5
 django-cors-headers==4.8.0
 django-filter==24.3

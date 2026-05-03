@@ -150,6 +150,47 @@ class UserStatusPatchSerializer(serializers.ModelSerializer):
         fields = ["account_status"]
 
 
+class AdminUserSerializer(UserSerializer):
+    track_name = serializers.CharField(source="track.track_name", read_only=True, allow_null=True)
+    state_id = serializers.IntegerField(source="track.state_id", read_only=True, allow_null=True)
+    state_name = serializers.CharField(source="track.state.state_name", read_only=True, allow_null=True)
+
+    class Meta(UserSerializer.Meta):
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "account_status",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "track",
+            "track_name",
+            "state_id",
+            "state_name",
+            "current_role_id",
+            "current_role_name",
+            "invited_at",
+            "activated_at",
+        ]
+
+
+class AdminUserUpdateSerializer(serializers.Serializer):
+    account_status = serializers.ChoiceField(choices=User.AccountStatus.choices, required=False)
+    track_id = serializers.PrimaryKeyRelatedField(
+        queryset=Tracks.objects.all(),
+        source="track",
+        required=False,
+    )
+    role_id = serializers.IntegerField(min_value=1, required=False)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("At least one field must be supplied.")
+        return attrs
+
+
 class BulkUserStatusSerializer(serializers.Serializer):
     user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),

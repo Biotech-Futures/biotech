@@ -7,7 +7,7 @@ from django.contrib.auth import authenticate, login
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
 from rest_framework.response import Response
-from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
+from rest_framework.renderers import JSONRenderer
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
@@ -17,6 +17,8 @@ from apps.groups.models import Tracks, Countries, CountryStates, Groups
 from apps.events.models import Events
 from apps.matching_runtime.models import MatchRecommendation
 from .serializers import (
+    AdminUserSerializer,
+    AdminUserUpdateSerializer,
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
     BulkUserTrackSerializer,
@@ -26,6 +28,37 @@ from .serializers import (
     UserStatusPatchSerializer,
 )
 from .utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
+
+
+def _apply_account_status(user, account_status):
+    # Centralize account-status side effects so single-user and bulk admin flows behave the same.
+    now = timezone.now()
+    user.account_status = account_status
+    update_fields = {"account_status", "is_active"}
+    if user.account_status == User.AccountStatus.ACTIVE and user.activated_at is None:
+        user.activated_at = now
+        update_fields.add("activated_at")
+    if user.account_status == User.AccountStatus.INVITED and user.invited_at is None:
+        user.invited_at = now
+        update_fields.add("invited_at")
+    user.save(update_fields=list(update_fields))
+
+
+def _assign_role(user, role_id, *, valid_weeks):
+    # Role assignment is reused by both self-service and admin patch flows.
+    role = get_object_or_404(Roles, pk=role_id)
+    now = timezone.now()
+    RoleAssignmentHistory.objects.create(
+        user=user,
+        role=role,
+        valid_from=now + timedelta(seconds=1),
+        valid_to=now + timedelta(weeks=valid_weeks),
+    )
+
+
+class IsOperationalAdminPermission(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return is_operational_admin(request.user)
 
 class PasswordLoginBodySerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -62,68 +95,120 @@ class PasswordLoginView(APIView):
             cache.set(cache_key, attempts + 1, 300) # 5 min lockout
             return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
 
-# Create your views here.
-#Issue 41
-class UsersRetrieveView(generics.RetrieveAPIView):
-    queryset = User.objects.select_related("track", "track__state")
-    serializer_class = UserSerializer
-    permission_classes = [permissions.AllowAny]
-    # renderer_classes = [JSONRenderer]
-    renderer_classes = [TemplateHTMLRenderer]
-    template_name = "users/details.html"
-
 class UserPagePagination(PageNumberPagination):
     page_size = 10
     page_query_param = "page"
     page_size_query_param = "page_size"
     max_page_size = 100
 
-#Issue 42
-class UserListHTMLView(generics.ListAPIView):
-    serializer_class = UserSerializer
-    permission_classes = [permissions.AllowAny]
 
+class AdminUserListView(generics.ListAPIView):
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsOperationalAdminPermission]
+    renderer_classes = [JSONRenderer]
     pagination_class = UserPagePagination
-    renderer_classes = [TemplateHTMLRenderer]
-    template_name = "users/list.html"
+
+    def get_queryset(self):
+        # `api/v1/users/` is now the JSON-first admin/SPA surface; keep filtering predictable
+        # so the frontend and future external clients can rely on one contract.
+        queryset = User.objects.select_related("track", "track__state").order_by("id")
+        track_scope = get_admin_track_ids(self.request.user)
+        if track_scope is not None:
+            queryset = queryset.filter(Q(track_id__in=track_scope) | Q(track__isnull=True))
+
+        account_status = self.request.query_params.get("account_status")
+        if account_status:
+            queryset = queryset.filter(account_status=account_status.lower())
+
+        email = self.request.query_params.get("email")
+        if email:
+            queryset = queryset.filter(email__iexact=email.strip())
+
+        search = self.request.query_params.get("q")
+        if search:
+            search = search.strip()
+            queryset = queryset.filter(
+                Q(email__icontains=search)
+                | Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+            )
+
+        track_id = self.request.query_params.get("track_id")
+        if track_id:
+            queryset = queryset.filter(track_id=track_id)
+
+        ordering = self.request.query_params.get("ordering", "id")
+        allowed_ordering = {
+            "id",
+            "-id",
+            "email",
+            "-email",
+            "first_name",
+            "-first_name",
+            "last_name",
+            "-last_name",
+            "account_status",
+            "-account_status",
+            "invited_at",
+            "-invited_at",
+            "activated_at",
+            "-activated_at",
+        }
+        if ordering in allowed_ordering:
+            queryset = queryset.order_by(ordering, "id")
+
+        return queryset
+
+class AdminUserDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsOperationalAdminPermission]
+    renderer_classes = [JSONRenderer]
 
     def get_queryset(self):
         queryset = User.objects.select_related("track", "track__state").order_by("id")
-        account_status_param = self.request.query_params.get("account_status")
-        if account_status_param is not None:
-            queryset = queryset.filter(account_status=account_status_param.lower())
-        email_param = self.request.query_params.get("email")
-        if email_param is not None:
-            queryset = queryset.filter(email=email_param)
-        return queryset
-    
-#issue 43
-class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
-    queryset = User.objects.select_related("track", "track__state")
-    permission_classes = [permissions.AllowAny]
-    renderer_classes = [TemplateHTMLRenderer]
-    template_name = "users/details.html"
+        track_scope = get_admin_track_ids(self.request.user)
+        if track_scope is None:
+            return queryset
+        return queryset.filter(Q(track_id__in=track_scope) | Q(track__isnull=True))
 
     def get_serializer_class(self):
-        return UserSerializer
+        if self.request.method in {"PATCH", "PUT"}:
+            return AdminUserUpdateSerializer
+        return AdminUserSerializer
 
-    
+    @transaction.atomic
     def patch(self, request, *args, **kwargs):
+        # Admin detail PATCH shares the same contract fields as the list surface so the UI
+        # does not need a separate response-shape adapter after writes.
         user = self.get_object()
-        data=request.data
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        if user.track_id and not can_admin_track(request.user, user.track_id):
+            return Response(
+                {"detail": f"You do not have admin scope for user {user.id}."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        data = serializer.validated_data
+        target_track = data.get("track")
+        if target_track and not can_admin_track(request.user, target_track):
+            return Response(
+                {"detail": "You do not have admin scope for the target track."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if "account_status" in data:
-            user.account_status = data["account_status"]
-            user.save(update_fields=["account_status"])
+            _apply_account_status(user, data["account_status"])
+
+        if target_track is not None:
+            user.track = target_track
+            user.save(update_fields=["track"])
 
         if "role_id" in data:
-            role = get_object_or_404(Roles, pk=data["role_id"])
-            now = timezone.now()
+            _assign_role(user, data["role_id"], valid_weeks=104)
 
-            with transaction.atomic():
-                # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
-                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=104))
-
-        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+        return Response(AdminUserSerializer(user).data, status=status.HTTP_200_OK)
     
 #issue 40
 class MeRetrieveView(generics.RetrieveAPIView):
@@ -144,12 +229,8 @@ class MeRetrieveView(generics.RetrieveAPIView):
 
         #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
         if "role_id" in data:
-            role = get_object_or_404(Roles, pk=data["role_id"])
-            now = timezone.now()
-
             with transaction.atomic():
-                # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
-                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
+                _assign_role(user, data["role_id"], valid_weeks=6)
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
     
@@ -327,24 +408,15 @@ class BulkUserStatusView(APIView):
         if missing_ids:
             return Response({"missing_user_ids": missing_ids}, status=status.HTTP_400_BAD_REQUEST)
 
-        now = timezone.now()
         for user in users:
             if user.track_id and not can_admin_track(request.user, user.track_id):
                 return Response(
                     {"detail": f"You do not have admin scope for user {user.id}."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
-            user.account_status = serializer.validated_data["account_status"]
-            update_fields = {"account_status", "is_active"}
-            if user.account_status == User.AccountStatus.ACTIVE and user.activated_at is None:
-                user.activated_at = now
-                update_fields.add("activated_at")
-            if user.account_status == User.AccountStatus.INVITED and user.invited_at is None:
-                user.invited_at = now
-                update_fields.add("invited_at")
-            user.save(update_fields=list(update_fields))
+            _apply_account_status(user, serializer.validated_data["account_status"])
 
-        return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)
+        return Response(AdminUserSerializer(users, many=True).data, status=status.HTTP_200_OK)
 
 
 class BulkUserTrackAssignmentView(APIView):
@@ -379,4 +451,4 @@ class BulkUserTrackAssignmentView(APIView):
             user.track = target_track
             user.save(update_fields=["track"])
 
-        return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)
+        return Response(AdminUserSerializer(users, many=True).data, status=status.HTTP_200_OK)

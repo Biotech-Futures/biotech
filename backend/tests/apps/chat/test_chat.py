@@ -39,9 +39,9 @@ CELERY_TEST_SETTINGS = {
 class ChatFeatureTests(TransactionTestCase):
     """
     Integration tests for chat:
-      - POST /chat/groups/{id}/messages/
-      - GET  /chat/groups/{id}/messages/?after=&limit=
-      - DELETE /chat/groups/{id}/messages/{mid}/  (soft delete)
+      - POST /api/v1/chat/groups/{id}/messages/
+      - GET  /api/v1/chat/groups/{id}/messages/?after=&limit=
+      - DELETE /api/v1/chat/groups/{id}/messages/{mid}/  (soft delete)
       - WebSocket broadcasts (message.created / message.deleted)
       - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
 
@@ -142,15 +142,6 @@ class ChatFeatureTests(TransactionTestCase):
                 return event
         self.fail(f"Did not receive websocket event of type {expected_type!r}")
 
-    async def _receive_ws_payload_event(self, communicator, expected_event, attempts=3):
-        for _ in range(attempts):
-            event = await communicator.receive_json_from(timeout=5)
-            if event.get("event") == "chat.connected":
-                continue
-            if event.get("event") == expected_event:
-                return event
-        self.fail(f"Did not receive websocket payload event {expected_event!r}")
-
     async def _send_ws_json(self, communicator, payload):
         await communicator.send_json_to(payload)
 
@@ -227,6 +218,12 @@ class ChatFeatureTests(TransactionTestCase):
                 self.assertEqual(sender_event["message"]["sender_id"], self.student.id)
                 self.assertEqual(sender_event["message"]["body"], "hello")
                 self.assertIn("created_at", sender_event["message"])
+                self.assertNotIn("group_id", sender_event["message"])
+                self.assertNotIn("text", sender_event["message"])
+                self.assertNotIn("message_text", sender_event["message"])
+                self.assertNotIn("sender_user", sender_event["message"])
+                self.assertNotIn("sender_user_id", sender_event["message"])
+                self.assertNotIn("sent_at", sender_event["message"])
                 self.assertTrue(await self._message_exists(sender_user=self.student, message_text="hello"))
             finally:
                 await self._disconnect_ws(sender_comm)
@@ -243,9 +240,9 @@ class ChatFeatureTests(TransactionTestCase):
                     format="json",
                 )
                 self.assertEqual(response.status_code, 201, response.content)
-                event = await self._receive_ws_payload_event(communicator, "message.created")
-                self.assertEqual(event["group_id"], self.group.id)
-                self.assertEqual(event["message"]["text"], "hi from rest")
+                event = await self._receive_ws_event(communicator, "message.created")
+                self.assertEqual(event["message"]["conversation_id"], self.group.id)
+                self.assertEqual(event["message"]["body"], "hi from rest")
                 self.assertEqual(event["message"]["sender_id"], self.student.id)
             finally:
                 await self._disconnect_ws(communicator)
@@ -259,8 +256,8 @@ class ChatFeatureTests(TransactionTestCase):
             try:
                 response = await sync_to_async(self.client_mentor.delete)(self._detail_url(msg.id))
                 self.assertEqual(response.status_code, 204, response.content)
-                event = await self._receive_ws_payload_event(communicator, "message.deleted")
-                self.assertEqual(event["group_id"], self.group.id)
+                event = await self._receive_ws_event(communicator, "message.deleted")
+                self.assertEqual(event["conversation_id"], self.group.id)
                 self.assertEqual(event["message_id"], msg.id)
             finally:
                 await self._disconnect_ws(communicator)
@@ -301,11 +298,17 @@ class ChatFeatureTests(TransactionTestCase):
             try:
                 await self._send_ws_json(sender_comm, {"type": "typing.start"})
                 listener_started = await self._receive_ws_event(listener_comm, "typing.started")
-                self.assertEqual(listener_started, {"type": "typing.started", "conversation_id": self.group.id, "user_id": self.student.id})
+                self.assertEqual(listener_started["type"], "typing.started")
+                self.assertEqual(listener_started["conversation_id"], self.group.id)
+                self.assertEqual(listener_started["user_id"], self.student.id)
+                self.assertIn("user_name", listener_started)
                 self.assertTrue(await sender_comm.receive_nothing(timeout=0.2))
                 await self._send_ws_json(sender_comm, {"type": "typing.stop"})
                 listener_stopped = await self._receive_ws_event(listener_comm, "typing.stopped")
-                self.assertEqual(listener_stopped, {"type": "typing.stopped", "conversation_id": self.group.id, "user_id": self.student.id})
+                self.assertEqual(listener_stopped["type"], "typing.stopped")
+                self.assertEqual(listener_stopped["conversation_id"], self.group.id)
+                self.assertEqual(listener_stopped["user_id"], self.student.id)
+                self.assertIn("user_name", listener_stopped)
                 self.assertTrue(await sender_comm.receive_nothing(timeout=0.2))
                 self.assertEqual(await self._message_count(), initial_message_count)
             finally:
@@ -372,6 +375,40 @@ class ChatFeatureTests(TransactionTestCase):
                 await self._disconnect_ws(sender_comm)
 
         async_to_sync(scenario)()
+
+    def test_legacy_ws_route_is_removed(self):
+        async def scenario():
+            cookie = self._session_cookie(self.student)
+            headers = [(b"cookie", f"{settings.SESSION_COOKIE_NAME}={cookie}".encode())]
+            communicator = WebsocketCommunicator(
+                application,
+                f"/ws/chat/groups/{self.group.id}/",
+                headers=headers,
+            )
+            with self.assertRaises(ValueError):
+                await communicator.connect()
+
+        async_to_sync(scenario)()
+
+    def test_legacy_ws_actions_are_rejected(self):
+        async def scenario():
+            communicator = await self._ws_connect_with_session(self.student)
+            try:
+                await self._send_ws_json(
+                    communicator,
+                    {"action": "client.typing", "status": "started"},
+                )
+                event = await self._receive_ws_event(communicator, "error")
+                self.assertEqual(event["error"]["code"], "invalid_payload")
+                self.assertEqual(event["error"]["detail"], "Unsupported event type.")
+            finally:
+                await self._disconnect_ws(communicator)
+
+        async_to_sync(scenario)()
+
+    def test_legacy_http_chat_namespace_is_removed(self):
+        response = self.client_student.get(f"/chat/groups/{self.group.id}/messages/")
+        self.assertEqual(response.status_code, 404)
 
     def test_ws_message_read_rejects_message_outside_conversation(self):
         other_group = Groups.objects.create(group_name="G2", track=self.track)

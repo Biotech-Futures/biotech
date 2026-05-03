@@ -1,4 +1,4 @@
-from django.test import TestCase, Client
+from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
@@ -14,63 +14,64 @@ from apps.matching_runtime.models import MatchRecommendation, MatchRun
 User = get_user_model()
 
 
-class UserEmailFilterTestCase(TestCase):
-    """Simple test for email filtering at /users/api/v1/users/?email="""
+class AdminUserEmailFilterTestCase(TestCase):
+    """Email filtering should only be exercised through the canonical JSON admin surface."""
 
     def setUp(self):
-        """Create test users"""
-        self.client = Client()
+        self.client = APIClient()
 
         # Create admin user
         self.admin_user = User.objects.create_user(
             email="admin@admin.com",
             first_name="Admin",
             last_name="User",
-            is_active=True
+            is_active=True,
+            is_staff=True,
         )
+        self.client.force_authenticate(user=self.admin_user)
 
         # Create another user
         self.regular_user = User.objects.create_user(
             email="user@example.com",
             first_name="Regular",
             last_name="User",
-            is_active=False
+            is_active=False,
         )
 
     def test_email_filter_admin(self):
-        """Test filtering for admin@admin.com"""
-        response = self.client.get(reverse("UserListHTMLView"),{"email":"admin@admin.com"})
+        response = self.client.get(reverse("user-list"), {"email": "admin@admin.com"})
 
         self.assertEqual(response.status_code, 200)
-        # Should return HTML page with admin user
-        self.assertContains(response, 'admin@admin.com')
-        self.assertContains(response, 'Admin')
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["email"], "admin@admin.com")
+        self.assertEqual(response.data["results"][0]["first_name"], "Admin")
 
     def test_email_filter_regular_user(self):
-        """Test filtering for user@example.com"""
-        response = self.client.get(reverse("UserListHTMLView"),{"email": "user@example.com"})
+        response = self.client.get(reverse("user-list"), {"email": "user@example.com"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'user@example.com')
-        self.assertContains(response, 'Regular')
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["email"], "user@example.com")
+        self.assertEqual(response.data["results"][0]["first_name"], "Regular")
 
     def test_email_filter_nonexistent(self):
-        """Test filtering for non-existent email"""
-        response = self.client.get(reverse("UserListHTMLView"), {"email": "notfound@example.com"})
+        response = self.client.get(reverse("user-list"), {"email": "notfound@example.com"})
 
         self.assertEqual(response.status_code, 200)
-        # Should not contain any user emails
-        self.assertNotContains(response, 'admin@admin.com')
-        self.assertNotContains(response, 'user@example.com')
+        self.assertEqual(response.data["count"], 0)
+        self.assertEqual(response.data["results"], [])
 
     def test_no_email_filter(self):
-        """Test endpoint without email filter"""
-        response = self.client.get(reverse("UserListHTMLView"))
+        response = self.client.get(reverse("user-list"))
 
         self.assertEqual(response.status_code, 200)
-        # Should contain both users
-        self.assertContains(response, 'admin@admin.com')
-        self.assertContains(response, 'user@example.com')
+        returned_emails = [item["email"] for item in response.data["results"]]
+        self.assertEqual(response.data["count"], 2)
+        self.assertCountEqual(returned_emails, ["admin@admin.com", "user@example.com"])
+
+    def test_legacy_html_users_route_is_removed(self):
+        response = self.client.get("/users/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class AdminWorkflowApiTests(TestCase):
@@ -86,6 +87,7 @@ class AdminWorkflowApiTests(TestCase):
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(track_name="OPS-TRACK", state=self.state)
+        self.other_track = Tracks.objects.create(track_name="OPS-TRACK-2", state=self.state)
 
         self.target_user = User.objects.create_user(
             email="target@test.com",
@@ -135,6 +137,7 @@ class AdminWorkflowApiTests(TestCase):
         self.assertTrue(self.target_user.is_active)
         self.assertIsNotNone(self.target_user.activated_at)
         self.assertEqual(self.invited_user.account_status, User.AccountStatus.ACTIVE)
+        self.assertIn("track_name", response.data[0])
 
     def test_admin_summary_returns_operational_counts(self):
         self.client.force_authenticate(user=self.admin_user)
@@ -145,6 +148,39 @@ class AdminWorkflowApiTests(TestCase):
         self.assertEqual(response.data["groups_without_mentor"], 1)
         self.assertEqual(response.data["unassigned_match_recommendations"], 1)
         self.assertGreaterEqual(response.data["upcoming_events"], 1)
+
+    def test_admin_user_list_returns_paginated_json_surface(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(reverse("admin-user-list"), {"email": "target@test.com", "page_size": 5})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["email"], "target@test.com")
+        self.assertEqual(response.data["results"][0]["track_name"], self.track.track_name)
+        self.assertIn("current_role_name", response.data["results"][0])
+
+    def test_admin_user_detail_patch_updates_status_and_track(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.patch(
+            reverse("user-detail", kwargs={"pk": self.target_user.id}),
+            {
+                "account_status": User.AccountStatus.ACTIVE,
+                "track_id": self.other_track.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.target_user.refresh_from_db()
+        self.assertEqual(self.target_user.account_status, User.AccountStatus.ACTIVE)
+        self.assertEqual(self.target_user.track_id, self.other_track.id)
+        self.assertEqual(response.data["track"], self.other_track.id)
+        self.assertEqual(response.data["track_name"], self.other_track.track_name)
+
+    def test_admin_user_list_rejects_non_admin(self):
+        self.client.force_authenticate(user=self.target_user)
+        response = self.client.get(reverse("admin-user-list"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class AuthUnificationTests(TestCase):
@@ -200,3 +236,11 @@ class AuthUnificationTests(TestCase):
             format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_legacy_login_route_is_removed(self):
+        response = self.client.post(
+            "/api/v1/login/",
+            {"email": self.user_email, "password": self.user_pass},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

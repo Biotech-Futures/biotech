@@ -8,6 +8,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 import redis.asyncio as aioredis
 from decouple import config
 
+from apps.chat.contracts import build_chat_message_payload
 from apps.chat.models import MessageStatus, Messages
 from apps.chat.tasks import enqueue_process_chat_message_created
 from apps.groups.models import GroupMembership
@@ -15,14 +16,12 @@ from apps.groups.models import GroupMembership
 MAX_MESSAGE_BODY_LENGTH = 2000
 TYPING_EVENT_DEBOUNCE_SECONDS = 1.0
 INVALID_JSON_SENTINEL = "__invalid_json__"
-
-VALID_TYPING_STATUSES = {"started", "stopped"}
 TYPING_RATE_LIMIT_SECONDS = 2
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
     """
-    WebSocket contract:
+    Canonical WebSocket contract:
       inbound:  {"type": "message.send", "body": "<text>"}
       inbound:  {"type": "message.read", "message_id": <id>}
       inbound:  {"type": "typing.start"} / {"type": "typing.stop"}
@@ -31,10 +30,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
       outbound: {"type": "typing.started", "conversation_id": <id>, "user_id": <id>}
       outbound: {"type": "typing.stopped", "conversation_id": <id>, "user_id": <id>}
       errors:   {"type": "error", "error": {"code": "...", "detail": "..."}}
-
-    The consumer also listens to the older `group_<id>` channel-layer group so REST chat
-    endpoints can keep broadcasting their existing payloads while the websocket route and
-    client contract move to `conversation_id`.
     """
 
     _redis = None
@@ -52,7 +47,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.conversation_id = int(self.scope["url_route"]["kwargs"]["conversation_id"])
         self.room_group_name = f"conversation_{self.conversation_id}"
-        self.legacy_room_group_name = f"group_{self.conversation_id}"
 
         user = self.scope["user"]
         if not user.is_authenticated:
@@ -64,7 +58,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
 
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-        await self.channel_layer.group_add(self.legacy_room_group_name, self.channel_name)
         await self.accept()
         self._typing_started_last_sent_at = 0.0
 
@@ -190,6 +183,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                     "type": outbound_type,
                     "conversation_id": self.conversation_id,
                     "user_id": self.scope["user"].id,
+                    "user_name": self.scope["user"].get_full_name().strip() or self.scope["user"].email,
                 },
                 "sender_channel_name": self.channel_name,
             },
@@ -222,8 +216,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, code):
         if hasattr(self, "room_group_name"):
             await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
-        if hasattr(self, "legacy_room_group_name"):
-            await self.channel_layer.group_discard(self.legacy_room_group_name, self.channel_name)
 
     @classmethod
     async def decode_json(cls, text_data):
@@ -247,13 +239,10 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             sender_user_id=user_id,
             message_text=body,
         )
-        return {
-            "id": message.id,
-            "conversation_id": message.group_id,
-            "sender_id": message.sender_user_id,
-            "body": message.message_text,
-            "created_at": message.sent_at.isoformat(),
-        }
+        message = Messages.objects.select_related("sender_user").prefetch_related(
+            "resources__resource", "reactions", "statuses"
+        ).get(pk=message.pk)
+        return build_chat_message_payload(message)
 
     @database_sync_to_async
     def _mark_message_read(self, user_id, message_id):
