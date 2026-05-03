@@ -37,6 +37,18 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     client contract move to `conversation_id`.
     """
 
+    _redis = None
+
+    @classmethod
+    async def get_redis(cls):
+        """Return a shared async Redis client, creating it on first use."""
+        redis_url = config("REDIS_URL", default=None)
+        if not redis_url:
+            return None
+        if cls._redis is None:
+            cls._redis = aioredis.from_url(redis_url, decode_responses=True)
+        return cls._redis
+
     async def connect(self):
         self.conversation_id = int(self.scope["url_route"]["kwargs"]["conversation_id"])
         self.room_group_name = f"conversation_{self.conversation_id}"
@@ -160,8 +172,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         )
 
     async def _handle_typing_event(self, outbound_type):
-        if outbound_type == "typing.started" and self._should_debounce_typing_started():
-            return
+        if outbound_type == "typing.started":
+            rate_key = f"typing_rate_limit:{self.conversation_id}:{self.scope['user'].id}"
+            redis = await self.get_redis()
+            if redis is not None:
+                acquired = await redis.set(rate_key, 1, nx=True, ex=TYPING_RATE_LIMIT_SECONDS)
+                if not acquired:
+                    return
+            elif self._should_debounce_typing_started():
+                return
 
         await self.channel_layer.group_send(
             self.room_group_name,
@@ -178,7 +197,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     def _should_debounce_typing_started(self):
         now = time.monotonic()
-        if now - self._typing_started_last_sent_at < TYPING_EVENT_DEBOUNCE_SECONDS:
+        last = getattr(self, "_typing_started_last_sent_at", 0.0)
+        if now - last < TYPING_EVENT_DEBOUNCE_SECONDS:
             return True
         self._typing_started_last_sent_at = now
         return False
@@ -274,112 +294,3 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 },
             }
         )
-
-
-class GroupChatConsumer(AsyncJsonWebsocketConsumer):
-    """
-    Legacy consumer kept for backwards compatibility and PR #250 rate-limit tests.
-    New code should use ChatConsumer.
-    """
-
-    _redis = None
-
-    @classmethod
-    async def get_redis(cls):
-        """Return a shared async Redis client, creating it on first use."""
-        redis_url = config("REDIS_URL", default=None)
-        if not redis_url:
-            return None
-        if cls._redis is None:
-            cls._redis = aioredis.from_url(redis_url, decode_responses=True)
-        return cls._redis
-
-    async def connect(self):
-        self.group_id = self.scope["url_route"]["kwargs"]["group_id"]
-        self.room_group_name = f"group_{self.group_id}"
-
-        user = self.scope["user"]
-        if not user.is_authenticated:
-            await self.close(code=4403)
-            return
-
-        if not await self.is_member(user.id):
-            await self.close(code=4403)
-            return
-
-        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-        await self.accept()
-
-    @database_sync_to_async
-    def is_member(self, uid):
-        return GroupMembership.objects.filter(
-            user_id=uid,
-            group_id=self.group_id,
-            left_at__isnull=True,
-        ).exists()
-
-    async def receive_json(self, content, **kwargs):
-        event_type = content.get("type")
-
-        if event_type == "client.typing":
-            await self._handle_typing(content)
-            return
-
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "client.message",
-                    "group_id": self.group_id,
-                    "message": {
-                        "text": content.get("content"),
-                        "resource_ids": content.get("resource_ids", []),
-                        "sender_id": self.scope["user"].id,
-                    },
-                },
-            },
-        )
-
-    async def _handle_typing(self, content):
-        """
-        Rate-limited typing broadcast.
-        Uses Redis SET NX EX for cross-process rate limiting.
-        Falls back to always-broadcast when Redis is not configured (local dev).
-        """
-        user = self.scope["user"]
-        status = content.get("status")
-
-        if status not in VALID_TYPING_STATUSES:
-            return
-
-        rate_key = f"typing_rate_limit:{self.group_id}:{user.id}"
-        redis = await self.get_redis()
-        if redis is not None:
-            acquired = await redis.set(rate_key, 1, nx=True, ex=TYPING_RATE_LIMIT_SECONDS)
-            if not acquired:
-                return
-
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "typing.updated",
-                "user_id": user.id,
-                "status": status,
-                "group_id": self.group_id,
-            },
-        )
-
-    async def typing_updated(self, event):
-        await self.send_json({
-            "type": "typing.updated",
-            "user_id": event["user_id"],
-            "status": event["status"],
-            "group_id": event["group_id"],
-        })
-
-    async def chat_message(self, event):
-        await self.send_json(event["payload"])
-
-    async def disconnect(self, code):
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
