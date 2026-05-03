@@ -2,6 +2,7 @@ asgiref==3.9.1
 attrs==25.3.0
 certifi==2025.8.3
 channels==4.3.1
+daphne==4.1.2
 charset-normalizer==3.4.3
 coverage==7.11.0
 Django==5.2.5
