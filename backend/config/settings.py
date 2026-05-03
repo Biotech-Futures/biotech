@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
+from urllib.parse import quote
 from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,6 +13,12 @@ def env_bool(value):
     if value in {"0", "false", "f", "no", "n", "off", "release", "prod", "production", ""}:
         return False
     raise ValueError(f"Invalid truth value: {value}")
+
+
+def build_redis_url(*, host, port, db, password="", use_ssl=False):
+    scheme = "rediss" if use_ssl else "redis"
+    credentials = f":{quote(password)}@" if password else ""
+    return f"{scheme}://{credentials}{host}:{port}/{db}"
 
 SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-only-not-for-production")
 DEBUG = config("DEBUG", default="true", cast=env_bool)
@@ -59,6 +66,47 @@ MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
 
 AUTH_USER_MODEL = 'users.User'
 
+REDIS_HOST = config("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = config("REDIS_PORT", default=6379, cast=int)
+REDIS_PASSWORD = config("REDIS_PASSWORD", default="")
+REDIS_USE_SSL = config("REDIS_USE_SSL", default="false", cast=env_bool)
+REDIS_CHANNEL_DB = config("REDIS_CHANNEL_DB", default=1, cast=int)
+REDIS_CELERY_BROKER_DB = config("REDIS_CELERY_BROKER_DB", default=2, cast=int)
+REDIS_CELERY_RESULT_DB = config("REDIS_CELERY_RESULT_DB", default=3, cast=int)
+
+CHANNEL_REDIS_URL = config(
+    "CHANNEL_REDIS_URL",
+    default=build_redis_url(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_CHANNEL_DB,
+        password=REDIS_PASSWORD,
+        use_ssl=REDIS_USE_SSL,
+    ),
+)
+
+CELERY_BROKER_URL = config(
+    "CELERY_BROKER_URL",
+    default=build_redis_url(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_CELERY_BROKER_DB,
+        password=REDIS_PASSWORD,
+        use_ssl=REDIS_USE_SSL,
+    ),
+)
+
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND",
+    default=build_redis_url(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_CELERY_RESULT_DB,
+        password=REDIS_PASSWORD,
+        use_ssl=REDIS_USE_SSL,
+    ),
+)
+
 # REST Framework with Django Session Authentication
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -81,6 +129,25 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
+
+# Chat sanitiser — env-configurable so moderation policy can change without
+# code changes. CSV of words; matched whole-word, case-insensitive, with
+# leetspeak + punctuation tolerance (see apps/chat/utils.py).
+CHAT_SANITIZER_BLACKLIST = config(
+    "CHAT_SANITIZER_BLACKLIST",
+    default=(
+        # Stems (trailing * = substring match — covers all compounds:
+        # fuck*  -> fucker, fucking, motherfucker, brainfuck, clusterfuck, ...
+        # shit*  -> bullshit, shithole, shithead, shitstorm, ...
+        # dick*  -> dickhead, dickface, ...
+        "fuck*,shit*,dick*,bitch*,cock*,cunt*,prick*,"
+        # Whole-word entries (substring would false-positive on "hello",
+        # "passive", "Massachusetts", "scrap", etc.).
+        "hell,damn,crap,piss,ass,asshole,arsehole,asshat,bastard,wanker,twat"
+    ),
+    cast=Csv(),
+)
+CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -124,8 +191,8 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
-            "connect_timeout": 5,
+            "sslmode": config("DB_SSLMODE", default="require"),
+            "connect_timeout": config("DB_CONNECT_TIMEOUT", default=5, cast=int),
         },
         "CONN_MAX_AGE": 0,
     }
@@ -143,6 +210,21 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [CHANNEL_REDIS_URL],
+        },
+    }
+}
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
 # Email
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
@@ -150,13 +232,6 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
-    }
-}
-
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
