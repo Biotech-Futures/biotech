@@ -39,7 +39,21 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     """
 
     async def connect(self):
-        self.conversation_id = int(self.scope["url_route"]["kwargs"]["conversation_id"])
+        # Defensive parsing: the URL route kwarg is constrained to digits by the
+        # routing regex today, but we don't want a misconfigured route to crash
+        # the consumer with a confusing KeyError/ValueError. Reject cleanly with
+        # 4400 (close code semantics: bad request) so clients get a clear signal.
+        raw_id = (
+            self.scope.get("url_route", {})
+            .get("kwargs", {})
+            .get("conversation_id")
+        )
+        try:
+            self.conversation_id = int(raw_id)
+        except (TypeError, ValueError):
+            await self.close(code=4400)
+            return
+
         self.room_group_name = f"conversation_{self.conversation_id}"
         self.legacy_room_group_name = f"group_{self.conversation_id}"
 
@@ -325,6 +339,13 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         ).exists()
 
     async def receive_json(self, content, **kwargs):
+        # ``content`` arrives from JSON; defend against arrays, strings, numbers
+        # before calling ``.get`` on it. Drop silently to match the existing
+        # close-mouthed behaviour (this legacy consumer doesn't expose an error
+        # frame contract like ChatConsumer does).
+        if not isinstance(content, dict):
+            return
+
         event_type = content.get("type")
 
         if event_type == "client.typing":
@@ -339,7 +360,7 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
                     "event": "client.message",
                     "group_id": self.group_id,
                     "message": {
-                        "text": content.get("content"),
+                        "text": sanitize_text(content.get("content")),
                         "resource_ids": content.get("resource_ids", []),
                         "sender_id": self.scope["user"].id,
                     },
