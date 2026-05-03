@@ -1,6 +1,6 @@
-name,email,role,track,school,yearLevel,interests,status
-Alice Zhang,alice.zhang@example.com,student,AUS-NSW,Sydney High School,11,"biology, genetics",active
-Ben Turner,ben.turner@example.com,student,AUS-VIC,Melbourne High School,10,"ai, robotics",active
-Chloe Park,chloe.park@example.com,student,AUS-QLD,Brisbane State High School,12,"medicine, chemistry",inactive
-Mia Chen,mia.chen@example.com,mentor,AUS-SA,,,,active
-Noah Silva,noah.silva@example.com,supervisor,BRA,,,,active
+firstName,lastName,email,role,track,adminTracks,school,yearLevel,interests,institution,mentorReason,maxGroupCount,background,joinPermissionReceived,status
+Ava,Nguyen,ava.nguyen@example.com,student,[TEST] BioTech Alpha,,Sydney Girls High School,10,"Biotechnology, Data Science",,,,,yes,active
+Ben,Turner,ben.turner@example.com,student,[TEST] BioTech Alpha,,Melbourne High School,11,"Genetics, Robotics",,,,,no,inactive
+Mia,Chen,mia.chen@example.com,mentor,[TEST] BioTech Alpha,,,"","Biotechnology, Research",University of Sydney,"Interested in supporting student research projects",2,Research,,active
+Noah,Silva,noah.silva@example.com,supervisor,[TEST] BioTech Alpha,,Perth Modern School,,,,,,,active
+Liam,Taylor,liam.taylor2@example.com,admin,,"[TEST] BioTech Alpha",,,,,,,,,active

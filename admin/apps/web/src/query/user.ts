@@ -366,7 +366,17 @@ export function parseCsvUsers(text: string) {
     headers.map((header, index) => [header, index]),
   );
 
-  const requiredHeaders = ["firstname", "lastname", "email", "role"];
+  const hasSplitNameHeaders =
+    headerIndex.firstname !== undefined && headerIndex.lastname !== undefined;
+  const hasNameHeader = headerIndex.name !== undefined;
+
+  if (!hasSplitNameHeaders && !hasNameHeader) {
+    throw new Error(
+      "Missing CSV columns: provide either name, or both firstName and lastName.",
+    );
+  }
+
+  const requiredHeaders = ["email", "role"];
   const missing = requiredHeaders.filter((header) => headerIndex[header] === undefined);
   if (missing.length) {
     throw new Error(`Missing CSV columns: ${missing.join(", ")}`);
@@ -375,40 +385,80 @@ export function parseCsvUsers(text: string) {
   return dataRows
     .filter((row) => row.some((cell) => cell.trim()))
     .map((row, rowIndex) => {
+      const rawName = (row[headerIndex.name] ?? "").trim();
+      const [parsedFirstName, parsedLastName] = splitFullName(rawName);
+      const firstName = hasSplitNameHeaders
+        ? (row[headerIndex.firstname] ?? "").trim()
+        : parsedFirstName;
+      const lastName = hasSplitNameHeaders
+        ? (row[headerIndex.lastname] ?? "").trim()
+        : parsedLastName;
       const roleValue = (row[headerIndex.role] ?? "").trim().toLowerCase();
       const role = normalizeRole(roleValue);
       const track = normalizeTrack((row[headerIndex.track] ?? "").trim());
       const adminTracksRaw = (row[headerIndex.admintracks] ?? "").trim();
       const statusRaw = (row[headerIndex.status] ?? "").trim().toLowerCase();
-      const schoolName = (row[headerIndex.school] ?? "").trim();
+      const schoolName = (
+        row[headerIndex.school] ??
+        row[headerIndex.schoolname] ??
+        ""
+      ).trim();
       const yearLevelRaw =
         (row[headerIndex.yearlevel] ?? row[headerIndex.age] ?? "").trim();
       const interestsRaw = (row[headerIndex.interests] ?? "").trim();
+      const joinPermissionRaw = (
+        row[headerIndex.joinpermissionreceived] ??
+        row[headerIndex.joinpermission] ??
+        ""
+      ).trim();
       const mentorMaxGroupCountRaw =
         (row[headerIndex.maxgroupcount] ?? row[headerIndex.maxgroups] ?? "").trim();
       const mentorMaxGroupCount = mentorMaxGroupCountRaw
         ? Number(mentorMaxGroupCountRaw)
         : null;
 
+      if (!firstName || !lastName) {
+        throw new Error(
+          `Row ${rowIndex + 2}: first and last name are required. Use either name, or firstName and lastName columns.`,
+        );
+      }
+
+      const email = (row[headerIndex.email] ?? "").trim();
+      if (!email) {
+        throw new Error(`Row ${rowIndex + 2}: email is required.`);
+      }
+
       return {
         id: `csv-${rowIndex + 1}`,
-        firstName: (row[headerIndex.firstname] ?? "").trim(),
-        lastName: (row[headerIndex.lastname] ?? "").trim(),
-        email: (row[headerIndex.email] ?? "").trim(),
+        firstName,
+        lastName,
+        email,
         role,
         track,
         adminTracks: parseTrackList(adminTracksRaw),
         schoolName,
-        supervisorSchoolName: role === "supervisor" ? schoolName : "",
+        supervisorSchoolName:
+          role === "supervisor"
+            ? (
+                row[headerIndex.supervisorschoolname] ??
+                row[headerIndex.school] ??
+                row[headerIndex.schoolname] ??
+                ""
+              ).trim()
+            : "",
         mentorBackground: (row[headerIndex.background] ?? "").trim(),
-        mentorInstitution: (row[headerIndex.institution] ?? "").trim(),
+        mentorInstitution: (
+          row[headerIndex.mentorinstitution] ??
+          row[headerIndex.institution] ??
+          ""
+        ).trim(),
         mentorReason: (row[headerIndex.mentorreason] ?? "").trim(),
         mentorMaxGroupCount: Number.isFinite(mentorMaxGroupCount)
           ? mentorMaxGroupCount
           : null,
         yearLevel: yearLevelRaw ? Number(yearLevelRaw) : null,
         interests: parseInterestList(interestsRaw),
-        joinPermissionReceived: false,
+        joinPermissionReceived: parseBoolean(joinPermissionRaw),
         active: statusRaw ? statusRaw !== "inactive" : true,
       } satisfies CsvUserRow;
     });
@@ -448,6 +498,16 @@ function parseTrackList(input: string) {
         .map((item) => item.trim())
         .filter(Boolean),
     ),
+  );
+}
+
+function parseBoolean(input: string) {
+  const normalized = input.trim().toLowerCase();
+  return (
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "y" ||
+    normalized === "1"
   );
 }
 

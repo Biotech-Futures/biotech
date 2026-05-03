@@ -37,6 +37,7 @@ const USER_IMPORT_TEMPLATE = [
     "mentorReason",
     "maxGroupCount",
     "background",
+    "joinPermissionReceived",
     "status",
   ],
   [
@@ -44,7 +45,7 @@ const USER_IMPORT_TEMPLATE = [
     "Nguyen",
     "ava.nguyen@example.com",
     "student",
-    "Replace with an existing track",
+    "AUS-NSW",
     "",
     "Example High School",
     "10",
@@ -53,6 +54,7 @@ const USER_IMPORT_TEMPLATE = [
     "",
     "",
     "",
+    "yes",
     "active",
   ],
   [
@@ -60,7 +62,7 @@ const USER_IMPORT_TEMPLATE = [
     "Patel",
     "noah.patel@example.com",
     "mentor",
-    "Replace with an existing track",
+    "AUS-QLD",
     "",
     "",
     "",
@@ -69,6 +71,7 @@ const USER_IMPORT_TEMPLATE = [
     "Interested in supporting student research projects",
     "2",
     "Research",
+    "",
     "active",
   ],
   [
@@ -76,9 +79,10 @@ const USER_IMPORT_TEMPLATE = [
     "Chen",
     "mia.chen@example.com",
     "supervisor",
-    "Replace with an existing track",
+    "AUS-VIC",
     "",
     "Example High School",
+    "",
     "",
     "",
     "",
@@ -93,7 +97,8 @@ const USER_IMPORT_TEMPLATE = [
     "liam.taylor@example.com",
     "admin",
     "",
-    "Biotech|Health Innovation",
+    "AUS-NSW|AUS-QLD",
+    "",
     "",
     "",
     "",
@@ -182,6 +187,28 @@ export function UserBulkUploadSheet({
       );
       return;
     }
+    const studentMissingYearLevel = rows.find(
+      (row) =>
+        row.role === "student" &&
+        (!row.yearLevel || row.yearLevel < 9 || row.yearLevel > 12),
+    );
+    if (studentMissingYearLevel) {
+      window.alert(
+        `Year level must be between 9 and 12 for student user ${studentMissingYearLevel.email}.`,
+      );
+      return;
+    }
+    const roleMissingInterests = rows.find(
+      (row) =>
+        (row.role === "student" || row.role === "mentor") &&
+        !row.interests.length,
+    );
+    if (roleMissingInterests) {
+      window.alert(
+        `At least one interest is required for ${roleMissingInterests.role} user ${roleMissingInterests.email}.`,
+      );
+      return;
+    }
 
     await onImport(rows);
     setFile(null);
@@ -208,9 +235,10 @@ export function UserBulkUploadSheet({
         <SheetHeader>
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
-            Upload a CSV with columns firstName, lastName, email, role, track,
-            adminTracks, school, yearLevel, interests, institution, mentorReason,
-            maxGroupCount, background, and status.
+            Upload a CSV with either a single name column or split firstName and
+            lastName columns, plus email, role, track, adminTracks, school,
+            yearLevel, interests, institution, mentorReason, maxGroupCount,
+            background, joinPermissionReceived, and status.
           </SheetDescription>
         </SheetHeader>
 
