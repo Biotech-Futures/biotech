@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import DashboardNextEventView, DashboardViewSet, GroupsPreviewView
+from .views import DashboardNextEventView, DashboardViewSet, GroupsPreviewView, DashboardProgressView
 
 router = DefaultRouter()
 router.register("", DashboardViewSet, basename="dashboard")
@@ -10,4 +10,5 @@ urlpatterns = [
     *router.urls,
     path("next-event/", DashboardNextEventView.as_view(), name="dashboard-next-event"),
     path("groups-preview/", GroupsPreviewView.as_view(), name="dashboard-groups-preview"),
+    path("progress/", DashboardProgressView.as_view(), name="dashboard-progress"),
 ]
