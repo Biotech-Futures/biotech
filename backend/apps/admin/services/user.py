@@ -4,13 +4,8 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import (
-    Q, F, Exists, OuterRef, Subquery, Value, CharField, 
-    Prefetch, F, Case, When, DateTimeField, IntegerField
-)
-from django.db.models.functions import Coalesce, Cast, NullIf, Concat
-from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from django.db.models import Q
+from typing import List, Dict, Any, Optional
 
 # Import models
 from apps.users.models import (
@@ -295,58 +290,141 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     Query users with pagination and filters.
     """
     offset = (page - 1) * limit
-    
+
     # Build filter conditions
     filters = Q()
-    
+
     if search:
         normalized_search = search.strip()
         filters &= (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
-            Q(group_membership__group__group_name__icontains=normalized_search) |
-            Q(first_name__icontains=normalized_search)  # Will be combined in DB
+            Q(groupmembership__group__group_name__icontains=normalized_search)
         )
-    
+
     if role:
-        filters &= Q(roleassignmenthistory__role__role_name=role, 
+        filters &= Q(roleassignmenthistory__role__role_name=role,
                      roleassignmenthistory__valid_to__isnull=True)
-    
+
     if track:
         filters &= Q(track__track_name=track)
-    
+
     if active is not None:
         filters &= Q(is_active=active)
-    
+
     # Get total count
     total = User.objects.filter(filters).values('id').distinct().count()
-    
+
     # Determine sort order
     order_by = []
     if sort_by == "name":
         order_by = ["first_name", "last_name", "id"]
     else:  # createdAt
         order_by = ["date_joined", "id"]
-    
+
     if sort_order == "desc":
         order_by = [f"-{field}" if field != "id" else field for field in order_by]
-    
+
     # Get paginated user IDs
-    user_ids = (
+    user_ids = list(
         User.objects.filter(filters)
         .values_list('id', flat=True)
         .distinct()
         .order_by(*order_by)[offset:offset + limit]
     )
-    
-    # Fetch full user data
+
+    if not user_ids:
+        return {
+            "msg": "Users retrieved successfully",
+            "data": {
+                "items": [],
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "hasMore": False,
+            }
+        }
+
+    # Bulk fetch all related data (6 queries instead of ~8 per user)
+    users_by_id = {
+        u.id: u for u in User.objects.filter(id__in=user_ids).select_related('track')
+    }
+
+    student_profiles = {
+        sp.user_id: sp for sp in StudentProfile.objects.filter(user_id__in=user_ids)
+    }
+    supervisor_profiles = {
+        sp.user_id: sp for sp in SupervisorProfile.objects.filter(user_id__in=user_ids)
+    }
+    mentor_profiles = {
+        mp.user_id: mp for mp in MentorProfile.objects.filter(user_id__in=user_ids)
+    }
+    admin_profiles = {
+        ap.admin_id: ap for ap in AdminProfile.objects.filter(admin_id__in=user_ids)
+    }
+
+    # Active role assignments
+    role_map = {}
+    for rah in RoleAssignmentHistory.objects.filter(
+        user_id__in=user_ids, valid_to__isnull=True
+    ).select_related('role'):
+        role_map[rah.user_id] = rah.role.role_name
+
+    # Active group memberships
+    group_map = {}
+    for gm in GroupMembership.objects.filter(
+        user_id__in=user_ids, left_at__isnull=True
+    ).select_related('group'):
+        if not gm.group.deleted_at:
+            group_map[gm.user_id] = gm.group.group_name
+
+    # User interests
+    interests_map: Dict[int, List[str]] = {}
+    for ui in UserInterest.objects.filter(user_id__in=user_ids).select_related('interest'):
+        interests_map.setdefault(ui.user_id, []).append(ui.interest.interest_desc)
+
+    # Build response in original user_ids order
     users_list = []
-    for user_id in user_ids:
-        user_dict = fetch_user_by_id(user_id)
-        if user_dict:
-            users_list.append(user_dict)
-    
+    for uid in user_ids:
+        user = users_by_id.get(uid)
+        if not user:
+            continue
+
+        sp = student_profiles.get(uid)
+        supervisor = supervisor_profiles.get(uid)
+        mp = mentor_profiles.get(uid)
+        ap = admin_profiles.get(uid)
+
+        school_name = None
+        if sp and sp.school_name:
+            school_name = sp.school_name
+        elif supervisor and supervisor.school_name:
+            school_name = supervisor.school_name
+
+        users_list.append({
+            "id": user.id,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+            "email": user.email,
+            "role": role_map.get(uid),
+            "track": user.track.track_name if user.track else None,
+            "groupName": group_map.get(uid),
+            "schoolName": school_name,
+            "mentorBackground": mp.background if mp else None,
+            "mentorInstitution": mp.institution if mp else None,
+            "mentorReason": mp.mentor_reason if mp else None,
+            "mentorMaxGroupCount": mp.max_group_count if mp else None,
+            "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
+            "joinPermissionReceived": sp.has_join_permission if sp else False,
+            "interests": interests_map.get(uid, []),
+            "adminTracks": ap.tracks if ap else None,
+            "isActive": user.is_active,
+            "accountStatus": "active" if user.is_active else "deactivated",
+            "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
+            "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
+        })
+
     return {
         "msg": "Users retrieved successfully",
         "data": {
@@ -420,9 +498,9 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
         )
     
     if in_group == "yes":
-        filters &= Q(group_membership__left_at__isnull=True)
+        filters &= Q(groupmembership__left_at__isnull=True)
     elif in_group == "no":
-        filters &= ~Q(group_membership__left_at__isnull=True)
+        filters &= ~Q(groupmembership__left_at__isnull=True)
     
     # Get total count
     total = User.objects.filter(filters).values('id').distinct().count()
