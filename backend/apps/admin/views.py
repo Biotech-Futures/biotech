@@ -214,7 +214,9 @@ class GroupMemberRemoveView(APIView):
 class MatchStudentView(APIView):
     """GET /api/v1/match/student - Get match for authenticated user"""
     def get(self, request):
-        uid = request.query_params.get("uid", "")
+        uid = str(request.user.id) if request.user.is_authenticated else None
+        if not uid:
+            return Response({"msg": "Authentication required"}, status=401)
         result = match_student(uid)
         return Response({
             "msg": "Match retrieved successfully",
@@ -566,7 +568,9 @@ class MentorActiveStatusUpdateView(APIView):
 class MentorMatchRecommendView(APIView):
     """GET /api/v1/mentor-match/recommend - Get mentor recommendations"""
     def get(self, request):
-        admin_user_id = request.query_params.get("uid", "")
+        admin_user_id = str(request.user.id) if request.user.is_authenticated else None
+        if not admin_user_id:
+            return Response({"msg": "Authentication required"}, status=401)
         mode = request.query_params.get("mode", "balanced")
         result = match_mentor(admin_user_id, mode)
         return Response({"msg": "Mentor recommendations retrieved successfully", "data": result})
