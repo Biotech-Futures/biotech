@@ -65,4 +65,4 @@ jobs:
           app-name: 'biotechBe'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E877ED0DA3F94A06807A257E92B3A1B1 }}
-          package: ./backend
+          package: .
