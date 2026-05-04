@@ -35,11 +35,49 @@ class DashboardSummarySerializer(serializers.Serializer):
     stats = serializers.DictField()
 
 
-class GroupPreviewSerializer(serializers.Serializer):
+class DashboardLeadUserSerializer(serializers.Serializer):
+    """Compact projection of the mentor (lead) user embedded in the group preview."""
+
     id = serializers.IntegerField()
-    name = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+
+
+class DashboardGroupPreviewSerializer(serializers.Serializer):
+    """
+    Flattened, deeply-associated group projection used by the dashboard
+    groups-preview endpoint.
+
+    Backed by ``services.get_groups_preview`` which returns an annotated
+    queryset (``member_count`` annotation, ``_mentor_memberships`` prefetch),
+    so this serializer never triggers extra queries per row.
+    """
+
+    id = serializers.IntegerField()
+    group_name = serializers.CharField()
     track_id = serializers.IntegerField()
-    track_name = serializers.CharField()
+    track_name = serializers.CharField(source="track.track_name")
     member_count = serializers.IntegerField()
-    lead_name = serializers.CharField(allow_null=True)
-    status = serializers.CharField()
+    lead_user = serializers.SerializerMethodField()
+    lead_name = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    @staticmethod
+    def _lead_user(group):
+        memberships = getattr(group, "_mentor_memberships", None) or []
+        return memberships[0].user if memberships else None
+
+    def get_lead_user(self, group):
+        user = self._lead_user(group)
+        if user is None:
+            return None
+        return DashboardLeadUserSerializer(user).data
+
+    def get_lead_name(self, group):
+        user = self._lead_user(group)
+        if user is None:
+            return None
+        return user.get_full_name() or user.email
+
+    def get_status(self, group):
+        return "active" if group.deleted_at is None else "deleted"
