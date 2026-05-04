@@ -222,8 +222,8 @@ class MatchStudentView(APIView):
             "msg": "Match retrieved successfully",
             "data": {
                 "recommendations": result.recommendations,
-                "unmatched_students": result.unmatched_students,
-                "not_full_groups": result.not_full_groups,
+                "unmatchedStudents": result.unmatched_students,
+                "notFullGroups": result.not_full_groups,
             },
         })
 

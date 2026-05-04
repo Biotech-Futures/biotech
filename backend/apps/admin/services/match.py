@@ -10,6 +10,7 @@ from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
 from apps.groups.models import Countries, CountryStates
+from apps.admin.algorithms.student import build_groups
 
 
 DEFAULT_GROUP_MAX_SIZE = 5
@@ -227,22 +228,127 @@ def match_student(uid: str) -> MatchStudentResult:
                 'availableSeats': available_seats,
             })
     
+    # Run matching algorithm on standalone students
+    standalone_student_list = list(standalone_students)
+    algorithm_students = []
+    for s in standalone_student_list:
+        algorithm_students.append({
+            'id': s['user_id'],
+            'name': f"{s['first_name']} {s['last_name']}".strip(),
+            'trackId': s['track_id'],
+            'country': s['country_name'] or '',
+            'yearLevel': int(s['year_level']) if s['year_level'] else 0,
+            'interests': interests_by_user.get(s['user_id'], []),
+        })
+
+    match_result = build_groups(algorithm_students)
+
+    # Build lookup maps for converting algorithm output
+    student_by_id = {s['user_id']: s for s in standalone_student_list}
+
+    # Convert algorithm groups into recommendations
+    recommendations = []
+    for group in match_result['groups']:
+        group_id = group['studentIds'][0]  # placeholder, we use actual group assignment
+        for student_id_str in group['studentIds']:
+            student_id = int(student_id_str) if isinstance(student_id_str, str) else student_id_str
+            student_data = student_by_id.get(student_id)
+            if not student_data:
+                continue
+
+            # Find best matching existing group (same track, has space)
+            matched_group = None
+            for ng in not_full_groups:
+                if ng['trackId'] == (student_data['track_code'] or student_data['track_id']):
+                    matched_group = ng
+                    break
+
+            # Get score info from algorithm
+            student_score = next(
+                (s for s in match_result['studentScores']
+                 if str(s['studentId']) == str(student_id)),
+                None,
+            )
+
+            reason = f"Recommended based on shared interests and compatible year levels within track {student_data['track_code'] or student_data['track_id']}."
+
+            recommendation = {
+                'student': {
+                    'id': student_id,
+                    'name': f"{student_data['first_name']} {student_data['last_name']}".strip(),
+                    'trackId': student_data['track_id'],
+                    'country': student_data['country_name'] or '',
+                    'yearLevel': int(student_data['year_level']) if student_data['year_level'] else None,
+                    'interests': interests_by_user.get(student_id, []),
+                },
+                'recommendGroup': {
+                    'id': matched_group['id'],
+                    'groupName': matched_group['groupName'],
+                    'trackId': matched_group['trackId'],
+                    'maxSize': matched_group['maxSize'],
+                    'tutor': matched_group['tutor'],
+                    'groupStudent': matched_group['groupStudent'],
+                } if matched_group else None,
+                'reason': reason,
+                'score': student_score['score'] if student_score else 0,
+                'scoreBreakdown': student_score['scoreBreakdown'] if student_score else {
+                    'baseScore': 100,
+                    'yearPenalty': 0,
+                    'countryPenalty': 0,
+                    'timezonePenalty': 0,
+                    'sizeBonus': 0,
+                    'totalPenalty': 0,
+                    'objectiveScore': 100,
+                },
+            }
+            recommendations.append(recommendation)
+
+    # Convert unmatched students
+    unmatched_students = []
+    for reason_entry in match_result['unmatchedStudentReasons']:
+        student_id = reason_entry['studentId']
+        student_id_int = int(student_id) if isinstance(student_id, str) else student_id
+        student_data = student_by_id.get(student_id_int)
+        if not student_data:
+            continue
+
+        unmatched_students.append({
+            'student': {
+                'id': student_id_int,
+                'name': f"{student_data['first_name']} {student_data['last_name']}".strip(),
+                'trackId': student_data['track_id'],
+                'country': student_data['country_name'] or '',
+                'yearLevel': int(student_data['year_level']) if student_data['year_level'] else None,
+                'interests': interests_by_user.get(student_id_int, []),
+            },
+            'reason': reason_entry['reason'],
+            'score': 0,
+            'scoreBreakdown': {
+                'baseScore': 100,
+                'yearPenalty': 0,
+                'countryPenalty': 0,
+                'timezonePenalty': 0,
+                'sizeBonus': 0,
+                'totalPenalty': 100,
+                'objectiveScore': 0,
+            },
+        })
+
     # Save match run
-    now = timezone.now().isoformat()
-    match_run = MatchRun.objects.create(
+    MatchRun.objects.create(
         initiated_by_user_id=int(uid),
         run_type='student-match',
         rules_snapshot={
             'strategy': 'hybrid-join-or-form',
-            'studentCount': len(list(standalone_students)),
+            'studentCount': len(standalone_student_list),
         }
     )
-    
+
     result = MatchStudentResult()
-    result.recommendations = []
-    result.unmatched_students = []
+    result.recommendations = recommendations
+    result.unmatched_students = unmatched_students
     result.not_full_groups = not_full_groups
-    
+
     return result
 
 

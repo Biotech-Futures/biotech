@@ -47,9 +47,9 @@ const recommendationScoreBreakdownSchema = z.object({
   yearPenalty: z.number(),
   countryPenalty: z.number(),
   timezonePenalty: z.number(),
-  sizeBonus: z.number(),
+  sizeBonus: z.number().default(0),
   totalPenalty: z.number(),
-  objectiveScore: z.number(),
+  objectiveScore: z.number().default(0),
 });
 
 export const matchRecommendationSchema = z.object({
