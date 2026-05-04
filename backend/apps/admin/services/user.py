@@ -1112,7 +1112,7 @@ def has_ungrouped_students() -> bool:
     from apps.groups.models import GroupMembership
 
     active_membership_subquery = GroupMembership.objects.filter(
-        user_id=OuterRef('id'),
+        user_id=OuterRef('user_id'),
         left_at__isnull=True
     )
     return StudentProfile.objects.filter(~Exists(active_membership_subquery)).exists()
