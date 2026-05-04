@@ -25,7 +25,14 @@
 from rest_framework import mixins, viewsets, permissions, status, pagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience
-from .serializers import RoleSerializer, RoleAssignmentHistorySerializer, ResourcesSerializer, ResourceListSerializer
+from .serializers import (
+    RoleSerializer,
+    RoleAssignmentHistorySerializer,
+    ResourceAccessSerializer,
+    ResourcesSerializer,
+    ResourceListSerializer,
+    ResourceTypeSerializer,
+)
 from django.db.models import Q
 from django.utils.dateparse import parse_date
 from django.utils import timezone
@@ -37,6 +44,8 @@ from rest_framework import status
 from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
+from django.http import HttpResponseRedirect
+from .models import ResourceType
 
 class RoleViewSet(mixins.ListModelMixin,
                   mixins.RetrieveModelMixin,
@@ -558,6 +567,70 @@ class ResourcesViewSet(mixins.ListModelMixin,
             after_state=ResourcesSerializer(instance).data,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _build_access_payload(self, resource):
+        # Resource access is explicit so the frontend can stop guessing whether a resource is
+        # directly downloadable, opens as an external page, or is not yet wired to storage.
+        storage_key = (resource.storage_key or "").strip()
+        external_url = storage_key if storage_key.startswith(("http://", "https://")) else None
+        if not storage_key:
+            access_mode = "unavailable"
+            detail = "This resource does not have a configured storage target yet."
+        elif external_url and resource.kind == Resources.ResourceKind.PAGE:
+            access_mode = "external_page"
+            detail = None
+        elif external_url and resource.kind == Resources.ResourceKind.FILE:
+            access_mode = "external_file"
+            detail = None
+        else:
+            access_mode = "managed_key"
+            detail = "This deployment does not yet resolve managed storage keys into public download URLs."
+
+        serializer = ResourceListSerializer(resource, context={"request": self.request})
+        resource_data = serializer.data
+        return {
+            "resource_id": resource.id,
+            "kind": resource.kind,
+            "storage_status": resource_data["storage_status"],
+            "access_mode": access_mode,
+            "access_url": resource_data["access_url"],
+            "download_url": resource_data["download_url"],
+            "external_url": external_url,
+            "file_name": resource_data["file_name"],
+            "file_mime_type": resource.file_mime_type,
+            "file_size": resource.file_size,
+            "detail": detail,
+        }
+
+    @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
+    def access(self, request, pk=None):
+        resource = self.get_object()
+        can_access, reason = self._user_can_access_resource(request.user, resource)
+        if not can_access:
+            return Response({"error": "Permission denied", "detail": reason}, status=status.HTTP_403_FORBIDDEN)
+
+        payload = self._build_access_payload(resource)
+        return Response(ResourceAccessSerializer(payload).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
+    def download(self, request, pk=None):
+        resource = self.get_object()
+        can_access, reason = self._user_can_access_resource(request.user, resource)
+        if not can_access:
+            return Response({"error": "Permission denied", "detail": reason}, status=status.HTTP_403_FORBIDDEN)
+
+        payload = self._build_access_payload(resource)
+        external_url = payload["external_url"]
+        if external_url and payload["access_mode"] in {"external_file", "external_page"}:
+            return HttpResponseRedirect(external_url)
+
+        return Response(
+            {
+                "detail": payload["detail"],
+                "resource": ResourceAccessSerializer(payload).data,
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
     
     # ================================ ResourceRole Management Actions ==============================================
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
@@ -629,3 +702,12 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 {"error": "Role is not assigned to this resource"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+class ResourceTypeViewSet(mixins.ListModelMixin,
+                          mixins.RetrieveModelMixin,
+                          viewsets.GenericViewSet):
+    queryset = ResourceType.objects.all().order_by("type_name")
+    serializer_class = ResourceTypeSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "head", "options"]

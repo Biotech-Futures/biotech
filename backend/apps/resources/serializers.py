@@ -1,5 +1,8 @@
+from pathlib import PurePosixPath
+
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
+from rest_framework.reverse import reverse
 from .models import RoleAssignmentHistory, Roles, Resources, ResourceAudience, ResourceType
 from apps.users.models import User
 from datetime import datetime, time, date
@@ -16,6 +19,20 @@ class ResourceTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ResourceType
         fields = ['id', 'type_name', 'type_description']
+
+
+class ResourceAccessSerializer(serializers.Serializer):
+    resource_id = serializers.IntegerField()
+    kind = serializers.CharField()
+    storage_status = serializers.CharField()
+    access_mode = serializers.CharField()
+    access_url = serializers.URLField(allow_null=True)
+    download_url = serializers.URLField(allow_null=True)
+    external_url = serializers.URLField(allow_null=True)
+    file_name = serializers.CharField(allow_null=True)
+    file_mime_type = serializers.CharField(allow_null=True)
+    file_size = serializers.IntegerField(allow_null=True)
+    detail = serializers.CharField(allow_null=True)
 
 class RoleSerializer(serializers.ModelSerializer):
     class Meta:
@@ -113,8 +130,10 @@ class ResourceAudienceWriteSerializer(serializers.Serializer):
 
 class ResourcesSerializer(serializers.ModelSerializer):
     uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+    uploader_name = serializers.SerializerMethodField()
     # Resource type field - read as nested object, write as ID
     resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
+    type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
     type_id = serializers.PrimaryKeyRelatedField(
         queryset=ResourceType.objects.all(),
         source='type',
@@ -125,6 +144,10 @@ class ResourcesSerializer(serializers.ModelSerializer):
     )
     # Role visibility fields
     visible_roles = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    access_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+    storage_status = serializers.SerializerMethodField()
     role_ids = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Roles.objects.all()),
         write_only=True,
@@ -141,6 +164,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'resource_type_detail',
+            'type_name',
             'type_id',
             'kind',
             'file_mime_type',
@@ -151,7 +175,12 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'visibility_scope',
             'uploaded_at',
             'uploader',  # read-only field for display (automatically set)
+            'uploader_name',
             'deleted_at',
+            'file_name',
+            'access_url',
+            'download_url',
+            'storage_status',
             'visible_roles', ##Custom Field (to be used for appending ResourceRoles data)
             'role_ids', ##Custom Field (to be used for appending ResourceRoles data)
             'audiences',
@@ -201,6 +230,37 @@ class ResourcesSerializer(serializers.ModelSerializer):
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
         return RoleSerializer([aud.role for aud in audiences], many=True).data
 
+    def get_uploader_name(self, obj):
+        if obj.uploaded_by_id is None:
+            return None
+        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
+
+    def get_file_name(self, obj):
+        if obj.storage_key:
+            return PurePosixPath(obj.storage_key).name or obj.name
+        return obj.name
+
+    def _build_route_url(self, obj, route_name):
+        request = self.context.get("request")
+        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
+
+    def get_access_url(self, obj):
+        if obj.storage_key:
+            return self._build_route_url(obj, "resource-files-access")
+        return None
+
+    def get_download_url(self, obj):
+        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
+            return self._build_route_url(obj, "resource-files-download")
+        return None
+
+    def get_storage_status(self, obj):
+        if not obj.storage_key:
+            return "unavailable"
+        if str(obj.storage_key).startswith(("http://", "https://")):
+            return "external_url"
+        return "managed_key"
+
     def _replace_audiences(self, resource, *, role_ids=None, audience_rules=None):
         if role_ids is None and audience_rules is None:
             return
@@ -243,8 +303,14 @@ class ResourcesSerializer(serializers.ModelSerializer):
 class ResourceListSerializer(serializers.ModelSerializer):
     """Simplified serializer for list view"""
     uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+    uploader_name = serializers.SerializerMethodField()
     resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
+    type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
     visible_roles = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    access_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+    storage_status = serializers.SerializerMethodField()
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
 
     class Meta:
@@ -254,6 +320,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'resource_type_detail',
+            'type_name',
             'kind',
             'file_mime_type',
             'file_size',
@@ -263,6 +330,11 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'visibility_scope',
             'uploaded_at',
             'uploader',
+            'uploader_name',
+            'file_name',
+            'access_url',
+            'download_url',
+            'storage_status',
             'visible_roles',
             'audiences',
         ]
@@ -272,3 +344,34 @@ class ResourceListSerializer(serializers.ModelSerializer):
         """Get the roles that can access this resource"""
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
         return RoleSerializer([aud.role for aud in audiences], many=True).data
+
+    def get_uploader_name(self, obj):
+        if obj.uploaded_by_id is None:
+            return None
+        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
+
+    def get_file_name(self, obj):
+        if obj.storage_key:
+            return PurePosixPath(obj.storage_key).name or obj.name
+        return obj.name
+
+    def _build_route_url(self, obj, route_name):
+        request = self.context.get("request")
+        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
+
+    def get_access_url(self, obj):
+        if obj.storage_key:
+            return self._build_route_url(obj, "resource-files-access")
+        return None
+
+    def get_download_url(self, obj):
+        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
+            return self._build_route_url(obj, "resource-files-download")
+        return None
+
+    def get_storage_status(self, obj):
+        if not obj.storage_key:
+            return "unavailable"
+        if str(obj.storage_key).startswith(("http://", "https://")):
+            return "external_url"
+        return "managed_key"
