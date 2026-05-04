@@ -228,6 +228,21 @@
                 <p class="surface-kicker">Overview</p>
                 <h3 class="surface-card-title">Progress Snapshot</h3>
               </div>
+              <select
+                v-if="progressGroupOptions.length"
+                v-model="selectedProgressGroupId"
+                class="progress-group-select"
+                aria-label="Select progress group"
+                @change="loadProgress"
+              >
+                <option
+                  v-for="group in progressGroupOptions"
+                  :key="group.id"
+                  :value="group.id"
+                >
+                  {{ group.label }}
+                </option>
+              </select>
             </div>
 
             <div class="progress-layout">
@@ -529,7 +544,7 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import * as THREE from 'three'
 
-import { mockBiotechShowcaseItems } from '@/data/mock'
+import { showcaseCarouselContent } from '@/data/showcaseCarouselContent'
 
 import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
@@ -564,9 +579,7 @@ const DASHBOARD_ENDPOINTS = {
   nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
   personalizedEvents: `${API_BASE_URL}/events/v1/?audience=me&page_size=1&ordering=start_datetime`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
-  tasksPreferred: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=false`,
-  tasks: `${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&deleted=False`,
-  milestones: `${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100`,
+  progress: `${API_BASE_URL}/dashboard/v1/progress/`,
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`
 }
 
@@ -602,6 +615,7 @@ const progressSnapshot = ref({
   nextMilestone: 'TBC',
   nextMilestoneDate: ''
 })
+const selectedProgressGroupId = ref('')
 
 const nextEventDateParts = computed(() => {
   const formatted = formatDateAU(nextEvent.value?.date || '') || 'TBC'
@@ -728,7 +742,7 @@ const dashboardThemeStyle = computed(() => {
 })
 
 const biotechShowcaseItems = ref(
-  Array.isArray(mockBiotechShowcaseItems) ? [...mockBiotechShowcaseItems] : []
+  Array.isArray(showcaseCarouselContent) ? [...showcaseCarouselContent] : []
 )
 
 const activeShowcaseIndex = ref(0)
@@ -814,11 +828,20 @@ const announcementsPreview = computed(() => {
 })
 
 const resourcesPreview = computed(() => {
-  return filterResourcesByRole(resources.value).slice(0, 6)
+  return resources.value.slice(0, 6)
 })
 
 const groupsPreview = computed(() => {
   return groups.value.slice(0, isAdmin.value ? 4 : 3)
+})
+
+const progressGroupOptions = computed(() => {
+  return groups.value
+    .map(group => ({
+      id: String(group?.id || ''),
+      label: getGroupName(group)
+    }))
+    .filter(group => group.id)
 })
 
 const progressPercentStyle = computed(() => {
@@ -942,7 +965,7 @@ const summaryWidgets = computed(() => {
       title: 'Upcoming Events',
       value: dashboardSummary.value.upcomingEvents,
       subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming event',
-      icon: 'fas fa-calendar-star',
+      icon: 'fas fa-calendar-check',
       accent: 'violet'
     },
     {
@@ -1212,61 +1235,6 @@ function deriveDashboardSummary() {
   }
 }
 
-function deriveProgressSnapshot(tasksData, milestonesData) {
-  const fallback = getEmptyProgressSnapshot()
-  const visibleGroupIds = toNumberSet(groups.value.map(group => group?.id))
-  let activeMilestones = extractCollectionItems(milestonesData).filter(milestone => milestone?.deleted_flag !== true)
-
-  if (!isAdmin.value && !visibleGroupIds.size) {
-    return fallback
-  }
-
-  if (visibleGroupIds.size) {
-    activeMilestones = activeMilestones.filter(milestone => visibleGroupIds.has(Number(milestone?.group)))
-  }
-
-  const visibleMilestoneIds = toNumberSet(activeMilestones.map(milestone => milestone?.id))
-  let activeTasks = extractCollectionItems(tasksData).filter(task => task?.deleted_flag !== true)
-
-  if (visibleMilestoneIds.size) {
-    activeTasks = activeTasks.filter(task => visibleMilestoneIds.has(Number(task?.milestone)))
-  }
-
-  if (!activeTasks.length && !activeMilestones.length) {
-    return fallback
-  }
-
-  const completedMilestoneIds = new Set(
-    activeMilestones
-      .filter(milestone => milestone?.completed === true)
-      .map(milestone => Number(milestone?.id))
-  )
-  const completedTasks = activeTasks.filter(task => completedMilestoneIds.has(Number(task?.milestone))).length
-  const fallbackCompleted = activeMilestones.filter(milestone => milestone?.completed === true).length
-  const totalTasks = activeTasks.length || activeMilestones.length || fallback.totalTasks
-  const doneTasks = activeTasks.length ? completedTasks : fallbackCompleted
-  const completionRate = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : fallback.completionRate
-  const nextMilestone =
-    activeMilestones.find(milestone => milestone?.completed !== true) ||
-    activeMilestones[0] ||
-    null
-  const nextTask =
-    activeTasks.find(task => Number(task?.milestone) === Number(nextMilestone?.id)) ||
-    [...activeTasks].sort((a, b) => new Date(a?.due_date || 0) - new Date(b?.due_date || 0))[0] ||
-    null
-
-  return {
-    completionRate,
-    completedTasks: doneTasks,
-    totalTasks,
-    currentWeek: activeMilestones.length
-      ? `${fallbackCompleted}/${activeMilestones.length} milestones`
-      : fallback.currentWeek,
-    nextMilestone: nextMilestone?.milestone_name || nextTask?.task_name || fallback.nextMilestone,
-    nextMilestoneDate: nextTask?.due_date || fallback.nextMilestoneDate
-  }
-}
-
 function normalizeProgressSnapshot(payload) {
   const fallback = getEmptyProgressSnapshot()
 
@@ -1275,13 +1243,32 @@ function normalizeProgressSnapshot(payload) {
   }
 
   return {
-    completionRate: Number(payload?.completion_rate ?? fallback.completionRate),
-    completedTasks: Number(payload?.completed_tasks ?? fallback.completedTasks),
-    totalTasks: Number(payload?.total_tasks ?? fallback.totalTasks),
-    currentWeek: payload?.current_stage || fallback.currentWeek,
-    nextMilestone: payload?.next_milestone?.name || fallback.nextMilestone,
-    nextMilestoneDate: payload?.next_milestone?.due_date || fallback.nextMilestoneDate
+    completionRate: Number(payload?.completionRate ?? payload?.completion_rate ?? fallback.completionRate),
+    completedTasks: Number(payload?.completedTasks ?? payload?.completed_tasks ?? fallback.completedTasks),
+    totalTasks: Number(payload?.totalTasks ?? payload?.total_tasks ?? fallback.totalTasks),
+    currentWeek: payload?.currentWeek ?? payload?.current_stage ?? fallback.currentWeek,
+    nextMilestone: payload?.nextMilestone ?? payload?.next_milestone?.name ?? fallback.nextMilestone,
+    nextMilestoneDate: payload?.nextMilestoneDate ?? payload?.next_milestone?.due_date ?? fallback.nextMilestoneDate
   }
+}
+
+function ensureSelectedProgressGroup() {
+  const options = progressGroupOptions.value
+  if (!options.length) {
+    selectedProgressGroupId.value = ''
+    return
+  }
+
+  const hasSelectedGroup = options.some(group => group.id === selectedProgressGroupId.value)
+  if (!hasSelectedGroup) {
+    selectedProgressGroupId.value = options[0].id
+  }
+}
+
+function getProgressEndpoint() {
+  ensureSelectedProgressGroup()
+  if (!selectedProgressGroupId.value) return DASHBOARD_ENDPOINTS.progress
+  return `${DASHBOARD_ENDPOINTS.progress}?group_id=${encodeURIComponent(selectedProgressGroupId.value)}`
 }
 
 function hasGroupPreviewShape(items) {
@@ -1500,12 +1487,8 @@ async function loadAdminWorkflow() {
 
 async function loadProgress() {
   try {
-    const [tasksData, milestonesData] = await Promise.all([
-      fetchFirstAvailable([DASHBOARD_ENDPOINTS.tasksPreferred, DASHBOARD_ENDPOINTS.tasks]),
-      fetchJson(DASHBOARD_ENDPOINTS.milestones)
-    ])
-
-    progressSnapshot.value = deriveProgressSnapshot(tasksData, milestonesData)
+    const data = await fetchJson(getProgressEndpoint())
+    progressSnapshot.value = normalizeProgressSnapshot(data)
   } catch {
     progressSnapshot.value = getEmptyProgressSnapshot()
   }
@@ -1567,24 +1550,6 @@ function openShowcaseLink(item) {
   if (typeof item.link === 'string' && item.link.startsWith('/')) {
     router.push(item.link)
   }
-}
-
-function filterResourcesByRole(items) {
-  const role = normalizedRole.value
-
-  return items.filter(item => {
-    const resourceRoles = Array.isArray(item?.roles) && item.roles.length
-      ? item.roles.map(normalizeRoleName)
-      : [normalizeRoleName(item?.role || 'all')]
-
-    if (resourceRoles.includes('all')) return true
-    if (role === 'teacher' && resourceRoles.some(resourceRole => ['mentor', 'supervisor'].includes(resourceRole))) return true
-    if (role === 'admin' && resourceRoles.includes('admin')) return true
-    if (role === 'student' && resourceRoles.includes('student')) return true
-    if (role === 'admin') return true
-
-    return false
-  })
 }
 
 function getAnnouncementTitle(item) {
@@ -2843,6 +2808,25 @@ onBeforeUnmount(() => {
    § 13  PROGRESS CARD  (orbital ring display)
    ────────────────────────────────────────────────────────────── */
 .progress-card { border-color: rgba(167, 139, 250, 0.16); }
+
+.progress-group-select {
+  min-width: 180px;
+  max-width: 260px;
+  min-height: 34px;
+  padding: 0.36rem 0.72rem;
+  border-radius: var(--radius-chip);
+  border: 1px solid rgba(167, 139, 250, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  outline: none;
+}
+
+.progress-group-select:focus {
+  border-color: rgba(167, 139, 250, 0.48);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.12);
+}
 
 .progress-card::after {
   content: '';
@@ -4636,5 +4620,33 @@ onBeforeUnmount(() => {
   .dashboard-hero-main {
     padding-top: 0;
   }
+}
+
+.dashboard-hero-card:hover,
+.surface-card:hover,
+.summary-card:hover,
+.showcase-card:hover,
+.hero-meta-chip:hover,
+.premium-row:hover,
+.group-card-link:hover .group-card-surface,
+.resource-card-link:hover .resource-card-surface,
+.list-row:hover {
+  transform: none !important;
+  box-shadow: 0 2px 4px var(--shadow) !important;
+}
+
+.summary-card:hover .summary-icon-wrap,
+.progress-card:hover .progress-ring,
+.event-detail-card:hover .event-date-badge,
+.event-detail-card:hover .event-content,
+.premium-row:hover .announcement-icon,
+.premium-row:hover .list-row-tail,
+.group-card-link:hover .primary-avatar,
+.group-card-link:hover .secondary-avatar,
+.group-card-link:hover .tertiary-avatar,
+.group-card-link:hover .group-open-indicator,
+.resource-card-link:hover .resource-icon,
+.showcase-card:hover .showcase-image {
+  transform: none !important;
 }
 </style>

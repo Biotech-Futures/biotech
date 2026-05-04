@@ -24,7 +24,7 @@ class DashboardNextEventSerializer(serializers.Serializer):
     start_datetime = serializers.DateTimeField()
     ends_datetime = serializers.DateTimeField(allow_null=True)
     location = serializers.CharField(allow_null=True, allow_blank=True)
-    link = serializers.URLField(allow_null=True, allow_blank=True)
+    location_link = serializers.URLField(allow_null=True, allow_blank=True)
     event_image = serializers.URLField(allow_null=True)
     is_virtual = serializers.BooleanField()
     rsvp_status = serializers.CharField(allow_null=True)
