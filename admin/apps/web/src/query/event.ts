@@ -217,7 +217,12 @@ function toApiEventPayload(data: CreateEvent | UpdateEvent) {
   return {
     ...data,
     hostUserId: data.hostUserId ?? null,
-    startAt: data.startAt ? data.startAt + ":00.000Z" : undefined,
-    endsAt: data.endsAt ? data.endsAt + ":00.000Z" : undefined,
+    startAt: toIsoFromDatetimeLocal(data.startAt),
+    endsAt: toIsoFromDatetimeLocal(data.endsAt),
   };
+}
+
+function toIsoFromDatetimeLocal(value: string | undefined) {
+  if (!value) return undefined;
+  return new Date(value).toISOString();
 }

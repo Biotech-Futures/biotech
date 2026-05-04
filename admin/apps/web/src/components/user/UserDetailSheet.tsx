@@ -23,17 +23,24 @@ export function UserDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
+      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{user.name || "User Details"}</SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-6 px-4 pb-4">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
           <DetailSection
             title="Account"
             items={[
               { label: "Email", value: user.email || "-" },
-              { label: "Role", value: <Badge variant="outline">{labelizeUserRole(user.role)}</Badge> },
+              {
+                label: "Role",
+                value: user.role ? (
+                  <Badge variant="outline">{labelizeUserRole(user.role)}</Badge>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                ),
+              },
               { label: "Track", value: labelizeTrack(user.track) },
               {
                 label: "Status",
@@ -43,26 +50,63 @@ export function UserDetailSheet({
                   </Badge>
                 ),
               },
-              { label: "Source", value: user.source },
             ]}
           />
 
-          <DetailSection
-            title="Student Profile"
-            items={[
-              { label: "School", value: user.schoolName || "-" },
-              { label: "Age / Year Level", value: user.age ?? "-" },
-              {
-                label: "Join Permission",
-                value: user.joinPermissionReceived ? "Received" : "Not received",
-              },
-              {
-                label: "Interests",
-                value: user.interests.length ? user.interests.join(", ") : "-",
-              },
-              { label: "Group", value: user.groupName || "-" },
-            ]}
-          />
+          {user.role === "student" && (
+            <DetailSection
+              title="Student Profile"
+              items={[
+                { label: "School", value: user.schoolName || "-" },
+                { label: "Year Level", value: user.age ?? "-" },
+                {
+                  label: "Join Permission",
+                  value: user.joinPermissionReceived ? "Received" : "Not received",
+                },
+                {
+                  label: "Interests",
+                  value: user.interests.length ? user.interests.join(", ") : "-",
+                },
+                { label: "Group", value: user.groupName || "-" },
+              ]}
+            />
+          )}
+
+          {user.role === "mentor" && (
+            <DetailSection
+              title="Mentor Profile"
+              items={[
+                {
+                  label: "Interests / Expertise",
+                  value: user.interests.length ? user.interests.join(", ") : "-",
+                },
+                { label: "Institution", value: user.mentorInstitution || "-" },
+                { label: "Background", value: user.mentorBackground || "-" },
+                { label: "Mentor Reason", value: user.mentorReason || "-" },
+                { label: "Max Groups", value: user.mentorMaxGroupCount ?? "-" },
+                { label: "Group", value: user.groupName || "-" },
+              ]}
+            />
+          )}
+
+          {user.role === "supervisor" && (
+            <DetailSection
+              title="Supervisor Profile"
+              items={[
+                { label: "School", value: user.schoolName || "-" },
+                { label: "Group", value: user.groupName || "-" },
+              ]}
+            />
+          )}
+
+          {user.role === "admin" && user.adminTracks.length > 0 && (
+            <DetailSection
+              title="Admin Profile"
+              items={[
+                { label: "Managed Tracks", value: user.adminTracks.join(", ") },
+              ]}
+            />
+          )}
         </div>
       </SheetContent>
     </Sheet>

@@ -16,8 +16,13 @@ export type UserAccount = {
   groupName: string | null;
   age: number | null;
   schoolName: string | null;
+  mentorBackground: string | null;
+  mentorInstitution: string | null;
+  mentorReason: string | null;
+  mentorMaxGroupCount: number | null;
   joinPermissionReceived: boolean;
   interests: string[];
+  adminTracks: string[];
   createdAt: string;
   updatedAt: string;
   active: boolean;
@@ -43,7 +48,13 @@ export type UserFormValues = {
   email: string;
   role: UserRole;
   track: UserTrack | null;
+  adminTracks: UserTrack[];
   schoolName: string;
+  supervisorSchoolName: string;
+  mentorBackground: string;
+  mentorInstitution: string;
+  mentorReason: string;
+  mentorMaxGroupCount: number | null;
   yearLevel: number | null;
   interests: string[];
   joinPermissionReceived: boolean;
