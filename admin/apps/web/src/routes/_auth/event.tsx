@@ -46,7 +46,7 @@ import {
 } from "@/query/event";
 import { useQueryUsers } from "@/query/user";
 import type { Event, EventRsvp } from "@/type/event";
-import { authClient } from "@/lib/authClient";
+import { useAuthContext } from "@/provider/AuthProvider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -171,12 +171,6 @@ function EventForm({
           />
         </div>
       )}
-
-      {/* Humanitix Link */}
-      <div className="space-y-1.5">
-        <Label>Humanitix Link</Label>
-        <Input placeholder="https://..." {...register("humanitixLink")} />
-      </div>
 
       {/* Start datetime */}
       <Controller
@@ -336,7 +330,7 @@ function EventPage() {
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
   const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
 
-  const { data: sessionData } = authClient.useSession();
+  const { user: currentUser } = useAuthContext();
   const { data, isPending } = useQueryEvents({ page, limit: 10, upcoming });
   const { data: usersData } = useQueryUsers();
   const { data: groupsData } = useQueryGroups();
@@ -364,7 +358,7 @@ function EventPage() {
   const roles = rolesData?.data ?? [];
   const tracks = tracksData?.data ?? [];
 
-  const currentAdminEmail = sessionData?.user?.email ?? "";
+  const currentAdminEmail = currentUser?.email ?? "";
   const currentUserRecord = allUsers.find((u) => u.email === currentAdminEmail);
   const currentUserId = currentUserRecord ? Number(currentUserRecord.id) : null;
   const currentHostName = currentUserId
@@ -386,7 +380,6 @@ function EventPage() {
       eventName: "",
       description: null,
       location: null,
-      humanitixLink: "",
       isVirtual: false,
       startAt: "",
       endsAt: "",
@@ -438,7 +431,6 @@ function EventPage() {
         eventName: editingEvent.eventName,
         description: editingEvent.description,
         location: editingEvent.location,
-        humanitixLink: editingEvent.humanitixLink,
         isVirtual: editingEvent.isVirtual,
         startAt: toDatetimeLocal(editingEvent.startDatetime),
         endsAt: toDatetimeLocal(editingEvent.endsDatetime),
@@ -475,7 +467,6 @@ function EventPage() {
             eventName: "",
             description: null,
             location: null,
-            humanitixLink: "",
             isVirtual: false,
             startAt: "",
             endsAt: "",
@@ -562,20 +553,7 @@ function EventPage() {
                       : "Unassigned"}
                   </TableCell>
                   <TableCell>
-                    {event.location ? (
-                      event.location
-                    ) : event.humanitixLink ? (
-                      <a
-                        href={event.humanitixLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 underline"
-                      >
-                        Humanitix Link
-                      </a>
-                    ) : (
-                      "—"
-                    )}
+                    {event.location || "—"}
                   </TableCell>
                   <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
                   <TableCell>{formatDateTime(event.endsDatetime)}</TableCell>
@@ -719,25 +697,6 @@ function EventPage() {
                 <p className="text-sm">{viewingEvent?.location || "—"}</p>
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Humanitix Link
-              </Label>
-              <p className="text-sm">
-                {viewingEvent?.humanitixLink ? (
-                  <a
-                    href={viewingEvent.humanitixLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 underline"
-                  >
-                    {viewingEvent.humanitixLink}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </p>
-            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase">
@@ -836,7 +795,6 @@ function EventPage() {
               eventName: "",
               description: null,
               location: null,
-              humanitixLink: "",
               isVirtual: false,
               startAt: "",
               endsAt: "",

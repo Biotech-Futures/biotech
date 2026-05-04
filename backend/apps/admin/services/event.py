@@ -82,13 +82,30 @@ def _to_event_id(id_str: str) -> Optional[int]:
         return None
 
 
+def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a raw Django values() dict to camelCase for the frontend."""
+    return {
+        "id": event["id"],
+        "eventName": event.get("event_name"),
+        "description": event.get("description"),
+        "startDatetime": event.get("start_datetime").isoformat() if event.get("start_datetime") else None,
+        "endsDatetime": event.get("ends_datetime").isoformat() if event.get("ends_datetime") else None,
+        "location": event.get("location"),
+        "deletedFlag": event.get("deleted_at") is not None,
+        "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
+        "eventImage(img)": event.get("event_image"),
+        "isVirtual": event.get("is_virtual", False),
+        "hostUserId": event.get("host_user_id"),
+    }
+
+
 def query_events(params: QueryEventsInput) -> PaginatedEventResponse:
     """
     Query events with pagination and filtering.
-    
+
     Args:
         params: Dictionary with page, limit, host_user_id, and upcoming filters
-        
+
     Returns:
         Dictionary with events list, total count, and pagination info
     """
@@ -96,27 +113,28 @@ def query_events(params: QueryEventsInput) -> PaginatedEventResponse:
     limit = params.get("limit", 10)
     host_user_id = params.get("host_user_id")
     upcoming = params.get("upcoming", False)
-    
+
     offset = (page - 1) * limit
-    
+
     # Build query conditions
     queryset = Events.objects.filter(deleted_at__isnull=True)
-    
+
     if host_user_id:
         queryset = queryset.filter(host_user__id=host_user_id)
-    
+
     if upcoming:
         now = timezone.now()
         queryset = queryset.filter(start_datetime__gte=now)
-    
+
     # Get total count
     total = queryset.count()
-    
-    # Fetch paginated items
-    items = list(queryset.order_by("start_datetime")[offset:offset + limit].values())
-    
+
+    # Fetch paginated items and convert to camelCase
+    raw_items = list(queryset.order_by("start_datetime")[offset:offset + limit].values())
+    items = [_event_to_camel(e) for e in raw_items]
+
     has_more = offset + len(items) < total
-    
+
     return {
         "msg": "Events retrieved successfully",
         "data": {
@@ -129,23 +147,40 @@ def query_events(params: QueryEventsInput) -> PaginatedEventResponse:
     }
 
 
+def _event_model_to_camel(event: Events) -> Dict[str, Any]:
+    """Convert a Django Events model instance to camelCase dict."""
+    return {
+        "id": event.id,
+        "eventName": event.event_name,
+        "description": event.description,
+        "startDatetime": event.start_datetime.isoformat() if event.start_datetime else None,
+        "endsDatetime": event.ends_datetime.isoformat() if event.ends_datetime else None,
+        "location": event.location,
+        "deletedFlag": event.deleted_at is not None,
+        "deletedDatetime": event.deleted_at.isoformat() if event.deleted_at else None,
+        "eventImage(img)": event.event_image,
+        "isVirtual": event.is_virtual,
+        "hostUserId": event.host_user_id,
+    }
+
+
 def query_event_by_id(id_str: str) -> EventResponseDict:
     """
     Get a single event by ID.
-    
+
     Args:
         id_str: Event ID as string
-        
+
     Returns:
         Dictionary with event data or error message
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
+
     try:
         event = Events.objects.get(id=event_id, deleted_at__isnull=True)
-        return {"msg": "Event retrieved successfully", "data": event}
+        return {"msg": "Event retrieved successfully", "data": _event_model_to_camel(event)}
     except Events.DoesNotExist:
         return {"msg": "Event not found", "data": None}
 
@@ -171,9 +206,9 @@ def query_event_targets(id_str: str) -> EventTargetsResponseDict:
     return {
         "msg": "Event targets retrieved successfully",
         "data": {
-            "group_ids": list(group_rows),
-            "role_ids": list(role_rows),
-            "track_ids": list(track_rows),
+            "groupIds": list(group_rows),
+            "roleIds": list(role_rows),
+            "trackIds": list(track_rows),
         },
     }
 
@@ -220,110 +255,117 @@ def _sync_targets(
 
 
 @transaction.atomic
-def create_event(data: CreateEventInput) -> EventResponseDict:
+def create_event(data: Dict[str, Any]) -> EventResponseDict:
     """
     Create a new event.
-    
+
     Args:
-        data: Event creation data
-        
+        data: Event creation data (camelCase from frontend)
+
     Returns:
         Dictionary with created event or error message
     """
-    if not data.get("host_user_id"):
-        raise ValueError("host_user_id is required")
-    
+    host_user_id = data.get("hostUserId") or data.get("host_user_id")
+    if not host_user_id:
+        raise ValueError("hostUserId is required")
+
     # Parse dates
-    start_datetime = datetime.fromisoformat(data["start_at"].replace("Z", "+00:00"))
-    ends_datetime = datetime.fromisoformat(data["ends_at"].replace("Z", "+00:00"))
-    
+    start_at = data.get("startAt") or data.get("start_at")
+    ends_at = data.get("endsAt") or data.get("ends_at")
+    start_datetime = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
+    ends_datetime = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+
     location = data.get("location", "").strip() if data.get("location") else None
-    
+
     event = Events.objects.create(
-        event_name=data.get("event_name"),
+        event_name=data.get("eventName") or data.get("event_name"),
         description=data.get("description"),
         location=location,
-        is_virtual=data.get("is_virtual", False),
-        host_user_id=data.get("host_user_id"),
+        is_virtual=data.get("isVirtual") or data.get("is_virtual") or False,
+        host_user_id=host_user_id,
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,
     )
-    
+
     # Sync targets
     _sync_targets(
         event.id,
-        data.get("target_group_ids"),
-        data.get("target_role_ids"),
-        data.get("target_track_ids"),
+        data.get("targetGroupIds") or data.get("target_group_ids"),
+        data.get("targetRoleIds") or data.get("target_role_ids"),
+        data.get("targetTrackIds") or data.get("target_track_ids"),
     )
-    
-    return {"msg": "Event created successfully", "data": event}
+
+    return {"msg": "Event created successfully", "data": _event_model_to_camel(event)}
 
 
 @transaction.atomic
-def update_event(id_str: str, data: UpdateEventInput) -> EventResponseDict:
+def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     """
     Update an existing event.
-    
+
     Args:
         id_str: Event ID as string
-        data: Event update data
-        
+        data: Update data (camelCase from frontend)
+
     Returns:
         Dictionary with updated event or error message
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
+
     try:
         event = Events.objects.get(id=event_id)
     except Events.DoesNotExist:
         return {"msg": "Event not found", "data": None}
-    
-    # Prepare updates
+
+    # Prepare updates - accept both camelCase and snake_case
     updates = {}
-    if "host_user_id" in data and data["host_user_id"] is not None:
-        updates["host_user_id"] = data["host_user_id"]
-    if "event_name" in data and data["event_name"] is not None:
-        updates["event_name"] = data["event_name"]
+    host_user_id = data.get("hostUserId") or data.get("host_user_id")
+    if host_user_id is not None:
+        updates["host_user_id"] = host_user_id
+    event_name = data.get("eventName") or data.get("event_name")
+    if event_name is not None:
+        updates["event_name"] = event_name
     if "description" in data and data["description"] is not None:
         updates["description"] = data["description"]
     if "location" in data and data["location"] is not None:
-        location = data["location"].strip() if data["location"] else None
-        updates["location"] = location
-    if "is_virtual" in data and data["is_virtual"] is not None:
-        updates["is_virtual"] = data["is_virtual"]
-    if "start_at" in data and data["start_at"] is not None:
+        updates["location"] = data["location"].strip() if data["location"] else None
+    is_virtual = data.get("isVirtual") or data.get("is_virtual")
+    if is_virtual is not None:
+        updates["is_virtual"] = is_virtual
+    start_at = data.get("startAt") or data.get("start_at")
+    if start_at is not None:
         updates["start_datetime"] = datetime.fromisoformat(
-            data["start_at"].replace("Z", "+00:00")
+            start_at.replace("Z", "+00:00")
         )
-    if "ends_at" in data and data["ends_at"] is not None:
+    ends_at = data.get("endsAt") or data.get("ends_at")
+    if ends_at is not None:
         updates["ends_datetime"] = datetime.fromisoformat(
-            data["ends_at"].replace("Z", "+00:00")
+            ends_at.replace("Z", "+00:00")
         )
-    
+
     # Validate date range if both dates are being updated or one is being updated
     start_datetime = updates.get("start_datetime", event.start_datetime)
     ends_datetime = updates.get("ends_datetime", event.ends_datetime)
-    
+
     if ends_datetime <= start_datetime:
         return {"msg": "endsAt must be after startAt", "data": None}
-    
+
     # Apply updates
     for key, value in updates.items():
         setattr(event, key, value)
     event.save()
-    
+
     # Sync targets regardless of whether event fields changed
     _sync_targets(
         event_id,
-        data.get("target_group_ids"),
-        data.get("target_role_ids"),
-        data.get("target_track_ids"),
+        data.get("targetGroupIds") or data.get("target_group_ids"),
+        data.get("targetRoleIds") or data.get("target_role_ids"),
+        data.get("targetTrackIds") or data.get("target_track_ids"),
     )
-    
-    return {"msg": "Event updated successfully", "data": event}
+
+    return {"msg": "Event updated successfully", "data": _event_model_to_camel(event)}
 
 
 @transaction.atomic
@@ -353,84 +395,112 @@ def delete_event(id_str: str) -> EventResponseDict:
     event.deleted_at = timezone.now()
     event.save()
     
-    return {"msg": "Event deleted successfully", "data": event}
+    return {"msg": "Event deleted successfully", "data": _event_model_to_camel(event)}
+
+
+def _rsvp_to_camel(rsvp: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a raw RSVP values() dict to camelCase for the frontend."""
+    return {
+        "id": rsvp["id"],
+        "eventId": rsvp.get("event_id"),
+        "userId": rsvp.get("user_id"),
+        "rsvpStatus": rsvp.get("rsvp_status"),
+        "respondedAt": rsvp.get("responded_at").isoformat() if rsvp.get("responded_at") else None,
+    }
 
 
 def query_event_rsvps(id_str: str) -> EventResponseDict:
     """
     Get all RSVPs for an event.
-    
+
     Args:
         id_str: Event ID as string
-        
+
     Returns:
         Dictionary with RSVPs list or error message
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
-    rsvps = list(
+
+    raw_rsvps = list(
         EventRsvp.objects
         .filter(event_id=event_id)
         .order_by("id")
         .values()
     )
-    
+    rsvps = [_rsvp_to_camel(r) for r in raw_rsvps]
+
     return {"msg": "Event RSVPs retrieved successfully", "data": rsvps}
 
 
 @transaction.atomic
-def create_event_rsvp(id_str: str, data: CreateEventRsvpInput) -> EventResponseDict:
+def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     """
     Create an RSVP for an event.
-    
+
     Args:
         id_str: Event ID as string
-        data: RSVP creation data with user_id and rsvp_status
-        
+        data: RSVP creation data (camelCase from frontend)
+
     Returns:
         Dictionary with created RSVP or error message
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
-    # Note: The original uses Date.now() - 600000 (10 minutes ago)
-    # This seems unusual; adjust based on actual requirements
+
     responded_at = timezone.now()
-    
+
     rsvp = EventRsvp.objects.create(
         event_id=event_id,
-        user_id=data.get("user_id"),
-        rsvp_status=data.get("rsvp_status"),
+        user_id=data.get("userId") or data.get("user_id"),
+        rsvp_status=data.get("rsvpStatus") or data.get("rsvp_status"),
         responded_at=responded_at,
     )
-    
-    return {"msg": "Event RSVP created successfully", "data": rsvp}
+
+    return {
+        "msg": "Event RSVP created successfully",
+        "data": {
+            "id": rsvp.id,
+            "eventId": rsvp.event_id,
+            "userId": rsvp.user_id,
+            "rsvpStatus": rsvp.rsvp_status,
+            "respondedAt": rsvp.responded_at.isoformat() if rsvp.responded_at else None,
+        },
+    }
 
 
 @transaction.atomic
-def update_event_rsvp(rsvp_id_str: str, data: UpdateEventRsvpInput) -> EventResponseDict:
+def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     """
     Update an RSVP.
-    
+
     Args:
         rsvp_id_str: RSVP ID as string
-        data: Update data with rsvp_status
-        
+        data: Update data (camelCase from frontend)
+
     Returns:
         Dictionary with updated RSVP or error message
     """
     rsvp_id = _to_event_id(rsvp_id_str)
     if not rsvp_id:
         return {"msg": "Invalid RSVP id", "data": None}
-    
+
     try:
         rsvp = EventRsvp.objects.get(id=rsvp_id)
-        rsvp.rsvp_status = data.get("rsvp_status")
+        rsvp.rsvp_status = data.get("rsvpStatus") or data.get("rsvp_status")
         rsvp.save()
-        return {"msg": "Event RSVP updated successfully", "data": rsvp}
+        return {
+            "msg": "Event RSVP updated successfully",
+            "data": {
+                "id": rsvp.id,
+                "eventId": rsvp.event_id,
+                "userId": rsvp.user_id,
+                "rsvpStatus": rsvp.rsvp_status,
+                "respondedAt": rsvp.responded_at.isoformat() if rsvp.responded_at else None,
+            },
+        }
     except EventRsvp.DoesNotExist:
         return {"msg": "Event RSVP not found", "data": None}
 
