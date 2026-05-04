@@ -44,12 +44,15 @@ Design decisions
 
 5. **Known accepted false positives** (substring stems intentionally trade
    precision for coverage; document, don't whack-a-mole):
-     - ``shitake`` / ``shiitake`` (mushroom)  — stem ``shit*`` matches
-     - ``Scunthorpe`` (English town)          — stem ``cunt*`` matches
-     - ``peacock``, ``cocktail``, ``cockpit`` — stem ``cock*`` matches
-     - ``Dick`` (the given name)              — stem ``dick*`` matches
+     - ``shitake`` / ``shiitake`` (mushroom)   — stem ``shit*``   matches
+     - ``Scunthorpe`` (English town)           — stem ``cunt*``   matches
+     - ``peacock``, ``cocktail``, ``cockpit``  — stem ``cock*``   matches
+     - ``Dick`` (the given name)               — stem ``dick*``   matches
+     - ``pussycat``, ``pussyfoot``             — stem ``pussy*``  matches
+     - ``snigger`` / ``sniggered``             — stem ``nigger*`` matches
    Override via ``CHAT_SANITIZER_BLACKLIST`` env var if these are unacceptable
-   for your audience (e.g. drop ``cock*`` to keep peacock).
+   for your audience (e.g. drop ``cock*`` to keep peacock, or downgrade
+   ``pussy*`` to a whole-word ``pussy`` to keep ``pussycat``).
 
 6. **Will NOT catch:** zero-width-space attacks, homoglyph attacks
    (cyrillic ``а`` for latin ``a``), creative misspellings, transliteration.
@@ -71,12 +74,15 @@ from typing import Iterable
 # individual entries.
 DEFAULT_BLACKLIST: tuple[str, ...] = (
     # Stems — substring match (low false-positive rate; few innocent English
-    # words share these letter sequences).
+    # words share these letter sequences). Stems also catch leet/spaced
+    # variants automatically, so e.g. ``fuck*`` covers ``fucker``,
+    # ``brainfuck``, ``f*ck`` and ``fuuuck`` without separate entries.
     "fuck*", "shit*", "dick*", "bitch*", "cock*", "cunt*", "prick*",
+    "pussy*", "nigger*", "nigga*", "faggot*", "nigga*",
     # Whole-word — letter sequences too common as substrings to safely stem
     # (e.g. ``hell`` inside ``hello``, ``ass`` inside ``passive`` / ``class``).
     "hell", "damn", "crap", "piss", "ass",
-    "asshole", "arsehole", "asshat", "bastard", "wanker", "twat",
+    "asshole", "arsehole", "asshat", "bastard", "wanker", "twat"
 )
 
 DEFAULT_REPLACEMENT = "***"
@@ -252,3 +258,10 @@ def sanitize_text(
 
     pattern = _cached_pattern(tuple(sorted({w for w in blacklist if w})))
     return pattern.sub(replacement, text)
+
+
+def reset_pattern_cache() -> None:
+    """Test helper: drop the LRU-cached compiled patterns. Use this after
+    ``override_settings(CHAT_SANITIZER_*=...)`` in tests so the next call to
+    :func:`sanitize_text` rebuilds with the updated configuration."""
+    _cached_pattern.cache_clear()

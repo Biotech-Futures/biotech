@@ -4,8 +4,7 @@
 # Added MessageStatusSerializer for read/delivery tracking.
 
 from rest_framework import serializers
-
-from .models import Messages, MessageResource, MessageStatus, MessageReaction
+from .models import Messages, MessageResource, MessageStatus
 from .utils import sanitize_text
 from apps.resources.models import Resources
 
@@ -77,9 +76,10 @@ class MessageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
-        # Intercept blacklisted words before serializer.save() runs.
-        # Done here (not in the view) so every code path that goes through this
-        # serializer — REST create plus any future callers — gets sanitised input.
+        # Sanitise BEFORE serializer.save() so the moderated text is what
+        # gets persisted. Doing this here keeps the rule decoupled from
+        # the view and ensures every write path (REST POST, future bulk
+        # imports, admin tools) goes through the same filter.
         if "message_text" in attrs:
             attrs["message_text"] = sanitize_text(attrs["message_text"])
         return attrs
@@ -90,24 +90,12 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         model = Messages
         fields = ["message_text"]
 
+    def validate_message_text(self, value):
+        return sanitize_text(value)
+
     def update(self, instance, validated_data):
         from django.utils import timezone
-        new_text = validated_data.get("message_text", instance.message_text)
-        instance.message_text = sanitize_text(new_text)
+        instance.message_text = validated_data.get("message_text", instance.message_text)
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
-
-
-class MessageReactionSerializer(serializers.Serializer):
-    message_id = serializers.IntegerField()
-    reactions = serializers.DictField(child=serializers.IntegerField())
-
-
-class ReactRequestSerializer(serializers.Serializer):
-    """Validates the emoji input for the react action."""
-    emoji_string = serializers.CharField(
-        required=True,
-        max_length=64,
-        trim_whitespace=True,
-    )
