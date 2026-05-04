@@ -5,7 +5,6 @@ export type Event = {
   startDatetime: string;
   endsDatetime: string;
   location: string | null;
-  humanitixLink: string;
   deletedFlag: boolean;
   deletedDatetime: string | null;
   "eventImage(img)": string | null;

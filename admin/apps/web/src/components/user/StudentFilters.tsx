@@ -13,14 +13,10 @@ import { STUDENT_TRACKS } from "@/type/user";
 interface StudentFiltersProps {
   search: string;
   onSearchChange: (value: string) => void;
-  yearLevel: string;
-  onYearLevelChange: (value: string) => void;
   track: StudentTrack | undefined;
   onTrackChange: (value: StudentTrack | undefined) => void;
   tracks?: TrackOption[];
   isLoadingTracks?: boolean;
-  interest: string;
-  onInterestChange: (value: string) => void;
   inGroup: "yes" | "no" | "all";
   onInGroupChange: (value: "yes" | "no" | "all") => void;
 }
@@ -32,8 +28,6 @@ export function StudentFilters({
   onTrackChange,
   tracks = [],
   isLoadingTracks = false,
-  interest,
-  onInterestChange,
   inGroup,
   onInGroupChange,
 }: StudentFiltersProps) {
@@ -41,7 +35,7 @@ export function StudentFilters({
     tracks.length > 0 ? tracks.map((item) => item.trackName) : STUDENT_TRACKS;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-4 md:grid-cols-3">
       <div className="space-y-1">
         <Label htmlFor="student-search">Search</Label>
         <Input
@@ -51,28 +45,6 @@ export function StudentFilters({
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
-
-      {/* <div className="space-y-1">
-        <Label htmlFor="student-year-level">Year</Label>
-        <Select
-          value={yearLevel || "all"}
-          onValueChange={(value) =>
-            onYearLevelChange(value === "all" ? "" : value)
-          }
-        >
-          <SelectTrigger id="student-year-level">
-            <SelectValue placeholder="All years" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All years</SelectItem>
-            {[7, 8, 9, 10, 11, 12].map((n) => (
-              <SelectItem key={n} value={String(n)}>
-                Year {n}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div> */}
 
       <div className="space-y-1">
         <Label htmlFor="student-track">Track</Label>
@@ -99,16 +71,6 @@ export function StudentFilters({
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      <div className="space-y-1">
-        <Label htmlFor="student-interest">Interest</Label>
-        <Input
-          id="student-interest"
-          placeholder="Interest keyword"
-          value={interest}
-          onChange={(e) => onInterestChange(e.target.value)}
-        />
       </div>
 
       <div className="space-y-1">
