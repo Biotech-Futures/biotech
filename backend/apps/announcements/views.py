@@ -34,8 +34,26 @@ class AnnouncementViewSet(
         if not user or not user.is_authenticated:
             return Announcement.objects.none()
 
+        include_archived = str(self.request.query_params.get("include_archived", "")).lower() in {"1", "true", "yes"}
+        if not include_archived:
+            queryset = queryset.filter(archived_at__isnull=True)
+
+        search_text = (self.request.query_params.get("q") or self.request.query_params.get("search") or "").strip()
+        if search_text:
+            queryset = queryset.filter(Q(title__icontains=search_text) | Q(body__icontains=search_text))
+
+        visibility_scope = self.request.query_params.get("visibility_scope")
+        if visibility_scope:
+            queryset = queryset.filter(visibility_scope=visibility_scope)
+
+        track_id = self.request.query_params.get("track_id")
+        if track_id:
+            queryset = queryset.filter(Q(track_id=track_id) | Q(audiences__track_id=track_id))
+
         if user.is_staff or user.is_superuser:
-            return queryset.order_by("-published_at")
+            # Staff should see the full management surface, but still through the same predictable
+            # list contract and filters the SPA will rely on.
+            return queryset.distinct().order_by("-published_at", "-id")
 
         now = timezone.now()
         role_ids = RoleAssignmentHistory.objects.filter(
@@ -51,7 +69,7 @@ class AnnouncementViewSet(
         if user.track_id:
             audience_filter |= Q(track_id=user.track_id) | Q(audiences__track_id=user.track_id)
 
-        return queryset.filter(Q(archived_at__isnull=True), audience_filter).distinct().order_by("-published_at")
+        return queryset.filter(audience_filter).distinct().order_by("-published_at", "-id")
 
     def perform_create(self, serializer):
         announcement = serializer.save(author_user=self.request.user)
