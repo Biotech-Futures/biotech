@@ -24,6 +24,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     # API v1 endpoints
+    path("api/v1/admin/", include("apps.admin.urls")),
     path("api/v1/", include("apps.users.urls")),
     path("dashboard/v1/", include("apps.dashboard.urls")),
 

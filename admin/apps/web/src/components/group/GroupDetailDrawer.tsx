@@ -312,7 +312,7 @@ export function GroupDetailDrawer({
                         "text-xs",
                         m.remainingCapacity === 0 ? "text-destructive" : "text-muted-foreground",
                       )}>
-                        {m.currentAcceptedCount}/{m.maxGroupCount} groups
+                        {m.currentAssignedCount}/{m.maxGroupCount} groups
                       </span>
                     </div>
                   </div>

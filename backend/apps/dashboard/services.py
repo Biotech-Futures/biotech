@@ -53,10 +53,6 @@ def _event_role_ids(event):
 def _build_payload(event, user_rsvp=None):
     group_targets = _event_group_targets(event)
 
-    fallback_link = getattr(event, 'humanitix_link', event.link)
-    if event.is_virtual and not fallback_link:
-        fallback_link = event.location
-
     return {
         "id": event.id,
         "event_name": event.event_name,
@@ -67,7 +63,7 @@ def _build_payload(event, user_rsvp=None):
         "start_datetime": event.start_datetime,
         "ends_datetime": event.ends_datetime,
         "location": event.location,
-        "link": fallback_link,
+        "location_link": event.location_link,
         "event_image": getattr(event, 'event_image', None),
         "is_virtual": event.is_virtual,
         "rsvp_status": user_rsvp.rsvp_status if user_rsvp else "pending",

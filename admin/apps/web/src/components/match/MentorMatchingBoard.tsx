@@ -582,7 +582,7 @@ export function MentorMatchingBoard({
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                           <Badge variant="outline" className="text-xs">{m.trackCode}</Badge>
-                          <span className="text-xs text-muted-foreground">{m.currentAcceptedCount}/{m.maxGroupCount}</span>
+                          <span className="text-xs text-muted-foreground">{m.currentAssignedCount}/{m.maxGroupCount}</span>
                         </div>
                       </button>
                       {isExpanded && (
