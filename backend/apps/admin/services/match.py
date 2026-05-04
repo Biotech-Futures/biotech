@@ -58,28 +58,28 @@ def match_student(uid: str) -> MatchStudentResult:
     """
     # Query standalone students (not in any active group)
     active_membership_subquery = GroupMembership.objects.filter(
-        user_id=OuterRef('id'),
+        user_id=OuterRef('user_id'),
         left_at__isnull=True
     )
     
     standalone_students = (
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
-        .select_related('user', 'user__track', 'user__track__country_state')
+        .select_related('user', 'user__track', 'user__track__state')
         .annotate(
-            country_state_id=F('user__track__country_state_id'),
+            country_state_id=F('user__track__state_id'),
         )
         .values(
-            user_id=F('user_id'),
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             track_id=F('user__track_id'),
             track_code=F('user__track__track_name'),
-            year_level=F('year_level'),
-            country_name=F('user__track__country_state__country__country_name'),
+            year_level=F('year_lvl'),
+            country_name=F('user__track__state__country__country_name'),
         )
     )
-    
+
     # Query students in groups
     group_members_rows = (
         GroupMembership.objects
@@ -89,14 +89,14 @@ def match_student(uid: str) -> MatchStudentResult:
         )
         .select_related('group', 'user', 'user__track')
         .values(
-            group_id=F('group_id'),
-            user_id=F('user_id'),
+            'group_id',
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             track_id=F('user__track_id'),
             track_code=F('user__track__track_name'),
-            year_level=F('user__studentprofile__year_level'),
-            country_name=F('user__track__country_state__country__country_name'),
+            year_level=F('user__studentprofile__year_lvl'),
+            country_name=F('user__track__state__country__country_name'),
         )
     )
     
@@ -108,8 +108,8 @@ def match_student(uid: str) -> MatchStudentResult:
         .filter(id__in=group_ids, deleted_at__isnull=True)
         .select_related('track')
         .values(
+            'group_name',
             group_id=F('id'),
-            group_name=F('group_name'),
             group_track_id=F('track_id'),
             group_track_code=F('track__track_name'),
         )
@@ -127,7 +127,7 @@ def match_student(uid: str) -> MatchStudentResult:
         )
         .select_related('group', 'user')
         .values(
-            group_id=F('group_id'),
+            'group_id',
             tutor_user_id=F('user_id'),
             tutor_first_name=F('user__first_name'),
             tutor_last_name=F('user__last_name'),
@@ -153,7 +153,7 @@ def match_student(uid: str) -> MatchStudentResult:
         .filter(user_id__in=all_user_ids)
         .select_related('interest')
         .values(
-            user_id=F('user_id'),
+            'user_id',
             interest_desc=F('interest__interest_desc'),
         )
     )
@@ -166,9 +166,9 @@ def match_student(uid: str) -> MatchStudentResult:
         .filter(deleted_at__isnull=True)
         .select_related('track')
         .values(
+            'group_name',
+            'track_id',
             group_id=F('id'),
-            group_name=F('group_name'),
-            track_id=F('track_id'),
             track_code=F('track__track_name'),
         )
     )
@@ -185,15 +185,15 @@ def match_student(uid: str) -> MatchStudentResult:
         )
         .select_related('user', 'user__track')
         .values(
-            group_id=F('group_id'),
-            user_id=F('user_id'),
+            'group_id',
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             track_code=F('user__track__track_name'),
-            country_name=F('user__track__country_state__country__country_name'),
+            country_name=F('user__track__state__country__country_name'),
         )
     )
-    
+
     students_by_group = {}
     for row in active_student_rows:
         group_id = row['group_id']
@@ -254,7 +254,7 @@ def get_individual_students() -> List[Dict[str, Any]]:
         List of individual student dictionaries
     """
     active_membership_subquery = GroupMembership.objects.filter(
-        user_id=OuterRef('id'),
+        user_id=OuterRef('user_id'),
         left_at__isnull=True
     )
     
@@ -263,13 +263,13 @@ def get_individual_students() -> List[Dict[str, Any]]:
         .filter(~Exists(active_membership_subquery))
         .select_related('user', 'user__track')
         .values(
-            user_id=F('user_id'),
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             track_id=F('user__track_id'),
             track_code=F('user__track__track_name'),
-            year_level=F('year_level'),
-            country_name=F('user__track__country_state__country__country_name'),
+            year_level=F('year_lvl'),
+            country_name=F('user__track__state__country__country_name'),
         )
     )
     
@@ -280,7 +280,7 @@ def get_individual_students() -> List[Dict[str, Any]]:
         .filter(user_id__in=user_ids)
         .select_related('interest')
         .values(
-            user_id=F('user_id'),
+            'user_id',
             interest_desc=F('interest__interest_desc'),
         )
     )

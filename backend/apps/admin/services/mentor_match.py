@@ -61,12 +61,12 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         )
         .select_related('track')
         .values(
+            'group_name',
             group_id=F('id'),
-            group_name=F('group_name'),
             group_track_code=F('track__track_name'),
         )
     )
-    
+
     if not groups_without_mentor:
         return []
     
@@ -82,7 +82,7 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         )
         .select_related('user__track')
         .values(
-            group_id=F('group_id'),
+            'group_id',
             interest=F('user__userinterest__interest__interest_desc'),
         )
     )
@@ -137,10 +137,10 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         .filter(user__is_active=True)
         .select_related('user', 'user__track')
         .values(
+            'institution',
             mentor_id=F('user_id'),
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            institution=F('institution'),
             max_grp_cnt=F('max_group_count'),
             track_code=F('user__track__track_name'),
         )
@@ -229,17 +229,17 @@ def get_mentors() -> List[Dict[str, Any]]:
         .filter(user__is_active=True)
         .select_related('user', 'user__track')
         .values(
+            'institution',
             mentor_id=F('user_id'),
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            institution=F('institution'),
             max_grp_cnt=F('max_group_count'),
             track_code=F('user__track__track_name'),
         )
     )
-    
+
     mentor_ids = [m['mentor_id'] for m in mentor_rows]
-    
+
     mentor_interest_rows = (
         UserInterest.objects
         .filter(user_id__in=mentor_ids)
@@ -249,9 +249,9 @@ def get_mentors() -> List[Dict[str, Any]]:
             interest=F('interest__interest_desc'),
         )
     ) if mentor_ids else []
-    
+
     interests_by_mentor = _group_interests_by_key(mentor_interest_rows, 'key', 'interest')
-    
+
     result = []
     for m in mentor_rows:
         mentor_id = m['mentor_id']
@@ -306,12 +306,12 @@ def get_unmatched_groups() -> List[Dict[str, Any]]:
         )
         .select_related('track')
         .values(
+            'group_name',
             group_id=F('id'),
-            group_name=F('group_name'),
             track_code=F('track__track_name'),
         )
     )
-    
+
     if not unmatched_groups_base:
         return []
     
@@ -327,8 +327,8 @@ def get_unmatched_groups() -> List[Dict[str, Any]]:
         )
         .select_related('user')
         .values(
-            group_id=F('group_id'),
-            user_id=F('user_id'),
+            'group_id',
+            'user_id',
             interest=F('user__userinterest__interest__interest_desc'),
         )
     )
@@ -354,8 +354,8 @@ def get_unmatched_groups() -> List[Dict[str, Any]]:
         )
         .select_related('user')
         .values(
-            group_id=F('group_id'),
-            user_id=F('user_id'),
+            'group_id',
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
         )
@@ -411,8 +411,8 @@ def get_matched_groups() -> List[Dict[str, Any]]:
         )
         .select_related('group', 'group__track', 'user')
         .values(
+            'group_id',
             membership_id=F('id'),
-            group_id=F('group_id'),
             group_name=F('group__group_name'),
             group_track_id=F('group__track_id'),
             mentor_id=F('user_id'),
@@ -454,8 +454,8 @@ def get_matched_groups() -> List[Dict[str, Any]]:
         )
         .select_related('user')
         .values(
-            group_id=F('group_id'),
-            user_id=F('user_id'),
+            'group_id',
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
         )
@@ -471,8 +471,8 @@ def get_matched_groups() -> List[Dict[str, Any]]:
         )
         .select_related('user')
         .values(
-            group_id=F('group_id'),
-            user_id=F('user_id'),
+            'group_id',
+            'user_id',
             interest=F('user__userinterest__interest__interest_desc'),
         )
     )
