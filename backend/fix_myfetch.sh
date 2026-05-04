@@ -1,3 +1,7 @@
+#!/bin/bash
+FRONTEND_DIR="../admin/apps/web/src/lib"
+
+cat << 'INNER_EOF' > $FRONTEND_DIR/myFetch.ts
 import { buildUrl } from "@/util/url";
 import axios from "axios";
 
@@ -39,3 +43,5 @@ const ensureTrailingSlash = (config: any) => {
 myFetch.interceptors.request.use(ensureTrailingSlash);
 apiFetch.interceptors.request.use(ensureTrailingSlash);
 
+INNER_EOF
+echo "Updated myFetch.ts with safe trailing slashes"

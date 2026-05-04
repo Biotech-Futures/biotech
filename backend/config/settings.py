@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'apps.admin.apps.AdminConfig',
     'apps.users',
     'apps.groups',
     'apps.chat',
