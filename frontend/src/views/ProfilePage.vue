@@ -31,50 +31,45 @@
             <span class="profile-field-value">{{ capitalise(user.role) }}</span>
           </div>
           <div class="profile-field">
-            <span class="profile-field-label">Profile Source:</span>
-            <span class="profile-field-value">Live backend session</span>
+            <span class="profile-field-label">Account Status:</span>
+            <span class="profile-field-value">{{ capitalise(user.accountStatus) }}</span>
           </div>
         </div>
 
-        <div class="profile-section">
-          <h3 class="profile-section-title">Interests & Expertise</h3>
-          <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
-            <span
-              v-for="interest in interests"
-              :key="interest"
-              class="status-badge"
-              style="background-color:var(--light-green);color:var(--dark-green);"
-            >{{ interest }}</span>
-
-            <div style="display:flex;gap:0.5rem;align-items:center;">
-              <input v-model="newInterest" class="form-control" placeholder="Add interest" style="width:220px;" />
-              <button class="btn btn-outline btn-sm" @click="addInterest">+ Add</button>
-            </div>
+        <div v-if="user.student.hasDetails" class="profile-section">
+          <h3 class="profile-section-title">Student Details</h3>
+          <div class="profile-field">
+            <span class="profile-field-label">School:</span>
+            <span class="profile-field-value">{{ user.student.schoolName }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Year Level:</span>
+            <span class="profile-field-value">{{ user.student.yearLevel }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Parent/Guardian:</span>
+            <span class="profile-field-value">{{ user.student.guardianName }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Join Permission:</span>
+            <span class="profile-field-value">{{ user.student.joinPermission }}</span>
           </div>
         </div>
 
-        <div class="profile-section">
-          <h3 class="profile-section-title">Contact Preferences</h3>
-          <div class="form-group">
-            <label class="form-label">Preferred Contact Method</label>
-            <select v-model="contactMethod" class="form-control">
-              <option>Email</option>
-              <option>Platform Messages</option>
-              <option>Both</option>
-            </select>
+        <div v-if="user.mentor.hasDetails" class="profile-section">
+          <h3 class="profile-section-title">Mentor Details</h3>
+          <div class="profile-field">
+            <span class="profile-field-label">Institution:</span>
+            <span class="profile-field-value">{{ user.mentor.institution }}</span>
           </div>
-          <div class="form-group">
-            <label class="form-label">Availability</label>
-            <textarea v-model="availability" class="form-control" rows="3" placeholder="Enter your general availability..."></textarea>
+          <div class="profile-field">
+            <span class="profile-field-label">Mentor Reason:</span>
+            <span class="profile-field-value">{{ user.mentor.reason }}</span>
           </div>
-          <p style="margin:0.75rem 0 0;color:#6c757d;">
-            The profile header now loads from the backend. These editable preference fields are still local-only until a profile update API is available.
-          </p>
-        </div>
-
-        <div style="display:flex;justify-content:flex-end;gap:1rem;">
-          <button class="btn btn-outline" @click="reset">Cancel</button>
-          <button class="btn btn-primary" @click="save">Save Changes</button>
+          <div class="profile-field">
+            <span class="profile-field-label">Max Groups:</span>
+            <span class="profile-field-value">{{ user.mentor.maxGroups }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -95,28 +90,39 @@ const loading = ref(false)
 const error = ref('')
 const trackById = ref(new Map())
 
-const original = {
-  contactMethod: 'Both',
-  availability: '',
-  interests: ['Biotechnology', 'Research', 'Mentoring', 'Innovation']
+const valueOrFallback = (value, fallback = 'Not provided') => {
+  const text = String(value ?? '').trim()
+  return text || fallback
 }
-
-const contactMethod = ref(original.contactMethod)
-const availability = ref(original.availability)
-const interests = ref([...original.interests])
-const newInterest = ref('')
 
 const user = computed(() => {
   const source = auth.user
   const fullName = `${source?.first_name || ''} ${source?.last_name || ''}`.trim() || source?.email || 'User'
   const roleName = String(source?.current_role_name || auth.roleLabel || 'Member').trim()
   const trackId = Number(source?.track)
+  const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
+  const hasStudentDetails = [source?.school_name, source?.year_lvl, guardianName].some(Boolean) || source?.join_perm != null
+  const hasMentorDetails = [source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
 
   return {
     name: fullName,
     email: source?.email || 'Unavailable',
     role: roleName || 'Member',
-    track: trackById.value.get(trackId) || (source?.track ? `Track ${source.track}` : 'Unassigned')
+    accountStatus: source?.account_status || 'Unavailable',
+    track: trackById.value.get(trackId) || (source?.track ? `Track ${source.track}` : 'Unassigned'),
+    student: {
+      hasDetails: hasStudentDetails,
+      schoolName: valueOrFallback(source?.school_name),
+      yearLevel: valueOrFallback(source?.year_lvl),
+      guardianName: valueOrFallback(guardianName),
+      joinPermission: source?.join_perm === true ? 'Granted' : source?.join_perm === false ? 'Not granted' : 'Not provided'
+    },
+    mentor: {
+      hasDetails: hasMentorDetails,
+      institution: valueOrFallback(source?.ment_inst),
+      reason: valueOrFallback(source?.ment_reason),
+      maxGroups: valueOrFallback(source?.ment_max_groups)
+    }
   }
 })
 
@@ -136,25 +142,6 @@ const capitalise = (value) => {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ')
-}
-
-const addInterest = () => {
-  const value = newInterest.value.trim()
-  if (!value) return
-  if (!interests.value.includes(value)) interests.value.push(value)
-  newInterest.value = ''
-}
-
-const reset = () => {
-  contactMethod.value = original.contactMethod
-  availability.value = original.availability
-  interests.value = [...original.interests]
-  newInterest.value = ''
-  alert('Local preference changes were discarded.')
-}
-
-const save = () => {
-  alert('Profile header data is live. Preference editing is not connected to a backend update API yet.')
 }
 
 async function loadTracks() {

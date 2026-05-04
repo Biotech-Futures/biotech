@@ -10,36 +10,23 @@ interface QueryStudentsParams {
   page: number;
   limit?: number;
   search?: string;
-  yearLevel?: number;
   track?: StudentTrack;
-  interest?: string;
   inGroup?: "yes" | "no";
 }
 
 export function useQueryStudents(params: QueryStudentsParams) {
-  const { page, limit = 10, search, yearLevel, track, interest, inGroup } =
-    params;
+  const { page, limit = 10, search, track, inGroup } = params;
 
   return useQuery({
-    queryKey: [
-      "students",
-      page,
-      limit,
-      search,
-      yearLevel,
-      track,
-      interest,
-      inGroup,
-    ],
+    queryKey: ["students", page, limit, search, track, inGroup],
     queryFn: async (): Promise<StudentPaginatedResponse> => {
-      const res = await myFetch.get<StudentPaginatedResponse>("/user/students", {
+      const res = await myFetch.get<StudentPaginatedResponse>("/user", {
         params: {
           page,
           limit,
           search,
-          yearLevel,
+          role: "student",
           track,
-          interest,
           inGroup,
         },
       });
@@ -53,6 +40,16 @@ export function useQueryTracks() {
     queryKey: ["tracks"],
     queryFn: async (): Promise<TracksResponse> => {
       const res = await myFetch.get<TracksResponse>("/user/tracks");
+      return res.data;
+    },
+  });
+}
+
+export function useQueryHasUngroupedStudents() {
+  return useQuery({
+    queryKey: ["hasUngroupedStudents"],
+    queryFn: async (): Promise<{ msg: string; data: { hasUngrouped: boolean } }> => {
+      const res = await myFetch.get<{ msg: string; data: { hasUngrouped: boolean } }>("/user/ungrouped-check");
       return res.data;
     },
   });

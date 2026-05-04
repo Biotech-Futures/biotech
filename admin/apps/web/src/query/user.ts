@@ -21,7 +21,13 @@ type CreateUserPayload = {
   email: string;
   role: UserRole;
   track?: UserTrack;
+  adminTracks?: UserTrack[];
   schoolName?: string;
+  supervisorSchoolName?: string;
+  mentorBackground?: string | null;
+  mentorInstitution?: string;
+  mentorReason?: string;
+  mentorMaxGroupCount?: number;
   yearLevel?: number;
   interests?: string[];
   joinPermissionReceived?: boolean;
@@ -31,10 +37,15 @@ type CreateUserPayload = {
 type UpdateUserPayload = {
   firstName?: string;
   lastName?: string;
-  email?: string;
   role?: UserRole;
   track?: UserTrack | null;
+  adminTracks?: string[];
   schoolName?: string | null;
+  supervisorSchoolName?: string | null;
+  mentorBackground?: string | null;
+  mentorInstitution?: string | null;
+  mentorReason?: string | null;
+  mentorMaxGroupCount?: number | null;
   yearLevel?: number | null;
   interests?: string[];
   joinPermissionReceived?: boolean;
@@ -49,6 +60,17 @@ type MutationResponse<T> = {
   data: T;
 };
 
+interface QueryUsersParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  role?: UserRole;
+  track?: UserTrack;
+  active?: boolean;
+  sortBy?: "name" | "createdAt";
+  sortOrder?: "asc" | "desc";
+}
+
 function readStorage<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);
@@ -62,9 +84,11 @@ function writeStorage<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-export function useQueryUsers() {
+export function useQueryUsers(params: QueryUsersParams = {}) {
+  const { page = 1, limit = 100, search, role, track, active, sortBy, sortOrder } = params;
+
   return useQuery({
-    queryKey: ["users"],
+    queryKey: ["users", page, limit, search, role, track, active, sortBy, sortOrder],
     queryFn: async (): Promise<UserPaginatedResponse> => {
       const res = await myFetch.get<{
         msg: string;
@@ -76,6 +100,10 @@ export function useQueryUsers() {
             invitedAt?: string | null;
             activatedAt?: string | null;
             schoolName?: string | null;
+            mentorBackground?: string | null;
+            mentorInstitution?: string | null;
+            mentorReason?: string | null;
+            mentorMaxGroupCount?: number | null;
             yearLevel?: number | null;
             joinPermissionReceived?: boolean | null;
           }>;
@@ -86,8 +114,14 @@ export function useQueryUsers() {
         };
       }>("/user", {
         params: {
-          page: 1,
-          limit: 100,
+          page,
+          limit,
+          search,
+          role,
+          track,
+          active,
+          sortBy,
+          sortOrder,
         },
       });
 
@@ -239,14 +273,19 @@ export function normalizeServerUser(
     firstName: resolvedFirstName || fallbackFirstName,
     lastName: resolvedLastName || fallbackLastName,
     email: user.email ?? "",
-    role: (user.role ?? "student") as UserRole,
+    role: (user.role ?? "") as UserRole,
     track: user.track ?? null,
     groupId: user.groupId ?? null,
     groupName: user.groupName ?? null,
     age: user.age ?? user.yearLevel ?? null,
     schoolName: user.schoolName ?? null,
+    mentorBackground: user.mentorBackground ?? null,
+    mentorInstitution: user.mentorInstitution ?? null,
+    mentorReason: user.mentorReason ?? null,
+    mentorMaxGroupCount: user.mentorMaxGroupCount ?? null,
     joinPermissionReceived: Boolean(user.joinPermissionReceived),
     interests: Array.isArray(user.interests) ? user.interests : [],
+    adminTracks: Array.isArray((user as any).adminTracks) ? (user as any).adminTracks : [],
     createdAt:
       user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
     updatedAt:
@@ -270,10 +309,26 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     groupId: null,
     groupName: null,
     age: values.role === "student" ? values.yearLevel : null,
-    schoolName: values.role === "student" ? values.schoolName || null : null,
+    schoolName:
+      values.role === "student"
+        ? values.schoolName || null
+        : values.role === "supervisor"
+          ? values.supervisorSchoolName || null
+          : null,
+    mentorBackground:
+      values.role === "mentor" ? values.mentorBackground || null : null,
+    mentorInstitution:
+      values.role === "mentor" ? values.mentorInstitution || null : null,
+    mentorReason: values.role === "mentor" ? values.mentorReason || null : null,
+    mentorMaxGroupCount:
+      values.role === "mentor" ? values.mentorMaxGroupCount : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
-    interests: values.role === "student" ? values.interests : [],
+    adminTracks: values.role === "admin" ? values.adminTracks : [],
+    interests:
+      values.role === "student" || values.role === "mentor"
+        ? values.interests
+        : [],
     createdAt: timestamp,
     updatedAt: timestamp,
     active: values.active,
@@ -311,7 +366,17 @@ export function parseCsvUsers(text: string) {
     headers.map((header, index) => [header, index]),
   );
 
-  const requiredHeaders = ["firstname", "lastname", "email", "role"];
+  const hasSplitNameHeaders =
+    headerIndex.firstname !== undefined && headerIndex.lastname !== undefined;
+  const hasNameHeader = headerIndex.name !== undefined;
+
+  if (!hasSplitNameHeaders && !hasNameHeader) {
+    throw new Error(
+      "Missing CSV columns: provide either name, or both firstName and lastName.",
+    );
+  }
+
+  const requiredHeaders = ["email", "role"];
   const missing = requiredHeaders.filter((header) => headerIndex[header] === undefined);
   if (missing.length) {
     throw new Error(`Missing CSV columns: ${missing.join(", ")}`);
@@ -320,26 +385,80 @@ export function parseCsvUsers(text: string) {
   return dataRows
     .filter((row) => row.some((cell) => cell.trim()))
     .map((row, rowIndex) => {
+      const rawName = (row[headerIndex.name] ?? "").trim();
+      const [parsedFirstName, parsedLastName] = splitFullName(rawName);
+      const firstName = hasSplitNameHeaders
+        ? (row[headerIndex.firstname] ?? "").trim()
+        : parsedFirstName;
+      const lastName = hasSplitNameHeaders
+        ? (row[headerIndex.lastname] ?? "").trim()
+        : parsedLastName;
       const roleValue = (row[headerIndex.role] ?? "").trim().toLowerCase();
       const role = normalizeRole(roleValue);
       const track = normalizeTrack((row[headerIndex.track] ?? "").trim());
+      const adminTracksRaw = (row[headerIndex.admintracks] ?? "").trim();
       const statusRaw = (row[headerIndex.status] ?? "").trim().toLowerCase();
-      const schoolName = (row[headerIndex.school] ?? "").trim();
+      const schoolName = (
+        row[headerIndex.school] ??
+        row[headerIndex.schoolname] ??
+        ""
+      ).trim();
       const yearLevelRaw =
         (row[headerIndex.yearlevel] ?? row[headerIndex.age] ?? "").trim();
       const interestsRaw = (row[headerIndex.interests] ?? "").trim();
+      const joinPermissionRaw = (
+        row[headerIndex.joinpermissionreceived] ??
+        row[headerIndex.joinpermission] ??
+        ""
+      ).trim();
+      const mentorMaxGroupCountRaw =
+        (row[headerIndex.maxgroupcount] ?? row[headerIndex.maxgroups] ?? "").trim();
+      const mentorMaxGroupCount = mentorMaxGroupCountRaw
+        ? Number(mentorMaxGroupCountRaw)
+        : null;
+
+      if (!firstName || !lastName) {
+        throw new Error(
+          `Row ${rowIndex + 2}: first and last name are required. Use either name, or firstName and lastName columns.`,
+        );
+      }
+
+      const email = (row[headerIndex.email] ?? "").trim();
+      if (!email) {
+        throw new Error(`Row ${rowIndex + 2}: email is required.`);
+      }
 
       return {
         id: `csv-${rowIndex + 1}`,
-        firstName: (row[headerIndex.firstname] ?? "").trim(),
-        lastName: (row[headerIndex.lastname] ?? "").trim(),
-        email: (row[headerIndex.email] ?? "").trim(),
+        firstName,
+        lastName,
+        email,
         role,
         track,
+        adminTracks: parseTrackList(adminTracksRaw),
         schoolName,
+        supervisorSchoolName:
+          role === "supervisor"
+            ? (
+                row[headerIndex.supervisorschoolname] ??
+                row[headerIndex.school] ??
+                row[headerIndex.schoolname] ??
+                ""
+              ).trim()
+            : "",
+        mentorBackground: (row[headerIndex.background] ?? "").trim(),
+        mentorInstitution: (
+          row[headerIndex.mentorinstitution] ??
+          row[headerIndex.institution] ??
+          ""
+        ).trim(),
+        mentorReason: (row[headerIndex.mentorreason] ?? "").trim(),
+        mentorMaxGroupCount: Number.isFinite(mentorMaxGroupCount)
+          ? mentorMaxGroupCount
+          : null,
         yearLevel: yearLevelRaw ? Number(yearLevelRaw) : null,
         interests: parseInterestList(interestsRaw),
-        joinPermissionReceived: false,
+        joinPermissionReceived: parseBoolean(joinPermissionRaw),
         active: statusRaw ? statusRaw !== "inactive" : true,
       } satisfies CsvUserRow;
     });
@@ -368,6 +487,27 @@ export function parseInterestList(input: string) {
         .map((item) => item.trim())
         .filter(Boolean),
     ),
+  );
+}
+
+function parseTrackList(input: string) {
+  return Array.from(
+    new Set(
+      input
+        .split(/[|;,]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function parseBoolean(input: string) {
+  const normalized = input.trim().toLowerCase();
+  return (
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "y" ||
+    normalized === "1"
   );
 }
 

@@ -1,21 +1,25 @@
-import { authClient } from "@/lib/authClient";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import axios from "axios";
+
+const authFetch = axios.create({
+  baseURL: import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000",
+  withCredentials: true,
+});
 
 export function useMagicLinkSignIn() {
   return useMutation({
     mutationFn: async (email: string) => {
-      const webOrigin = window.location.origin;
-      const { data, error } = await authClient.signIn.magicLink({
-        email: email,
-        callbackURL: `${webOrigin}/`,
-        errorCallbackURL: `${webOrigin}/error`,
-      });
-      if (error) {
-        toast.error(error.message);
+      try {
+        const { data } = await authFetch.post("/services/send-login-code/", {
+          email: email
+        });
+        toast.success("Login code sent to email!");
+        return data;
+      } catch (error: any) {
+        toast.error(error.message || "Failed to send magic link");
         throw new Error(error.message);
       }
-      return data;
     },
   });
 }
@@ -23,8 +27,9 @@ export function useMagicLinkSignIn() {
 export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
-      const { error } = await authClient.signOut({});
-      if (error) {
+      try {
+        await authFetch.post("/services/logout/");
+      } catch (error: any) {
         toast.error(error.message);
         throw new Error(error.message);
       }

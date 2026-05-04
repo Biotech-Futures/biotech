@@ -46,7 +46,7 @@ import {
 } from "@/query/event";
 import { useQueryUsers } from "@/query/user";
 import type { Event, EventRsvp } from "@/type/event";
-import { authClient } from "@/lib/authClient";
+import { useAuthContext } from "@/provider/AuthProvider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -57,7 +57,7 @@ import {
   EyeIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
@@ -165,15 +165,12 @@ function EventForm({
       {!isVirtual && (
         <div className="space-y-1.5">
           <Label>Location</Label>
-          <Input placeholder="Venue address or room" {...register("location")} />
+          <Input
+            placeholder="Venue address or room"
+            {...register("location")}
+          />
         </div>
       )}
-
-      {/* Humanitix Link */}
-      <div className="space-y-1.5">
-        <Label>Humanitix Link</Label>
-        <Input placeholder="https://..." {...register("humanitixLink")} />
-      </div>
 
       {/* Start datetime */}
       <Controller
@@ -182,12 +179,7 @@ function EventForm({
         render={({ field }) => (
           <div className="space-y-1.5">
             <Label>Start</Label>
-            <input
-              type="datetime-local"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              {...field}
-              value={field.value ?? ""}
-            />
+            <DateTimeLocalInput field={field} />
             {errors.startAt && (
               <p className="text-sm text-destructive">
                 {errors.startAt.message}
@@ -204,14 +196,11 @@ function EventForm({
         render={({ field }) => (
           <div className="space-y-1.5">
             <Label>End</Label>
-            <input
-              type="datetime-local"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              {...field}
-              value={field.value ?? ""}
-            />
+            <DateTimeLocalInput field={field} />
             {errors.endsAt && (
-              <p className="text-sm text-destructive">{errors.endsAt.message}</p>
+              <p className="text-sm text-destructive">
+                {errors.endsAt.message}
+              </p>
             )}
           </div>
         )}
@@ -227,7 +216,8 @@ function EventForm({
                 key={g.id}
                 className="flex items-center gap-2 text-sm cursor-pointer"
               >
-                <input type="checkbox"
+                <input
+                  type="checkbox"
                   checked={watchedGroupIds.includes(g.id)}
                   onChange={() => onToggleGroup(g.id)}
                 />
@@ -248,7 +238,8 @@ function EventForm({
                 key={r.id}
                 className="flex items-center gap-2 text-sm cursor-pointer"
               >
-                <input type="checkbox"
+                <input
+                  type="checkbox"
                   checked={watchedRoleIds.includes(r.id)}
                   onChange={() => onToggleRole(r.id)}
                 />
@@ -269,7 +260,8 @@ function EventForm({
                 key={t.id}
                 className="flex items-center gap-2 text-sm cursor-pointer"
               >
-                <input type="checkbox"
+                <input
+                  type="checkbox"
                   checked={watchedTrackIds.includes(t.id)}
                   onChange={() => onToggleTrack(t.id)}
                 />
@@ -283,6 +275,52 @@ function EventForm({
   );
 }
 
+function DateTimeLocalInput({
+  field,
+}: {
+  field: {
+    name: string;
+    value?: string;
+    onBlur: () => void;
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    ref: (instance: HTMLInputElement | null) => void;
+  };
+}) {
+  const inputId = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const openPicker = () => {
+    const input = inputRef.current;
+    if (!input) return;
+
+    input.focus();
+    try {
+      input.showPicker?.();
+    } catch {
+      // Some browsers only allow the native picker from direct user actions.
+    }
+  };
+
+  return (
+    <div className="flex h-10 w-full overflow-hidden rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+      <input
+        id={inputId}
+        type="datetime-local"
+        className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
+        name={field.name}
+        onBlur={field.onBlur}
+        onChange={field.onChange}
+        onClick={openPicker}
+        ref={(element) => {
+          field.ref(element);
+          inputRef.current = element;
+        }}
+        value={field.value ?? ""}
+      />
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 function EventPage() {
   const [page, setPage] = useState(1);
@@ -292,14 +330,18 @@ function EventPage() {
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
   const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
 
-  const { data: sessionData } = authClient.useSession();
+  const { user: currentUser } = useAuthContext();
   const { data, isPending } = useQueryEvents({ page, limit: 10, upcoming });
   const { data: usersData } = useQueryUsers();
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
   const { data: tracksData } = useQueryTracks();
-  const { data: eventTargetsData } = useQueryEventTargets(editingEvent?.id ?? null);
-  const { data: viewTargetsData } = useQueryEventTargets(viewingEvent?.id ?? null);
+  const { data: eventTargetsData } = useQueryEventTargets(
+    editingEvent?.id ?? null,
+  );
+  const { data: viewTargetsData } = useQueryEventTargets(
+    viewingEvent?.id ?? null,
+  );
 
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
@@ -316,7 +358,7 @@ function EventPage() {
   const roles = rolesData?.data ?? [];
   const tracks = tracksData?.data ?? [];
 
-  const currentAdminEmail = sessionData?.user?.email ?? "";
+  const currentAdminEmail = currentUser?.email ?? "";
   const currentUserRecord = allUsers.find((u) => u.email === currentAdminEmail);
   const currentUserId = currentUserRecord ? Number(currentUserRecord.id) : null;
   const currentHostName = currentUserId
@@ -338,7 +380,6 @@ function EventPage() {
       eventName: "",
       description: null,
       location: null,
-      humanitixLink: "",
       isVirtual: false,
       startAt: "",
       endsAt: "",
@@ -390,7 +431,6 @@ function EventPage() {
         eventName: editingEvent.eventName,
         description: editingEvent.description,
         location: editingEvent.location,
-        humanitixLink: editingEvent.humanitixLink,
         isVirtual: editingEvent.isVirtual,
         startAt: toDatetimeLocal(editingEvent.startDatetime),
         endsAt: toDatetimeLocal(editingEvent.endsDatetime),
@@ -427,7 +467,6 @@ function EventPage() {
             eventName: "",
             description: null,
             location: null,
-            humanitixLink: "",
             isVirtual: false,
             startAt: "",
             endsAt: "",
@@ -514,20 +553,7 @@ function EventPage() {
                       : "Unassigned"}
                   </TableCell>
                   <TableCell>
-                    {event.location
-                      ? event.location
-                      : event.humanitixLink
-                        ? (
-                          <a
-                            href={event.humanitixLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 underline"
-                          >
-                            Humanitix Link
-                          </a>
-                        )
-                        : "—"}
+                    {event.location || "—"}
                   </TableCell>
                   <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
                   <TableCell>{formatDateTime(event.endsDatetime)}</TableCell>
@@ -537,11 +563,15 @@ function EventPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => setViewingEvent(viewingEvent?.id === event.id ? null : event)}
-                                >
+                        onClick={() =>
+                          setViewingEvent(
+                            viewingEvent?.id === event.id ? null : event,
+                          )
+                        }
+                      >
                         <EyeIcon className="size-4" />
                         View
-                    </Button>
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -620,93 +650,139 @@ function EventPage() {
         </div>
       </div>
       {/* ── View Event Drawer ── */}
-<Drawer
-  direction="right"
-  open={!!viewingEvent}
-  onOpenChange={(open) => { if (!open) setViewingEvent(null); }}
->
-  <DrawerContent className="overflow-y-auto sm:max-w-xl">
-    <DrawerHeader>
-      <DrawerTitle>{viewingEvent?.eventName ?? "Event Details"}</DrawerTitle>
-      <DrawerDescription>Event #{viewingEvent?.id}</DrawerDescription>
-    </DrawerHeader>
-    <div className="grid gap-5 px-4 pb-4">
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase">Host</Label>
-        <p className="text-sm">{viewingEvent?.hostUserId ? formatHostName(viewingEvent.hostUserId, usersById) : "—"}</p>
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase">Description</Label>
-        <p className="text-sm">{viewingEvent?.description || "—"}</p>
-      </div>
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase">Event Type</Label>
-        <p className="text-sm">{viewingEvent?.isVirtual ? "Virtual" : "In-person"}</p>
-      </div>
-      {!viewingEvent?.isVirtual && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase">Location</Label>
-          <p className="text-sm">{viewingEvent?.location || "—"}</p>
-        </div>
-      )}
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase">Humanitix Link</Label>
-        <p className="text-sm">
-          {viewingEvent?.humanitixLink
-            ? <a href={viewingEvent.humanitixLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">{viewingEvent.humanitixLink}</a>
-            : "—"}
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase">Start</Label>
-          <p className="text-sm">{viewingEvent ? formatDateTime(viewingEvent.startDatetime) : "—"}</p>
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase">End</Label>
-          <p className="text-sm">{viewingEvent ? formatDateTime(viewingEvent.endsDatetime) : "—"}</p>
-        </div>
-      </div>
-      {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase">Target Groups</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {viewTargetsData!.data!.groupIds.map((id) => {
-              const g = groups.find((x) => x.id === id);
-              return g ? <Badge key={id} variant="secondary">{g.groupName}</Badge> : null;
-            })}
+      <Drawer
+        direction="right"
+        open={!!viewingEvent}
+        onOpenChange={(open) => {
+          if (!open) setViewingEvent(null);
+        }}
+      >
+        <DrawerContent className="overflow-y-auto sm:max-w-xl">
+          <DrawerHeader>
+            <DrawerTitle>
+              {viewingEvent?.eventName ?? "Event Details"}
+            </DrawerTitle>
+            <DrawerDescription>Event #{viewingEvent?.id}</DrawerDescription>
+          </DrawerHeader>
+          <div className="grid gap-5 px-4 pb-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground uppercase">
+                Host
+              </Label>
+              <p className="text-sm">
+                {viewingEvent?.hostUserId
+                  ? formatHostName(viewingEvent.hostUserId, usersById)
+                  : "—"}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground uppercase">
+                Description
+              </Label>
+              <p className="text-sm">{viewingEvent?.description || "—"}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground uppercase">
+                Event Type
+              </Label>
+              <p className="text-sm">
+                {viewingEvent?.isVirtual ? "Virtual" : "In-person"}
+              </p>
+            </div>
+            {!viewingEvent?.isVirtual && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">
+                  Location
+                </Label>
+                <p className="text-sm">{viewingEvent?.location || "—"}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">
+                  Start
+                </Label>
+                <p className="text-sm">
+                  {viewingEvent
+                    ? formatDateTime(viewingEvent.startDatetime)
+                    : "—"}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">
+                  End
+                </Label>
+                <p className="text-sm">
+                  {viewingEvent
+                    ? formatDateTime(viewingEvent.endsDatetime)
+                    : "—"}
+                </p>
+              </div>
+            </div>
+            {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">
+                  Target Groups
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {viewTargetsData!.data!.groupIds.map((id) => {
+                    const g = groups.find((x) => x.id === id);
+                    return g ? (
+                      <Badge key={id} variant="secondary">
+                        {g.groupName}
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+            )}
+            {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">
+                  Target Roles
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {viewTargetsData!.data!.roleIds.map((id) => {
+                    const r = roles.find((x) => x.id === id);
+                    return r ? (
+                      <Badge key={id} variant="secondary">
+                        {r.roleName}
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+            )}
+            {(viewTargetsData?.data?.trackIds?.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">
+                  Target Tracks
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {viewTargetsData!.data!.trackIds.map((id) => {
+                    const t = tracks.find((x) => x.id === id);
+                    return t ? (
+                      <Badge key={id} variant="secondary">
+                        {t.trackName}
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
-      {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase">Target Roles</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {viewTargetsData!.data!.roleIds.map((id) => {
-              const r = roles.find((x) => x.id === id);
-              return r ? <Badge key={id} variant="secondary">{r.roleName}</Badge> : null;
-            })}
-          </div>
-        </div>
-      )}
-      {(viewTargetsData?.data?.trackIds?.length ?? 0) > 0 && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase">Target Tracks</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {viewTargetsData!.data!.trackIds.map((id) => {
-              const t = tracks.find((x) => x.id === id);
-              return t ? <Badge key={id} variant="secondary">{t.trackName}</Badge> : null;
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-    <DrawerFooter>
-      <Button type="button" variant="outline" onClick={() => setViewingEvent(null)}>Close</Button>
-    </DrawerFooter>
-  </DrawerContent>
-</Drawer>
-      
+          <DrawerFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setViewingEvent(null)}
+            >
+              Close
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
       {/* ── Create Event Drawer ── */}
       <Drawer
         direction="right"
@@ -719,7 +795,6 @@ function EventPage() {
               eventName: "",
               description: null,
               location: null,
-              humanitixLink: "",
               isVirtual: false,
               startAt: "",
               endsAt: "",
@@ -752,17 +827,13 @@ function EventPage() {
             watchedRoleIds={createRoleIds}
             watchedTrackIds={createTrackIds}
             onToggleGroup={(id) =>
-              toggleId(createGroupIds, id, (v) =>
-                setValue("targetGroupIds", v),
-              )
+              toggleId(createGroupIds, id, (v) => setValue("targetGroupIds", v))
             }
             onToggleRole={(id) =>
               toggleId(createRoleIds, id, (v) => setValue("targetRoleIds", v))
             }
             onToggleTrack={(id) =>
-              toggleId(createTrackIds, id, (v) =>
-                setValue("targetTrackIds", v),
-              )
+              toggleId(createTrackIds, id, (v) => setValue("targetTrackIds", v))
             }
             onSubmit={handleSubmit(onSubmit)}
           />
@@ -923,9 +994,7 @@ function EventPage() {
               )
             }
             onToggleRole={(id) =>
-              toggleId(editRoleIds, id, (v) =>
-                setEditValue("targetRoleIds", v),
-              )
+              toggleId(editRoleIds, id, (v) => setEditValue("targetRoleIds", v))
             }
             onToggleTrack={(id) =>
               toggleId(editTrackIds, id, (v) =>
@@ -936,11 +1005,7 @@ function EventPage() {
           />
 
           <DrawerFooter>
-            <Button
-              form="edit-event-form"
-              type="submit"
-              disabled={isUpdating}
-            >
+            <Button form="edit-event-form" type="submit" disabled={isUpdating}>
               {isUpdating ? "Saving..." : "Save Changes"}
             </Button>
             <Button
@@ -961,7 +1026,6 @@ function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-AU", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "UTC",
   }).format(new Date(value));
 }
 

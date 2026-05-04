@@ -62,7 +62,7 @@ export const createEventRsvpSchema = z.object({
 });
 
 export const updateEventRsvpSchema = z.object({
-  rsvpStatus: z.boolean(),
+  rsvpStatus: z.enum(["going", "maybe", "declined"]),
 });
 
 export type QueryEventsInput = z.infer<typeof queryEventsSchema>;

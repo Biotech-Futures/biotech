@@ -118,7 +118,7 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto p-4">
           <SheetHeader>
             <SheetTitle>
               {isEdit ? "Edit Announcement" : "New Announcement"}

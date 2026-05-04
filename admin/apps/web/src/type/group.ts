@@ -24,7 +24,7 @@ export type Group = {
 
 export type GroupMessage = {
   id: string;
-  groupId: string;
+  group_id: string;
   sender: {
     id: string;
     name: string;
@@ -32,8 +32,8 @@ export type GroupMessage = {
     role: "student" | "mentor" | null;
   };
   text: string;
-  sentAt: string;
-  editedAt: string | null;
+  sent_at: string;
+  edited_at: string | null;
 };
 
 export type PaginatedResponse<T> = {
@@ -43,6 +43,6 @@ export type PaginatedResponse<T> = {
     total: number;
     page: number;
     limit: number;
-    hasMore: boolean;
+    has_more: boolean;
   };
 };

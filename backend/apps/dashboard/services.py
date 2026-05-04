@@ -50,14 +50,23 @@ def _event_role_ids(event):
     return {target.role_id for target in getattr(event, "_dashboard_role_targets", [])}
 
 
-def _build_payload(event):
+def _build_payload(event, user_rsvp=None):
+    group_targets = _event_group_targets(event)
+
     return {
         "id": event.id,
         "event_name": event.event_name,
+        "event_description": getattr(event, 'description', None),
+        "track_id": event.track_id,
+        "groups": [t.group_id for t in group_targets] if group_targets else [],
+        "event_type": getattr(event, 'event_type', None),
         "start_datetime": event.start_datetime,
+        "ends_datetime": event.ends_datetime,
         "location": event.location,
-        "link": event.link,
+        "location_link": event.location_link,
+        "event_image": getattr(event, 'event_image', None),
         "is_virtual": event.is_virtual,
+        "rsvp_status": user_rsvp.rsvp_status if user_rsvp else "pending",
     }
 
 
@@ -76,13 +85,14 @@ def _match_for_admin(event, admin_track_ids):
     if not is_platform_wide and not matching_group_targets and not matching_track_ids:
         return None
 
-    return _build_payload(event)
+    user_rsvp = _prefetched_user_rsvp(event)
+    return _build_payload(event, user_rsvp=user_rsvp)
 
 
 def _match_for_member(event, *, user_group_ids, user_track_ids, user_role_ids):
     user_rsvp = _prefetched_user_rsvp(event)
     if user_rsvp and user_rsvp.rsvp_status != EventRsvp.RsvpStatus.DECLINED:
-        return _build_payload(event)
+        return _build_payload(event, user_rsvp=user_rsvp)
 
     track_ids = _event_track_ids(event)
     group_targets = _event_group_targets(event)
@@ -101,7 +111,7 @@ def _match_for_member(event, *, user_group_ids, user_track_ids, user_role_ids):
     if user_rsvp and user_rsvp.rsvp_status == EventRsvp.RsvpStatus.DECLINED:
         return None
 
-    return _build_payload(event)
+    return _build_payload(event, user_rsvp=user_rsvp)
 
 
 def get_personalized_next_event(user):

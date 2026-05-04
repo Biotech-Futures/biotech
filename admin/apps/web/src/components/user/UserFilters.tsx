@@ -14,6 +14,8 @@ import {
   type UserTrack,
 } from "@/type/user";
 
+type SortOption = "createdAt_desc" | "createdAt_asc" | "name_asc" | "name_desc";
+
 interface UserFiltersProps {
   search: string;
   onSearchChange: (value: string) => void;
@@ -24,6 +26,8 @@ interface UserFiltersProps {
   tracks?: TrackOption[];
   status: "all" | "active" | "inactive";
   onStatusChange: (value: "all" | "active" | "inactive") => void;
+  sort: SortOption;
+  onSortChange: (value: SortOption) => void;
 }
 
 export function UserFilters({
@@ -36,11 +40,13 @@ export function UserFilters({
   tracks,
   status,
   onStatusChange,
+  sort,
+  onSortChange,
 }: UserFiltersProps) {
   const availableTracks = (tracks ?? []).map((item) => item.trackName);
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
       <div className="space-y-1">
         <Label htmlFor="user-search">Search</Label>
         <Input
@@ -95,6 +101,21 @@ export function UserFilters({
             <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor="user-sort">Sort by</Label>
+        <Select value={sort} onValueChange={(value) => onSortChange(value as SortOption)}>
+          <SelectTrigger id="user-sort">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="createdAt_desc">Date created (newest first)</SelectItem>
+            <SelectItem value="createdAt_asc">Date created (oldest first)</SelectItem>
+            <SelectItem value="name_asc">Name A → Z</SelectItem>
+            <SelectItem value="name_desc">Name Z → A</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -45,7 +45,13 @@ const initialValues: UserFormValues = {
   email: "",
   role: "student",
   track: null,
+  adminTracks: [],
   schoolName: "",
+  supervisorSchoolName: "",
+  mentorBackground: "",
+  mentorInstitution: "",
+  mentorReason: "",
+  mentorMaxGroupCount: 2,
   yearLevel: null,
   interests: [],
   joinPermissionReceived: false,
@@ -54,6 +60,10 @@ const initialValues: UserFormValues = {
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function roleUsesInterests(role: UserRole) {
+  return role === "student" || role === "mentor";
 }
 
 export function UserEditorSheet({
@@ -85,7 +95,16 @@ export function UserEditorSheet({
         email: user.email,
         role: user.role,
         track: user.track,
-        schoolName: user.schoolName ?? "",
+        adminTracks: user.role === "admin" ? (user.adminTracks ?? []) : [],
+        schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
+        supervisorSchoolName:
+          user.role === "supervisor" ? (user.schoolName ?? "") : "",
+        mentorBackground: user.role === "mentor" ? (user.mentorBackground ?? "") : "",
+        mentorInstitution:
+          user.role === "mentor" ? (user.mentorInstitution ?? "") : "",
+        mentorReason: user.role === "mentor" ? (user.mentorReason ?? "") : "",
+        mentorMaxGroupCount:
+          user.role === "mentor" ? (user.mentorMaxGroupCount ?? 2) : 2,
         yearLevel: user.age,
         interests: user.interests,
         joinPermissionReceived: user.joinPermissionReceived,
@@ -118,6 +137,10 @@ export function UserEditorSheet({
       window.alert("Track is required for non-admin users.");
       return;
     }
+    if (mode === "create" && values.role === "admin" && !values.adminTracks.length) {
+      window.alert("At least one admin track is required for admin users.");
+      return;
+    }
     if (values.role === "student") {
       if (!values.schoolName.trim()) {
         window.alert("School is required for student users.");
@@ -127,10 +150,31 @@ export function UserEditorSheet({
         window.alert("Year level must be between 9 and 12.");
         return;
       }
-      if (!values.interests.length) {
-        window.alert("At least one interest is required for student users.");
+    }
+    if (values.role === "supervisor" && !values.supervisorSchoolName.trim()) {
+      window.alert("School is required for supervisor users.");
+      return;
+    }
+    if (values.role === "mentor") {
+      if (!values.mentorInstitution.trim()) {
+        window.alert("Institution is required for mentor users.");
         return;
       }
+      if (!values.mentorReason.trim()) {
+        window.alert("Mentor reason is required for mentor users.");
+        return;
+      }
+      if (
+        values.mentorMaxGroupCount === null ||
+        values.mentorMaxGroupCount < 0
+      ) {
+        window.alert("Max group count must be 0 or greater.");
+        return;
+      }
+    }
+    if (roleUsesInterests(values.role) && !values.interests.length) {
+      window.alert(`At least one interest is required for ${values.role} users.`);
+      return;
     }
 
     await onSubmit({
@@ -139,12 +183,16 @@ export function UserEditorSheet({
       lastName: values.lastName.trim(),
       email: values.email.trim(),
       schoolName: values.schoolName.trim(),
+      supervisorSchoolName: values.supervisorSchoolName.trim(),
+      mentorBackground: values.mentorBackground.trim(),
+      mentorInstitution: values.mentorInstitution.trim(),
+      mentorReason: values.mentorReason.trim(),
     });
   };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
+      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{mode === "create" ? "Add User" : "Edit User"}</SheetTitle>
           <SheetDescription>
@@ -152,7 +200,7 @@ export function UserEditorSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-4 px-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
           <div className="space-y-1.5">
             <Label htmlFor="user-first-name">First Name</Label>
             <Input
@@ -183,9 +231,12 @@ export function UserEditorSheet({
               id="user-email"
               type="email"
               value={values.email}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, email: event.target.value }))
-              }
+              onChange={(event) => {
+                if (mode === "edit") return;
+                setValues((current) => ({ ...current, email: event.target.value }));
+              }}
+              readOnly={mode === "edit"}
+              disabled={mode === "edit"}
               placeholder="jane@example.com"
             />
           </div>
@@ -195,7 +246,12 @@ export function UserEditorSheet({
             <Select
               value={values.role}
               onValueChange={(value) =>
-                setValues((current) => ({ ...current, role: value as UserRole }))
+                setValues((current) => ({
+                  ...current,
+                  role: value as UserRole,
+                  track: value === "admin" ? null : current.track,
+                  adminTracks: value === "admin" ? current.adminTracks : [],
+                }))
               }
             >
               <SelectTrigger id="user-role-select">
@@ -211,30 +267,71 @@ export function UserEditorSheet({
             </Select>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="user-track-select">Track</Label>
-            <Select
-              value={values.track ?? "none"}
-              onValueChange={(value) =>
-                setValues((current) => ({
-                  ...current,
-                  track: value === "none" ? null : (value as UserTrack),
-                }))
-              }
-            >
-              <SelectTrigger id="user-track-select">
-              <SelectValue placeholder="Select a track" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Unassigned</SelectItem>
-                {availableTracks.map((track) => (
-                  <SelectItem key={track} value={track}>
-                    {track}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {values.role === "admin" ? (
+            <div className="space-y-2">
+              <Label>Admin Tracks</Label>
+              <div className="max-h-40 overflow-auto rounded-md border p-3">
+                {availableTracks.length ? (
+                  <div className="space-y-2">
+                    {availableTracks.map((track) => {
+                      const checked = values.adminTracks.includes(track);
+
+                      return (
+                        <label
+                          key={track}
+                          className="flex cursor-pointer items-center gap-2 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border-border"
+                            checked={checked}
+                            onChange={() =>
+                              setValues((current) => ({
+                                ...current,
+                                adminTracks: checked
+                                  ? current.adminTracks.filter((item) => item !== track)
+                                  : [...current.adminTracks, track],
+                              }))
+                            }
+                          />
+                          <span>{track}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No tracks are available.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="user-track-select">Track</Label>
+              <Select
+                value={values.track ?? "none"}
+                onValueChange={(value) =>
+                  setValues((current) => ({
+                    ...current,
+                    track: value === "none" ? null : (value as UserTrack),
+                  }))
+                }
+              >
+                <SelectTrigger id="user-track-select">
+                  <SelectValue placeholder="Select a track" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {availableTracks.map((track) => (
+                    <SelectItem key={track} value={track}>
+                      {track}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {values.role === "student" ? (
             <>
@@ -273,24 +370,6 @@ export function UserEditorSheet({
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="user-interests">Interests</Label>
-                <Textarea
-                  id="user-interests"
-                  value={values.interests.join(", ")}
-                  onChange={(event) =>
-                    setValues((current) => ({
-                      ...current,
-                      interests: event.target.value
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean),
-                    }))
-                  }
-                  placeholder="biology, genetics, ai"
-                />
-              </div>
-
               <div className="space-y-2">
                 <Label>Join Permission Received</Label>
                 <div className="flex gap-2">
@@ -323,9 +402,116 @@ export function UserEditorSheet({
             </>
           ) : null}
 
+          {values.role === "supervisor" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="user-supervisor-school-name">School</Label>
+              <Input
+                id="user-supervisor-school-name"
+                value={values.supervisorSchoolName}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    supervisorSchoolName: event.target.value,
+                  }))
+                }
+                placeholder="Sydney High School"
+              />
+            </div>
+          ) : null}
+
+          {values.role === "mentor" ? (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-institution">Institution</Label>
+                <Input
+                  id="user-mentor-institution"
+                  value={values.mentorInstitution}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorInstitution: event.target.value,
+                    }))
+                  }
+                  placeholder="University of Sydney"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-background">Background</Label>
+                <Input
+                  id="user-mentor-background"
+                  value={values.mentorBackground}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorBackground: event.target.value,
+                    }))
+                  }
+                  placeholder="Research"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-reason">Mentor Reason</Label>
+                <Textarea
+                  id="user-mentor-reason"
+                  value={values.mentorReason}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorReason: event.target.value,
+                    }))
+                  }
+                  placeholder="Interested in supporting student research projects."
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="user-mentor-max-group-count">Max Groups</Label>
+                <Input
+                  id="user-mentor-max-group-count"
+                  type="number"
+                  min={0}
+                  value={values.mentorMaxGroupCount ?? ""}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      mentorMaxGroupCount: event.target.value
+                        ? Number(event.target.value)
+                        : null,
+                    }))
+                  }
+                  placeholder="2"
+                />
+              </div>
+            </>
+          ) : null}
+
+          {roleUsesInterests(values.role) ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="user-interests">
+                {values.role === "mentor" ? "Interests / Expertise" : "Interests"}
+              </Label>
+              <Textarea
+                id="user-interests"
+                value={values.interests.join(", ")}
+                onChange={(event) =>
+                  setValues((current) => ({
+                    ...current,
+                    interests: event.target.value
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                  }))
+                }
+                placeholder="biology, genetics, ai"
+              />
+            </div>
+          ) : null}
+
         </div>
 
-        <SheetFooter>
+        <SheetFooter className="shrink-0 border-t">
           {mode === "edit" && user && onDelete ? (
             <Button
               variant="destructive"

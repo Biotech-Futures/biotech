@@ -1,12 +1,10 @@
-import { authClient } from "@/lib/authClient";
-import type { Session, User } from "better-auth/types";
 import { createContext, useContext } from "react";
-
-type AuthUser = User & {};
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/myFetch";
 
 export interface AuthContextValue {
-  session: Session | null;
-  user: AuthUser | null;
+  session: any | null;
+  user: any | null;
   isPending: boolean;
   isAuthenticated: boolean;
 }
@@ -27,12 +25,25 @@ export default function AuthProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session, isPending } = authClient.useSession();
-  const isAuthenticated = !!session?.user;
+  const { data: user, isPending } = useQuery({
+    queryKey: ["auth-user"],
+    queryFn: async () => {
+      try {
+        // apiFetch uses /api/v1/ -> /api/v1/users/me/
+        const res = await apiFetch.get("/users/me/");
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
+  });
+
+  const isAuthenticated = !!user;
 
   const value: AuthContextValue = {
-    session: session?.session ?? null,
-    user: session?.user ?? null,
+    session: user ? { user } : null,
+    user: user ?? null,
     isPending,
     isAuthenticated: isAuthenticated,
   };

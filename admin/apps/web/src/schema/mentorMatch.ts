@@ -70,7 +70,7 @@ export const mentorListItemSchema = z.object({
   institution: z.string().nullable(),
   interests: z.array(z.string()),
   maxGroupCount: z.number(),
-  currentAcceptedCount: z.number(),
+  currentAssignedCount: z.number(),
   remainingCapacity: z.number(),
 });
 

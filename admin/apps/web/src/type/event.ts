@@ -5,7 +5,6 @@ export type Event = {
   startDatetime: string;
   endsDatetime: string;
   location: string | null;
-  humanitixLink: string;
   deletedFlag: boolean;
   deletedDatetime: string | null;
   "eventImage(img)": string | null;
@@ -17,9 +16,8 @@ export type EventRsvp = {
   id: number;
   eventId: number;
   userId: number;
-  sentDatetime: string;
-  attendanceStatus: boolean;
-  rsvpStatus: boolean;
+  rsvpStatus: "going" | "maybe" | "declined";
+  respondedAt: string | null;
 };
 
 export type ApiResponse<T> = {
