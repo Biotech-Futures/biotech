@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.views import APIView
 
+from config.errors import GroupAccessDenied
 from .serializers import (
     DashboardNextEventSerializer,
     DashboardSummarySerializer,
@@ -32,10 +33,7 @@ class DashboardProgressView(APIView):
 
         if group_id is not None:
             if group_id not in allowed_ids:
-                return Response(
-                    {"detail": "You do not have access to this group."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+                raise GroupAccessDenied()
             snapshot = build_progress_snapshot(group_id=group_id)
         else:
             snapshot = build_progress_snapshot(allowed_group_ids=allowed_ids)

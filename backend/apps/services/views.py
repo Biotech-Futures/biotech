@@ -16,6 +16,15 @@ from django.conf import settings
 from . import auth_service
 from apps.users.models import User
 from apps.user_sessions.models import UserSession
+from config.errors import (
+    AccountInactive,
+    EmailAndCodeRequired,
+    EmailRequired,
+    InvalidOrExpiredCode,
+    TooManyFailedAttempts,
+    UserNotFound,
+    error_json_response,
+)
 
 
 class SendLoginCodeRequestSerializer(serializers.Serializer):
@@ -62,13 +71,13 @@ class SendLoginCodeView(APIView):
         # edbert: Added redirect_url parameter to support frontend callback
         redirect_url = request.data.get("redirect_url")
         if not email:
-            return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+            raise EmailRequired()
 
         # edbert: Pass redirect_url to auth service
         sent = auth_service.send_login_code(email, redirect_url)
         if sent:
             return Response({"message": "Login code sent"}, status=status.HTTP_200_OK)
-        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        raise UserNotFound()
 
 
 class VerifyLoginCodeView(APIView):
@@ -86,23 +95,23 @@ class VerifyLoginCodeView(APIView):
         email = request.data.get("email")
         code = request.data.get("code")
         if not email or not code:
-            return Response({"error": "Email and code are required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            raise EmailAndCodeRequired()
+
         cache_key = f"otp_attempts:{email}"
         attempts = cache.get(cache_key, 0)
         if attempts >= 5:
-            return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            raise TooManyFailedAttempts()
 
         valid = auth_service.verify_login_code(email, code)
         if not valid:
             cache.set(cache_key, attempts + 1, 300)
-            return Response({"error": "Invalid or expired code"}, status=status.HTTP_400_BAD_REQUEST)
+            raise InvalidOrExpiredCode()
 
-        # At this point user is authenticated 
+        # At this point user is authenticated
         user = User.objects.get(email=email)
-        
+
         if user.account_status in ['suspended', 'deactivated']:
-            return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
+            raise AccountInactive()
             
         login(request, user)  # Creates session cookie
         cache.delete(cache_key)
@@ -126,16 +135,16 @@ def magic_login(request):
     code = request.GET.get("code")
 
     if not email or not code:
-        return JsonResponse({"error": "Missing email or code"}, status=400)
+        return error_json_response(EmailAndCodeRequired)
 
     if not auth_service.verify_login_code(email, code):
-        return JsonResponse({"error": "Invalid or expired code"}, status=400)
+        return error_json_response(InvalidOrExpiredCode)
 
-    # User is authenticated 
+    # User is authenticated
     user = User.objects.get(email=email)
-    
+
     if user.account_status in ['suspended', 'deactivated']:
-        return JsonResponse({"error": "Account is inactive."}, status=403)
+        return error_json_response(AccountInactive)
         
     login(request, user)  # Creates session cookie
 
