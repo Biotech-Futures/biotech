@@ -71,6 +71,9 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    # Always return JSON for any exception raised in a DRF view (instead of
+    # Django's HTML debug/500 page). See apps/services/exception_handler.py.
+    'EXCEPTION_HANDLER': 'apps.services.exception_handler.unified_exception_handler',
 }
 
 
@@ -83,6 +86,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    # Backstop for any uncaught view exception — converts to JSON for API
+    # paths so the frontend never sees Django's HTML debug/500 page. Top of
+    # the list = LAST process_exception called (final safety net).
+    "apps.services.json_error_middleware.JsonErrorMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
