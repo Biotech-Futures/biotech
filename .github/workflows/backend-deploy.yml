@@ -9,8 +9,8 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: 'your-app-service-name'   # set this to your application's name
-  PYTHON_VERSION: '3.11'                       # set this to the Python version to use
+  AZURE_WEBAPP_NAME: 'biotechBe'
+  PYTHON_VERSION: '3.10'
 
 jobs:
   build-and-deploy:
