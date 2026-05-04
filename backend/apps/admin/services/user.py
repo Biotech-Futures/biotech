@@ -15,11 +15,10 @@ from typing import List, Dict, Any, Optional, Tuple
 # Import models
 from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
-    AreasOfInterest, UserInterest
+    AreasOfInterest, UserInterest, AdminProfile
 )
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Groups, GroupMembership
-from apps.admin.models import AdminUser
 
 
 # ============================================================================
@@ -167,11 +166,11 @@ def upsert_mentor_profile(
 
 def ensure_admin_email_available(email: str) -> Optional[str]:
     """
-    Check if admin email is already in use.
+    Check if email is already in use by any user.
     Returns error message if email exists, None otherwise.
     """
-    if AdminUser.objects.filter(email=email).exists():
-        return "Admin account email already exists"
+    if User.objects.filter(email=email).exists():
+        return "Account email already exists"
     return None
 
 
@@ -194,13 +193,13 @@ def rollback_created_user(user_id: int) -> None:
         User.objects.filter(id=user_id).delete()
 
 
-def build_user_dict(user: User, role_str: Optional[str] = None, 
+def build_user_dict(user: User, role_str: Optional[str] = None,
                    track_name: Optional[str] = None,
                    group_name: Optional[str] = None,
                    student_profile: Optional[StudentProfile] = None,
                    supervisor_profile: Optional[SupervisorProfile] = None,
                    mentor_profile: Optional[MentorProfile] = None,
-                   admin_user: Optional[AdminUser] = None) -> Dict[str, Any]:
+                   admin_profile: Optional[AdminProfile] = None) -> Dict[str, Any]:
     """
     Build a user dictionary with all related data.
     """
@@ -250,7 +249,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
         "joinPermissionReceived": student_profile.has_join_permission if student_profile else False,
         "interests": interests,
-        "adminTracks": admin_user.tracks if admin_user else None,
+        "adminTracks": admin_profile.tracks if admin_profile else None,
         "isActive": user.is_active,
         "accountStatus": "active" if user.is_active else "deactivated",
         "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
@@ -270,17 +269,17 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     student_profile = StudentProfile.objects.filter(user_id=user_id).first()
     supervisor_profile = SupervisorProfile.objects.filter(user_id=user_id).first()
     mentor_profile = MentorProfile.objects.filter(user_id=user_id).first()
-    admin_user = AdminUser.objects.filter(user_id=user_id).first()
-    
+    admin_profile = AdminProfile.objects.filter(admin_id=user_id).first()
+
     track_name = user.track.track_name if user.track else None
-    
+
     return build_user_dict(
         user,
         track_name=track_name,
         student_profile=student_profile,
         supervisor_profile=supervisor_profile,
         mentor_profile=mentor_profile,
-        admin_user=admin_user
+        admin_profile=admin_profile
     )
 
 
@@ -961,7 +960,10 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
         normalized_tracks = [
             t.strip() for t in input_data["adminTracks"] if t.strip()
         ]
-        AdminUser.objects.filter(user_id=user_id).update(tracks=normalized_tracks)
+        AdminProfile.objects.update_or_create(
+            admin_id=user_id,
+            defaults={"tracks": normalized_tracks},
+        )
     
     # Fetch updated user
     updated_user = fetch_user_by_id(user_id)
