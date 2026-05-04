@@ -26,6 +26,15 @@ from .serializers import (
     UserStatusPatchSerializer,
 )
 from .utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
+from config.errors import (
+    AccountInactive,
+    AdminScopeForTrackRequired,
+    AdminScopeForUserRequired,
+    InvalidCredentials,
+    MissingUsers,
+    OperationalAdminRequired,
+    TooManyFailedAttempts,
+)
 
 class PasswordLoginBodySerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -45,22 +54,22 @@ class PasswordLoginView(APIView):
         cache_key = f"pwd_login_attempts:{email}"
         attempts = cache.get(cache_key, 0)
         if attempts >= 5:
-            return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-            
+            raise TooManyFailedAttempts()
+
         user_obj = User.objects.filter(email=email).first()
         if user_obj and user_obj.check_password(password):
             if user_obj.account_status in ['suspended', 'deactivated']:
-                return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
-            
+                raise AccountInactive()
+
         user = authenticate(request, username=email, password=password)
-        
+
         if user is not None:
             login(request, user) # Initiates Django Session
             cache.delete(cache_key)
             return Response(UserSerializer(user).data)
         else:
             cache.set(cache_key, attempts + 1, 300) # 5 min lockout
-            return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
+            raise InvalidCredentials()
 
 # Create your views here.
 #Issue 41
@@ -267,7 +276,7 @@ class AdminOperationalSummaryView(APIView):
     @extend_schema(request=None, responses={200: AdminOperationsSummarySerializer})
     def get(self, request):
         if not is_operational_admin(request.user):
-            return Response({"detail": "Operational admin access is required."}, status=status.HTTP_403_FORBIDDEN)
+            raise OperationalAdminRequired()
 
         track_scope = get_admin_track_ids(request.user)
         user_queryset = User.objects.all()
@@ -316,7 +325,7 @@ class BulkUserStatusView(APIView):
     @transaction.atomic
     def post(self, request):
         if not is_operational_admin(request.user):
-            return Response({"detail": "Operational admin access is required."}, status=status.HTTP_403_FORBIDDEN)
+            raise OperationalAdminRequired()
 
         serializer = BulkUserStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -325,15 +334,12 @@ class BulkUserStatusView(APIView):
         found_ids = {user.id for user in users}
         missing_ids = [user_id for user_id in user_ids if user_id not in found_ids]
         if missing_ids:
-            return Response({"missing_user_ids": missing_ids}, status=status.HTTP_400_BAD_REQUEST)
+            raise MissingUsers(missing_ids)
 
         now = timezone.now()
         for user in users:
             if user.track_id and not can_admin_track(request.user, user.track_id):
-                return Response(
-                    {"detail": f"You do not have admin scope for user {user.id}."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+                raise AdminScopeForUserRequired(user.id)
             user.account_status = serializer.validated_data["account_status"]
             update_fields = {"account_status", "is_active"}
             if user.account_status == User.AccountStatus.ACTIVE and user.activated_at is None:
@@ -355,27 +361,24 @@ class BulkUserTrackAssignmentView(APIView):
     @transaction.atomic
     def post(self, request):
         if not is_operational_admin(request.user):
-            return Response({"detail": "Operational admin access is required."}, status=status.HTTP_403_FORBIDDEN)
+            raise OperationalAdminRequired()
 
         serializer = BulkUserTrackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         target_track = serializer.validated_data["track"]
         if not can_admin_track(request.user, target_track):
-            return Response({"detail": "You do not have admin scope for the target track."}, status=status.HTTP_403_FORBIDDEN)
+            raise AdminScopeForTrackRequired()
 
         user_ids = serializer.validated_data["user_ids"]
         users = list(User.objects.filter(id__in=user_ids).order_by("id"))
         found_ids = {user.id for user in users}
         missing_ids = [user_id for user_id in user_ids if user_id not in found_ids]
         if missing_ids:
-            return Response({"missing_user_ids": missing_ids}, status=status.HTTP_400_BAD_REQUEST)
+            raise MissingUsers(missing_ids)
 
         for user in users:
             if user.track_id and not can_admin_track(request.user, user.track_id):
-                return Response(
-                    {"detail": f"You do not have admin scope for user {user.id}."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+                raise AdminScopeForUserRequired(user.id)
             user.track = target_track
             user.save(update_fields=["track"])
 

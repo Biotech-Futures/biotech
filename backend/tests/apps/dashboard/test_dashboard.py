@@ -71,7 +71,24 @@ class DashboardNextEventApiTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["event_name"], "Group Check-in")
-        self.assertEqual(sorted(response.data.keys()), ["event_name", "id", "is_virtual", "location", "location_link", "start_datetime"])
+        self.assertEqual(
+            sorted(response.data.keys()),
+            [
+                "description",
+                "ends_datetime",
+                "event_image",
+                "event_name",
+                "event_type",
+                "groups",
+                "id",
+                "is_virtual",
+                "location",
+                "location_link",
+                "rsvp_status",
+                "start_datetime",
+                "track",
+            ],
+        )
 
     def test_mentor_invite_overrides_track_and_group_targeting(self):
         mentor = User.objects.create_user(
