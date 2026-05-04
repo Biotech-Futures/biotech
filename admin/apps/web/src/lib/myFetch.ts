@@ -22,6 +22,25 @@ export const myFetch = axios.create({
   withCredentials: true,
 });
 
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const csrfInterceptor = (config: any) => {
+  const method = (config.method || "get").toUpperCase();
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    const token = getCookie("csrftoken");
+    if (token) {
+      config.headers["X-CSRFToken"] = token;
+    }
+  }
+  return config;
+};
+
+myFetch.interceptors.request.use(csrfInterceptor);
+apiFetch.interceptors.request.use(csrfInterceptor);
+
 const ensureTrailingSlash = (config: any) => {
   if (config.url) {
     const URL_PARTS = config.url.split('?');

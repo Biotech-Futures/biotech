@@ -127,7 +127,7 @@ export function GroupMessagesDialog({
                       </Badge>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      {formatMessageTime(message.sentAt)}
+                      {formatMessageTime(message.sent_at)}
                     </p>
                   </div>
                   <Button
@@ -147,9 +147,9 @@ export function GroupMessagesDialog({
               <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">
                 {message.text}
               </p>
-              {message.editedAt && (
+              {message.edited_at && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Edited {formatMessageTime(message.editedAt)}
+                  Edited {formatMessageTime(message.edited_at)}
                 </p>
               )}
             </div>
@@ -174,7 +174,7 @@ export function GroupMessagesDialog({
               variant="outline"
               size="sm"
               onClick={() => setMessagePage((page) => page + 1)}
-              disabled={!meta.hasMore || isPending}
+              disabled={!meta.has_more || isPending}
             >
               Next
               <ChevronRightIcon className="ml-1 size-4" />

@@ -36,12 +36,12 @@ def get_mentor_list() -> List[Dict[str, Any]]:
         MentorProfile.objects
         .select_related('user', 'user__track')
         .values(
-            mentor_id=F('user_id'),
+            'institution',
+            'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             email=F('user__email'),
             is_active=F('user__is_active'),
-            institution=F('institution'),
             max_grp_cnt=F('max_group_count'),
             track_code=F('user__track__track_name'),
             background_desc=F('background'),
@@ -52,21 +52,21 @@ def get_mentor_list() -> List[Dict[str, Any]]:
     if not mentor_rows:
         return []
     
-    mentor_ids = [m['mentor_id'] for m in mentor_rows]
+    mentor_ids = [m['user_id'] for m in mentor_rows]
     
     # 3. Last message sent by each mentor (excluding deleted messages)
     last_message_rows = (
         Messages.objects
         .filter(
             deleted_at__isnull=True,
-            sender_id__in=mentor_ids
+            sender_user_id__in=mentor_ids
         )
-        .values('sender_id')
+        .values('sender_user_id')
         .annotate(last_message_at=Max('sent_at'))
     )
-    
+
     last_message_by_mentor = {
-        row['sender_id']: row['last_message_at']
+        row['sender_user_id']: row['last_message_at']
         for row in last_message_rows
     }
     
@@ -78,14 +78,14 @@ def get_mentor_list() -> List[Dict[str, Any]]:
         .filter(mentor_profile_id__in=mentor_ids)
         .select_related('certificate_type')
         .values(
-            mentor_profile_id=F('mentor_profile_id'),
+            'mentor_profile_id',
+            'certificate_number',
+            'issued_by',
+            'issued_at',
+            'expires_at',
+            'file_url',
+            'verified',
             certificate_type_name=F('certificate_type__certificate_type'),
-            certificate_number=F('certificate_number'),
-            issued_by=F('issued_by'),
-            issued_at=F('issued_at'),
-            expires_at=F('expires_at'),
-            file_url=F('file_url'),
-            verified=F('verified'),
         )
     )
     
@@ -94,7 +94,15 @@ def get_mentor_list() -> List[Dict[str, Any]]:
         mentor_id = row['mentor_profile_id']
         if mentor_id not in certificates_by_mentor:
             certificates_by_mentor[mentor_id] = []
-        certificates_by_mentor[mentor_id].append(row)
+        certificates_by_mentor[mentor_id].append({
+            'certificateTypeName': row['certificate_type_name'],
+            'certificateNumber': row['certificate_number'],
+            'issuedBy': row['issued_by'],
+            'issuedAt': row['issued_at'],
+            'expiresAt': row['expires_at'],
+            'fileUrl': row['file_url'],
+            'verifiedAt': row['verified'],
+        })
     
     # 5. Interests per mentor
     interest_rows = (
@@ -102,7 +110,7 @@ def get_mentor_list() -> List[Dict[str, Any]]:
         .filter(user_id__in=mentor_ids)
         .select_related('interest')
         .values(
-            user_id=F('user_id'),
+            'user_id',
             interest_desc=F('interest__interest_desc'),
         )
     )
@@ -117,24 +125,23 @@ def get_mentor_list() -> List[Dict[str, Any]]:
     # Build result
     result = []
     for m in mentor_rows:
-        mentor_id = m['mentor_id']
+        mentor_id = m['user_id']
         current_assigned_count = assigned_count_by_mentor.get(mentor_id, 0)
         
         result.append({
-            'mentor_id': mentor_id,
-            'first_name': m['first_name'],
-            'last_name': m['last_name'],
+            'mentorId': mentor_id,
+            'firstName': m['first_name'],
+            'lastName': m['last_name'],
             'name': f"{m['first_name']} {m['last_name']}".strip(),
             'email': m['email'],
-            'is_active': m['is_active'],
+            'isActive': m['is_active'],
             'institution': m['institution'],
-            'track_code': m['track_code'],
-            'background': m['background_desc'],
-            'max_group_count': m['max_grp_cnt'],
-            'current_assigned_count': current_assigned_count,
-            'remaining_capacity': m['max_grp_cnt'] - current_assigned_count,
+            'trackCode': m['track_code'],
+            'maxGroupCount': m['max_grp_cnt'],
+            'currentAssignedCount': current_assigned_count,
+            'remainingCapacity': m['max_grp_cnt'] - current_assigned_count,
             'interests': interests_by_mentor.get(mentor_id, []),
-            'last_message_at': last_message_by_mentor.get(mentor_id),
+            'lastMessageAt': last_message_by_mentor.get(mentor_id),
             'availability': [],
             'certificates': certificates_by_mentor.get(mentor_id, []),
         })
@@ -154,4 +161,4 @@ def set_mentor_active(mentor_id: int, is_active: bool) -> Dict[str, Any]:
         Dictionary with mentor_id and is_active status
     """
     User.objects.filter(id=mentor_id).update(is_active=is_active)
-    return {'mentor_id': mentor_id, 'is_active': is_active}
+    return {'mentorId': mentor_id, 'isActive': is_active}
