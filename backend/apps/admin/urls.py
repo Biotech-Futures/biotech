@@ -8,10 +8,10 @@ urlpatterns = [
     # USER ROUTES
     # ========================================================================
     path('user/', views.UserListCreateView.as_view(), name='user-list-create'),
-    path('user/students/', views.UserStudentsListView.as_view(), name='user-students-list'),
     path('user/tracks/', views.UserTracksListView.as_view(), name='user-tracks-list'),
     path('user/bulk/', views.UserBulkCreateView.as_view(), name='user-bulk-create'),
     path('user/bulk-csv/', views.UserBulkCsvView.as_view(), name='user-bulk-csv'),
+    path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
     

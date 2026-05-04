@@ -284,7 +284,8 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 
 def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                role: Optional[str] = None, track: Optional[str] = None,
-               active: Optional[bool] = None, sort_by: str = "createdAt",
+               active: Optional[bool] = None, in_group: Optional[str] = None,
+               sort_by: str = "createdAt",
                sort_order: str = "desc") -> Dict[str, Any]:
     """
     Query users with pagination and filters.
@@ -312,6 +313,11 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     if active is not None:
         filters &= Q(is_active=active)
+
+    if in_group == "yes":
+        filters &= Q(groupmembership__left_at__isnull=True)
+    elif in_group == "no":
+        filters &= ~Q(groupmembership__left_at__isnull=True)
 
     # Get total count
     total = User.objects.filter(filters).values('id').distinct().count()
@@ -377,12 +383,18 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         user_id__in=user_ids, left_at__isnull=True
     ).select_related('group'):
         if not gm.group.deleted_at:
-            group_map[gm.user_id] = gm.group.group_name
+            group_map[gm.user_id] = {
+                "id": gm.group.id,
+                "name": gm.group.group_name,
+            }
 
     # User interests
-    interests_map: Dict[int, List[str]] = {}
+    interests_map: Dict[int, List[Dict[str, Any]]] = {}
     for ui in UserInterest.objects.filter(user_id__in=user_ids).select_related('interest'):
-        interests_map.setdefault(ui.user_id, []).append(ui.interest.interest_desc)
+        interests_map.setdefault(ui.user_id, []).append({
+            "id": ui.interest_id,
+            "description": ui.interest.interest_desc,
+        })
 
     # Build response in original user_ids order
     users_list = []
@@ -402,6 +414,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         elif supervisor and supervisor.school_name:
             school_name = supervisor.school_name
 
+        group_info = group_map.get(uid)
         users_list.append({
             "id": user.id,
             "firstName": user.first_name,
@@ -409,7 +422,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "email": user.email,
             "role": role_map.get(uid),
             "track": user.track.track_name if user.track else None,
-            "groupName": group_map.get(uid),
+            "groupId": group_info["id"] if group_info else None,
+            "groupName": group_info["name"] if group_info else None,
             "schoolName": school_name,
             "mentorBackground": mp.background if mp else None,
             "mentorInstitution": mp.institution if mp else None,
@@ -1078,7 +1092,7 @@ def delete_user(user_id: int) -> Dict[str, Any]:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return {"msg": "User not found", "data": None}
-    
+
     with transaction.atomic():
         RoleAssignmentHistory.objects.filter(user_id=user_id).delete()
         UserInterest.objects.filter(user_id=user_id).delete()
@@ -1086,5 +1100,19 @@ def delete_user(user_id: int) -> Dict[str, Any]:
         SupervisorProfile.objects.filter(user_id=user_id).delete()
         StudentProfile.objects.filter(user_id=user_id).delete()
         User.objects.filter(id=user_id).delete()
-    
+
     return {"msg": "User deleted successfully", "data": None}
+
+
+def has_ungrouped_students() -> bool:
+    """
+    Check if there are any students without an active group membership.
+    """
+    from django.db.models import Exists, OuterRef
+    from apps.groups.models import GroupMembership
+
+    active_membership_subquery = GroupMembership.objects.filter(
+        user_id=OuterRef('id'),
+        left_at__isnull=True
+    )
+    return StudentProfile.objects.filter(~Exists(active_membership_subquery)).exists()

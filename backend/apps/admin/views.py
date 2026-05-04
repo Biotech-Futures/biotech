@@ -3,8 +3,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.admin.services.user import (
-    query_users, query_user_by_id, query_tracks, query_students,
+    query_users, query_user_by_id, query_tracks,
     create_user, bulk_create_users, update_user, update_status, delete_user,
+    has_ungrouped_students,
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages,
@@ -44,13 +45,17 @@ from apps.admin.services.mentor_match import (
 class UserListCreateView(APIView):
     """GET /api/v1/user - List users with pagination and filters"""
     def get(self, request):
+        active = request.query_params.get("active")
+        if active is not None:
+            active = active.lower() == "true"
         result = query_users(
             page=int(request.query_params.get("page", 1)),
             limit=int(request.query_params.get("limit", 10)),
             search=request.query_params.get("search"),
             role=request.query_params.get("role"),
             track=request.query_params.get("track"),
-            active=request.query_params.get("active"),
+            active=active,
+            in_group=request.query_params.get("inGroup"),
             sort_by=request.query_params.get("sortBy", "createdAt"),
             sort_order=request.query_params.get("sortOrder", "desc"),
         )
@@ -61,25 +66,6 @@ class UserListCreateView(APIView):
         result = create_user(request.data)
         code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
-
-
-class UserStudentsListView(APIView):
-    """GET /api/v1/user/students - List students with student-specific filters"""
-    def get(self, request):
-        active = request.query_params.get("active")
-        if active is not None:
-            active = active.lower() == "true"
-        result = query_students(
-            page=int(request.query_params.get("page", 1)),
-            limit=int(request.query_params.get("limit", 10)),
-            search=request.query_params.get("search"),
-            year_level=request.query_params.get("yearLevel"),
-            track=request.query_params.get("track"),
-            interest=request.query_params.get("interest"),
-            in_group=request.query_params.get("inGroup"),
-            active=active,
-        )
-        return Response(result)
 
 
 class UserTracksListView(APIView):
@@ -151,6 +137,13 @@ class UserBulkCsvView(APIView):
         users = list(reader)
         result = bulk_create_users(users, "")
         return Response(result, status=status.HTTP_201_CREATED)
+
+
+class UserUngroupedCheckView(APIView):
+    """GET /api/v1/user/ungrouped-check - Check if there are ungrouped students"""
+    def get(self, request):
+        result = has_ungrouped_students()
+        return Response({"msg": "Ungrouped students check completed", "data": {"hasUngrouped": result}})
 
 
 # ============================================================================

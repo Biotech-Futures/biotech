@@ -4,7 +4,7 @@ import { StudentFilters } from "@/components/user/StudentFilters";
 import { StudentTable } from "@/components/user/StudentTable";
 import { studentColumns } from "@/components/user/columns";
 import { Button } from "@/components/ui/button";
-import { useQueryStudents, useQueryTracks } from "@/query/student";
+import { useQueryStudents, useQueryTracks, useQueryHasUngroupedStudents } from "@/query/student";
 import type { StudentTrack, StudentUser } from "@/type/user";
 import { ShuffleIcon } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -17,9 +17,7 @@ export const Route = createFileRoute("/_auth/student")({
 function StudentPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [yearLevel, setYearLevel] = useState("");
   const [track, setTrack] = useState<StudentTrack | undefined>();
-  const [interest, setInterest] = useState("");
   const [inGroup, setInGroup] = useState<"yes" | "no" | "all">("all");
   const [page, setPage] = useState(1);
   const [assigningStudent, setAssigningStudent] = useState<StudentUser | null>(
@@ -30,26 +28,20 @@ function StudentPage() {
     page,
     limit: 10,
     search: search || undefined,
-    yearLevel: yearLevel ? Number(yearLevel) : undefined,
     track,
-    interest: interest || undefined,
     inGroup: inGroup === "all" ? undefined : inGroup,
-  });
-  const { data: ungroupedStudentsData } = useQueryStudents({
-    page: 1,
-    limit: 1,
-    inGroup: "no",
   });
 
   const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
+  const { data: ungroupedData } = useQueryHasUngroupedStudents();
+  const hasUngrouped = ungroupedData?.data?.hasUngrouped ?? false;
 
   useEffect(() => {
     setPage(1);
-  }, [search, yearLevel, track, interest, inGroup]);
+  }, [search, track, inGroup]);
 
   const students = data?.data?.items ?? [];
   const total = data?.data?.total ?? 0;
-  const hasUngroupedStudents = (ungroupedStudentsData?.data?.total ?? 0) > 0;
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / 10)), [total]);
 
   const columns = useMemo<ColumnDef<StudentUser>[]>(() => {
@@ -85,7 +77,7 @@ function StudentPage() {
 
   return (
     <div className="p-4 space-y-4">
-      {hasUngroupedStudents && (
+      {hasUngrouped && (
         <div className="flex items-center justify-end">
           <Button onClick={handleMatchStudents}>
             <ShuffleIcon className="size-4" />
@@ -97,14 +89,10 @@ function StudentPage() {
       <StudentFilters
         search={search}
         onSearchChange={setSearch}
-        yearLevel={yearLevel}
-        onYearLevelChange={setYearLevel}
         track={track}
         onTrackChange={setTrack}
         tracks={tracksData?.data ?? []}
         isLoadingTracks={isLoadingTracks}
-        interest={interest}
-        onInterestChange={setInterest}
         inGroup={inGroup}
         onInGroupChange={setInGroup}
       />
@@ -115,7 +103,6 @@ function StudentPage() {
         page={page}
         totalPages={totalPages}
         onPageChange={setPage}
-        // onRowClick={handleStudentClick}
         isPending={isPending}
       />
 
