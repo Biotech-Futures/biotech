@@ -251,7 +251,7 @@
               >
                 Current
               </button>
-              <span class="range-hint">Prev • Current • Next</span>
+              <span class="range-hint">Prev / Current / Next</span>
             </div>
 
             <div class="mini-calendar-weekdays">
@@ -296,20 +296,18 @@
               </span>
             </div>
 
-            <div class="mini-calendar-footer" v-if="auth.isAdmin">
-              <button class="calendar-edit-button" @click="openEditor">
-                <i class="fas fa-pen"></i>
-                <span>Edit Events</span>
-              </button>
+            <div class="mini-calendar-footer">
+              <RouterLink to="/events" class="calendar-edit-button">
+                <i class="fas fa-calendar-alt"></i>
+                <span>View Events</span>
+              </RouterLink>
             </div>
           </div>
 
           <transition name="calendar-fade">
             <div v-if="showCalendarOverlay" class="calendar-overlay">
               <div class="calendar-overlay-header">
-                <div class="calendar-overlay-title">
-                  {{ overlayMode === 'details' ? selectedOverlayTitle : 'Manage events' }}
-                </div>
+                <div class="calendar-overlay-title">{{ selectedOverlayTitle }}</div>
                 <button class="calendar-close-button" @click="closeCalendarOverlay" aria-label="Close">
                   <i class="fas fa-times"></i>
                 </button>
@@ -332,69 +330,6 @@
 
                 <div v-else class="overlay-empty-state">
                   No special information for this date.
-                </div>
-              </div>
-
-              <div v-else class="calendar-overlay-body editor-body">
-                <div class="editor-readonly-note">
-                  Public holidays are read-only. Only events can be edited here.
-                </div>
-
-                <div class="editor-form">
-                  <div class="form-row">
-                    <label class="form-label">Date</label>
-                    <input
-                      v-model="editForm.date"
-                      type="date"
-                      class="form-input"
-                      :min="minAllowedDate"
-                      :max="maxAllowedDate"
-                    />
-                  </div>
-
-                  <div class="form-row">
-                    <label class="form-label">Event title</label>
-                    <input
-                      v-model="editForm.title"
-                      type="text"
-                      class="form-input"
-                      placeholder="Enter event title and time"
-                    />
-                  </div>
-
-                  <div class="editor-actions">
-                    <button class="editor-primary-button" @click="saveEvent">
-                      {{ editForm.id ? 'Update' : 'Add' }}
-                    </button>
-                    <button class="editor-secondary-button" @click="startNewEvent">
-                      New
-                    </button>
-                  </div>
-                </div>
-
-                <div class="editor-list">
-                  <div class="editor-list-title">Existing events</div>
-
-                  <div v-if="sortedEvents.length" class="editor-list-scroll">
-                    <div v-for="item in sortedEvents" :key="item.id" class="editor-item">
-                      <div class="editor-item-main">
-                        <span class="editor-type-chip chip-event">Event</span>
-                        <div class="editor-item-date">{{ item.date }}</div>
-                        <div class="editor-item-title">{{ item.title }}</div>
-                      </div>
-
-                      <div class="editor-item-actions">
-                        <button class="mini-action-button" @click="editExistingEvent(item)">
-                          Edit
-                        </button>
-                        <button class="mini-action-button danger" @click="deleteEvent(item.id)">
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div v-else class="overlay-empty-state">No events yet.</div>
                 </div>
               </div>
             </div>
@@ -479,6 +414,7 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useThemeStore } from './stores/theme'
 import logo from '@/assets/btf-logo.png'
+import { fetchEvents, type BackendEvent } from '@/utils/eventsAPI'
 
 const route = useRoute()
 const router = useRouter()
@@ -538,19 +474,13 @@ const buildSearchPayload = (): SearchPayload => {
   }
 }
 
-const requestGlobalSearch = async (_payload: SearchPayload) => {
-  return Promise.resolve()
-}
-
-const submitSearch = async () => {
+const submitSearch = () => {
   const payload = buildSearchPayload()
   if (!payload.query) return
 
   isSearching.value = true
 
   try {
-    await requestGlobalSearch(payload)
-
     router.push({
       path: '/resources',
       query: {
@@ -724,52 +654,31 @@ const todayLabel = computed(() => {
   }).format(today)
 })
 
-const holidaySource = ref<CalendarItem[]>([
-  { id: 1001, date: '2026-01-01', type: 'holiday', title: 'New Year’s Day' },
-  { id: 1002, date: '2026-01-26', type: 'holiday', title: 'Australia Day' },
-  { id: 1003, date: '2026-04-03', type: 'holiday', title: 'Good Friday' },
-  { id: 1004, date: '2026-04-04', type: 'holiday', title: 'Easter Saturday' },
-  { id: 1005, date: '2026-04-05', type: 'holiday', title: 'Easter Sunday' },
-  { id: 1006, date: '2026-04-06', type: 'holiday', title: 'Easter Monday' },
-  { id: 1007, date: '2026-04-25', type: 'holiday', title: 'Anzac Day' },
-  { id: 1008, date: '2026-04-27', type: 'holiday', title: 'Additional Day for Anzac Day' },
-  { id: 1009, date: '2026-06-08', type: 'holiday', title: 'King’s Birthday' },
-  { id: 1010, date: '2026-10-05', type: 'holiday', title: 'Labour Day' },
-  { id: 1011, date: '2026-12-25', type: 'holiday', title: 'Christmas Day' },
-  { id: 1012, date: '2026-12-26', type: 'holiday', title: 'Boxing Day' },
-  { id: 1013, date: '2026-12-28', type: 'holiday', title: 'Additional Day for Boxing Day' },
-  { id: 1014, date: '2027-01-01', type: 'holiday', title: 'New Year’s Day' },
-  { id: 1015, date: '2027-01-26', type: 'holiday', title: 'Australia Day' },
-  { id: 1016, date: '2027-03-26', type: 'holiday', title: 'Good Friday' },
-  { id: 1017, date: '2027-03-27', type: 'holiday', title: 'Easter Saturday' },
-  { id: 1018, date: '2027-03-28', type: 'holiday', title: 'Easter Sunday' },
-  { id: 1019, date: '2027-03-29', type: 'holiday', title: 'Easter Monday' },
-  { id: 1020, date: '2027-04-25', type: 'holiday', title: 'Anzac Day' },
-  { id: 1021, date: '2027-04-26', type: 'holiday', title: 'Additional Day for Anzac Day' },
-  { id: 1022, date: '2027-06-14', type: 'holiday', title: 'King’s Birthday' }
-])
-
-const eventSource = ref<CalendarItem[]>([
-  {
-    id: 1,
-    date: toDateKey(today.getFullYear(), today.getMonth(), today.getDate()),
-    type: 'event',
-    title: 'Team Check-in 2:30 PM'
-  },
-  {
-    id: 2,
-    date: toDateKey(today.getFullYear(), today.getMonth(), Math.min(today.getDate() + 3, 28)),
-    type: 'event',
-    title: 'Client Demo 10:00 AM'
-  }
-])
-
+const eventSource = ref<CalendarItem[]>([])
 const isDateWithinAllowedWindow = (dateKey: string) => {
   return dateKey >= minAllowedDate.value && dateKey <= maxAllowedDate.value
 }
 
 const visibleHolidays = computed(() => {
-  return holidaySource.value.filter(item => isDateWithinAllowedWindow(item.date))
+  const items: CalendarItem[] = []
+  const cursor = parseDateKey(minAllowedDate.value)
+  const end = parseDateKey(maxAllowedDate.value)
+
+  while (cursor.getTime() <= end.getTime()) {
+    const weekday = cursor.getDay()
+    if (weekday === 0 || weekday === 6) {
+      const date = toDateKey(cursor.getFullYear(), cursor.getMonth(), cursor.getDate())
+      items.push({
+        id: -Number(date.replace(/-/g, '')),
+        date,
+        type: 'holiday',
+        title: weekday === 6 ? 'Saturday' : 'Sunday'
+      })
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return items
 })
 
 const visibleEvents = computed(() => {
@@ -851,7 +760,7 @@ const calendarDays = computed(() => {
 
 const selectedDateKey = ref<string | null>(null)
 const showCalendarOverlay = ref(false)
-const overlayMode = ref<'details' | 'edit'>('details')
+const overlayMode = ref<'details'>('details')
 
 const selectedItems = computed(() => {
   if (!selectedDateKey.value) return []
@@ -905,91 +814,51 @@ const goToCurrentMonth = () => {
   closeCalendarOverlay()
 }
 
-const editForm = ref<CalendarItem>({
-  id: 0,
-  date: minAllowedDate.value,
-  type: 'event',
-  title: ''
-})
+const extractEventItems = (data: BackendEvent[] | { results?: BackendEvent[] }) => {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.results)) return data.results
+  return []
+}
 
-const sortedEvents = computed(() => {
-  return [...visibleEvents.value].sort((a, b) => a.date.localeCompare(b.date))
-})
+const formatEventTime = (event: BackendEvent) => {
+  const start = event.start_datetime ? new Date(event.start_datetime) : null
+  const end = event.ends_datetime ? new Date(event.ends_datetime) : null
+  if (!start || Number.isNaN(start.getTime())) return ''
+  const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
+  const startText = start.toLocaleTimeString([], timeOptions)
+  if (!end || Number.isNaN(end.getTime())) return startText
+  return `${startText} - ${end.toLocaleTimeString([], timeOptions)}`
+}
 
-const startNewEvent = () => {
-  const defaultDate =
-    selectedDateKey.value && isDateWithinAllowedWindow(selectedDateKey.value)
-      ? selectedDateKey.value
-      : toDateKey(calendarYear.value, calendarMonth.value, 1)
+const normalizeCalendarEvent = (event: BackendEvent): CalendarItem | null => {
+  if (!event.start_datetime) return null
+  const start = new Date(event.start_datetime)
+  if (Number.isNaN(start.getTime())) return null
+  const time = formatEventTime(event)
+  const name = event.event_name || 'Untitled event'
 
-  editForm.value = {
-    id: 0,
-    date: defaultDate,
+  return {
+    id: event.id,
+    date: toDateKey(start.getFullYear(), start.getMonth(), start.getDate()),
     type: 'event',
-    title: ''
+    title: time ? `${name} ${time}` : name
   }
 }
 
-const openEditor = () => {
-  overlayMode.value = 'edit'
-  showCalendarOverlay.value = true
-  startNewEvent()
-}
-
-const editExistingEvent = (item: CalendarItem) => {
-  editForm.value = { ...item, type: 'event' }
-}
-
-const saveCalendarEventRequest = async (_event: CalendarItem) => {
-  return Promise.resolve()
-}
-
-const deleteCalendarEventRequest = async (_id: number) => {
-  return Promise.resolve()
-}
-
-const saveEvent = async () => {
-  const title = editForm.value.title.trim()
-  const date = editForm.value.date
-
-  if (!title || !date) return
-  if (!isDateWithinAllowedWindow(date)) return
-
-  const payload: CalendarItem = {
-    id: editForm.value.id || Date.now(),
-    date,
-    type: 'event',
-    title
-  }
-
-  await saveCalendarEventRequest(payload)
-
-  if (editForm.value.id) {
-    const index = eventSource.value.findIndex(item => item.id === editForm.value.id)
-    if (index !== -1) {
-      eventSource.value[index] = payload
-    }
-  } else {
-    eventSource.value.push(payload)
-  }
-
-  selectedDateKey.value = date
-  startNewEvent()
-}
-
-const deleteEvent = async (id: number) => {
-  await deleteCalendarEventRequest(id)
-  eventSource.value = eventSource.value.filter(item => item.id !== id)
-
-  if (editForm.value.id === id) {
-    startNewEvent()
+async function loadCalendarEvents() {
+  try {
+    const data = await fetchEvents()
+    eventSource.value = extractEventItems(data)
+      .map(normalizeCalendarEvent)
+      .filter((item): item is CalendarItem => item !== null)
+  } catch (error) {
+    console.error('Failed to load mini-calendar events:', error)
+    eventSource.value = []
   }
 }
 
-watch(showCalendarOverlay, value => {
-  if (value && overlayMode.value === 'edit') {
-    startNewEvent()
-  }
+onMounted(() => {
+  loadCalendarEvents()
 })
 </script>
 
@@ -2278,7 +2147,7 @@ select {
 }
 
 /* ============================================================
-   NIGHT MODE — dark forest green
+   NIGHT MODE - dark forest green
    ============================================================ */
 
 .is-night-mode {
@@ -2577,7 +2446,7 @@ select {
 }
 
 /* ============================================================
-   DAY MODE — light yellow-green
+   DAY MODE - light yellow-green
    ============================================================ */
 
 .is-day-mode {
