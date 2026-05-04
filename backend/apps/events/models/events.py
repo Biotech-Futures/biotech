@@ -20,7 +20,7 @@ class Events(models.Model):
     location = models.CharField(max_length=255, blank=True, null=True)
     # Keep the stored registration link vendor-agnostic at the API layer even though the
     # persisted field name still reflects the current external platform.
-    humanitix_link = models.URLField(max_length=255, blank=True, null=True)
+    link = models.URLField(max_length=255, blank=True, null=True)
     host_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     deleted_at = models.DateTimeField(default=None, blank=True, null=True)
     event_image = models.CharField(max_length=255, blank=True, null=True)

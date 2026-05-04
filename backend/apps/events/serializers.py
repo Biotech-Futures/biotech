@@ -28,7 +28,7 @@ class EventSerializer(serializers.ModelSerializer):
             "start_datetime",
             "ends_datetime",
             "location",
-            "humanitix_link",
+            "link",
             "host_user",
             "host_name",
             "event_image",
