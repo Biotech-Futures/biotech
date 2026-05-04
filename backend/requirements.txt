@@ -1,4 +1,5 @@
 asgiref==3.9.1
+azure-storage-blob>=12.19.0
 attrs==25.3.0
 certifi==2025.8.3
 channels==4.3.1
