@@ -529,7 +529,7 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import * as THREE from 'three'
 
-import { mockBiotechShowcaseItems } from '@/data/mock'
+import { showcaseCarouselContent } from '@/data/showcaseCarouselContent'
 
 import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
@@ -728,7 +728,7 @@ const dashboardThemeStyle = computed(() => {
 })
 
 const biotechShowcaseItems = ref(
-  Array.isArray(mockBiotechShowcaseItems) ? [...mockBiotechShowcaseItems] : []
+  Array.isArray(showcaseCarouselContent) ? [...showcaseCarouselContent] : []
 )
 
 const activeShowcaseIndex = ref(0)
