@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, StudentProfile, MentorProfile
+from .models import AreasOfInterest, User, StudentProfile, MentorProfile, UserInterest
 from apps.resources.models import RoleAssignmentHistory
 from apps.groups.models import Tracks
 from django.db.models import Q
@@ -40,6 +40,7 @@ class JoinPermissionRequestSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     current_role_id = serializers.SerializerMethodField()
     current_role_name = serializers.SerializerMethodField()
+    interests = serializers.SerializerMethodField()
 
     #student
     pg_firstname = serializers.SerializerMethodField()
@@ -55,7 +56,27 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups"]
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "account_status",
+            "track",
+            "contact_method",
+            "availability",
+            "interests",
+            "current_role_id",
+            "current_role_name",
+            "pg_firstname",
+            "pg_lastname",
+            "year_lvl",
+            "school_name",
+            "join_perm",
+            "ment_inst",
+            "ment_reason",
+            "ment_max_groups",
+        ]
         read_only_fields = ["id"]
 
     def _active_assignment(self, user):
@@ -143,6 +164,47 @@ class UserSerializer(serializers.ModelSerializer):
     def get_ment_max_groups(self, obj):
         mp = self._mentor_profile(obj)
         return None if mp is None else mp.max_group_count
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_interests(self, obj):
+        return list(
+            UserInterest.objects
+            .filter(user=obj)
+            .select_related("interest")
+            .order_by("interest__interest_desc", "id")
+            .values_list("interest__interest_desc", flat=True)
+        )
+
+
+class MeProfileUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=255, required=False)
+    last_name = serializers.CharField(max_length=255, required=False)
+    contact_method = serializers.ChoiceField(choices=User.ContactMethod.choices, required=False)
+    availability = serializers.CharField(required=False, allow_blank=True)
+    interests = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=False),
+        required=False,
+        allow_empty=True,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("At least one editable profile field must be supplied.")
+        return attrs
+
+    def validate_interests(self, value):
+        normalized = []
+        seen = set()
+        for interest in value:
+            cleaned = str(interest).strip()
+            if not cleaned:
+                raise serializers.ValidationError("Interest values must not be blank.")
+            lowered = cleaned.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            normalized.append(cleaned)
+        return normalized
 
 class UserStatusPatchSerializer(serializers.ModelSerializer):
     class Meta:

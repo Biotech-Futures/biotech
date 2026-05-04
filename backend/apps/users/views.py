@@ -23,6 +23,7 @@ from .serializers import (
     BulkUserStatusSerializer,
     BulkUserTrackSerializer,
     JoinPermissionRequestSerializer,
+    MeProfileUpdateSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
     UserStatusPatchSerializer,
@@ -220,17 +221,29 @@ class MeRetrieveView(generics.RetrieveAPIView):
         obj = self.request.user
         return obj
     
+    @transaction.atomic
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
-        data=request.data
-        if "account_status" in data:
-            user.account_status = data["account_status"]
-            user.save(update_fields=["account_status"])
+        serializer = MeProfileUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
-        if "role_id" in data:
-            with transaction.atomic():
-                _assign_role(user, data["role_id"], valid_weeks=6)
+        update_fields = []
+        # Self-service profile updates are intentionally limited to user-editable identity and
+        # preference fields; account status and role changes remain admin-only operations.
+        for field_name in ["first_name", "last_name", "contact_method", "availability"]:
+            if field_name in data:
+                setattr(user, field_name, data[field_name])
+                update_fields.append(field_name)
+
+        if update_fields:
+            user.save(update_fields=update_fields)
+
+        if "interests" in data:
+            UserInterest.objects.filter(user=user).delete()
+            for interest_desc in data["interests"]:
+                interest, _ = AreasOfInterest.objects.get_or_create(interest_desc=interest_desc)
+                UserInterest.objects.create(user=user, interest=interest)
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
     

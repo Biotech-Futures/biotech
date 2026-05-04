@@ -43,6 +43,11 @@ class User(AbstractUser):
         SUSPENDED = "suspended", "Suspended"
         DEACTIVATED = "deactivated", "Deactivated"
 
+    class ContactMethod(models.TextChoices):
+        EMAIL = "email", "Email"
+        PLATFORM_MESSAGES = "platform_messages", "Platform Messages"
+        BOTH = "both", "Both"
+
     username = None
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=255, blank=False)
@@ -55,6 +60,14 @@ class User(AbstractUser):
         choices=AccountStatus.choices,
         default=AccountStatus.PENDING,
     )
+    # These preference fields support the self-service `/users/me/` profile API and keep the
+    # editable Profile page state out of local-only browser storage.
+    contact_method = models.CharField(
+        max_length=50,
+        choices=ContactMethod.choices,
+        default=ContactMethod.BOTH,
+    )
+    availability = models.TextField(blank=True, default="")
     invited_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
 
