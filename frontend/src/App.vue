@@ -474,19 +474,13 @@ const buildSearchPayload = (): SearchPayload => {
   }
 }
 
-const requestGlobalSearch = async (_payload: SearchPayload) => {
-  return Promise.resolve()
-}
-
-const submitSearch = async () => {
+const submitSearch = () => {
   const payload = buildSearchPayload()
   if (!payload.query) return
 
   isSearching.value = true
 
   try {
-    await requestGlobalSearch(payload)
-
     router.push({
       path: '/resources',
       query: {
