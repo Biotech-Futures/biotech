@@ -6,9 +6,7 @@ from apps.groups.models import Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
 
-# Shared between :func:`get_groups_preview` (writer) and
-# ``DashboardGroupPreviewSerializer`` (reader) so the prefetch attribute name
-# isn't a magic string duplicated across modules.
+
 MENTOR_MEMBERSHIPS_ATTR = "_mentor_memberships"
 
 def _get_active_role_ids(user):
