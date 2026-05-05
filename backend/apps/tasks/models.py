@@ -54,6 +54,7 @@ class Milestone(models.Model):
     class Meta:
         db_table = 'milestone'
         verbose_name = "Milestone"
+        ordering = ["id"]
         indexes = [
             models.Index(fields=['group']),
             models.Index(fields=['completed']),
