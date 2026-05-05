@@ -72,6 +72,7 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
 }
 
 
@@ -161,11 +162,45 @@ CHANNEL_LAYERS = {
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "[{asctime}] {levelname} {name} :: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "config": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
+
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
     default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
     cast=Csv()
 )
+
 CORS_ALLOW_CREDENTIALS = True
 
 SESSION_COOKIE_NAME = 'sessionid'
@@ -189,3 +224,32 @@ MAGIC_LINK_REDIRECT_URL = config("MAGIC_LINK_REDIRECT_URL", default="http://loca
 LOGIN_REDIRECT_URL = config("LOGIN_REDIRECT_URL", default="http://localhost:5173/auth/callback")
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
 MAILTRAP_TOKEN = config("MAILTRAP_TOKEN", default="")
+
+# --- Chat sanitiser ----------------------------------------------------------
+# Sanitisation policy is sourced from environment variables so moderation
+# changes do not require a code deploy. See apps/chat/utils.py for the full
+# stem / whole-word grammar.
+#
+#   CHAT_SANITIZER_BLACKLIST    comma-separated entries. Each entry is one of:
+#                                 - a stem (trailing ``*``), e.g. ``fuck*`` —
+#                                   substring match with leet/spacing
+#                                   tolerance; catches ``fucker``, ``brainfuck``,
+#                                   ``f*ck``, ``fuuuck`` automatically.
+#                                 - a whole-word, e.g. ``hell`` — letter-
+#                                   boundary anchored, used for short letter
+#                                   sequences that occur as substrings of
+#                                   innocent words (``hello``, ``passive``).
+#   CHAT_SANITIZER_REPLACEMENT  replacement token, "***" by default.
+CHAT_SANITIZER_BLACKLIST = config(
+    "CHAT_SANITIZER_BLACKLIST",
+    default=(
+        # Stems (trailing "*" -> substring + leet-tolerant match).
+        "fuck*,shit*,dick*,bitch*,cock*,cunt*,prick*,"
+        "pussy*,nigger*,nigga*,faggot*,"
+        # Whole-words (no trailing "*" -> letter-boundary anchored).
+        "hell,damn,crap,piss,ass,asshole,arsehole,asshat,bastard,wanker,twat"
+    ),
+    cast=Csv(),
+)
+
+CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")

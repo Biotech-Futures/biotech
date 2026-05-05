@@ -1,3 +1,4 @@
+from django.core.paginator import Paginator
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
 from rest_framework.decorators import action
@@ -5,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.views import APIView
 
-from config.errors import GroupAccessDenied
+from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
 from .serializers import (
     DashboardGroupPreviewSerializer,
     DashboardNextEventSerializer,
@@ -19,8 +20,6 @@ from .services import (
     get_personalized_next_event,
     get_groups_preview,
 )
-from django.core.paginator import Paginator
-from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
 
 class DashboardProgressView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -34,7 +33,10 @@ class DashboardProgressView(APIView):
 
         if group_id is not None:
             if group_id not in allowed_ids:
-                raise GroupAccessDenied()
+                return Response(
+                    {"detail": "You do not have access to this group."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             snapshot = build_progress_snapshot(group_id=group_id)
         else:
             snapshot = build_progress_snapshot(allowed_group_ids=allowed_ids)

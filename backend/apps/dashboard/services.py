@@ -2,7 +2,7 @@ from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack, Events
-from apps.groups.models import GroupMembership, Groups
+from apps.groups.models import Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
 
@@ -201,7 +201,6 @@ def get_groups_preview(*, user, mine=False, track_id=None):
 
     ``track_id`` (optional) further narrows the result to a single track.
     """
-
     qs = (
         Groups.objects.filter(deleted_at__isnull=True)
         .select_related("track")

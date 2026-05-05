@@ -5,6 +5,7 @@
 
 from rest_framework import serializers
 from .models import Messages, MessageResource, MessageStatus
+from .utils import sanitize_text
 from apps.resources.models import Resources
 
 
@@ -75,6 +76,12 @@ class MessageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
+        # Sanitise BEFORE serializer.save() so the moderated text is what
+        # gets persisted. Doing this here keeps the rule decoupled from
+        # the view and ensures every write path (REST POST, future bulk
+        # imports, admin tools) goes through the same filter.
+        if "message_text" in attrs:
+            attrs["message_text"] = sanitize_text(attrs["message_text"])
         return attrs
 
 
@@ -82,6 +89,9 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Messages
         fields = ["message_text"]
+
+    def validate_message_text(self, value):
+        return sanitize_text(value)
 
     def update(self, instance, validated_data):
         from django.utils import timezone

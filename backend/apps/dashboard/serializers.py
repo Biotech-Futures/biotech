@@ -18,10 +18,8 @@ class GroupsPreviewQuerySerializer(serializers.Serializer):
     mine = serializers.BooleanField(required=False, default=False)
     track_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     page = serializers.IntegerField(required=False, default=1, min_value=1)
-    page_size = serializers.IntegerField(
-        required=False, default=20, min_value=1, max_value=100,
-    )
-
+    page_size = serializers.IntegerField(required=False, default=20, min_value=1, max_value=100)
+    
 
 class ProgressSnapshotSerializer(serializers.Serializer):
     completionRate = serializers.IntegerField()
@@ -97,15 +95,11 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
 
     def get_lead_user(self, group):
         user = self._lead_user(group)
-        if user is None:
-            return None
-        return DashboardLeadUserSerializer(user).data
+        return DashboardLeadUserSerializer(user).data if user else None
 
     def get_lead_name(self, group):
         user = self._lead_user(group)
-        if user is None:
-            return None
-        return user.get_full_name() or user.email
+        return (user.get_full_name() or user.email) if user else None
 
     def get_status(self, group):
         if group.deleted_at is not None:

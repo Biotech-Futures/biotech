@@ -1,7 +1,9 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -169,18 +171,7 @@ class DashboardNextEventApiTests(TestCase):
         self.assertEqual(response.data["stats"], {"tasks": 0, "events": 0, "groups": 0})
 
 class GroupsPreviewViewTest(TestCase):
-    """
-    End-to-end tests for ``GET /dashboard/v1/groups-preview/``.
-
-    Exercises the new flattened/aggregated contract:
-      - ``group_name`` (not ``name``)
-      - ``member_count`` via DB ``.annotate``
-      - nested ``lead_user`` (id/first_name/last_name) plus flat ``lead_name``
-      - ``track_id`` query-param filter
-      - ``mine`` scoping
-      - admin track scope
-      - paginated wrapper
-    """
+    """End-to-end tests for ``GET /dashboard/v1/groups-preview/``."""
 
     url = "/dashboard/v1/groups-preview/"
 
@@ -193,10 +184,8 @@ class GroupsPreviewViewTest(TestCase):
         self.track_vic = Tracks.objects.create(track_name="AUS-VIC", state=self.state)
 
         self.lead = User.objects.create_user(
-            email="anita@test.com",
-            password="pass123",
-            first_name="Anita",
-            last_name="Pickard",
+            email="anita@test.com", password="pass123",
+            first_name="Anita", last_name="Pickard",
         )
         self.member_a = User.objects.create_user(
             email="member-a@test.com", password="pass123",
@@ -210,103 +199,98 @@ class GroupsPreviewViewTest(TestCase):
             email="member-c@test.com", password="pass123",
             first_name="Mem", last_name="C",
         )
-
         self.viewer = User.objects.create_user(
             email="viewer@test.com", password="pass123",
             first_name="View", last_name="Er",
         )
 
-        # NSW group BTF046: lead + 3 members + viewer = 5 active members
+        # NSW group BTF046: lead + 4 students = 5 active members, status=active
         self.group_btf046 = Groups.objects.create(group_name="BTF046", track=self.track_nsw)
         GroupMembership.objects.create(
-            group=self.group_btf046, user=self.lead, membership_role="mentor",
+            group=self.group_btf046, user=self.lead,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         )
         for member in (self.member_a, self.member_b, self.member_c, self.viewer):
             GroupMembership.objects.create(
-                group=self.group_btf046, user=member, membership_role="student",
+                group=self.group_btf046, user=member,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             )
 
-        # NSW group BTF047: only viewer + lead = 2 members; "left" entry must be excluded
+        # NSW group BTF047: lead + viewer = 2 active members; member_a has left
         self.group_btf047 = Groups.objects.create(group_name="BTF047", track=self.track_nsw)
         GroupMembership.objects.create(
-            group=self.group_btf047, user=self.lead, membership_role="mentor",
+            group=self.group_btf047, user=self.lead,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         )
         GroupMembership.objects.create(
-            group=self.group_btf047, user=self.viewer, membership_role="student",
+            group=self.group_btf047, user=self.viewer,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
-        # `joined_at` is pinned to the past so the model's
+        # `joined_at` pinned to the past so the model's
         # `left_at >= joined_at` CHECK constraint is satisfied.
         now = timezone.now()
         GroupMembership.objects.create(
-            group=self.group_btf047,
-            user=self.member_a,
-            membership_role="student",
+            group=self.group_btf047, user=self.member_a,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             joined_at=now - timedelta(days=1),
             left_at=now,
         )
 
-        # VIC group with no lead, viewer is NOT a member
+        # NSW group BTF048: viewer only, NO mentor → status=inactive
+        self.group_unmatched = Groups.objects.create(group_name="BTF048", track=self.track_nsw)
+        GroupMembership.objects.create(
+            group=self.group_unmatched, user=self.viewer,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+
+        # VIC group: viewer is NOT a member; used for admin scoping tests
         self.group_vic = Groups.objects.create(group_name="VIC001", track=self.track_vic)
         GroupMembership.objects.create(
-            group=self.group_vic, user=self.member_a, membership_role="student",
+            group=self.group_vic, user=self.member_a,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
 
         # Soft-deleted group must never appear.
-        # `created_at` is pinned to the past so the model's
-        # `deleted_at >= created_at` CHECK constraint is satisfied.
+        # `created_at` pinned to the past for the model's
+        # `deleted_at >= created_at` CHECK constraint.
         self.deleted_group = Groups.objects.create(
-            group_name="ZZZ_DELETED",
-            track=self.track_nsw,
+            group_name="ZZZ_DELETED", track=self.track_nsw,
             created_at=now - timedelta(days=2),
             deleted_at=now,
         )
 
-    # ------------------------------------------------------------------
-    # Auth
-    # ------------------------------------------------------------------
+    # ----- Auth ---------------------------------------------------------
 
     def test_unauthenticated_returns_403(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # ------------------------------------------------------------------
-    # Schema / contract
-    # ------------------------------------------------------------------
+    # ----- Schema / contract -------------------------------------------
 
     def test_response_uses_paginated_wrapper(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertEqual(set(body.keys()), {"count", "next", "previous", "results"})
 
     def test_result_row_matches_spec_keys(self):
-        """Each row must expose the new flattened/nested contract."""
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
         rows = response.json()["results"]
-
         self.assertGreater(len(rows), 0)
         self.assertEqual(
             set(rows[0].keys()),
             {
-                "id",
-                "group_name",
-                "track_id",
-                "track_name",
-                "member_count",
-                "lead_user",
-                "lead_name",
-                "status",
+                "id", "group_name", "track_id", "track_name",
+                "member_count", "lead_user", "lead_name", "status",
             },
         )
 
-    def test_lead_user_is_nested_object(self):
+    def test_lead_user_is_nested_object_when_mentor_exists(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
         rows = response.json()["results"]
-
         btf046 = next(r for r in rows if r["group_name"] == "BTF046")
         self.assertEqual(
             btf046["lead_user"],
@@ -314,24 +298,28 @@ class GroupsPreviewViewTest(TestCase):
         )
         self.assertEqual(btf046["lead_name"], "Anita Pickard")
 
-    def test_lead_user_is_null_when_no_mentor(self):
-        """Group VIC001 has no mentor; viewer added as member to make it visible."""
-        GroupMembership.objects.create(
-            group=self.group_vic, user=self.viewer, membership_role="student",
-        )
+    def test_lead_user_and_lead_name_are_null_when_no_mentor(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
         rows = response.json()["results"]
+        unmatched = next(r for r in rows if r["group_name"] == "BTF048")
+        self.assertIsNone(unmatched["lead_user"])
+        self.assertIsNone(unmatched["lead_name"])
 
-        vic = next(r for r in rows if r["group_name"] == "VIC001")
-        self.assertIsNone(vic["lead_user"])
-        self.assertIsNone(vic["lead_name"])
-
-    def test_status_is_active_for_non_deleted(self):
+    def test_soft_deleted_groups_excluded(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
-        rows = response.json()["results"]
-        self.assertTrue(all(r["status"] == "active" for r in rows))
+        names = {r["group_name"] for r in response.json()["results"]}
+        self.assertNotIn("ZZZ_DELETED", names)
+
+    # ----- Status tri-state --------------------------------------------
+
+    def test_status_active_when_group_has_mentor(self):
+        self.client.force_authenticate(user=self.viewer)
+        response = self.client.get(self.url + "?mine=true")
+        rows = {r["group_name"]: r for r in response.json()["results"]}
+        self.assertEqual(rows["BTF046"]["status"], "active")
+        self.assertEqual(rows["BTF047"]["status"], "active")
 
     def test_status_inactive_when_group_has_no_active_members(self):
         """A live group with zero active memberships serialises as ``inactive``."""
@@ -377,32 +365,24 @@ class GroupsPreviewViewTest(TestCase):
     def test_soft_deleted_groups_excluded(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
-        names = {r["group_name"] for r in response.json()["results"]}
-        self.assertNotIn("ZZZ_DELETED", names)
+        rows = {r["group_name"]: r for r in response.json()["results"]}
+        self.assertEqual(rows["BTF048"]["status"], "inactive")
 
-    # ------------------------------------------------------------------
-    # member_count aggregation
-    # ------------------------------------------------------------------
+    # ----- member_count aggregation ------------------------------------
 
     def test_member_count_uses_db_annotation_and_excludes_left_members(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
         rows = {r["group_name"]: r for r in response.json()["results"]}
-
-        # BTF046: lead + 4 students = 5 active members
+        # BTF046: lead + 4 students = 5
         self.assertEqual(rows["BTF046"]["member_count"], 5)
-        # BTF047: lead + viewer (left member excluded) = 2
+        # BTF047: lead + viewer (member_a left) = 2
         self.assertEqual(rows["BTF047"]["member_count"], 2)
+        # BTF048: viewer only = 1
+        self.assertEqual(rows["BTF048"]["member_count"], 1)
 
     def test_member_count_does_not_scale_with_group_count(self):
-        """
-        Regression guard against N+1: the query count must not grow
-        proportionally to the number of groups returned (member_count
-        and lead come from .annotate / Prefetch, not per-row queries).
-        """
-        from django.test.utils import CaptureQueriesContext
-        from django.db import connection
-
+        """Regression guard against N+1: query count must not grow linearly."""
         self.client.force_authenticate(user=self.viewer)
         self.client.get(self.url + "?mine=true")  # warm caches
 
@@ -410,16 +390,15 @@ class GroupsPreviewViewTest(TestCase):
             self.client.get(self.url + "?mine=true")
         baseline = len(ctx_small.captured_queries)
 
-        # Add 8 more groups the viewer is a member of.
         for i in range(8):
-            extra = Groups.objects.create(
-                group_name=f"BTF1{i:02d}", track=self.track_nsw,
+            extra = Groups.objects.create(group_name=f"BTF1{i:02d}", track=self.track_nsw)
+            GroupMembership.objects.create(
+                group=extra, user=self.lead,
+                membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
             )
             GroupMembership.objects.create(
-                group=extra, user=self.lead, membership_role="mentor",
-            )
-            GroupMembership.objects.create(
-                group=extra, user=self.viewer, membership_role="student",
+                group=extra, user=self.viewer,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             )
 
         with CaptureQueriesContext(connection) as ctx_large:
@@ -427,36 +406,33 @@ class GroupsPreviewViewTest(TestCase):
         scaled = len(ctx_large.captured_queries)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Allow a tiny constant overhead but reject linear growth.
         self.assertLessEqual(scaled, baseline + 2)
 
-    # ------------------------------------------------------------------
-    # track_id query-param filter
-    # ------------------------------------------------------------------
+    # ----- track_id query-param filter ---------------------------------
 
     def test_track_id_filter_narrows_to_track(self):
         admin = User.objects.create_user(
-            email="admin-track@test.com", password="pass", first_name="Adm", last_name="In",
+            email="admin-track@test.com", password="pass",
+            first_name="Adm", last_name="In",
         )
         AdminScope.objects.create(user=admin, is_global=True)
-
         self.client.force_authenticate(user=admin)
-        response = self.client.get(self.url + f"?track_id={self.track_nsw.id}")
 
+        response = self.client.get(self.url + f"?track_id={self.track_nsw.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = {r["group_name"] for r in response.json()["results"]}
-        self.assertEqual(names, {"BTF046", "BTF047"})
+        self.assertEqual(names, {"BTF046", "BTF047", "BTF048"})
 
     def test_track_id_filter_returns_empty_for_unknown_track(self):
         admin = User.objects.create_user(
-            email="admin-empty@test.com", password="pass", first_name="A", last_name="E",
+            email="admin-empty@test.com", password="pass",
+            first_name="A", last_name="E",
         )
         AdminScope.objects.create(user=admin, is_global=True)
-
         self.client.force_authenticate(user=admin)
+
         response = self.client.get(self.url + "?track_id=999999")
         body = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(body["count"], 0)
         self.assertEqual(body["results"], [])
@@ -492,49 +468,47 @@ class GroupsPreviewViewTest(TestCase):
         for query in ("", "?mine=true", "?mine=false"):
             response = self.client.get(self.url + query)
             names = {r["group_name"] for r in response.json()["results"]}
-            self.assertEqual(names, {"BTF046", "BTF047"}, msg=f"query={query!r}")
+            self.assertEqual(names, {"BTF046", "BTF047", "BTF048"}, msg=f"query={query!r}")
             self.assertNotIn("VIC001", names)
 
     def test_admin_without_mine_sees_all_in_track_scope(self):
         admin = User.objects.create_user(
-            email="admin-scope@test.com", password="pass", first_name="A", last_name="S",
+            email="admin-scope@test.com", password="pass",
+            first_name="A", last_name="S",
         )
         AdminScope.objects.create(user=admin, track=self.track_nsw, is_global=False)
-
         self.client.force_authenticate(user=admin)
+
         response = self.client.get(self.url)
         names = {r["group_name"] for r in response.json()["results"]}
-
-        self.assertEqual(names, {"BTF046", "BTF047"})
+        self.assertEqual(names, {"BTF046", "BTF047", "BTF048"})
         self.assertNotIn("VIC001", names)
 
     def test_admin_with_mine_only_sees_memberships(self):
         admin = User.objects.create_user(
-            email="admin-mine@test.com", password="pass", first_name="A", last_name="M",
+            email="admin-mine@test.com", password="pass",
+            first_name="A", last_name="M",
         )
         AdminScope.objects.create(user=admin, is_global=True)
         GroupMembership.objects.create(
-            group=self.group_vic, user=admin, membership_role="student",
+            group=self.group_vic, user=admin,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
-
         self.client.force_authenticate(user=admin)
+
         response = self.client.get(self.url + "?mine=true")
         names = {r["group_name"] for r in response.json()["results"]}
-
         self.assertEqual(names, {"VIC001"})
 
-    # ------------------------------------------------------------------
-    # Pagination
-    # ------------------------------------------------------------------
+    # ----- Pagination ---------------------------------------------------
 
     def test_pagination_page_size_limits_results_and_signals_next(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true&page_size=1")
         body = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(body["results"]), 1)
-        self.assertEqual(body["count"], 2)
+        self.assertEqual(body["count"], 3)  # BTF046, BTF047, BTF048
         self.assertEqual(body["next"], 2)
         self.assertIsNone(body["previous"])
 
@@ -542,20 +516,19 @@ class GroupsPreviewViewTest(TestCase):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true&page_size=1&page=2")
         body = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(body["results"]), 1)
         self.assertEqual(body["previous"], 1)
-        self.assertIsNone(body["next"])
+        self.assertEqual(body["next"], 3)
 
     def test_empty_results_when_user_has_no_groups(self):
         loner = User.objects.create_user(
-            email="loner@test.com", password="pass", first_name="Lo", last_name="Ner",
+            email="loner@test.com", password="pass",
+            first_name="Lo", last_name="Ner",
         )
         self.client.force_authenticate(user=loner)
         response = self.client.get(self.url)
         body = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(body["count"], 0)
         self.assertEqual(body["results"], [])

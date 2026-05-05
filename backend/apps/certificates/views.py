@@ -14,6 +14,7 @@ from .serializers import (
 )
 from .permissions import CertificatePermission
 from apps.resources.models import RoleAssignmentHistory
+from config.errors import AdminVerificationRequired
 
 
 class MentorCertificateViewSet(mixins.ListModelMixin,
@@ -170,10 +171,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         POST /certificates/v1/{id}/verify/
         """
         if not (request.user.is_staff or request.user.is_superuser):
-            return Response(
-                {"detail": "Only admins can verify certificates."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            raise AdminVerificationRequired()
         
         certificate = self.get_object()
         certificate.verified = True
@@ -189,10 +187,7 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         POST /certificates/v1/{id}/unverify/
         """
         if not (request.user.is_staff or request.user.is_superuser):
-            return Response(
-                {"detail": "Only admins can verify certificates."},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            raise AdminVerificationRequired()
         
         certificate = self.get_object()
         certificate.verified = False
