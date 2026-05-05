@@ -6,6 +6,11 @@ from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
 
+# Shared between :func:`get_groups_preview` (writer) and
+# ``DashboardGroupPreviewSerializer`` (reader) so the prefetch attribute name
+# isn't a magic string duplicated across modules.
+MENTOR_MEMBERSHIPS_ATTR = "_mentor_memberships"
+
 def _get_active_role_ids(user):
     now = timezone.now()
     return set(
@@ -215,7 +220,7 @@ def get_groups_preview(*, user, mine=False, track_id=None):
                 )
                 .select_related("user")
                 .order_by("id"),
-                to_attr="_mentor_memberships",
+                to_attr=MENTOR_MEMBERSHIPS_ATTR,
             )
         )
         .order_by("group_name", "id")

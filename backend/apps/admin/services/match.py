@@ -384,7 +384,7 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
                 group_id=a['group_id'],
                 user_id=a['student_id'],
                 joined_at=now,
-                membership_role='student',
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             )
             for a in resolved_assignments
             if isinstance(a['group_id'], int)

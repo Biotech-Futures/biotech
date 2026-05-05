@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.dashboard.serializers import DashboardGroupPreviewSerializer
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
 from apps.resources.models import RoleAssignmentHistory, Roles
@@ -332,6 +333,47 @@ class GroupsPreviewViewTest(TestCase):
         rows = response.json()["results"]
         self.assertTrue(all(r["status"] == "active" for r in rows))
 
+    def test_status_inactive_when_group_has_no_active_members(self):
+        """A live group with zero active memberships serialises as ``inactive``."""
+        empty_group = Groups.objects.create(group_name="EMPTY", track=self.track_nsw)
+        # All memberships left → member_count == 0
+        past = timezone.now() - timedelta(days=2)
+        GroupMembership.objects.create(
+            group=empty_group,
+            user=self.member_a,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            joined_at=past,
+            left_at=past + timedelta(days=1),
+        )
+
+        admin = User.objects.create_user(
+            email="admin-empty-group@test.com", password="pass",
+            first_name="A", last_name="EG",
+        )
+        AdminScope.objects.create(user=admin, is_global=True)
+
+        self.client.force_authenticate(user=admin)
+        response = self.client.get(self.url + f"?track_id={self.track_nsw.id}")
+        rows = response.json()["results"]
+
+        empty = next(r for r in rows if r["group_name"] == "EMPTY")
+        self.assertEqual(empty["member_count"], 0)
+        self.assertEqual(empty["status"], "inactive")
+
+    def test_status_deleted_for_soft_deleted_group_via_serializer(self):
+        """
+        Service filters soft-deleted groups out, so the ``deleted`` branch is
+        verified via a direct serializer call. Annotations the queryset
+        normally provides are attached manually.
+        """
+        deleted = self.deleted_group
+        deleted.member_count = 0
+        setattr(deleted, "_mentor_memberships", [])
+
+        serialized = DashboardGroupPreviewSerializer(deleted).data
+        self.assertEqual(serialized["status"], "deleted")
+        self.assertEqual(serialized["group_name"], "ZZZ_DELETED")
+
     def test_soft_deleted_groups_excluded(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?mine=true")
@@ -422,6 +464,23 @@ class GroupsPreviewViewTest(TestCase):
     def test_invalid_track_id_returns_400(self):
         self.client.force_authenticate(user=self.viewer)
         response = self.client.get(self.url + "?track_id=abc")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_track_id_below_minimum_returns_400(self):
+        """``GroupsPreviewQuerySerializer`` enforces ``min_value=1``."""
+        self.client.force_authenticate(user=self.viewer)
+        response = self.client.get(self.url + "?track_id=0")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_page_returns_400(self):
+        self.client.force_authenticate(user=self.viewer)
+        response = self.client.get(self.url + "?page=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_page_size_returns_400(self):
+        """Out-of-range ``page_size`` is rejected by the query serializer."""
+        self.client.force_authenticate(user=self.viewer)
+        response = self.client.get(self.url + "?page_size=0")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     # ------------------------------------------------------------------

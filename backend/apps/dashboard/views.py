@@ -1,7 +1,6 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.views import APIView
@@ -11,6 +10,7 @@ from .serializers import (
     DashboardGroupPreviewSerializer,
     DashboardNextEventSerializer,
     DashboardSummarySerializer,
+    GroupsPreviewQuerySerializer,
     ProgressQuerySerializer,
     ProgressSnapshotSerializer,
 )
@@ -63,29 +63,23 @@ class DashboardNextEventView(APIView):
         return Response(DashboardNextEventSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-def _parse_optional_int(value, *, field_name):
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        raise ValidationError({field_name: f"Invalid {field_name}; expected an integer."})
-
-
 class GroupsPreviewView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(request=None, responses={200: DashboardGroupPreviewSerializer(many=True)})
     def get(self, request):
-        params = request.query_params
-        mine = params.get("mine", "false").lower() == "true"
-        track_id = _parse_optional_int(params.get("track_id"), field_name="track_id")
-        page_size = _parse_optional_int(params.get("page_size"), field_name="page_size") or 20
-        page_number = _parse_optional_int(params.get("page"), field_name="page") or 1
+        query = GroupsPreviewQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
 
-        queryset = get_groups_preview(user=request.user, mine=mine, track_id=track_id)
+        queryset = get_groups_preview(
+            user=request.user,
+            mine=params["mine"],
+            track_id=params.get("track_id"),
+        )
 
-        paginator = Paginator(queryset, page_size)
+        page_number = params["page"]
+        paginator = Paginator(queryset, params["page_size"])
         page = paginator.get_page(page_number)
 
         serializer = DashboardGroupPreviewSerializer(page.object_list, many=True)

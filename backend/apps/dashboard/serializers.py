@@ -1,8 +1,26 @@
 from rest_framework import serializers
 
+from .services import MENTOR_MEMBERSHIPS_ATTR
+
 
 class ProgressQuerySerializer(serializers.Serializer):
     group_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class GroupsPreviewQuerySerializer(serializers.Serializer):
+    """Validates query params for ``GET /dashboard/v1/groups-preview/``.
+
+    Mirrors the DRF-native validation pattern already used by
+    :class:`ProgressQuerySerializer` so the view stays free of
+    imperative try/except parsing logic (OCP).
+    """
+
+    mine = serializers.BooleanField(required=False, default=False)
+    track_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    page = serializers.IntegerField(required=False, default=1, min_value=1)
+    page_size = serializers.IntegerField(
+        required=False, default=20, min_value=1, max_value=100,
+    )
 
 
 class ProgressSnapshotSerializer(serializers.Serializer):
@@ -49,9 +67,19 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
     groups-preview endpoint.
 
     Backed by ``services.get_groups_preview`` which returns an annotated
-    queryset (``member_count`` annotation, ``_mentor_memberships`` prefetch),
-    so this serializer never triggers extra queries per row.
+    queryset (``member_count`` annotation, mentor memberships prefetch under
+    :data:`services.MENTOR_MEMBERSHIPS_ATTR`), so this serializer never
+    triggers extra queries per row.
+
+    ``status`` is tri-state:
+      * ``"deleted"``  — soft-deleted (``deleted_at`` set)
+      * ``"inactive"`` — alive but no active members (``member_count == 0``)
+      * ``"active"``   — alive and at least one active member
     """
+
+    STATUS_ACTIVE = "active"
+    STATUS_INACTIVE = "inactive"
+    STATUS_DELETED = "deleted"
 
     id = serializers.IntegerField()
     group_name = serializers.CharField()
@@ -64,7 +92,7 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
 
     @staticmethod
     def _lead_user(group):
-        memberships = getattr(group, "_mentor_memberships", None) or []
+        memberships = getattr(group, MENTOR_MEMBERSHIPS_ATTR, None) or []
         return memberships[0].user if memberships else None
 
     def get_lead_user(self, group):
@@ -80,4 +108,8 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
         return user.get_full_name() or user.email
 
     def get_status(self, group):
-        return "active" if group.deleted_at is None else "deleted"
+        if group.deleted_at is not None:
+            return self.STATUS_DELETED
+        if getattr(group, "member_count", 0) == 0:
+            return self.STATUS_INACTIVE
+        return self.STATUS_ACTIVE
