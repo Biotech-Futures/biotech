@@ -468,3 +468,163 @@ class ChatProfanitySanitisationTests(TestCase):
         # (apps/chat/views.py::perform_create).
         broadcast_text = msg.message_text
         self.assertEqual(broadcast_text, "this is ***")
+
+
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+@unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
+class ChatQuotedReplyTests(TestCase):
+    """Tests for the ``reply_to`` quoted-reply feature.
+
+    Kept in its own class with a lean ``setUp`` so that schema drift in
+    other unrelated models (e.g. Resources) cannot break the quoted-reply
+    contract. Mirrors the structural choice made by
+    ``ChatProfanitySanitisationTests``.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.student = User.objects.create_user(email="reply-student@test.com", password="pw")
+        self.mentor = User.objects.create_user(email="reply-mentor@test.com", password="pw")
+        self.outsider = User.objects.create_user(email="reply-outsider@test.com", password="pw")
+
+        self.role_student = Roles.objects.create(role_name="basic_student")
+        self.role_mentor = Roles.objects.create(role_name="mentor")
+
+        now = timezone.now()
+        future = now.replace(year=2099)
+        RoleAssignmentHistory.objects.create(
+            user=self.student, role=self.role_student, valid_from=now, valid_to=future,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=future,
+        )
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
+
+        self.group = Groups.objects.create(group_name="G-reply", track=self.track)
+        GroupMembership.objects.create(user=self.student, group=self.group)
+        GroupMembership.objects.create(user=self.mentor, group=self.group)
+
+        self.client_student = APIClient()
+        self.client_student.force_authenticate(user=self.student)
+        self.client_mentor = APIClient()
+        self.client_mentor.force_authenticate(user=self.mentor)
+
+    def _list_url(self, group_id=None):
+        gid = group_id or self.group.id
+        return reverse("group-messages-list", kwargs={"group_pk": gid})
+
+    def test_reply_to_nesting_serialization(self):
+        """Quoted-reply API contract.
+
+        Verifies two things at once:
+
+        1. **Shape**: GET responses for a child message embed a structured
+           ``reply_to`` dict with exactly ``id`` / ``text`` / ``user_id``
+           — the lightweight parent projection promised by the API.
+        2. **Recursion depth is bounded**: even when replies form a
+           chain (A <- B <- C), the embedded ``reply_to`` for C only
+           expands to B and never recursively expands B.reply_to. This
+           guards against unbounded payloads / cycles.
+        """
+        # A <- B (reply) <- C (reply-of-reply)
+        parent = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="Are we still on?",
+        )
+        reply = Messages.objects.create(
+            group=self.group,
+            sender_user=self.mentor,
+            message_text="Sure!",
+            reply_to=parent,
+        )
+        grand = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="great, see you then",
+            reply_to=reply,
+        )
+
+        resp = self.client_student.get(self._list_url())
+        self.assertEqual(resp.status_code, 200, resp.content)
+        by_id = {it["id"]: it for it in resp.data["items"]}
+
+        # --- shape check on the canonical example -----------------------
+        # Top of chain has no quoted parent.
+        self.assertIn(parent.id, by_id)
+        self.assertIsNone(by_id[parent.id]["reply_to"])
+
+        # Child carries the lightweight parent context.
+        reply_payload = by_id[reply.id]["reply_to"]
+        self.assertIsInstance(reply_payload, dict)
+        self.assertEqual(
+            set(reply_payload.keys()), {"id", "text", "user_id"},
+            "reply_to must expose exactly id/text/user_id",
+        )
+        self.assertEqual(reply_payload["id"], parent.id)
+        self.assertEqual(reply_payload["text"], "Are we still on?")
+        self.assertEqual(reply_payload["user_id"], self.student.id)
+
+        # --- recursion-depth bound -------------------------------------
+        # `grand` quotes `reply`, and `reply` itself quotes `parent`. The
+        # API must NOT expand that second hop: the nested dict for
+        # grand.reply_to describes only `reply` and crucially does not
+        # contain its own `reply_to` key.
+        grand_payload = by_id[grand.id]["reply_to"]
+        self.assertEqual(grand_payload["id"], reply.id)
+        self.assertEqual(grand_payload["text"], "Sure!")
+        self.assertEqual(grand_payload["user_id"], self.mentor.id)
+        self.assertNotIn(
+            "reply_to", grand_payload,
+            "Nested reply_to must not recursively expand its own parent.",
+        )
+
+    def test_post_quoted_reply_via_api(self):
+        """POST accepts ``reply_to_id`` and the response surfaces the
+        nested parent dict, mirroring the canonical example payload."""
+        parent = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="Are we still on?",
+        )
+        resp = self.client_mentor.post(
+            self._list_url(),
+            {"message_text": "Sure!", "reply_to_id": parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["reply_to"], {
+            "id": parent.id,
+            "text": "Are we still on?",
+            "user_id": self.student.id,
+        })
+
+        msg = Messages.objects.get(pk=resp.data["id"])
+        self.assertEqual(msg.reply_to_id, parent.id)
+
+    def test_reply_to_id_rejected_across_groups(self):
+        """A reply may not point at a parent in a different group; the
+        embedded reply_to dict would otherwise leak content across
+        group boundaries."""
+        other_group = Groups.objects.create(group_name="G-other", track=self.track)
+        # outsider is not a member of any group in this test, but the FK
+        # validation triggers before permission/visibility checks.
+        foreign_parent = Messages.objects.create(
+            group=other_group, sender_user=self.mentor, message_text="not yours",
+        )
+        resp = self.client_student.post(
+            self._list_url(),
+            {"message_text": "trying to quote", "reply_to_id": foreign_parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        # The project wraps DRF validation errors in a custom envelope
+        # (config.exception_handler) of shape
+        # {error, request_id, code, fields: {<field>: [...]}}. Tolerate
+        # both that shape and a plain DRF response.
+        field_errors = resp.data.get("fields") or resp.data
+        self.assertIn("reply_to_id", field_errors)

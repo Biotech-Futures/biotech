@@ -31,6 +31,27 @@ class MessageStatusSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "delivered_at", "read_at"]
 
 
+class ReplyToSerializer(serializers.ModelSerializer):
+    """Lightweight, *non-recursive* projection of a parent message used to
+    embed quoted-reply context inside a child message's payload.
+
+    The serializer deliberately exposes only ``id``, ``text`` and
+    ``user_id`` and does **not** itself include a ``reply_to`` field.
+    That bounds the response shape at exactly one level of nesting no
+    matter how deep the underlying chain of quoted replies is, which is
+    the structural recursion guard for the API. (See
+    ``test_reply_to_nesting_serialization``.)
+    """
+
+    text = serializers.CharField(source="message_text", read_only=True)
+    user_id = serializers.IntegerField(source="sender_user_id", read_only=True)
+
+    class Meta:
+        model = Messages
+        fields = ["id", "text", "user_id"]
+        read_only_fields = fields
+
+
 class MessageSerializer(serializers.ModelSerializer):
     resources = MessageResourceSerializer(many=True, required=False)
     sender_name = serializers.CharField(
@@ -38,6 +59,18 @@ class MessageSerializer(serializers.ModelSerializer):
     )
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+
+    # Read: nested lightweight parent context (or null if not a reply).
+    # Write: the companion ``reply_to_id`` field below accepts a PK so the
+    # nested read shape stays unambiguous on the wire.
+    reply_to = ReplyToSerializer(read_only=True)
+    reply_to_id = serializers.PrimaryKeyRelatedField(
+        queryset=Messages.objects.all(),
+        source="reply_to",
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Messages
@@ -54,6 +87,8 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_deleted",
             "is_edited",
             "resources",
+            "reply_to",
+            "reply_to_id",
         ]
         read_only_fields = [
             "id", "group", "sender_user",
@@ -82,6 +117,18 @@ class MessageSerializer(serializers.ModelSerializer):
         # imports, admin tools) goes through the same filter.
         if "message_text" in attrs:
             attrs["message_text"] = sanitize_text(attrs["message_text"])
+
+        # Enforce that quoted replies stay inside the same group; a reply
+        # in group A pointing at a parent in group B would leak content
+        # across group boundaries via the embedded reply_to dict.
+        parent = attrs.get("reply_to")
+        if parent is not None:
+            group_pk = self.context.get("view").kwargs.get("group_pk") \
+                if self.context.get("view") else None
+            if group_pk is not None and parent.group_id != int(group_pk):
+                raise serializers.ValidationError(
+                    {"reply_to_id": "Parent message must belong to the same group."}
+                )
         return attrs
 
 

@@ -33,9 +33,11 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
         # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
+        # reply_to is select_related so embedding the lightweight parent
+        # context in the response doesn't issue an extra query per row.
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
-            .select_related("sender_user")
+            .select_related("sender_user", "reply_to")
             .prefetch_related("resources__resource")
         )
 
