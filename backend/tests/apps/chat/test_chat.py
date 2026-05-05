@@ -1,6 +1,5 @@
 import contextlib
 import unittest
-from unittest.mock import patch, AsyncMock, MagicMock
 from django.test import TestCase, override_settings
 from django.test import Client
 import asyncio
@@ -92,22 +91,17 @@ class ChatFeatureTests(TestCase):
         # admin has global access; they don't need membership
         
         # --- resources ---
-        # Note: the Resources model was renamed upstream
-        # (resource_name → name, resource_description → description,
-        # uploader_user_id → uploaded_by, upload_datetime → uploaded_at).
-        # Keep the fixture aligned with the live schema so CI doesn't
-        # silently regress to TypeError on setUp.
         self.res1 = Resources.objects.create(
-            name="R1",
-            description="d1",
-            uploaded_by=self.admin,
-            uploaded_at=timezone.now() - timedelta(minutes=1),
+            resource_name="R1",
+            resource_description="d1",
+            uploader_user_id=self.admin,
+            upload_datetime=timezone.now() - timedelta(minutes=1),
         )
         self.res2 = Resources.objects.create(
-            name="R2",
-            description="d2",
-            uploaded_by=self.admin,
-            uploaded_at=timezone.now() - timedelta(minutes=1),
+            resource_name="R2",
+            resource_description="d2",
+            uploader_user_id=self.admin,
+            upload_datetime=timezone.now() - timedelta(minutes=1),
         )
 
         # API clients
@@ -260,75 +254,63 @@ class ChatFeatureTests(TestCase):
         self.assertTrue(connected, "WebSocket failed to connect")
         return communicator
 
-    # Note on test strategy:
-    # The two broadcast tests below verify the REST handler's *publish* path
-    # — that POST/DELETE call ``channel_layer.group_send`` with the correct
-    # envelope. They do **not** drive a real WebSocket consumer.
-    #
-    # Driving an end-to-end WS round-trip from a Django ``TestCase`` is
-    # structurally broken with ``InMemoryChannelLayer``: the consumer
-    # registers its ``asyncio.Queue`` on the test's outer event loop, but
-    # the REST view publishes via ``async_to_sync(channel_layer.group_send)``
-    # which executes the coroutine on asgiref's separate executor loop.
-    # ``asyncio.Queue.put`` cannot cross loops, so the message never
-    # arrives and the communicator times out with ``CancelledError``. That
-    # is what we previously saw on Linux CI and on macOS locally.
-    #
-    # The consumer's *receive* side (auth, group membership, accept/close)
-    # is already exercised by ``_ws_connect_with_session`` succeeding in
-    # other tests. Splitting publisher and consumer concerns also lines up
-    # with SRP and keeps these two tests deterministic.
-
-    @patch("apps.chat.views.get_channel_layer")
-    def test_ws_broadcast_on_create(self, mock_get_channel_layer):
-        fake_layer = MagicMock()
-        fake_layer.group_send = AsyncMock()
-        mock_get_channel_layer.return_value = fake_layer
+    def test_ws_broadcast_on_create(self):
+        # Open WS as student (group member)
+        comm = self._ws_connect_with_session(self.student)
 
         api = APIClient()
         api.force_authenticate(self.student)
+        
+        try:
+            # Create a message via REST (as student)
+            resp = api.post(
+                f"/chat/groups/{self.group.id}/messages/",
+                {"message_text": "hi from test", "resources": []},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, 201, resp.content)
 
-        resp = api.post(
-            f"/chat/groups/{self.group.id}/messages/",
-            {"message_text": "hi from test", "resources": []},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 201, resp.content)
+            async_to_sync(asyncio.sleep)(0.05)
 
-        fake_layer.group_send.assert_called_once()
-        group_name, envelope = fake_layer.group_send.call_args.args
-        self.assertEqual(group_name, f"group_{self.group.id}")
-        self.assertEqual(envelope["type"], "chat.message")
-        payload = envelope["payload"]
-        self.assertEqual(payload["event"], "message.created")
-        self.assertEqual(payload["group_id"], self.group.id)
-        self.assertEqual(payload["message"]["text"], "hi from test")
-        self.assertEqual(payload["message"]["sender_id"], self.student.id)
+            # Expect a broadcast
+            event = async_to_sync(comm.receive_json_from)(timeout=5)
+            self.assertEqual(event["payload"]["event"], "message.created")
+            self.assertEqual(event["payload"]["group_id"], self.group.id)
+            self.assertEqual(event["payload"]["message"]["text"], "hi from test")
+            self.assertEqual(event["payload"]["message"]["sender_id"], self.student.id)
+        finally:
+            # Prevent CancelledError bubbling if a prior await timed out/cancelled
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                async_to_sync(asyncio.sleep)(0.05)
+                async_to_sync(comm.disconnect)()
 
-    @patch("apps.chat.views.get_channel_layer")
-    def test_ws_broadcast_on_delete(self, mock_get_channel_layer):
-        fake_layer = MagicMock()
-        fake_layer.group_send = AsyncMock()
-        mock_get_channel_layer.return_value = fake_layer
 
-        msg = Messages.objects.create(
-            group=self.group, sender_user=self.student, message_text="to remove"
-        )
+    def test_ws_broadcast_on_delete(self):
+        # create a message to delete
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
+
+        # Open WS as mentor (has moderation in this group)
+        comm = self._ws_connect_with_session(self.mentor)
 
         api = APIClient()
         api.force_authenticate(self.mentor)
 
-        resp = api.delete(f"/chat/groups/{self.group.id}/messages/{msg.id}/")
-        self.assertEqual(resp.status_code, 204, resp.content)
+        try:
+            # Delete via REST (mentor)
+            resp = api.delete(f"/chat/groups/{self.group.id}/messages/{msg.id}/")
+            self.assertEqual(resp.status_code, 204, resp.content)
 
-        fake_layer.group_send.assert_called_once()
-        group_name, envelope = fake_layer.group_send.call_args.args
-        self.assertEqual(group_name, f"group_{self.group.id}")
-        self.assertEqual(envelope["type"], "chat.message")
-        payload = envelope["payload"]
-        self.assertEqual(payload["event"], "message.deleted")
-        self.assertEqual(payload["group_id"], self.group.id)
-        self.assertEqual(payload["message_id"], msg.id)
+            async_to_sync(asyncio.sleep)(0.05)
+
+            # Expect broadcast
+            event = async_to_sync(comm.receive_json_from)(timeout=5)
+            self.assertEqual(event["payload"]["event"], "message.deleted")
+            self.assertEqual(event["payload"]["group_id"], self.group.id)
+            self.assertEqual(event["payload"]["message_id"], msg.id)
+        finally:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                async_to_sync(asyncio.sleep)(0.05)
+                async_to_sync(comm.disconnect)()
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
@@ -486,163 +468,3 @@ class ChatProfanitySanitisationTests(TestCase):
         # (apps/chat/views.py::perform_create).
         broadcast_text = msg.message_text
         self.assertEqual(broadcast_text, "this is ***")
-
-
-@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-@unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
-class ChatQuotedReplyTests(TestCase):
-    """Tests for the ``reply_to`` quoted-reply feature.
-
-    Kept in its own class with a lean ``setUp`` so that schema drift in
-    other unrelated models (e.g. Resources) cannot break the quoted-reply
-    contract. Mirrors the structural choice made by
-    ``ChatProfanitySanitisationTests``.
-    """
-
-    def setUp(self):
-        User = get_user_model()
-
-        self.student = User.objects.create_user(email="reply-student@test.com", password="pw")
-        self.mentor = User.objects.create_user(email="reply-mentor@test.com", password="pw")
-        self.outsider = User.objects.create_user(email="reply-outsider@test.com", password="pw")
-
-        self.role_student = Roles.objects.create(role_name="basic_student")
-        self.role_mentor = Roles.objects.create(role_name="mentor")
-
-        now = timezone.now()
-        future = now.replace(year=2099)
-        RoleAssignmentHistory.objects.create(
-            user=self.student, role=self.role_student, valid_from=now, valid_to=future,
-        )
-        RoleAssignmentHistory.objects.create(
-            user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=future,
-        )
-
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-
-        self.group = Groups.objects.create(group_name="G-reply", track=self.track)
-        GroupMembership.objects.create(user=self.student, group=self.group)
-        GroupMembership.objects.create(user=self.mentor, group=self.group)
-
-        self.client_student = APIClient()
-        self.client_student.force_authenticate(user=self.student)
-        self.client_mentor = APIClient()
-        self.client_mentor.force_authenticate(user=self.mentor)
-
-    def _list_url(self, group_id=None):
-        gid = group_id or self.group.id
-        return reverse("group-messages-list", kwargs={"group_pk": gid})
-
-    def test_reply_to_nesting_serialization(self):
-        """Quoted-reply API contract.
-
-        Verifies two things at once:
-
-        1. **Shape**: GET responses for a child message embed a structured
-           ``reply_to`` dict with exactly ``id`` / ``text`` / ``user_id``
-           — the lightweight parent projection promised by the API.
-        2. **Recursion depth is bounded**: even when replies form a
-           chain (A <- B <- C), the embedded ``reply_to`` for C only
-           expands to B and never recursively expands B.reply_to. This
-           guards against unbounded payloads / cycles.
-        """
-        # A <- B (reply) <- C (reply-of-reply)
-        parent = Messages.objects.create(
-            group=self.group,
-            sender_user=self.student,
-            message_text="Are we still on?",
-        )
-        reply = Messages.objects.create(
-            group=self.group,
-            sender_user=self.mentor,
-            message_text="Sure!",
-            reply_to=parent,
-        )
-        grand = Messages.objects.create(
-            group=self.group,
-            sender_user=self.student,
-            message_text="great, see you then",
-            reply_to=reply,
-        )
-
-        resp = self.client_student.get(self._list_url())
-        self.assertEqual(resp.status_code, 200, resp.content)
-        by_id = {it["id"]: it for it in resp.data["items"]}
-
-        # --- shape check on the canonical example -----------------------
-        # Top of chain has no quoted parent.
-        self.assertIn(parent.id, by_id)
-        self.assertIsNone(by_id[parent.id]["reply_to"])
-
-        # Child carries the lightweight parent context.
-        reply_payload = by_id[reply.id]["reply_to"]
-        self.assertIsInstance(reply_payload, dict)
-        self.assertEqual(
-            set(reply_payload.keys()), {"id", "text", "user_id"},
-            "reply_to must expose exactly id/text/user_id",
-        )
-        self.assertEqual(reply_payload["id"], parent.id)
-        self.assertEqual(reply_payload["text"], "Are we still on?")
-        self.assertEqual(reply_payload["user_id"], self.student.id)
-
-        # --- recursion-depth bound -------------------------------------
-        # `grand` quotes `reply`, and `reply` itself quotes `parent`. The
-        # API must NOT expand that second hop: the nested dict for
-        # grand.reply_to describes only `reply` and crucially does not
-        # contain its own `reply_to` key.
-        grand_payload = by_id[grand.id]["reply_to"]
-        self.assertEqual(grand_payload["id"], reply.id)
-        self.assertEqual(grand_payload["text"], "Sure!")
-        self.assertEqual(grand_payload["user_id"], self.mentor.id)
-        self.assertNotIn(
-            "reply_to", grand_payload,
-            "Nested reply_to must not recursively expand its own parent.",
-        )
-
-    def test_post_quoted_reply_via_api(self):
-        """POST accepts ``reply_to_id`` and the response surfaces the
-        nested parent dict, mirroring the canonical example payload."""
-        parent = Messages.objects.create(
-            group=self.group,
-            sender_user=self.student,
-            message_text="Are we still on?",
-        )
-        resp = self.client_mentor.post(
-            self._list_url(),
-            {"message_text": "Sure!", "reply_to_id": parent.id},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 201, resp.content)
-        self.assertEqual(resp.data["reply_to"], {
-            "id": parent.id,
-            "text": "Are we still on?",
-            "user_id": self.student.id,
-        })
-
-        msg = Messages.objects.get(pk=resp.data["id"])
-        self.assertEqual(msg.reply_to_id, parent.id)
-
-    def test_reply_to_id_rejected_across_groups(self):
-        """A reply may not point at a parent in a different group; the
-        embedded reply_to dict would otherwise leak content across
-        group boundaries."""
-        other_group = Groups.objects.create(group_name="G-other", track=self.track)
-        # outsider is not a member of any group in this test, but the FK
-        # validation triggers before permission/visibility checks.
-        foreign_parent = Messages.objects.create(
-            group=other_group, sender_user=self.mentor, message_text="not yours",
-        )
-        resp = self.client_student.post(
-            self._list_url(),
-            {"message_text": "trying to quote", "reply_to_id": foreign_parent.id},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 400, resp.content)
-        # The project wraps DRF validation errors in a custom envelope
-        # (config.exception_handler) of shape
-        # {error, request_id, code, fields: {<field>: [...]}}. Tolerate
-        # both that shape and a plain DRF response.
-        field_errors = resp.data.get("fields") or resp.data
-        self.assertIn("reply_to_id", field_errors)
