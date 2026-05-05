@@ -30,8 +30,14 @@ def get_allowed_group_ids(user):
 
 
 def build_progress_snapshot(group_id=None, allowed_group_ids=None):
-
-    task_qs = Tasks.objects.filter(deleted_at__isnull=True)
+    # Start from the manager's named entry point so the spec's
+    # `Tasks.objects.get_dashboard_tasks()` is the live data-access path
+    # rather than dead code. The base queryset already includes
+    # `select_related`/`prefetch_related` for any downstream consumer
+    # that iterates rows; here we only need aggregates, so we chain
+    # `.filter(...).get_task_totals()` and let SRP keep the query
+    # construction inside the queryset layer.
+    task_qs = Tasks.objects.get_dashboard_tasks()
 
     if group_id is not None:
         task_qs = task_qs.filter(milestone__group_id=group_id)
