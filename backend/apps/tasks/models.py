@@ -7,23 +7,28 @@ from django.db.models import Count, Q
 
 class TaskQuerySet(models.QuerySet):
     def get_dashboard_tasks(self):
+        """Canonical dashboard-scoped Tasks queryset.
+
+        Returns active (non-soft-deleted) tasks with their milestone /
+        group joined via ``select_related`` and ``assignments``
+        prefetched, so any consumer that iterates rows avoids N+1.
+        Designed to be chained: callers add ``.filter(...)`` for group
+        scoping and then call ``.get_task_totals()`` for aggregates,
+        which keeps the query construction inside the data-access layer
+        per SRP.
+        """
         return (
             self.filter(deleted_at__isnull=True)
             .select_related("milestone", "milestone__group")
             .prefetch_related("assignments")
-            .values(
-                "milestone__id",
-                "milestone__milestone_name",
-                "milestone__group__id",
-            )
-            .annotate(
-                total_tasks=Count("id"),
-                completed_tasks=Count("id", filter=Q(completed=True)),
-            )
         )
 
     def get_task_totals(self):
-        return self.filter(deleted_at__isnull=True).aggregate(
+        """Aggregate ``total_tasks`` / ``completed_tasks`` on the
+        current queryset. Chainable off ``get_dashboard_tasks()`` or any
+        other scoped queryset.
+        """
+        return self.aggregate(
             total_tasks=Count("id"),
             completed_tasks=Count("id", filter=Q(completed=True)),
         )
