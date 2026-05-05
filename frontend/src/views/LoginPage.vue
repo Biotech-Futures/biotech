@@ -55,14 +55,8 @@
 
   <!-- Page shell and two-column layout. -->
   <div
-    ref="loginShellRef"
     class="login-shell"
     :dir="currentDir"
-    :class="{
-        'pointer-inside': isShellPointerInside
-      }"
-    @pointermove="handleShellPointerMove"
-    @pointerleave="handleShellPointerLeave"
   >
     <div class="shell-aurora" aria-hidden="true">
       <span class="shell-aurora-orb shell-aurora-orb--one"></span>
@@ -70,195 +64,48 @@
       <span class="shell-aurora-orb shell-aurora-orb--three"></span>
       <span class="shell-mesh"></span>
     </div>
-    <!-- Left hero pane: background stage, role selection, and platform overview. -->
-    <section class="hero-pane">
-      <!-- Background stage with slideshow and emerald mode. -->
-      <div class="hero-stage" aria-hidden="true">
-        <!-- Slideshow scene. -->
-        <div class="hero-scene hero-scene--slideshow" :class="{ active: activeLeftBackground === 'original' }">
-          <img
-            v-for="(image, index) in backgroundImages"
-            :key="`${image}-${index}`"
-            class="hero-slide-image"
-            :src="image"
-            alt=""
-            :style="{
-              animationDelay: `${index * slideDuration}s`
-            }"
-          />
-        </div>
-
-        <!-- Emerald visual mode scene. -->
-        <div class="hero-scene hero-scene--emerald" :class="{ active: activeLeftBackground === 'green' }">
-          <div class="hero-green-image" :style="{ backgroundImage: `url(${backgroundImages2})` }"></div>
-        </div>
-
-        <!-- Readability overlay and subtle texture. -->
-        <div class="hero-overlay"></div>
-        <div class="hero-noise"></div>
-      </div>
-
-      <!-- Foreground hero content. -->
-      <div class="hero-content">
-        <!-- Brand block. -->
-        <div class="hero-brand-row">
-          <div class="brand-mark">
+    <!-- Left information pane from the old login page. -->
+    <section class="hero-pane legacy-left-pane">
+      <div class="legacy-left-inner">
+        <div class="legacy-brand">
+          <div class="legacy-logo-icon">
             <img :src="logo" alt="BIOTech Futures" />
           </div>
-
-          <div class="brand-copy">
-            <span class="eyebrow">{{ t('brandTitle') }}</span>
-            <h1 class="hero-title">{{ t('aboutTitle') }}</h1>
-          </div>
+          <h1 class="legacy-brand-title">BIOTech Futures Hub</h1>
         </div>
 
-        <!-- Main hero card grid. -->
-        <div class="hero-grid">
-          <!-- Role-guided access card. -->
-          <article
-            class="hero-card hero-card--primary interactive-surface"
-            @pointermove="handleCardPointerMove"
-            @pointerleave="handleCardPointerLeave"
+        <div class="legacy-custom-content">
+          <h2 class="legacy-info-title">About the BIOTech Futures Challenge</h2>
+          <p>
+            The BIOTech Futures Challenge empowers students to tackle real-world problems
+            through innovation, mentorship, and interdisciplinary collaboration.
+          </p>
+          <ul class="legacy-info-list">
+            <li>Learn from mentors across academia &amp; industry</li>
+            <li>Develop practical solutions and prototypes</li>
+            <li>Present at showcase events and win awards</li>
+          </ul>
+          <p>
+            Explore key dates, eligibility, submission guidelines, and more on our website.
+          </p>
+        </div>
+
+        <div class="legacy-links">
+          <a
+            class="legacy-website-button"
+            href="https://biotechfutures.org"
+            target="_blank"
+            rel="noopener noreferrer"
           >
-            <div class="section-head">
-              <div>
-                <h2 class="section-kicker">{{ t('previewRolesTitle') }}</h2>
-              </div>
-            </div>
-
-            <!-- Role selector. -->
-            <!-- Click selects the login identity. Hover or focus previews the role content. -->
-            <div
-              class="role-selector"
-              aria-label="Portal roles"
-            >
-              <button
-                v-for="(item, index) in rolePreviewItems"
-                :key="item.key"
-                type="button"
-                class="role-pill"
-                :class="[
-                  roleThemeClass(item.key),
-                  {
-                    selected: pinnedRoleKey === item.key,
-                    active: activeDisplayRoleKey === item.key
-                  }
-                ]"
-                :aria-pressed="pinnedRoleKey === item.key"
-                :ref="(el) => setRoleButtonRef(el, index)"
-                @click="selectLoginRole(item.key)"
-                @keydown="handleRoleKeydown($event, index)"
-                @mouseenter="previewLoginRole(item.key)"
-                @mouseleave="clearPreviewRole"
-                @focus="previewLoginRole(item.key)"
-                @blur="clearPreviewRole"
-              >
-                <span class="role-pill-dot"></span>
-                <span>{{ t(item.labelKey) }}</span>
-              </button>
-            </div>
-
-            <!-- Role detail card. -->
-            <!-- The displayed data follows preview first, then selected state as fallback. -->
-            <transition name="content-fade" mode="out-in">
-              <div
-                v-if="activeDisplayRoleKey"
-                :key="activeDisplayRoleKey"
-                class="role-detail-card"
-              >
-                <div class="role-detail-glow" aria-hidden="true"></div>
-                <div class="role-detail-header">
-                  <div class="role-detail-badge" :class="roleThemeClass(activeDisplayRoleKey)"></div>
-
-                  <div>
-                    <p class="role-detail-kicker">{{ t('rolePreviewLabel') }}</p>
-                    <h3 class="role-detail-title">{{ activeRoleTitle }}</h3>
-                  </div>
-                </div>
-
-                <p class="role-detail-summary">
-                  {{ activeRoleSummary }}
-                </p>
-
-                <ul class="role-detail-list">
-                  <li v-for="point in activeRolePoints" :key="point">
-                    {{ point }}
-                  </li>
-                </ul>
-              </div>
-            </transition>
-          </article>
-
-          <!-- Platform overview card. -->
-          <article
-            class="hero-card hero-card--secondary interactive-surface"
-            @pointermove="handleCardPointerMove"
-            @pointerleave="handleCardPointerLeave"
-          >
-            <div class="section-head section-head--compact">
-              <div>
-                <span class="section-kicker">{{ t('platformOverview') }}</span>
-              </div>
-            </div>
-
-            <!-- Showcase metrics. -->
-            <div class="hero-stats">
-              <div v-for="stat in showcaseStats" :key="stat.label" class="stat-card">
-                <span class="stat-value">{{ stat.value }}</span>
-                <span class="stat-label">{{ stat.label }}</span>
-              </div>
-            </div>
-
-            <div class="overview-capabilities">
-              <div
-                v-for="item in platformCapabilities"
-                :key="item.title"
-                class="capability-card"
-              >
-                <span class="capability-title">{{ item.title }}</span>
-                <span class="capability-subtitle">{{ item.subtitle }}</span>
-              </div>
-            </div>
-
-            <!-- Background mode switch and official website link. -->
-            <div class="hero-footer">
-              <div class="mode-switch" role="group" :aria-label="t('visualMode')">
-                <button
-                  type="button"
-                  class="mode-button"
-                  :class="{ active: activeLeftBackground === 'original' }"
-                  @click="setBackgroundMode('original')"
-                >
-                  {{ t('imageMode') }}
-                </button>
-                <button
-                  type="button"
-                  class="mode-button"
-                  :class="{ active: activeLeftBackground === 'green' }"
-                  @click="setBackgroundMode('green')"
-                >
-                  {{ t('emeraldMode') }}
-                </button>
-              </div>
-
-              <a
-                class="hero-link"
-                href="https://biotechfutures.org"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {{ t('visitWebsite') }}
-              </a>
-            </div>
-          </article>
+            Visit Main Website
+          </a>
         </div>
       </div>
     </section>
 
     <!-- Right auth pane: badges, language, email step, OTP step. -->
-    <section class="auth-pane" @mousemove="handleInkMouseMove" @mouseleave="handleInkMouseLeave">
+    <section class="auth-pane">
       <!-- Chinese ink ripple canvas — sits behind all auth content. -->
-      <canvas ref="inkCanvasRef" class="ink-canvas" aria-hidden="true"></canvas>
       <div class="auth-shell">
         <!-- Top bar with trust badges and language switcher. -->
         <div class="auth-topbar">
@@ -282,11 +129,7 @@
         </div>
 
         <!-- Auth card container. -->
-        <div
-          class="auth-card interactive-surface"
-          @pointermove="handleCardPointerMove"
-          @pointerleave="handleCardPointerLeave"
-        >
+        <div class="auth-card">
           <div class="auth-card-glow"></div>
           <div class="auth-card-noise"></div>
 
@@ -373,7 +216,11 @@
                   <small class="field-help">{{ emailStepHelper }}</small>
                 </div>
 
-                <div v-if="loginMode === 'password'" class="field-block">
+                <div
+                  class="field-block password-field-slot"
+                  :class="{ 'is-reserved-hidden': loginMode !== 'password' }"
+                  :aria-hidden="loginMode !== 'password'"
+                >
                   <label class="field-label" for="login-password">{{ t('passwordLabel') }}</label>
 
                   <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
@@ -386,7 +233,8 @@
                       :placeholder="t('passwordPlaceholder')"
                       :aria-invalid="Boolean(error)"
                       autocomplete="current-password"
-                      required
+                      :disabled="loginMode !== 'password'"
+                      :required="loginMode === 'password'"
                     />
                   </div>
                 </div>
@@ -522,7 +370,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
-
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
@@ -534,15 +381,8 @@ import {
 import logo from '@/assets/btf-logo.png'
 import {
   LOGIN_LANGUAGE_OPTIONS,
-  LOGIN_MESSAGES,
-  LOGIN_ROLE_PREVIEW_CONTENT,
-  LOGIN_ROLE_PREVIEW_ITEMS
+  LOGIN_MESSAGES
 } from '@/data/login_language'
-import {
-  LOGIN_BACKGROUND_IMAGES,
-  LOGIN_BACKGROUND_IMAGES2,
-  LOGIN_SLIDE_DURATION
-} from '@/data/login_background'
 
 /*
   Page-level instances.
@@ -560,13 +400,8 @@ const REQUEST_TIMEOUT_MS = 15000
 /*
   Shared page data.
 */
-const backgroundImages = LOGIN_BACKGROUND_IMAGES
-const backgroundImages2 = LOGIN_BACKGROUND_IMAGES2
-const slideDuration = LOGIN_SLIDE_DURATION
 const languageOptions = LOGIN_LANGUAGE_OPTIONS
 const messages = LOGIN_MESSAGES
-const rolePreviewItems = LOGIN_ROLE_PREVIEW_ITEMS
-const rolePreviewContent = LOGIN_ROLE_PREVIEW_CONTENT
 
 /*
   Auth flow state.
@@ -587,7 +422,6 @@ const resendCountdown = ref(0)
 */
 const otpDigits = ref(['', '', '', '', '', ''])
 const otpRefs = ref([])
-const roleButtonRefs = ref([])
 const otpShake = ref(false)
 const otpErrorActive = ref(false)
 
@@ -595,10 +429,6 @@ const otpErrorActive = ref(false)
   UI presentation state.
 */
 const locale = ref('en')
-const activeLeftBackground = ref('original')
-const previewLoginRoleKey = ref('')
-const pinnedRoleKey = ref(rolePreviewItems[0]?.key || '')
-const isShellPointerInside = ref(false)
 const prefersReducedMotion = ref(false)
 
 /*
@@ -606,7 +436,6 @@ const prefersReducedMotion = ref(false)
 */
 const emailInputRef = ref(null)
 const passwordInputRef = ref(null)
-const loginShellRef = ref(null)
 const inkCanvasRef = ref(null)
 
 /*
@@ -828,34 +657,6 @@ const otpProgressPercent = computed(() => {
   const filledCount = otpDigits.value.filter((digit) => /^\d$/.test(digit)).length
   return `${(filledCount / otpDigits.value.length) * 100}%`
 })
-
-/*
-  Role display state.
-  角色显示状态。
-*/
-const activeDisplayRoleKey = computed(() => {
-  return previewLoginRoleKey.value || pinnedRoleKey.value || rolePreviewItems[0]?.key || ''
-})
-
-const activeRoleData = computed(() => {
-  if (!activeDisplayRoleKey.value) {
-    return null
-  }
-
-  return rolePreviewContent[locale.value]?.[activeDisplayRoleKey.value]
-    || rolePreviewContent.en?.[activeDisplayRoleKey.value]
-    || null
-})
-
-const activeRoleLabel = computed(() => {
-  if (!activeDisplayRoleKey.value) {
-    return ''
-  }
-
-  const currentRoleItem = rolePreviewItems.find((item) => item.key === activeDisplayRoleKey.value)
-  return currentRoleItem ? t(currentRoleItem.labelKey) : ''
-})
-
 const authHeading = computed(() => t('signIn'))
 
 const authSubtitle = computed(() => t('welcomeSubtitle'))
@@ -866,134 +667,9 @@ const credentialStepLabel = computed(() => isPasswordLoginMode.value ? t('passwo
 const loginActionLabel = computed(() => isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode'))
 const emailStepHelper = computed(() => isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'))
 
-const activeRoleTitle = computed(() => activeRoleData.value?.title || activeRoleLabel.value)
-const activeRoleSummary = computed(() => activeRoleData.value?.summary || '')
-const activeRolePoints = computed(() => activeRoleData.value?.points?.slice(0, 3) || [])
-
 /*
   Hero showcase metrics.
 */
-const showcaseStats = computed(() => [
-  {
-    // 转成字符串，如果长度不够2在前面补零："3".padStart(2, '0')   // "03"
-    value: String(rolePreviewItems.length).padStart(2, '0'),
-    label: t('statsRoles')
-  },
-  {
-    value: '10',
-    label: t('statsWeeks')
-  },
-  {
-    value: 'JWT',
-    label: t('statsSecureAccess')
-  }
-])
-
-const platformCapabilities = computed(() => [
-  {
-    title: t('capabilityGroupSpacesTitle'),
-    subtitle: t('capabilityGroupSpacesSubtitle')
-  },
-  {
-    title: t('capabilityResourcesTitle'),
-    subtitle: t('capabilityResourcesSubtitle')
-  },
-  {
-    title: t('capabilityProgressTitle'),
-    subtitle: t('capabilityProgressSubtitle')
-  },
-  {
-    title: t('capabilityEventsTitle'),
-    subtitle: t('capabilityEventsSubtitle')
-  },
-  {
-    title: t('capabilityMatchingTitle'),
-    subtitle: t('capabilityMatchingSubtitle')
-  },
-  {
-    title: t('capabilityAdminTitle'),
-    subtitle: t('capabilityAdminSubtitle')
-  }
-])
-
-/*
-  Theme class builder.
-*/
-const roleThemeClass = (roleKey) => `role-theme--${roleKey || 'default'}`
-
-// 保存每一个role按钮的DOM元素
-const setRoleButtonRef = (element, index) => {
-  if (element) {
-    roleButtonRefs.value[index] = element
-  }
-}
-
-const focusRoleButton = async (index) => {
-  await nextTick()
-  roleButtonRefs.value[index]?.focus()
-}
-
-// 处理键盘按键对role的选取
-const handleRoleKeydown = async (event, index) => {
-  const total = rolePreviewItems.length
-
-  if (!total) {
-    return
-  }
-
-  const isRtl = currentDir.value === 'rtl'
-  // 相当于循环数组
-  const previousIndex = (index - 1 + total) % total
-  const nextIndex = (index + 1) % total
-
-  if (event.key === 'ArrowRight') {
-    event.preventDefault()
-    await focusRoleButton(isRtl ? previousIndex : nextIndex)
-    return
-  }
-
-  if (event.key === 'ArrowLeft') {
-    event.preventDefault()
-    await focusRoleButton(isRtl ? nextIndex : previousIndex)
-    return
-  }
-
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    await focusRoleButton(nextIndex)
-    return
-  }
-
-  if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    await focusRoleButton(previousIndex)
-    return
-  }
-
-  if (event.key === 'Home') {
-    event.preventDefault()
-    await focusRoleButton(0)
-    return
-  }
-
-  if (event.key === 'End') {
-    event.preventDefault()
-    await focusRoleButton(total - 1)
-  }
-}
-
-const selectLoginRole = (roleKey) => {
-  pinnedRoleKey.value = roleKey
-}
-
-const previewLoginRole = (roleKey) => {
-  previewLoginRoleKey.value = roleKey
-}
-
-const clearPreviewRole = () => {
-  previewLoginRoleKey.value = ''
-}
-
 const resetPointerVariables = (element) => {
   if (!element) {
     return
@@ -1037,24 +713,6 @@ const updatePointerVariables = (element, clientX, clientY) => {
   element.style.setProperty('--glow-opacity', glowOpacity)
 }
 
-const handleCardPointerMove = (event) => {
-  updatePointerVariables(event.currentTarget, event.clientX, event.clientY)
-}
-
-const handleCardPointerLeave = (event) => {
-  resetPointerVariables(event.currentTarget)
-}
-
-const handleShellPointerMove = (event) => {
-  updatePointerVariables(loginShellRef.value, event.clientX, event.clientY)
-  isShellPointerInside.value = true
-}
-
-const handleShellPointerLeave = () => {
-  isShellPointerInside.value = false
-  resetPointerVariables(loginShellRef.value)
-}
-
 /*
   Message helpers.
   消息状态辅助函数。
@@ -1086,10 +744,6 @@ const clearOtpAutoSubmitTimer = () => {
   Hero pane interaction helpers.
   左侧展示区交互辅助函数。
 */
-const setBackgroundMode = (mode) => {
-  activeLeftBackground.value = mode
-}
-
 const setLoginMode = async (mode) => {
   if (!['password', 'code'].includes(mode) || loginMode.value === mode) {
     return
@@ -1361,7 +1015,6 @@ const triggerOtpErrorFeedback = async () => {
 */
 const goBackToEmailStep = async () => {
   currentStep.value = 'email'
-  previewLoginRoleKey.value = ''
   clearMessages()
   otpErrorActive.value = false
   otpShake.value = false
@@ -1414,8 +1067,6 @@ const handleLogin = async () => {
         return
       }
 
-      previewLoginRoleKey.value = ''
-
       try {
         await router.replace('/dashboard')
       } catch {
@@ -1435,7 +1086,6 @@ const handleLogin = async () => {
       return
     }
 
-    previewLoginRoleKey.value = ''
     statusMessage.value = t('sendingSuccess')
     currentStep.value = 'otp'
     await resetOtpState()
@@ -1493,8 +1143,6 @@ const verifyOTP = async () => {
       return
     }
 
-    previewLoginRoleKey.value = ''
-
     try {
       await router.replace('/dashboard')
     } catch {
@@ -1536,8 +1184,6 @@ const resendCode = async () => {
     error.value = await parseErrorMessage(response, t('errorResendFail'))
     return
   }
-
-  previewLoginRoleKey.value = ''
 
   statusMessage.value = t('resendSuccess')
   await resetOtpState()
@@ -1677,22 +1323,6 @@ function addInkDrop(uvX, uvY) {
   syncInkDropUniforms()
 }
 
-function handleInkMouseMove(event) {
-  if (!inkCanvasRef.value || prefersReducedMotion.value) return
-  const now = Date.now()
-  if (now - inkLastDropT < INK_DROP_INTERVAL_MS) return
-  inkLastDropT = now
-
-  const rect = inkCanvasRef.value.parentElement.getBoundingClientRect()
-  const uvX  = (event.clientX - rect.left)  / rect.width
-  const uvY  = 1.0 - (event.clientY - rect.top) / rect.height  // flip Y for GL coords
-  addInkDrop(uvX, uvY)
-}
-
-function handleInkMouseLeave() {
-  // Drops fade out naturally; no explicit action needed.
-}
-
 function animateInk() {
   if (!inkRenderer) return
   inkAnimId = requestAnimationFrame(animateInk)
@@ -1737,8 +1367,6 @@ onMounted(async () => {
 
   await nextTick()
   emailInputRef.value?.focus()
-  initInkEffect()
-  window.addEventListener('resize', resizeInkCanvas)
 })
 
 /*
@@ -1747,8 +1375,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearOtpAnimationTimers()
   clearOtpAutoSubmitTimer()
-  disposeInkEffect()
-  window.removeEventListener('resize', resizeInkCanvas)
 
   if (resendTimer) {
     clearInterval(resendTimer)
@@ -1811,6 +1437,99 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   min-height: 100vh;
+}
+
+.legacy-left-pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  background: var(--white, #ffffff);
+  border-right: 1px solid var(--border-light, rgba(16, 33, 29, 0.1));
+}
+
+.legacy-left-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 560px;
+}
+
+.legacy-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.legacy-brand-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--charcoal, #212529);
+}
+
+.legacy-logo-icon {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: var(--white, #ffffff);
+}
+
+.legacy-logo-icon img {
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
+}
+
+.legacy-info-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.75rem;
+  color: var(--charcoal, #212529);
+}
+
+.legacy-custom-content p {
+  margin: 0 0 0.75rem;
+  color: #566;
+  line-height: 1.7;
+}
+
+.legacy-info-list {
+  margin: 0.75rem 0 1rem 1.25rem;
+  color: var(--charcoal, #212529);
+}
+
+.legacy-info-list li + li {
+  margin-top: 0.35rem;
+}
+
+.legacy-links {
+  margin-top: 1rem;
+}
+
+.legacy-website-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 1rem;
+  border: 2px solid var(--dark-green, #2d5a3d);
+  border-radius: 8px;
+  color: var(--dark-green, #2d5a3d);
+  background-color: var(--white, #ffffff);
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.legacy-website-button:hover,
+.legacy-website-button:focus-visible {
+  color: var(--white, #ffffff);
+  background-color: var(--dark-green, #2d5a3d);
+  transform: translateY(-1px);
 }
 
 .hero-stage {
@@ -1953,9 +1672,9 @@ onBeforeUnmount(() => {
 
 
 .hero-grid {
-  width: min(100%, 960px);
+  width: min(100%, 520px);
   display: grid;
-  grid-template-columns: 1.08fr 0.92fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
 }
@@ -2480,16 +2199,6 @@ onBeforeUnmount(() => {
   padding: clamp(22px, 4vw, 40px);
 }
 
-/* Ink canvas: fills the auth-pane, lives behind all content. */
-.ink-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 0;
-}
-
 .auth-shell {
   position: relative;
   z-index: 1;
@@ -2761,6 +2470,16 @@ onBeforeUnmount(() => {
 .field-block {
   display: grid;
   gap: 10px;
+}
+
+.password-field-slot {
+  transition: opacity 0.18s ease;
+}
+
+.password-field-slot.is-reserved-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .field-label {
@@ -3058,6 +2777,11 @@ onBeforeUnmount(() => {
     min-height: auto;
   }
 
+  .legacy-left-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-light, rgba(16, 33, 29, 0.1));
+  }
+
   .hero-content {
     min-height: auto;
   }
@@ -3074,6 +2798,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .hero-content,
+  .legacy-left-pane,
   .auth-pane {
     padding: 20px;
   }
@@ -3165,10 +2890,6 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
-.login-shell.pointer-inside::before {
-  opacity: 0.5;
-}
-
 .login-shell::after {
   right: 5%;
   bottom: 4%;
@@ -3233,13 +2954,6 @@ onBeforeUnmount(() => {
   box-shadow:
     0 34px 84px rgba(3, 12, 10, 0.46),
     0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-}
-
-.auth-card:hover {
-  border-color: rgba(47, 164, 134, 0.18);
-  box-shadow:
-    0 30px 70px rgba(12, 41, 34, 0.18),
-    0 0 0 1px rgba(255, 255, 255, 0.38) inset;
 }
 
 .hero-brand-row,
@@ -3692,10 +3406,6 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.auth-card-glow {
-  animation: ambientFloatA 13s ease-in-out infinite;
-}
-
 .auth-card-noise {
   position: absolute;
   inset: 0;
@@ -3872,10 +3582,6 @@ onBeforeUnmount(() => {
     transform: none !important;
   }
 
-  /* Hide WebGL ink canvas for users who prefer reduced motion. */
-  .ink-canvas {
-    display: none !important;
-  }
 }
 
 </style>

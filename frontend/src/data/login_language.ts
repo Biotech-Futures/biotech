@@ -3,7 +3,6 @@ export const LOGIN_LANGUAGE_OPTIONS = [
   { value: 'zh-CN', label: '简体中文' },
   { value: 'ja', label: '日本語' },
   { value: 'ko', label: '한국어' },
-  { value: 'ar', label: 'العربية' }
 ]
 
 export const LOGIN_ROLE_PREVIEW_ITEMS = [
