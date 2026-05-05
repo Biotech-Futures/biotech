@@ -70,9 +70,9 @@ class GroupsPreviewView(APIView):
 
     @extend_schema(request=None, responses={200: DashboardGroupPreviewSerializer(many=True)})
     def get(self, request):
-        query_serializer = GroupsPreviewQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
-        params = query_serializer.validated_data
+        query = GroupsPreviewQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
 
         queryset = get_groups_preview(
             user=request.user,
@@ -80,13 +80,14 @@ class GroupsPreviewView(APIView):
             track_id=params.get("track_id"),
         )
 
+        page_number = params["page"]
         paginator = Paginator(queryset, params["page_size"])
-        page = paginator.get_page(params["page"])
+        page = paginator.get_page(page_number)
 
         serializer = DashboardGroupPreviewSerializer(page.object_list, many=True)
         return Response({
             "count": paginator.count,
-            "next": params["page"] + 1 if page.has_next() else None,
-            "previous": params["page"] - 1 if page.has_previous() else None,
+            "next": page_number + 1 if page.has_next() else None,
+            "previous": page_number - 1 if page.has_previous() else None,
             "results": serializer.data,
         })
