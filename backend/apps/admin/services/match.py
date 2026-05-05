@@ -10,6 +10,11 @@ from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
 from apps.groups.models import Countries, CountryStates
+from apps.admin.algorithms.student import (
+    build_groups,
+    format_recommendation_input,
+    recommend_groups_by_track,
+)
 
 
 DEFAULT_GROUP_MAX_SIZE = 5
@@ -44,6 +49,157 @@ def _map_interests_by_user_id(rows: List[Dict]) -> Dict[int, List[str]]:
             interests_by_user[user_id] = []
         interests_by_user[user_id].append(row['interest_desc'])
     return interests_by_user
+
+
+def _safe_int(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _without_none(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in data.items() if value is not None}
+
+
+def _map_existing_students(group: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        _without_none({
+            'id': student.get('id'),
+            'name': student.get('name') or f"Student #{student.get('id')}",
+            'trackId': student.get('trackId'),
+            'country': student.get('country'),
+            'yearLevel': student.get('yearLevel') or student.get('yearlevel'),
+            'interests': student.get('interests') or [],
+        })
+        for student in group.get('groupStudent', [])
+    ]
+
+
+def _map_recommended_student(recommendation: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'student': recommendation['student'],
+        'reason': recommendation['reason'],
+        'score': recommendation['score'],
+        'scoreBreakdown': recommendation['scoreBreakdown'],
+    }
+
+
+def _group_student_recommendations(
+    recommendations: List[Dict[str, Any]]
+) -> Dict[str, List[Dict[str, Any]]]:
+    groups_by_id = {}
+    unmatched_students = []
+
+    for recommendation in recommendations:
+        group = recommendation.get('recommendGroup')
+        if not group:
+            unmatched_students.append(_map_recommended_student(recommendation))
+            continue
+
+        group_key = str(group.get('id'))
+        grouped = groups_by_id.get(group_key)
+        if not grouped:
+            grouped = {
+                'id': group.get('id'),
+                'groupName': group.get('groupName'),
+                'trackId': group.get('trackId'),
+                'maxSize': group.get('maxSize') or DEFAULT_GROUP_MAX_SIZE,
+                'tutor': group.get('tutor'),
+                'existingStudents': _map_existing_students(group),
+                'recommendStudents': [],
+            }
+            groups_by_id[group_key] = grouped
+
+        grouped['recommendStudents'].append(_map_recommended_student(recommendation))
+
+    groups = sorted(groups_by_id.values(), key=lambda group: str(group['id']))
+    for group in groups:
+        group['recommendStudents'].sort(
+            key=lambda item: str(item['student']['id'])
+        )
+    unmatched_students.sort(key=lambda item: str(item['student']['id']))
+
+    return {'groups': groups, 'unmatchedStudents': unmatched_students}
+
+
+def _build_form_recommendations(
+    students: List[Dict[str, Any]],
+    grouped_result: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    objective_by_student_id = {}
+    score_by_student_id = {
+        str(item['studentId']): item
+        for item in grouped_result.get('studentScores', [])
+    }
+    unmatched_by_student_id = {
+        str(item['studentId']): item
+        for item in grouped_result.get('unmatchedStudentReasons', [])
+    }
+    group_by_student_id = {}
+
+    for group in grouped_result.get('groups', []):
+        for student_id in group.get('studentIds', []):
+            sid = str(student_id)
+            group_by_student_id[sid] = group
+            objective_by_student_id[sid] = group['scoreBreakdown']['objectiveScore']
+
+    for student in students:
+        objective_by_student_id.setdefault(str(student['id']), 0)
+
+    recommendations = []
+    for student in students:
+        sid = str(student['id'])
+        matched_group = group_by_student_id.get(sid)
+
+        if not matched_group:
+            unmatched = unmatched_by_student_id.get(sid)
+            recommendations.append({
+                'student': student,
+                'recommendGroup': None,
+                'reason': unmatched['reason'] if unmatched else 'No valid 2-5 member score-based group found for this student.',
+                'score': 0,
+                'scoreBreakdown': {
+                    'baseScore': 100,
+                    'yearPenalty': 0,
+                    'countryPenalty': 0,
+                    'timezonePenalty': 0,
+                    'sizeBonus': 0,
+                    'totalPenalty': 100,
+                    'objectiveScore': 0,
+                },
+            })
+            continue
+
+        student_score = score_by_student_id.get(sid)
+        virtual_group_id = f"new-{matched_group['track']}-{'-'.join(str(item) for item in matched_group['studentIds'])}"
+        recommendations.append({
+            'student': student,
+            'recommendGroup': {
+                'id': virtual_group_id,
+                'groupName': f"Suggested {matched_group['track']} Group",
+                'trackId': matched_group['track'],
+                'maxSize': DEFAULT_GROUP_MAX_SIZE,
+                'tutor': None,
+                'groupStudent': [],
+            },
+            'reason': 'Assigned to highest score-based formed group considering interests, track, and compatibility.',
+            'score': student_score['score'] if student_score else matched_group['groupScore'],
+            'scoreBreakdown': {
+                'baseScore': student_score['scoreBreakdown']['baseScore'] if student_score else 100,
+                'yearPenalty': student_score['scoreBreakdown']['yearPenalty'] if student_score else 0,
+                'countryPenalty': student_score['scoreBreakdown']['countryPenalty'] if student_score else 0,
+                'timezonePenalty': student_score['scoreBreakdown']['timezonePenalty'] if student_score else 0,
+                'sizeBonus': matched_group['scoreBreakdown']['sizeBonus'],
+                'totalPenalty': student_score['scoreBreakdown']['totalPenalty'] if student_score else 100,
+                'objectiveScore': matched_group['scoreBreakdown']['objectiveScore'],
+            },
+        })
+
+    recommendations.sort(key=lambda item: str(item['student']['id']))
+    return recommendations, objective_by_student_id
 
 
 def match_student(uid: str) -> MatchStudentResult:
@@ -160,6 +316,164 @@ def match_student(uid: str) -> MatchStudentResult:
     
     interests_by_user = _map_interests_by_user_id(interest_rows)
     
+    group_students = []
+    for student in group_members_rows:
+        group_meta = group_meta_by_id.get(student['group_id'])
+        if not group_meta:
+            continue
+
+        tutor = tutor_by_group_id.get(student['group_id'])
+        group_students.append({
+            **student,
+            'group_name': group_meta['group_name'],
+            'group_track_id': group_meta['group_track_id'],
+            'group_track_code': group_meta['group_track_code'],
+            'group_tutor_id': tutor['tutor_user_id'] if tutor else None,
+            'group_tutor_name': tutor['tutor_name'] if tutor else None,
+        })
+
+    formatted_individual_students = [
+        {
+            **student,
+            'interests': interests_by_user.get(student['user_id'], []),
+        }
+        for student in standalone_students
+    ]
+    formatted_group_students = [
+        {
+            **student,
+            'interests': interests_by_user.get(student['user_id'], []),
+        }
+        for student in group_students
+    ]
+
+    ungrouped_students = [
+        _without_none({
+            'id': student['user_id'],
+            'name': f"{student['first_name'] or ''} {student['last_name'] or ''}".strip(),
+            'trackId': student['track_code'] or student['track_id'],
+            'country': student['country_name'],
+            'yearLevel': _safe_int(student['year_level']),
+            'interests': interests_by_user.get(student['user_id'], []),
+        })
+        for student in formatted_individual_students
+        if student.get('user_id') is not None
+    ]
+
+    join_input = format_recommendation_input(
+        [
+            {
+                'userId': student['user_id'],
+                'firstName': student['first_name'],
+                'lastName': student['last_name'],
+                'trackId': student['track_id'],
+                'trackCode': student['track_code'],
+                'countryName': student['country_name'],
+                'yearLevel': _safe_int(student['year_level']),
+                'interests': student.get('interests', []),
+                'groupId': student['group_id'],
+                'groupName': student['group_name'],
+                'groupTrackId': student['group_track_id'],
+                'groupTrackCode': student['group_track_code'],
+                'groupTutorId': student['group_tutor_id'],
+                'groupTutorName': student['group_tutor_name'],
+            }
+            for student in formatted_group_students
+        ],
+        [
+            {
+                'userId': student['user_id'],
+                'firstName': student['first_name'],
+                'lastName': student['last_name'],
+                'trackId': student['track_id'],
+                'trackCode': student['track_code'],
+                'countryName': student['country_name'],
+                'yearLevel': _safe_int(student['year_level']),
+                'interests': student.get('interests', []),
+            }
+            for student in formatted_individual_students
+        ],
+    )
+    join_recommendations = recommend_groups_by_track(join_input)
+
+    baseline_form = build_groups(ungrouped_students)
+    _, baseline_objective_by_student_id = _build_form_recommendations(
+        ungrouped_students,
+        baseline_form,
+    )
+
+    available_seats_by_group_id = {}
+    for recommendation in join_recommendations:
+        group = recommendation.get('recommendGroup')
+        if not group:
+            continue
+
+        group_key = str(group['id'])
+        if group_key in available_seats_by_group_id:
+            continue
+
+        max_size = group.get('maxSize') or DEFAULT_GROUP_MAX_SIZE
+        existing_count = len(group.get('groupStudent', []))
+        available_seats_by_group_id[group_key] = max(0, max_size - existing_count)
+
+    join_candidates = []
+    for recommendation in join_recommendations:
+        group = recommendation.get('recommendGroup')
+        if not group:
+            continue
+
+        student_id = str(recommendation['student']['id'])
+        join_objective = recommendation['scoreBreakdown']['objectiveScore']
+        form_objective = baseline_objective_by_student_id.get(student_id, 0)
+        join_candidates.append({
+            'recommendation': recommendation,
+            'student_id': student_id,
+            'group_id': str(group['id']),
+            'join_objective': join_objective,
+            'form_objective': form_objective,
+            'delta': join_objective - form_objective,
+        })
+
+    join_candidates.sort(
+        key=lambda item: (
+            -item['delta'],
+            -item['join_objective'],
+            item['student_id'],
+        )
+    )
+
+    selected_join_student_ids = set()
+    for candidate in join_candidates:
+        if candidate['delta'] <= 0:
+            continue
+        if candidate['student_id'] in selected_join_student_ids:
+            continue
+        remaining_seats = available_seats_by_group_id.get(candidate['group_id'], 0)
+        if remaining_seats <= 0:
+            continue
+
+        selected_join_student_ids.add(candidate['student_id'])
+        available_seats_by_group_id[candidate['group_id']] = remaining_seats - 1
+
+    form_pool = [
+        student
+        for student in ungrouped_students
+        if str(student['id']) not in selected_join_student_ids
+    ]
+    final_form = build_groups(form_pool)
+    final_form_recommendations, _ = _build_form_recommendations(form_pool, final_form)
+
+    selected_join_recommendations = [
+        candidate['recommendation']
+        for candidate in join_candidates
+        if candidate['student_id'] in selected_join_student_ids
+    ]
+    flat_recommendations = sorted(
+        selected_join_recommendations + final_form_recommendations,
+        key=lambda item: str(item['student']['id']),
+    )
+    grouped_recommendations = _group_student_recommendations(flat_recommendations)
+
     # Get all groups for not-full-groups report
     all_groups = (
         Groups.objects
@@ -228,19 +542,22 @@ def match_student(uid: str) -> MatchStudentResult:
             })
     
     # Save match run
-    now = timezone.now().isoformat()
-    match_run = MatchRun.objects.create(
+    MatchRun.objects.create(
         initiated_by_user_id=int(uid),
         run_type='student-match',
         rules_snapshot={
             'strategy': 'hybrid-join-or-form',
-            'studentCount': len(list(standalone_students)),
+            'studentCount': len(ungrouped_students),
+            'joinInput': join_input,
+            'baselineForm': baseline_form,
+            'finalForm': final_form,
+            'selectedJoinStudentIds': list(selected_join_student_ids),
         }
     )
     
     result = MatchStudentResult()
-    result.recommendations = []
-    result.unmatched_students = []
+    result.recommendations = grouped_recommendations['groups']
+    result.unmatched_students = grouped_recommendations['unmatchedStudents']
     result.not_full_groups = not_full_groups
     
     return result

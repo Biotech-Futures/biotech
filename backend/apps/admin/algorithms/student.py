@@ -1,5 +1,6 @@
 from typing import TypedDict, Optional, Union, Literal, Set, List, Dict, Any
 from itertools import combinations as itertools_combinations
+from functools import cmp_to_key
 import math
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -113,6 +114,40 @@ class ExistingGroupInput(TypedDict, total=False):
     maxSize: Optional[int]
 
 
+class IndividualStudentSource(TypedDict, total=False):
+    id: Union[str, int]
+    userId: Union[str, int]
+    name: Optional[str]
+    firstName: Optional[str]
+    lastName: Optional[str]
+    region: Optional[str]
+    trackId: Optional[Union[str, int]]
+    trackCode: Optional[str]
+    country: Optional[str]
+    countryName: Optional[str]
+    timezoneOffsetHours: Optional[float]
+    yearLevel: Optional[int]
+    yearlevel: Optional[int]
+    interests: Optional[List[Union[str, Dict[str, Optional[str]]]]]
+
+
+class GroupStudentSource(IndividualStudentSource, total=False):
+    groupId: Union[str, int]
+    groupName: Optional[str]
+    groupTrackId: Optional[Union[str, int]]
+    groupTrackCode: Optional[str]
+    groupTutorId: Optional[Union[str, int]]
+    groupTutorName: Optional[str]
+
+
+class TrackRecommendationInput(TypedDict):
+    students: List[StudentInput]
+    groups: List[ExistingGroupInput]
+
+
+RecommendationInputByTrack = Dict[Track, TrackRecommendationInput]
+
+
 class UnmatchedStudentReason(TypedDict):
     studentId: Union[str, int]
     track: Track
@@ -137,7 +172,7 @@ def clamp(value: float, min_val: float, max_val: float) -> float:
 
 
 def round2(value: float) -> float:
-    return round(value * 100) / 100
+    return math.floor(value * 100 + 0.5) / 100
 
 
 def normalize_interest(interest: str) -> str:
@@ -152,6 +187,36 @@ def assign_track(region: str) -> Track:
     return region if region in REGION_TRACKS else "GLOBAL"
 
 
+def to_display_name(first_name: Optional[str], last_name: Optional[str]) -> str:
+    return " ".join(part for part in [first_name, last_name] if part).strip()
+
+
+def nullish(value: Any, fallback: Any) -> Any:
+    return fallback if value is None else value
+
+
+def normalize_interests(
+    interests: Optional[List[Union[str, Dict[str, Optional[str]]]]]
+) -> List[str]:
+    if not interests:
+        return []
+
+    normalized = []
+    for interest in interests:
+        if isinstance(interest, str):
+            value = interest
+        else:
+            value = interest.get("interestDesc")
+            if value is None:
+                value = interest.get("name")
+            if value is None:
+                value = ""
+        value = value.strip()
+        if value:
+            normalized.append(value)
+    return normalized
+
+
 def to_interest_set(student: StudentInput) -> Set[str]:
     interests = student.get("interests") or []
     return {normalize_interest(i) for i in interests if i}
@@ -164,32 +229,43 @@ def to_member_interest_set(member: ExistingGroupMemberInput) -> Set[str]:
         if isinstance(item, str):
             interests.append(item)
         elif isinstance(item, dict):
-            interests.append(item.get("interestDesc") or item.get("name") or "")
+            value = item.get("interestDesc")
+            if value is None:
+                value = item.get("name")
+            interests.append(value or "")
     return {normalize_interest(i) for i in interests if i}
 
 
 def get_student_year_level(student: StudentInput) -> int:
-    return student.get("yearLevel") or student.get("yearlevel") or 0
+    year_level = student.get("yearLevel")
+    if year_level is not None:
+        return year_level
+    yearlevel = student.get("yearlevel")
+    return yearlevel if yearlevel is not None else 0
 
 
 def get_member_year_level(member: ExistingGroupMemberInput) -> int:
-    return member.get("yearLevel") or member.get("yearlevel") or 0
+    year_level = member.get("yearLevel")
+    if year_level is not None:
+        return year_level
+    yearlevel = member.get("yearlevel")
+    return yearlevel if yearlevel is not None else 0
 
 
 def get_student_country(student: StudentInput) -> str:
-    return student.get("country") or ""
+    return nullish(student.get("country"), "")
 
 
 def get_member_country(member: ExistingGroupMemberInput) -> str:
-    return member.get("country") or ""
+    return nullish(member.get("country"), "")
 
 
 def get_student_timezone(student: StudentInput) -> float:
-    return student.get("timezoneOffsetHours") or 0
+    return nullish(student.get("timezoneOffsetHours"), 0)
 
 
 def get_member_timezone(member: ExistingGroupMemberInput) -> float:
-    return member.get("timezoneOffsetHours") or 0
+    return nullish(member.get("timezoneOffsetHours"), 0)
 
 
 def pair_shares_interest(a: StudentInput, b: StudentInput) -> bool:
@@ -229,7 +305,7 @@ def get_size_bonus(group_size: int) -> float:
 
 
 def get_group_max_size(group: ExistingGroupInput) -> int:
-    return group.get("maxSize") or 5
+    return nullish(group.get("maxSize"), 5)
 
 
 def is_group_full(group: ExistingGroupInput) -> bool:
@@ -245,7 +321,45 @@ def same_track_id(left: Optional[Union[Track, str, int]], right: Optional[Union[
 def resolve_student_track(student: StudentInput) -> Track:
     if student.get("trackId") is not None:
         return stringify_id(student["trackId"])
-    return assign_track(student.get("region") or "")
+    return assign_track(nullish(student.get("region"), ""))
+
+
+def resolve_track_from_source(source: Dict[str, Any]) -> Track:
+    track_code = source.get("trackCode")
+    track_id = source.get("trackId")
+
+    if track_code:
+        return stringify_id(track_code)
+    if track_id is not None:
+        return stringify_id(track_id)
+    return assign_track(nullish(source.get("region"), ""))
+
+
+def map_source_student(student: IndividualStudentSource) -> StudentInput:
+    student_id = student.get("id", student.get("userId"))
+    if student_id is None:
+        raise ValueError("Student source is missing id/userId.")
+
+    derived_name = to_display_name(student.get("firstName"), student.get("lastName"))
+    track_id = student.get("trackCode")
+    if track_id is None:
+        track_id = student.get("trackId")
+    country = student.get("country")
+    if country is None:
+        country = student.get("countryName")
+
+    mapped = {
+        "id": student_id,
+        "name": nullish(student.get("name"), derived_name),
+        "region": student.get("region"),
+        "trackId": track_id,
+        "country": country,
+        "timezoneOffsetHours": student.get("timezoneOffsetHours"),
+        "yearLevel": student.get("yearLevel"),
+        "yearlevel": student.get("yearlevel"),
+        "interests": normalize_interests(student.get("interests")),
+    }
+    return {key: value for key, value in mapped.items() if value is not None}  # type: ignore
 
 
 def group_track_to_output_track(group: ExistingGroupInput) -> Track:
@@ -262,6 +376,175 @@ def get_shared_interests_with_group(student: StudentInput, group: ExistingGroupI
     for member in group.get("groupStudent", []):
         interest_sets.append(to_member_interest_set(member))
     return get_common_interests(interest_sets)
+
+
+class RecommendationCandidate(TypedDict):
+    group: ExistingGroupInput
+    score: float
+    averageYearGap: float
+    averageTimezoneGap: float
+    sharedInterests: List[str]
+    scoreBreakdown: RecommendationScoreBreakdown
+
+
+def is_student_eligible_for_group(
+    student: StudentInput,
+    group: ExistingGroupInput,
+) -> bool:
+    student_track = resolve_student_track(student)
+    student_track_id = student.get("trackId")
+    if student_track_id is None:
+        student_track_id = student_track
+
+    if not same_track_id(student_track_id, group.get("trackId")):
+        return False
+
+    if is_group_full(group):
+        return False
+
+    return len(get_shared_interests_with_group(student, group)) > 0
+
+
+def score_student_for_existing_group(
+    student: StudentInput,
+    group: ExistingGroupInput,
+) -> Optional[RecommendationCandidate]:
+    if not is_student_eligible_for_group(student, group):
+        return None
+
+    shared_interests = get_shared_interests_with_group(student, group)
+    track_type = group_track_to_output_track(group)
+    year_penalty_sum = 0.0
+    country_penalty_sum = 0.0
+    timezone_penalty_sum = 0.0
+    timezone_gap_sum = 0.0
+
+    group_students = group.get("groupStudent", [])
+    if not group_students:
+        return None
+
+    for member in group_students:
+        year_gap = abs(get_student_year_level(student) - get_member_year_level(member))
+        year_penalty_sum += year_gap * (
+            YEAR_WEIGHT_GLOBAL if track_type == "GLOBAL" else YEAR_WEIGHT_REGION
+        )
+
+        if track_type == "GLOBAL":
+            timezone_gap = abs(get_student_timezone(student) - get_member_timezone(member))
+            if get_student_country(student) != get_member_country(member):
+                country_penalty_sum += COUNTRY_MISMATCH_PENALTY
+                timezone_penalty_sum += min(
+                    TIMEZONE_MAX_PENALTY,
+                    timezone_gap * TIMEZONE_WEIGHT,
+                )
+            timezone_gap_sum += timezone_gap
+
+    peer_count = len(group_students)
+    year_penalty = round2(year_penalty_sum / peer_count)
+    country_penalty = round2(country_penalty_sum / peer_count)
+    timezone_penalty = round2(timezone_penalty_sum / peer_count)
+    total_penalty = round2(year_penalty + country_penalty + timezone_penalty)
+    score = round2(clamp(BASE_SCORE - total_penalty, 0, 100))
+    resulting_group_size = len(group_students) + 1
+    size_bonus = get_size_bonus(resulting_group_size)
+    objective_score = round2(clamp(score + size_bonus, 0, 106))
+
+    return {
+        "group": group,
+        "score": score,
+        "averageYearGap": round2(
+            sum(
+                abs(get_student_year_level(student) - get_member_year_level(member))
+                for member in group_students
+            )
+            / peer_count
+        ),
+        "averageTimezoneGap": (
+            round2(timezone_gap_sum / peer_count) if track_type == "GLOBAL" else 0
+        ),
+        "sharedInterests": shared_interests,
+        "scoreBreakdown": {
+            "baseScore": BASE_SCORE,
+            "yearPenalty": year_penalty,
+            "countryPenalty": country_penalty,
+            "timezonePenalty": timezone_penalty,
+            "sizeBonus": size_bonus,
+            "totalPenalty": total_penalty,
+            "objectiveScore": objective_score,
+        },
+    }
+
+
+def compare_recommendation_candidate(
+    a: RecommendationCandidate,
+    b: RecommendationCandidate,
+) -> int:
+    a_breakdown = a["scoreBreakdown"]
+    b_breakdown = b["scoreBreakdown"]
+    if b_breakdown["objectiveScore"] != a_breakdown["objectiveScore"]:
+        return -1 if b_breakdown["objectiveScore"] < a_breakdown["objectiveScore"] else 1
+    if b["score"] != a["score"]:
+        return -1 if b["score"] < a["score"] else 1
+    if a["averageYearGap"] != b["averageYearGap"]:
+        return -1 if a["averageYearGap"] < b["averageYearGap"] else 1
+    if group_track_to_output_track(a["group"]) == "GLOBAL" or group_track_to_output_track(b["group"]) == "GLOBAL":
+        if a["averageTimezoneGap"] != b["averageTimezoneGap"]:
+            return -1 if a["averageTimezoneGap"] < b["averageTimezoneGap"] else 1
+    a_id = stringify_id(a["group"]["id"])
+    b_id = stringify_id(b["group"]["id"])
+    return (a_id > b_id) - (a_id < b_id)
+
+
+def build_matched_recommendation_reason(candidate: RecommendationCandidate) -> str:
+    shared_interest = candidate["sharedInterests"][0]
+
+    if group_track_to_output_track(candidate["group"]) != "GLOBAL":
+        return f"Shares interest '{shared_interest}' with the group and has a close year level match."
+
+    if candidate["scoreBreakdown"]["countryPenalty"] == 0:
+        return f"Shares interest '{shared_interest}' with the group and matches the same country."
+
+    if candidate["scoreBreakdown"]["timezonePenalty"] == 0:
+        return f"Shares interest '{shared_interest}' with the group and avoids extra timezone penalty."
+
+    return f"Shares interest '{shared_interest}' with the group and is relatively close in timezone."
+
+
+def build_unmatched_recommendation(
+    student: StudentInput,
+    track: Track,
+    groups: List[ExistingGroupInput],
+) -> StudentGroupRecommendation:
+    same_track_groups = [group for group in groups if same_track_id(group.get("trackId"), track)]
+    non_full_groups = [group for group in same_track_groups if not is_group_full(group)]
+    has_interest_match = any(
+        len(get_shared_interests_with_group(student, group)) > 0
+        for group in non_full_groups
+    )
+
+    reason = "No eligible group found in this track."
+    if len(same_track_groups) == 0:
+        reason = "No existing groups are available in this track."
+    elif len(non_full_groups) == 0:
+        reason = "All existing groups in this track are already full."
+    elif not has_interest_match:
+        reason = "No existing non-full group in this track shares a common interest with the student."
+
+    return {
+        "student": student,
+        "recommendGroup": None,
+        "reason": reason,
+        "score": 0,
+        "scoreBreakdown": {
+            "baseScore": BASE_SCORE,
+            "yearPenalty": 0,
+            "countryPenalty": 0,
+            "timezonePenalty": 0,
+            "sizeBonus": 0,
+            "totalPenalty": BASE_SCORE,
+            "objectiveScore": 0,
+        },
+    }
 
 
 # ── Main Scoring Functions ────────────────────────────────────────────────
@@ -361,7 +644,6 @@ def score_student_in_group(
         "track": track_type,
         "groupStudentIds": sorted(
             [stringify_id(m["id"]) for m in group],
-            key=lambda x: x.lower() if isinstance(x, str) else str(x),
         ),
         "score": score,
         "scoreBreakdown": {
@@ -581,3 +863,124 @@ def build_groups(students: List[StudentInput]) -> MatchResult:
         "unmatchedStudentIds": unmatched_student_ids,
         "unmatchedStudentReasons": unmatched_student_reasons,
     }
+
+
+def format_recommendation_input(
+    group_students: List[GroupStudentSource],
+    individual_students: List[IndividualStudentSource],
+) -> RecommendationInputByTrack:
+    formatted: RecommendationInputByTrack = {}
+    groups_by_id: Dict[str, ExistingGroupInput] = {}
+
+    for row in group_students:
+        group_id = row.get("groupId")
+        if group_id is None:
+            continue
+
+        group_id_key = stringify_id(group_id)
+        group_track = resolve_track_from_source({
+            "trackCode": row.get("groupTrackCode"),
+            "trackId": row.get("groupTrackId"),
+            "region": row.get("region"),
+        })
+
+        group = groups_by_id.get(group_id_key)
+        if not group:
+            group_track_id = row.get("groupTrackCode")
+            if group_track_id is None:
+                group_track_id = row.get("groupTrackId")
+            if group_track_id is None:
+                group_track_id = group_track
+            group = {
+                "id": group_id,
+                "groupName": nullish(row.get("groupName"), group_id_key),
+                "trackId": group_track_id,
+                "groupStudent": [],
+                "tutor": (
+                    {
+                        "id": row.get("groupTutorId"),
+                        "name": nullish(row.get("groupTutorName"), ""),
+                    }
+                    if row.get("groupTutorId") is not None
+                    else None
+                ),
+            }
+            groups_by_id[group_id_key] = group
+
+        if not group.get("tutor") and row.get("groupTutorId") is not None:
+            group["tutor"] = {
+                "id": row.get("groupTutorId"),
+                "name": nullish(row.get("groupTutorName"), ""),
+            }
+
+        group["groupStudent"].append(map_source_student(row))  # type: ignore
+
+        existing_bucket = formatted.get(group_track)
+        if not existing_bucket:
+            formatted[group_track] = {
+                "students": [],
+                "groups": [group],
+            }
+        elif not any(candidate is group for candidate in existing_bucket["groups"]):
+            existing_bucket["groups"].append(group)
+
+    for row in individual_students:
+        student = map_source_student(row)
+        track = resolve_track_from_source({
+            "trackCode": student.get("trackId") if isinstance(student.get("trackId"), str) else row.get("trackCode"),
+            "trackId": row.get("trackId"),
+            "region": row.get("region"),
+        })
+
+        existing_bucket = formatted.get(track)
+        if not existing_bucket:
+            formatted[track] = {
+                "students": [student],
+                "groups": [],
+            }
+        else:
+            existing_bucket["students"].append(student)
+
+    return formatted
+
+
+def recommend_groups_by_track(
+    input_by_track: RecommendationInputByTrack,
+) -> List[StudentGroupRecommendation]:
+    recommendations: List[StudentGroupRecommendation] = []
+
+    for track, track_input in input_by_track.items():
+        for student in track_input["students"]:
+            student_track = resolve_student_track(student)
+            candidates = [
+                candidate
+                for group in track_input["groups"]
+                if same_track_id(group.get("trackId"), track)
+                for candidate in [score_student_for_existing_group(student, group)]
+                if candidate is not None
+            ]
+            candidates.sort(key=cmp_to_key(compare_recommendation_candidate))
+
+            if student_track != track or len(candidates) == 0:
+                recommendations.append(
+                    build_unmatched_recommendation(
+                        student,
+                        student_track,
+                        track_input["groups"],
+                    )
+                )
+                continue
+
+            best = candidates[0]
+            recommendations.append({
+                "student": student,
+                "recommendGroup": best["group"],
+                "reason": build_matched_recommendation_reason(best),
+                "score": best["score"],
+                "scoreBreakdown": best["scoreBreakdown"],
+            })
+
+    return sorted(
+        recommendations,
+        key=lambda recommendation: stringify_id(recommendation["student"]["id"]),
+    )
