@@ -188,19 +188,19 @@ def get_groups_preview(*, user, mine=False, track_id=None):
     """
     Returns an annotated queryset of active groups scoped to the user.
 
-    Aggregations are computed at the DB layer via ``.annotate`` and
-    ``Prefetch`` so the caller can hand the queryset directly to
-    ``DashboardGroupPreviewSerializer`` without iterating in Python.
-
-    Scoping rules:
-      - Admin without ``mine`` → all active groups within their track scope
-      - Admin with ``mine=True`` → only groups they are a member of
-      - Non-admin (any) → only groups they are a member of
+    Scoping is delegated to ``Groups.objects.for_user(user, mine=mine)``
+    so every consumer that needs "groups visible to this user" shares
+    one canonical implementation (DRY querysets). This service then
+    layers on the dashboard-specific projection: ``member_count``
+    annotation + a ``Prefetch`` that materialises mentor memberships
+    onto ``MENTOR_MEMBERSHIPS_ATTR``, so the caller can hand the
+    queryset directly to ``DashboardGroupPreviewSerializer`` without
+    iterating in Python.
 
     ``track_id`` (optional) further narrows the result to a single track.
     """
     qs = (
-        Groups.objects.filter(deleted_at__isnull=True)
+        Groups.objects.for_user(user, mine=mine)
         .select_related("track")
         .annotate(
             member_count=Count(
@@ -222,17 +222,6 @@ def get_groups_preview(*, user, mine=False, track_id=None):
         )
         .order_by("group_name", "id")
     )
-
-    if is_operational_admin(user) and not mine:
-        admin_track_ids = get_admin_track_ids(user)
-        if admin_track_ids is not None:
-            qs = qs.filter(track_id__in=admin_track_ids)
-    else:
-        member_group_ids = GroupMembership.objects.filter(
-            user=user,
-            left_at__isnull=True,
-        ).values_list("group_id", flat=True)
-        qs = qs.filter(id__in=member_group_ids)
 
     if track_id is not None:
         qs = qs.filter(track_id=track_id)
