@@ -8,12 +8,36 @@
       <div class="gd-head">
         <div class="gd-head-left">
           <div class="group-avatars">
-            <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">YG</div>
+            <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">{{ groupInitials }}</div>
           </div>
           <div>
             <h2 class="gd-title">{{ group.name }}</h2>
-            <p class="gd-subtitle">{{ group.members }} members · Group since August 04, 2025</p>
+            <p class="gd-subtitle">{{ groupSubtitle }}</p>
+            <div v-if="groupMetaItems.length" class="gd-meta-row">
+              <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+            </div>
           </div>
+        </div>
+        <div class="gd-head-actions">
+          <label class="group-switcher" for="group-switcher">
+            <span>Group</span>
+            <select
+              id="group-switcher"
+              :value="backendGroupId"
+              :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
+              @change="switchGroup"
+            >
+              <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
+              <option
+                v-for="option in availableGroups"
+                :key="option.id"
+                :value="option.id"
+              >
+                {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
+              </option>
+            </select>
+          </label>
+          <span v-if="groupOptionsError" class="group-switcher-error">{{ groupOptionsError }}</span>
         </div>
       </div>
     </div>
@@ -71,9 +95,13 @@
                 class="task-item"
               >
                 <div :class="['task-checkbox', { checked: t.completed }]" />
-                <div :class="['task-label', { completed: t.completed }]">{{ t.name }}</div>
-                <i class="fas fa-calendar" style="color:#6c757d;"></i>
-                <i class="fas fa-user" style="color:#6c757d;"></i>
+                <div class="task-body">
+                  <div :class="['task-label', { completed: t.completed }]">{{ t.name }}</div>
+                  <div class="task-meta">
+                    <span v-if="t.dueDate"><i class="fas fa-calendar"></i> {{ formatDate(t.dueDate) }}</span>
+                    <span v-if="t.status"><i class="fas fa-circle"></i> {{ formatTaskStatus(t.status) }}</span>
+                  </div>
+                </div>
               </div>
 
               <div class="add-task-row">
@@ -143,7 +171,7 @@
                     @click.prevent
                   >
                     <i class="fas fa-paperclip"></i>
-                    {{ attachment.attachment_filename || 'Attachment' }}
+                    {{ getAttachmentLabel(attachment) }}
                   </a>
                 </div>
 
@@ -244,30 +272,37 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders } from '@/utils/csrf'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const supportsGifs = false
 const supportsAttachments = false
 const supportsMessageReactions = false
 const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
-const rawGroupId = route.params.id ? String(route.params.id) : ''
+const routeGroupId = computed(() => route.params.id ? String(route.params.id) : '')
 const group = ref({
-  id: rawGroupId || null,
-  name: rawGroupId ? `Group ${rawGroupId}` : 'Group',
+  id: routeGroupId.value || null,
+  name: routeGroupId.value ? `Group ${routeGroupId.value}` : 'Group',
   members: 0,
   createdAt: ''
 })
+const groupMemberships = ref([])
+const isLoadingMembers = ref(false)
+const membersError = ref('')
+const availableGroups = ref([])
+const isLoadingGroupOptions = ref(false)
+const groupOptionsError = ref('')
 
-// 只保留 plan / discussion
+// Active mobile tab
 const activeTab = ref('plan')
 
-// 示例任务数据
+// Live plan state
 const tasks = ref([])
 const isLoadingPlan = ref(false)
 const planError = ref('')
@@ -309,6 +344,42 @@ const formatTime = (value) => {
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+const formatTaskStatus = (value) => {
+  const label = String(value || '').replace(/_/g, ' ').trim()
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : ''
+}
+
+const groupInitials = computed(() => {
+  const initials = getInitials(group.value?.name)
+  return initials.slice(0, 2) || 'G'
+})
+
+const groupSubtitle = computed(() => {
+  const memberCount = Number(group.value?.members || 0)
+  const memberLabel = memberCount === 1 ? '1 member' : `${memberCount} members`
+  const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
+  return `${memberLabel} - Group since ${createdLabel}`
+})
+
+const groupMetaItems = computed(() => {
+  const mentorIds = groupMemberships.value
+    .filter(item => String(item.role || '').toLowerCase().includes('mentor'))
+    .map(item => item.userId)
+    .filter(Boolean)
+  const items = []
+
+  if (mentorIds.length) {
+    items.push(`Mentor: ${mentorIds.map(id => `User ${id}`).join(', ')}`)
+  }
+  if (isLoadingMembers.value) {
+    items.push('Loading members...')
+  } else if (membersError.value) {
+    items.push(membersError.value)
+  }
+
+  return items
+})
 
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
@@ -418,8 +489,128 @@ const normalizeGroup = (item) => {
     ...item,
     id: item?.id,
     name: item?.group_name || item?.name || item?.title || group.value?.name || 'Untitled group',
-    members: Number(item?.members || item?.memberCount || group.value?.members || 0),
+    members: Number(item?.member_count ?? item?.memberCount ?? item?.members ?? group.value?.members ?? 0),
     createdAt: item?.created_at || item?.createdAt || ''
+  }
+}
+
+const normalizeMembership = (item) => ({
+  id: item?.id,
+  groupId: item?.group,
+  userId: item?.user,
+  role: item?.membership_role || '',
+  joinedAt: item?.joined_at || '',
+  leftAt: item?.left_at || ''
+})
+
+const normalizeGroupOption = (item, memberCount = 0) => ({
+  id: String(item?.id || ''),
+  name: item?.group_name || item?.name || item?.title || (item?.id ? `Group ${item.id}` : 'Untitled group'),
+  memberCount: Number(memberCount || 0),
+  createdAt: item?.created_at || item?.createdAt || ''
+})
+
+const ensureAuthUser = async () => {
+  if (auth.user?.id) return
+
+  try {
+    await auth.fetchUserData?.()
+  } catch {
+    // Keep the current page usable; group option loading will show its own fallback.
+  }
+}
+
+const loadGroupOptions = async () => {
+  isLoadingGroupOptions.value = true
+  groupOptionsError.value = ''
+
+  try {
+    const [groupsData, membershipsData] = await Promise.all([
+      requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
+      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`)
+    ])
+    const groupItems = extractCollectionItems(groupsData)
+    const memberships = extractCollectionItems(membershipsData)
+      .map(normalizeMembership)
+      .filter(item => !item.leftAt)
+    const currentUserId = Number(auth.user?.id || 0)
+    const visibleGroupIds = auth.isAdmin
+      ? null
+      : new Set(
+          memberships
+            .filter(item => currentUserId > 0 && String(item.userId) === String(currentUserId))
+            .map(item => String(item.groupId))
+        )
+    const memberCounts = new Map()
+
+    memberships.forEach((item) => {
+      const groupId = String(item.groupId || '')
+      if (!groupId) return
+      memberCounts.set(groupId, Number(memberCounts.get(groupId) || 0) + 1)
+    })
+
+    let options = groupItems
+      .filter(item => {
+        const groupId = String(item?.id || '')
+        return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
+      })
+      .map(item => normalizeGroupOption(item, memberCounts.get(String(item?.id || ''))))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    const currentGroupId = getBackendGroupId() || routeGroupId.value
+    if (currentGroupId && !options.some(option => String(option.id) === String(currentGroupId))) {
+      options = [
+        normalizeGroupOption({
+          id: currentGroupId,
+          group_name: group.value?.name || `Group ${currentGroupId}`,
+          created_at: group.value?.createdAt
+        }, group.value?.members),
+        ...options
+      ]
+    }
+
+    availableGroups.value = options
+    if (!options.length) {
+      groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
+    }
+  } catch {
+    const currentGroupId = getBackendGroupId() || routeGroupId.value
+    availableGroups.value = currentGroupId
+      ? [normalizeGroupOption({ id: currentGroupId, group_name: group.value?.name || `Group ${currentGroupId}` }, group.value?.members)]
+      : []
+    groupOptionsError.value = 'Group list unavailable'
+  } finally {
+    isLoadingGroupOptions.value = false
+  }
+}
+
+const loadGroupMembers = async () => {
+  const currentGroupId = getBackendGroupId()
+  if (!currentGroupId) {
+    groupMemberships.value = []
+    membersError.value = ''
+    return
+  }
+
+  isLoadingMembers.value = true
+  membersError.value = ''
+
+  try {
+    const data = await requestJson(`${API_BASE_URL}/groups/group-members/by-group/${currentGroupId}/`)
+    const activeMemberships = extractCollectionItems(data)
+      .map(normalizeMembership)
+      .filter(item => !item.leftAt)
+
+    groupMemberships.value = activeMemberships
+    group.value = {
+      ...group.value,
+      members: activeMemberships.length
+    }
+  } catch {
+    groupMemberships.value = []
+    membersError.value = 'Members unavailable'
+  } finally {
+    isLoadingMembers.value = false
   }
 }
 
@@ -449,8 +640,9 @@ const normalizeGifResults = (data) => {
 
 const loadGroup = async () => {
   try {
-    if (rawGroupId) {
-      const data = await requestJson(`${API_BASE_URL}/groups/groups/${rawGroupId}/`)
+    const currentRouteGroupId = routeGroupId.value
+    if (currentRouteGroupId) {
+      const data = await requestJson(`${API_BASE_URL}/groups/groups/${currentRouteGroupId}/`)
       group.value = normalizeGroup(data)
       return
     }
@@ -462,8 +654,8 @@ const loadGroup = async () => {
     }
   } catch (error) {
     group.value = {
-      id: rawGroupId || null,
-      name: rawGroupId ? `Group ${rawGroupId}` : 'Group unavailable',
+      id: routeGroupId.value || null,
+      name: routeGroupId.value ? `Group ${routeGroupId.value}` : 'Group unavailable',
       members: 0,
       createdAt: ''
     }
@@ -482,7 +674,8 @@ const buildPlanItems = (milestones, taskItems) => {
     tasksByMilestoneId.get(milestoneId).push({
       id: task?.id,
       name: task?.task_name || 'Untitled task',
-      completed: false,
+      completed: task?.completed === true || String(task?.status || '').toLowerCase() === 'done',
+      status: task?.status || '',
       dueDate: task?.due_date || '',
       description: task?.task_description || ''
     })
@@ -498,7 +691,7 @@ const buildPlanItems = (milestones, taskItems) => {
       completed: isCompleted,
       tasks: milestoneTasks.map((task) => ({
         ...task,
-        completed: isCompleted
+        completed: task.completed || isCompleted
       }))
     }
   })
@@ -544,7 +737,10 @@ const normalizeMessage = (item) => {
   const isOwn = currentUserId > 0 && senderId === currentUserId
   const messageText = raw?.message_text || raw?.text || ''
   const messageType = raw?.message_type || 'text'
-  const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
+  const attachments = [
+    ...(Array.isArray(raw?.attachments) ? raw.attachments : []),
+    ...(Array.isArray(raw?.resources) ? raw.resources : [])
+  ]
   const author = isOwn
     ? 'You'
     : (raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member'))
@@ -567,8 +763,15 @@ const normalizeMessage = (item) => {
   }
 }
 
+const getAttachmentLabel = (attachment) => {
+  return attachment?.attachment_filename ||
+    attachment?.resource_name ||
+    attachment?.name ||
+    (attachment?.resource_id ? `Resource ${attachment.resource_id}` : 'Attachment')
+}
+
 const getBackendGroupId = () => {
-  const id = group.value?.id || rawGroupId
+  const id = group.value?.id || routeGroupId.value
   return /^\d+$/.test(String(id || '')) ? String(id) : ''
 }
 
@@ -1026,11 +1229,58 @@ const reactToMessage = async (messageId, emoji) => {
 
 const focusComposer = () => composer.value?.focus()
 
-onMounted(async () => {
+let loadSequence = 0
+
+const switchGroup = async (event) => {
+  const selectedGroupId = event?.target?.value
+  if (!selectedGroupId || String(selectedGroupId) === String(backendGroupId.value)) return
+  await router.push(`/groups/${selectedGroupId}`)
+}
+
+const reloadGroupDetail = async () => {
+  const sequence = ++loadSequence
+
+  disconnectChatSocket()
+  tasks.value = []
+  messages.value = []
+  planError.value = ''
+  chatError.value = ''
+
   await loadGroup()
-  await loadPlan()
-  await loadMessages()
+  if (sequence !== loadSequence) return
+
+  await Promise.all([
+    loadGroupMembers(),
+    loadPlan(),
+    loadMessages()
+  ])
+  if (sequence !== loadSequence) return
+
   connectChatSocket()
+}
+
+watch(routeGroupId, async () => {
+  await reloadGroupDetail()
+})
+
+watch(
+  () => auth.user?.id,
+  async (userId, previousUserId) => {
+    if (userId && userId !== previousUserId) {
+      await loadGroupOptions()
+    }
+  }
+)
+
+onMounted(async () => {
+  await ensureAuthUser()
+  await loadGroupOptions()
+  if (!routeGroupId.value && availableGroups.value.length) {
+    await router.replace(`/groups/${availableGroups.value[0].id}`)
+    return
+  }
+
+  await reloadGroupDetail()
 })
 
 onBeforeUnmount(() => {
@@ -1040,11 +1290,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* 顶部信息 */
+/* Header */
 .gd-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   margin-bottom: 1.25rem;
 }
 .gd-head-left {
@@ -1054,8 +1305,57 @@ onBeforeUnmount(() => {
 }
 .gd-title { margin: 0; color: var(--charcoal); }
 .gd-subtitle { color: #6c757d; margin-top: 0.15rem; }
+.gd-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  color: #6c757d;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.gd-meta-row span {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+}
+.gd-head-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  min-width: 180px;
+}
+.group-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #6c757d;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.group-switcher select {
+  min-width: 150px;
+  max-width: 240px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--charcoal);
+  font-weight: 600;
+}
+.group-switcher select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.group-switcher-error {
+  color: #8a5a00;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
 
-/* 移动端 tabs（桌面隐藏） */
+/* Mobile tabs */
 .mobile-tabs {
   display: none;
   gap: 0.75rem;
@@ -1077,7 +1377,7 @@ onBeforeUnmount(() => {
   border-bottom-color: var(--dark-green);
 }
 
-/* 双栏布局容器 */
+/* Split layout */
 .split {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
@@ -1087,7 +1387,7 @@ onBeforeUnmount(() => {
   height: 70vh;
 }
 
-/* 左栏：Plan */
+/* Plan pane */
 .pane--plan {
   display: flex;
   flex-direction: column;
@@ -1095,7 +1395,7 @@ onBeforeUnmount(() => {
   min-height: 320px;
 }
 
-/* 右栏：Discussion */
+/* Discussion pane */
 .pane--discussion {
   display: flex;
   flex-direction: column;
@@ -1103,7 +1403,7 @@ onBeforeUnmount(() => {
   min-height: 320px;
 }
 
-/* 卡片样式 */
+/* Card layout */
 .card {
   height: 100%;
   min-height: 320px;
@@ -1118,6 +1418,24 @@ onBeforeUnmount(() => {
 }
 .plan-content {
   padding-right: 2px; /* for visible scrollbar */
+}
+
+.task-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  color: #6c757d;
+  font-size: 0.78rem;
+}
+
+.task-meta i {
+  margin-right: 0.25rem;
 }
 
 /* Discussion board: chat-container fills card, chat-messages scrolls */
@@ -1212,7 +1530,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-/* Add Task 行的微调，保持与全站按钮风格一致 */
+/* Add Task row */
 .add-task-row {
   padding-left: 0.25rem;
   margin-top: 0.4rem;
@@ -1224,7 +1542,7 @@ onBeforeUnmount(() => {
   border-color: var(--border-light);
 }
 
-/* 讨论区头部改为白色（覆盖全局 .chat-header 绿色背景） */
+/* Discussion header */
 .pane--discussion .chat-header {
   display: flex;
   align-items: center;
@@ -1234,7 +1552,7 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-light);
 }
 
-/* 确保 chat-container 填满可用空间 */
+/* Fill available chat space */
 .pane--discussion .chat-container {
   display: flex;
   flex-direction: column;
@@ -1243,14 +1561,14 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-/* 使 chat-messages 占据可用空间 */
+/* Message scroller */
 .chat-messages {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
 }
 
-/* 在每条消息头部右侧同时显示日期与时间的排版 */
+/* Message date and time layout */
 .message-meta {
   display: flex;
   align-items: center;
@@ -1261,7 +1579,7 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-/* 仅“你自己的消息”把日期变为白色，与气泡一致 */
+/* Own-message date contrast */
 .pane--discussion .message.own .message-date {
   color: #fff !important;
   opacity: 0.95;
@@ -1360,8 +1678,24 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-/* 移动端：单列 + 由 tabs 控制显示哪一块 */
+/* Mobile layout */
 @media (max-width: 900px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
   .split {
     grid-template-columns: 1fr;
     max-height: 80vh;
@@ -1711,6 +2045,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
+
   .split {
     grid-template-columns: 1fr;
     max-height: 80vh;
