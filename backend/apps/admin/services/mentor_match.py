@@ -9,6 +9,8 @@ from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
+from apps.admin.algorithms.mentor import match_mentors
+from apps.admin.services.mentor import get_mentor_list
 
 
 def _group_interests_by_key(rows: List[Dict], key_field: str, interest_field: str) -> Dict[Any, List[str]]:
@@ -97,11 +99,11 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
     # Build group sources
     group_sources = [
         {
-            'group_id': g['group_id'],
-            'group_name': g['group_name'],
-            'track_code': g['group_track_code'],
-            'student_interests': interests_by_group.get(g['group_id'], []),
-            'student_count': member_count_by_group.get(g['group_id'], 0),
+            'groupId': g['group_id'],
+            'groupName': g['group_name'],
+            'trackCode': g['group_track_code'],
+            'studentInterests': interests_by_group.get(g['group_id'], []),
+            'studentCount': member_count_by_group.get(g['group_id'], 0),
         }
         for g in groups_without_mentor
     ]
@@ -150,21 +152,20 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
     # Build mentor sources
     mentor_sources = [
         {
-            'mentor_id': m['mentor_id'],
-            'first_name': m['first_name'],
-            'last_name': m['last_name'],
+            'mentorId': m['mentor_id'],
+            'firstName': m['first_name'],
+            'lastName': m['last_name'],
             'institution': m['institution'],
-            'track_code': m['track_code'],
+            'trackCode': m['track_code'],
             'interests': interests_by_mentor.get(m['mentor_id'], []),
-            'max_group_count': m['max_grp_cnt'],
-            'current_accepted_count': accepted_count_by_mentor.get(m['mentor_id'], 0),
+            'maxGroupCount': m['max_grp_cnt'],
+            'currentAcceptedCount': accepted_count_by_mentor.get(m['mentor_id'], 0),
         }
         for m in mentor_rows
     ]
     
-    # Run matching algorithm (external call)
-    # recommendations = matchMentors(group_sources, mentor_sources, mode)
-    recommendations = []
+    # Run matching algorithm using the same data shape as admin/apps/server/src/algorithm/mentor.ts.
+    recommendations = match_mentors(group_sources, mentor_sources, mode)
     
     # Save match run
     MatchRun.objects.create(
@@ -178,68 +179,12 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
 
 def get_mentors() -> List[Dict[str, Any]]:
     """
-    Get all active mentors with their assignment info.
+    Get mentors using the same response shape as the admin mentor module.
     
     Returns:
         List of mentor dictionaries
     """
-    # Count accepted assignments per mentor
-    accepted_count_rows = (
-        GroupMembership.objects
-        .filter(
-            left_at__isnull=True,
-            user__mentorprofile__isnull=False
-        )
-        .values('user_id')
-        .annotate(count=Count('id'))
-    )
-    
-    accepted_count_by_mentor = {row['user_id']: row['count'] for row in accepted_count_rows}
-    
-    mentor_rows = (
-        MentorProfile.objects
-        .filter(user__is_active=True)
-        .select_related('user', 'user__track')
-        .values(
-            'institution',
-            mentor_id=F('user_id'),
-            first_name=F('user__first_name'),
-            last_name=F('user__last_name'),
-            max_grp_cnt=F('max_group_count'),
-            track_code=F('user__track__track_name'),
-        )
-    )
-
-    mentor_ids = [m['mentor_id'] for m in mentor_rows]
-
-    mentor_interest_rows = (
-        UserInterest.objects
-        .filter(user_id__in=mentor_ids)
-        .select_related('interest')
-        .values(
-            key=F('user_id'),
-            interest_desc=F('interest__interest_desc'),
-        )
-    ) if mentor_ids else []
-
-    interests_by_mentor = _group_interests_by_key(mentor_interest_rows, 'key', 'interest_desc')
-
-    result = []
-    for m in mentor_rows:
-        mentor_id = m['mentor_id']
-        current_accepted_count = accepted_count_by_mentor.get(mentor_id, 0)
-        result.append({
-            'mentorId': mentor_id,
-            'name': f"{m['first_name']} {m['last_name']}".strip(),
-            'trackCode': m['track_code'],
-            'institution': m['institution'],
-            'interests': interests_by_mentor.get(mentor_id, []),
-            'maxGroupCount': m['max_grp_cnt'],
-            'currentAssignedCount': current_accepted_count,
-            'remainingCapacity': m['max_grp_cnt'] - current_accepted_count,
-        })
-
-    return result
+    return get_mentor_list()
 
 
 def get_unmatched_groups() -> List[Dict[str, Any]]:

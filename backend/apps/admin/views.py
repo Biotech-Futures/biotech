@@ -571,7 +571,8 @@ class MentorMatchRecommendView(APIView):
         admin_user_id = str(request.user.id) if request.user.is_authenticated else None
         if not admin_user_id:
             return Response({"msg": "Authentication required"}, status=401)
-        mode = request.query_params.get("mode", "balanced")
+        raw_mode = request.query_params.get("mode")
+        mode = raw_mode if raw_mode in ("strict", "coverage") else "balanced"
         result = match_mentor(admin_user_id, mode)
         return Response({"msg": "Mentor recommendations retrieved successfully", "data": result})
 

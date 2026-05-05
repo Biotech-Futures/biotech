@@ -1,3 +1,4 @@
+import math
 from typing import TypedDict, Optional, Union, Literal, List, Dict, Set, Tuple, Any
 from enum import Enum
 
@@ -95,7 +96,7 @@ def compute_interest_bonus(mentor_interests: List[str], group_interests: List[st
     overlap_count = sum(1 for i in mentor_interests if i.lower() in group_interest_set)
     overlap_ratio = overlap_count / max(len(mentor_interests), len(group_interests))
 
-    return round(overlap_ratio * INTEREST_OVERLAP_MAX_BONUS)
+    return math.floor(overlap_ratio * INTEREST_OVERLAP_MAX_BONUS + 0.5)
 
 
 def score_mentor_for_group(
@@ -214,7 +215,7 @@ def gale_shapley(
     slots_override: Optional[Dict[int, int]] = None,
 ) -> GaleShapleyResult:
     """Gale-Shapley stable matching with groups proposing to mentors."""
-    if not slots_override:
+    if slots_override is None:
         slots = {
             m["mentorId"]: m["maxGroupCount"] - m["currentAcceptedCount"]
             for m in mentors
@@ -302,7 +303,7 @@ def gale_shapley_per_group(
     slots_override: Optional[Dict[int, int]] = None,
 ) -> GaleShapleyResult:
     """Gale-Shapley variant where each group only proposes to eligible mentors."""
-    if not slots_override:
+    if slots_override is None:
         slots = {
             m["mentorId"]: m["maxGroupCount"] - m["currentAcceptedCount"]
             for m in mentors
@@ -476,11 +477,17 @@ def match_mentors(
                 )
             ]
 
-        assignment, tentative = gale_shapley_per_group(
+        result = gale_shapley_per_group(
             groups, available_mentors, score_matrix, eligible_by_group
         )
         return build_results(
-            groups, available_mentors, score_matrix, assignment, tentative, eligible_by_group, mode
+            groups,
+            available_mentors,
+            score_matrix,
+            result["assignment"],
+            result["tentative"],
+            eligible_by_group,
+            mode,
         )
 
     # ── Strict mode ────────────────────────────────────────────────────────
@@ -498,11 +505,17 @@ def match_mentors(
 
         score_matrix = build_score_matrix(groups, eligible_mentors)
 
-        assignment, tentative = gale_shapley_per_group(
+        result = gale_shapley_per_group(
             groups, eligible_mentors, score_matrix, eligible_by_group
         )
         return build_results(
-            groups, available_mentors, score_matrix, assignment, tentative, eligible_by_group, mode
+            groups,
+            available_mentors,
+            score_matrix,
+            result["assignment"],
+            result["tentative"],
+            eligible_by_group,
+            mode,
         )
 
     # ── Coverage mode ──────────────────────────────────────────────────────
