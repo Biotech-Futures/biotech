@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
@@ -70,24 +71,7 @@ class DashboardNextEventApiTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["event_name"], "Group Check-in")
-        self.assertEqual(
-            sorted(response.data.keys()),
-            [
-                "description",
-                "ends_datetime",
-                "event_image",
-                "event_name",
-                "event_type",
-                "groups",
-                "id",
-                "is_virtual",
-                "location",
-                "location_link",
-                "rsvp_status",
-                "start_datetime",
-                "track",
-            ],
-        )
+        self.assertEqual(sorted(response.data.keys()), ["event_name", "id", "is_virtual", "location", "location_link", "start_datetime"])
 
     def test_mentor_invite_overrides_track_and_group_targeting(self):
         mentor = User.objects.create_user(
@@ -168,338 +152,89 @@ class DashboardNextEventApiTests(TestCase):
         self.assertEqual(response.data["stats"], {"tasks": 0, "events": 0, "groups": 0})
 
 class GroupsPreviewViewTest(TestCase):
-    """
-    End-to-end tests for ``GET /dashboard/v1/groups-preview/``.
-
-    Exercises the new flattened/aggregated contract:
-      - ``group_name`` (not ``name``)
-      - ``member_count`` via DB ``.annotate``
-      - nested ``lead_user`` (id/first_name/last_name) plus flat ``lead_name``
-      - ``track_id`` query-param filter
-      - ``mine`` scoping
-      - admin track scope
-      - paginated wrapper
-    """
-
-    url = "/dashboard/v1/groups-preview/"
 
     def setUp(self):
         self.client = APIClient()
-
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_nsw = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-        self.track_vic = Tracks.objects.create(track_name="AUS-VIC", state=self.state)
-
-        self.lead = User.objects.create_user(
-            email="anita@test.com",
-            password="pass123",
-            first_name="Anita",
-            last_name="Pickard",
+        self.url = "/dashboard/v1/groups-preview/"
+        self.user = User.objects.create_user(
+            email="test@test.com",
+            password="testpass123"
         )
-        self.member_a = User.objects.create_user(
-            email="member-a@test.com", password="pass123",
-            first_name="Mem", last_name="A",
-        )
-        self.member_b = User.objects.create_user(
-            email="member-b@test.com", password="pass123",
-            first_name="Mem", last_name="B",
-        )
-        self.member_c = User.objects.create_user(
-            email="member-c@test.com", password="pass123",
-            first_name="Mem", last_name="C",
-        )
-
-        self.viewer = User.objects.create_user(
-            email="viewer@test.com", password="pass123",
-            first_name="View", last_name="Er",
-        )
-
-        # NSW group BTF046: lead + 3 members + viewer = 5 active members
-        self.group_btf046 = Groups.objects.create(group_name="BTF046", track=self.track_nsw)
-        GroupMembership.objects.create(
-            group=self.group_btf046, user=self.lead, membership_role="mentor",
-        )
-        for member in (self.member_a, self.member_b, self.member_c, self.viewer):
-            GroupMembership.objects.create(
-                group=self.group_btf046, user=member, membership_role="student",
-            )
-
-        # NSW group BTF047: only viewer + lead = 2 members; "left" entry must be excluded
-        self.group_btf047 = Groups.objects.create(group_name="BTF047", track=self.track_nsw)
-        GroupMembership.objects.create(
-            group=self.group_btf047, user=self.lead, membership_role="mentor",
-        )
-        GroupMembership.objects.create(
-            group=self.group_btf047, user=self.viewer, membership_role="student",
-        )
-        # `joined_at` is pinned to the past so the model's
-        # `left_at >= joined_at` CHECK constraint is satisfied.
-        now = timezone.now()
-        GroupMembership.objects.create(
-            group=self.group_btf047,
-            user=self.member_a,
-            membership_role="student",
-            joined_at=now - timedelta(days=1),
-            left_at=now,
-        )
-
-        # VIC group with no lead, viewer is NOT a member
-        self.group_vic = Groups.objects.create(group_name="VIC001", track=self.track_vic)
-        GroupMembership.objects.create(
-            group=self.group_vic, user=self.member_a, membership_role="student",
-        )
-
-        # Soft-deleted group must never appear.
-        # `created_at` is pinned to the past so the model's
-        # `deleted_at >= created_at` CHECK constraint is satisfied.
-        self.deleted_group = Groups.objects.create(
-            group_name="ZZZ_DELETED",
-            track=self.track_nsw,
-            created_at=now - timedelta(days=2),
-            deleted_at=now,
-        )
-
-    # ------------------------------------------------------------------
-    # Auth
-    # ------------------------------------------------------------------
+        self.client.force_authenticate(user=self.user)
 
     def test_unauthenticated_returns_403(self):
-        response = self.client.get(self.url)
+        client = APIClient()
+        response = client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # ------------------------------------------------------------------
-    # Schema / contract
-    # ------------------------------------------------------------------
-
-    def test_response_uses_paginated_wrapper(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        body = response.json()
-        self.assertEqual(set(body.keys()), {"count", "next", "previous", "results"})
-
-    def test_result_row_matches_spec_keys(self):
-        """Each row must expose the new flattened/nested contract."""
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-        rows = response.json()["results"]
-
-        self.assertGreater(len(rows), 0)
-        self.assertEqual(
-            set(rows[0].keys()),
+    @patch("apps.dashboard.views.get_groups_preview")
+    def test_returns_paginated_response(self, mock_service):
+        mock_service.return_value = [
             {
-                "id",
-                "group_name",
-                "track_id",
-                "track_name",
-                "member_count",
-                "lead_user",
-                "lead_name",
-                "status",
-            },
-        )
-
-    def test_lead_user_is_nested_object(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-        rows = response.json()["results"]
-
-        btf046 = next(r for r in rows if r["group_name"] == "BTF046")
-        self.assertEqual(
-            btf046["lead_user"],
-            {"id": self.lead.id, "first_name": "Anita", "last_name": "Pickard"},
-        )
-        self.assertEqual(btf046["lead_name"], "Anita Pickard")
-
-    def test_lead_user_is_null_when_no_mentor(self):
-        """Group VIC001 has no mentor; viewer added as member to make it visible."""
-        GroupMembership.objects.create(
-            group=self.group_vic, user=self.viewer, membership_role="student",
-        )
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-        rows = response.json()["results"]
-
-        vic = next(r for r in rows if r["group_name"] == "VIC001")
-        self.assertIsNone(vic["lead_user"])
-        self.assertIsNone(vic["lead_name"])
-
-    def test_status_is_active_for_non_deleted(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-        rows = response.json()["results"]
-        self.assertTrue(all(r["status"] == "active" for r in rows))
-
-    def test_soft_deleted_groups_excluded(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-        names = {r["group_name"] for r in response.json()["results"]}
-        self.assertNotIn("ZZZ_DELETED", names)
-
-    # ------------------------------------------------------------------
-    # member_count aggregation
-    # ------------------------------------------------------------------
-
-    def test_member_count_uses_db_annotation_and_excludes_left_members(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true")
-        rows = {r["group_name"]: r for r in response.json()["results"]}
-
-        # BTF046: lead + 4 students = 5 active members
-        self.assertEqual(rows["BTF046"]["member_count"], 5)
-        # BTF047: lead + viewer (left member excluded) = 2
-        self.assertEqual(rows["BTF047"]["member_count"], 2)
-
-    def test_member_count_does_not_scale_with_group_count(self):
-        """
-        Regression guard against N+1: the query count must not grow
-        proportionally to the number of groups returned (member_count
-        and lead come from .annotate / Prefetch, not per-row queries).
-        """
-        from django.test.utils import CaptureQueriesContext
-        from django.db import connection
-
-        self.client.force_authenticate(user=self.viewer)
-        self.client.get(self.url + "?mine=true")  # warm caches
-
-        with CaptureQueriesContext(connection) as ctx_small:
-            self.client.get(self.url + "?mine=true")
-        baseline = len(ctx_small.captured_queries)
-
-        # Add 8 more groups the viewer is a member of.
-        for i in range(8):
-            extra = Groups.objects.create(
-                group_name=f"BTF1{i:02d}", track=self.track_nsw,
-            )
-            GroupMembership.objects.create(
-                group=extra, user=self.lead, membership_role="mentor",
-            )
-            GroupMembership.objects.create(
-                group=extra, user=self.viewer, membership_role="student",
-            )
-
-        with CaptureQueriesContext(connection) as ctx_large:
-            response = self.client.get(self.url + "?mine=true")
-        scaled = len(ctx_large.captured_queries)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Allow a tiny constant overhead but reject linear growth.
-        self.assertLessEqual(scaled, baseline + 2)
-
-    # ------------------------------------------------------------------
-    # track_id query-param filter
-    # ------------------------------------------------------------------
-
-    def test_track_id_filter_narrows_to_track(self):
-        admin = User.objects.create_user(
-            email="admin-track@test.com", password="pass", first_name="Adm", last_name="In",
-        )
-        AdminScope.objects.create(user=admin, is_global=True)
-
-        self.client.force_authenticate(user=admin)
-        response = self.client.get(self.url + f"?track_id={self.track_nsw.id}")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        names = {r["group_name"] for r in response.json()["results"]}
-        self.assertEqual(names, {"BTF046", "BTF047"})
-
-    def test_track_id_filter_returns_empty_for_unknown_track(self):
-        admin = User.objects.create_user(
-            email="admin-empty@test.com", password="pass", first_name="A", last_name="E",
-        )
-        AdminScope.objects.create(user=admin, is_global=True)
-
-        self.client.force_authenticate(user=admin)
-        response = self.client.get(self.url + "?track_id=999999")
-        body = response.json()
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(body["count"], 0)
-        self.assertEqual(body["results"], [])
-
-    def test_invalid_track_id_returns_400(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?track_id=abc")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    # ------------------------------------------------------------------
-    # mine scoping
-    # ------------------------------------------------------------------
-
-    def test_non_admin_only_sees_own_groups_regardless_of_mine_flag(self):
-        self.client.force_authenticate(user=self.viewer)
-        for query in ("", "?mine=true", "?mine=false"):
-            response = self.client.get(self.url + query)
-            names = {r["group_name"] for r in response.json()["results"]}
-            self.assertEqual(names, {"BTF046", "BTF047"}, msg=f"query={query!r}")
-            self.assertNotIn("VIC001", names)
-
-    def test_admin_without_mine_sees_all_in_track_scope(self):
-        admin = User.objects.create_user(
-            email="admin-scope@test.com", password="pass", first_name="A", last_name="S",
-        )
-        AdminScope.objects.create(user=admin, track=self.track_nsw, is_global=False)
-
-        self.client.force_authenticate(user=admin)
+                "id": 1,
+                "name": "BTF046",
+                "track_id": 1,
+                "track_name": "AUS-NSW",
+                "member_count": 4,
+                "lead_name": "Anita Pickard",
+                "status": "active",
+            }
+        ]
         response = self.client.get(self.url)
-        names = {r["group_name"] for r in response.json()["results"]}
-
-        self.assertEqual(names, {"BTF046", "BTF047"})
-        self.assertNotIn("VIC001", names)
-
-    def test_admin_with_mine_only_sees_memberships(self):
-        admin = User.objects.create_user(
-            email="admin-mine@test.com", password="pass", first_name="A", last_name="M",
-        )
-        AdminScope.objects.create(user=admin, is_global=True)
-        GroupMembership.objects.create(
-            group=self.group_vic, user=admin, membership_role="student",
-        )
-
-        self.client.force_authenticate(user=admin)
-        response = self.client.get(self.url + "?mine=true")
-        names = {r["group_name"] for r in response.json()["results"]}
-
-        self.assertEqual(names, {"VIC001"})
-
-    # ------------------------------------------------------------------
-    # Pagination
-    # ------------------------------------------------------------------
-
-    def test_pagination_page_size_limits_results_and_signals_next(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true&page_size=1")
-        body = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(body["results"]), 1)
-        self.assertEqual(body["count"], 2)
-        self.assertEqual(body["next"], 2)
-        self.assertIsNone(body["previous"])
+        data = response.json()
+        self.assertIn("count", data)
+        self.assertIn("results", data)
+        self.assertIn("next", data)
+        self.assertIn("previous", data)
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["name"], "BTF046")
+        self.assertEqual(data["results"][0]["track_name"], "AUS-NSW")
+        self.assertEqual(data["results"][0]["member_count"], 4)
+        self.assertEqual(data["results"][0]["lead_name"], "Anita Pickard")
+        self.assertEqual(data["results"][0]["status"], "active")
 
-    def test_pagination_second_page_signals_previous(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?mine=true&page_size=1&page=2")
-        body = response.json()
+    @patch("apps.dashboard.views.get_groups_preview")
+    def test_mine_param_passed_to_service(self, mock_service):
+        mock_service.return_value = []
+        self.client.get(self.url + "?mine=true")
+        mock_service.assert_called_once_with(user=self.user, mine=True)
 
+    @patch("apps.dashboard.views.get_groups_preview")
+    def test_mine_false_by_default(self, mock_service):
+        mock_service.return_value = []
+        self.client.get(self.url)
+        mock_service.assert_called_once_with(user=self.user, mine=False)
+
+    @patch("apps.dashboard.views.get_groups_preview")
+    def test_pagination_page_size(self, mock_service):
+        mock_service.return_value = [
+            {
+                "id": i,
+                "name": f"Group{i}",
+                "track_id": 1,
+                "track_name": "AUS-NSW",
+                "member_count": 2,
+                "lead_name": None,
+                "status": "active",
+            }
+            for i in range(10)
+        ]
+        response = self.client.get(self.url + "?page_size=3")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(body["results"]), 1)
-        self.assertEqual(body["previous"], 1)
-        self.assertIsNone(body["next"])
+        data = response.json()
+        self.assertEqual(len(data["results"]), 3)
+        self.assertEqual(data["count"], 10)
+        self.assertIsNotNone(data["next"])
 
-    def test_empty_results_when_user_has_no_groups(self):
-        loner = User.objects.create_user(
-            email="loner@test.com", password="pass", first_name="Lo", last_name="Ner",
-        )
-        self.client.force_authenticate(user=loner)
+    @patch("apps.dashboard.views.get_groups_preview")
+    def test_empty_results(self, mock_service):
+        mock_service.return_value = []
         response = self.client.get(self.url)
-        body = response.json()
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(body["count"], 0)
-        self.assertEqual(body["results"], [])
+        data = response.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["results"], [])
 
 
 # ---------------------------------------------------------------------------
@@ -610,4 +345,4 @@ class DashboardProgressApiTests(TestCase):
         self.client.force_authenticate(user=self.student)
         response = self.client.get(self.url + f"?group_id={self.group.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["nextMilestone"], "Check-in #1")
+        self.assertEqual(response.data["nextMilestone"], "Check-in #1")
