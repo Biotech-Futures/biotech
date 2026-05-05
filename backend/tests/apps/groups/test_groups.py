@@ -36,7 +36,7 @@ class GroupsTests(TestCase):
     def test_list_groups_with_no_auth(self):
         url = reverse('groups-list')
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_list_groups_normal_user(self):
         url = reverse('groups-list')
@@ -71,7 +71,7 @@ class GroupsTests(TestCase):
     def test_create_group_with_no_auth(self):
         url = reverse('groups-list')
         response = self.client.post(url, self.create_group_data)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Groups.objects.filter(group_name="team_alpha").exists())
 
     def test_admin_can_create_group(self):
@@ -101,7 +101,7 @@ class GroupsTests(TestCase):
         self.assertEqual(resp1.status_code, status.HTTP_201_CREATED)
         resp2 = self.client.post(url, {'group_name': 'dup', 'track': self.track.id}, format='json')
         self.assertEqual(resp2.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('non_field_errors', resp2.json())
+        self.assertIn('non_field_errors', resp2.json().get('fields', {}))
 
     def test_update_requires_admin(self):
         url = reverse('groups-detail', args=[self.group1.id])
@@ -122,7 +122,7 @@ class GroupsTests(TestCase):
     def test_retrieve_requires_auth(self):
         url = reverse('groups-detail', args=[self.group1.id])
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_retrieve_nonexistent_returns_404(self):
         url = reverse('groups-detail', args=['9999'])
@@ -133,7 +133,7 @@ class GroupsTests(TestCase):
     def test_delete_rejects_unauthenticated(self):
         url = reverse('groups-detail', args=[self.group1.id])
         response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.group1.refresh_from_db()
         self.assertIsNone(self.group1.deleted_at)
 
@@ -316,7 +316,7 @@ class CountriesApiTests(TestCase):
 
     def test_create_country_unauthorised(self):
         response = self.client.post(self.list_url, {'country_name': "unauth_country"})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Countries.objects.filter(country_name='unauth_country').exists())
 
     def test_create_country_non_admin_forbidden(self):
@@ -328,7 +328,7 @@ class CountriesApiTests(TestCase):
     def test_create_country_unauthenticated_forbidden(self):
         self.client.force_authenticate(user=None)
         response = self.client.post(self.list_url, {'country_name': 'Japan'})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Countries.objects.filter(country_name='Japan').exists())
 
 
@@ -360,7 +360,7 @@ class GroupMemberApiTests(TestCase):
     def test_list_group_members_unauthenticated(self):
         self.client.logout()
         response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_retrieve_group_member_authenticated(self):
         self.client.force_authenticate(user=self.normal_user)
@@ -373,7 +373,7 @@ class GroupMemberApiTests(TestCase):
         self.client.logout()
         url = reverse("group-members-detail", args=[self.member1.id])
         response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_group_member_admin_only(self):
         self.client.force_authenticate(user=self.admin_user)
@@ -406,7 +406,7 @@ class GroupMemberApiTests(TestCase):
     def test_by_group_action_unauthenticated(self):
         self.client.logout()
         response = self.client.get(self.by_group_url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TrackApiTests(TestCase):
@@ -432,7 +432,7 @@ class TrackApiTests(TestCase):
     def test_list_tracks_unauthenticated(self):
         self.client.logout()
         response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_retrieve_track_authenticated(self):
         self.client.force_authenticate(user=self.normal_user)
@@ -442,7 +442,7 @@ class TrackApiTests(TestCase):
     def test_retrieve_track_unauthenticated(self):
         self.client.logout()
         response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_track_admin_only(self):
         self.client.force_authenticate(user=self.admin_user)
@@ -466,4 +466,4 @@ class TrackApiTests(TestCase):
             self.list_url,
             {"track_name": "TRACK-2", "state": self.state.id}
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

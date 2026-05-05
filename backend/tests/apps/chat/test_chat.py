@@ -1,4 +1,5 @@
 import contextlib
+import unittest
 from django.test import TestCase, override_settings
 from django.test import Client
 import asyncio
@@ -11,10 +12,14 @@ from django.db import connection, models
 from django.conf import settings
 
 from rest_framework.test import APIClient
-from channels.testing import WebsocketCommunicator
-from asgiref.sync import async_to_sync
 
-from config.asgi import application  # ASGI entrypoint (Channels)
+try:
+    from channels.testing import WebsocketCommunicator
+    from asgiref.sync import async_to_sync
+    from config.asgi import application  # ASGI entrypoint (Channels)
+    HAS_CHANNELS_TESTING = True
+except ImportError:
+    HAS_CHANNELS_TESTING = False
 from apps.chat.models import Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
@@ -29,6 +34,7 @@ CHANNEL_TEST_SETTINGS = {
 }
 
 
+@unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
 class ChatFeatureTests(TestCase):
     """
@@ -308,6 +314,7 @@ class ChatFeatureTests(TestCase):
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+@unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
 class ChatProfanitySanitisationTests(TestCase):
     """Integration tests for the profanity filter wired into the chat
     serializers and websocket consumer. Has its own lean setUp that
