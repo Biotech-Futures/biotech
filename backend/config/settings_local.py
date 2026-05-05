@@ -20,7 +20,9 @@ MEDIA_URL = "/media/"
 
 # Dev cookies
 SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_SAMESITE = "Lax"
 
 # Local frontend
 CORS_ALLOWED_ORIGINS = [
