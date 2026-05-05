@@ -295,13 +295,6 @@
                 Holiday
               </span>
             </div>
-
-            <div class="mini-calendar-footer">
-              <RouterLink to="/events" class="calendar-edit-button">
-                <i class="fas fa-calendar-alt"></i>
-                <span>View Events</span>
-              </RouterLink>
-            </div>
           </div>
 
           <transition name="calendar-fade">
@@ -373,22 +366,6 @@
             <span class="panel-quick-copy">
               <strong>Profile</strong>
               <small>Update your account details</small>
-            </span>
-          </button>
-
-          <button class="panel-quick-link" type="button" @click="go('/contact')">
-            <span class="panel-quick-icon"><i class="fas fa-headset"></i></span>
-            <span class="panel-quick-copy">
-              <strong>Support</strong>
-              <small>Contact an administrator</small>
-            </span>
-          </button>
-
-          <button class="panel-quick-link" type="button" @click="go('/events')">
-            <span class="panel-quick-icon"><i class="fas fa-calendar-alt"></i></span>
-            <span class="panel-quick-copy">
-              <strong>Upcoming events</strong>
-              <small>Open the events workspace</small>
             </span>
           </button>
         </div>
@@ -1706,28 +1683,6 @@ select {
 
 .mini-calendar-footer {
   margin-top: 0.9rem;
-}
-
-.calendar-edit-button {
-  width: 100%;
-  border: none;
-  border-radius: 16px;
-  padding: 0.82rem 0.95rem;
-  background: linear-gradient(180deg, #274039 0%, #1b2d28 100%);
-  color: #ffffff;
-  font-weight: 760;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.48rem;
-  box-shadow: 0 12px 28px rgba(16, 26, 23, 0.18);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.calendar-edit-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 30px rgba(16, 26, 23, 0.24);
 }
 
 .calendar-overlay {
