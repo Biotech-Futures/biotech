@@ -1,8 +1,17 @@
 from rest_framework import serializers
 
+from .services import MENTOR_MEMBERSHIPS_ATTR
+
 
 class ProgressQuerySerializer(serializers.Serializer):
     group_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class GroupsPreviewQuerySerializer(serializers.Serializer):
+    mine = serializers.BooleanField(required=False, default=False)
+    track_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    page = serializers.IntegerField(required=False, default=1, min_value=1)
+    page_size = serializers.IntegerField(required=False, default=20, min_value=1, max_value=100)
 
 
 class ProgressSnapshotSerializer(serializers.Serializer):
@@ -35,11 +44,48 @@ class DashboardSummarySerializer(serializers.Serializer):
     stats = serializers.DictField()
 
 
-class GroupPreviewSerializer(serializers.Serializer):
+class DashboardLeadUserSerializer(serializers.Serializer):
+    """Compact projection of the mentor (lead) user embedded in the group preview."""
+
     id = serializers.IntegerField()
-    name = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+
+
+class DashboardGroupPreviewSerializer(serializers.Serializer):
+    """
+    Flattened, deeply-associated group projection used by the dashboard
+    groups-preview endpoint.
+
+    Backed by ``services.get_groups_preview`` which returns an annotated
+    queryset (``member_count`` annotation, mentor memberships prefetched
+    onto ``MENTOR_MEMBERSHIPS_ATTR``), so this serializer never triggers
+    extra queries per row.
+    """
+
+    id = serializers.IntegerField()
+    group_name = serializers.CharField()
     track_id = serializers.IntegerField()
-    track_name = serializers.CharField()
+    track_name = serializers.CharField(source="track.track_name")
     member_count = serializers.IntegerField()
-    lead_name = serializers.CharField(allow_null=True)
-    status = serializers.CharField()
+    lead_user = serializers.SerializerMethodField()
+    lead_name = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    @staticmethod
+    def _lead_user(group):
+        memberships = getattr(group, MENTOR_MEMBERSHIPS_ATTR, None) or []
+        return memberships[0].user if memberships else None
+
+    def get_lead_user(self, group):
+        user = self._lead_user(group)
+        return DashboardLeadUserSerializer(user).data if user else None
+
+    def get_lead_name(self, group):
+        user = self._lead_user(group)
+        return (user.get_full_name() or user.email) if user else None
+
+    def get_status(self, group):
+        if group.deleted_at is not None:
+            return "deleted"
+        return "active" if self._lead_user(group) else "inactive"

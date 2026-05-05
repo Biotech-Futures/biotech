@@ -491,7 +491,7 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
     GroupMembership.objects.create(
         group_id=input_data['groupId'],
         user_id=input_data['newMentorUserId'],
-        membership_role='mentor',
+        membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         joined_at=timezone.now(),
     )
     
@@ -576,7 +576,7 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
         GroupMembership(
             group_id=a['group_id'],
             user_id=a['mentor_user_id'],
-            membership_role='mentor',
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
             joined_at=now,
         )
         for a in assignments
