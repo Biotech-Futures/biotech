@@ -39,6 +39,7 @@
 
 
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
+import { apiErrorFromResponse } from './apiError'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -90,28 +91,14 @@ async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Pr
 
 
   if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+    const apiError = await apiErrorFromResponse(response, `HTTP ${response.status}: ${response.statusText}`)
 
-    try {
-      const errorData = await response.json()
-      errorMessage = errorData.error || errorData.detail || errorMessage
-    } catch {
-      try {
-        const text = await response.text()
-        if (text) errorMessage = text
-      } catch {
-      }
+    if (apiError.code === 'not_authenticated') {
+      apiError.message = 'Unauthenticated. Please sign in again.'
+      apiError.body.error = apiError.message
     }
 
-    if (response.status === 401) {
-      throw new Error('Unauthenticated. Please sign in again.')
-    }
-
-    if (response.status === 403) {
-      throw new Error('Access denied or CSRF validation failed.')
-    }
-
-    throw new Error(errorMessage)
+    throw apiError
   }
 
   if (response.status === 204) {

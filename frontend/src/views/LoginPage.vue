@@ -242,7 +242,7 @@
                 <button
                   type="submit"
                   class="primary-button"
-                  :disabled="sendingCode"
+                  :disabled="sendingCode || loginOnCooldown"
                 >
                   <span v-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
                   <span v-else>{{ loginActionLabel }}</span>
@@ -371,6 +371,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
+import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
   LOGIN_LANGUAGE_KEY,
@@ -416,6 +417,7 @@ const sendingCode = ref(false)
 const verifyingCode = ref(false)
 const resendingCode = ref(false)
 const resendCountdown = ref(0)
+const loginCooldownSeconds = ref(0)
 
 /*
   OTP interaction state.
@@ -443,6 +445,7 @@ const inkCanvasRef = ref(null)
   运行时定时器句柄。
 */
 let resendTimer = null
+let loginCooldownTimer = null
 let otpErrorTimer = null
 let otpAutoSubmitTimer = null
 let reduceMotionQuery = null
@@ -664,7 +667,11 @@ const authSubtitle = computed(() => t('welcomeSubtitle'))
 const isPasswordLoginMode = computed(() => loginMode.value === 'password')
 const activeLoginModeLabel = computed(() => isPasswordLoginMode.value ? t('passwordSignIn') : t('emailCodeSignIn'))
 const credentialStepLabel = computed(() => isPasswordLoginMode.value ? t('passwordStep') : t('otpStep'))
-const loginActionLabel = computed(() => isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode'))
+const loginOnCooldown = computed(() => loginCooldownSeconds.value > 0)
+const loginActionLabel = computed(() => {
+  if (loginOnCooldown.value) return `${t('resendIn')} ${loginCooldownSeconds.value}s`
+  return isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode')
+})
 const emailStepHelper = computed(() => isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'))
 
 
@@ -733,6 +740,13 @@ const clearOtpAutoSubmitTimer = () => {
   if (otpAutoSubmitTimer) {
     clearTimeout(otpAutoSubmitTimer)
     otpAutoSubmitTimer = null
+  }
+}
+
+const clearLoginCooldownTimer = () => {
+  if (loginCooldownTimer) {
+    clearInterval(loginCooldownTimer)
+    loginCooldownTimer = null
   }
 }
 
@@ -928,13 +942,25 @@ const handleOTPEnter = async () => {
 */
 const buildCallbackUrl = () => `${window.location.origin}/#/auth/callback`
 
-const parseErrorMessage = async (response, fallbackText) => {
-  try {
-    const data = await response.json()
-    return data.error || data.message || fallbackText
-  } catch {
-    return fallbackText
-  }
+const startLoginCooldown = (seconds = 300) => {
+  loginCooldownSeconds.value = seconds
+  clearLoginCooldownTimer()
+
+  loginCooldownTimer = setInterval(() => {
+    if (loginCooldownSeconds.value <= 1) {
+      loginCooldownSeconds.value = 0
+      clearLoginCooldownTimer()
+      return
+    }
+
+    loginCooldownSeconds.value -= 1
+  }, 1000)
+}
+
+const parseApiError = async (response, fallbackText) => {
+  const apiError = await apiErrorFromResponse(response, fallbackText)
+  logApiError('login', apiError)
+  return apiError
 }
 
 /*
@@ -1045,7 +1071,7 @@ const handleLogin = async () => {
     return
   }
 
-  if (sendingCode.value) {
+  if (sendingCode.value || loginOnCooldown.value) {
     return
   }
 
@@ -1078,7 +1104,9 @@ const handleLogin = async () => {
 
     if (!response.ok) {
       statusMessage.value = ''
-      error.value = await parseErrorMessage(response, t('errorSendLink'))
+      const apiError = await parseApiError(response, t('errorSendLink'))
+      if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      error.value = apiError.message
       return
     }
 
@@ -1087,9 +1115,11 @@ const handleLogin = async () => {
     await resetOtpState()
     startResendCountdown()
   } catch (requestError) {
-    console.error('Login error:', requestError)
+    logApiError('login', requestError)
     statusMessage.value = ''
-    error.value = requestError instanceof Error ? requestError.message : t('errorNetworkLogin')
+    const apiError = apiErrorFromUnknown(requestError, t('errorNetworkLogin'))
+    if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+    error.value = apiError.message
   } finally {
     sendingCode.value = false
   }
@@ -1126,7 +1156,9 @@ const verifyOTP = async () => {
 
     if (!response.ok) {
       statusMessage.value = ''
-      error.value = await parseErrorMessage(response, t('errorInvalidCode'))
+      const apiError = await parseApiError(response, t('errorInvalidCode'))
+      if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      error.value = apiError.message
       await triggerOtpErrorFeedback()
       return
     }
@@ -1148,9 +1180,9 @@ const verifyOTP = async () => {
       window.location.href = '/#/dashboard'
     }
   } catch (requestError) {
-    console.error('OTP verification error:', requestError)
+    logApiError('verify-login-code', requestError)
     statusMessage.value = ''
-    error.value = t('errorNetworkOtp')
+    error.value = apiErrorFromUnknown(requestError, t('errorNetworkOtp')).message
   } finally {
     verifyingCode.value = false
   }
@@ -1180,7 +1212,9 @@ const resendCode = async () => {
   })
 
   if (!response.ok) {
-    error.value = await parseErrorMessage(response, t('errorResendFail'))
+    const apiError = await parseApiError(response, t('errorResendFail'))
+    if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+    error.value = apiError.message
     return
   }
 
@@ -1188,8 +1222,8 @@ const resendCode = async () => {
   await resetOtpState()
   startResendCountdown()
   } catch (requestError) {
-    console.error('Resend code error:', requestError)
-    error.value = t('errorNetworkOtp')
+    logApiError('resend-login-code', requestError)
+    error.value = apiErrorFromUnknown(requestError, t('errorNetworkOtp')).message
   } finally {
     resendingCode.value = false
   }
@@ -1374,6 +1408,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearOtpAnimationTimers()
   clearOtpAutoSubmitTimer()
+  clearLoginCooldownTimer()
 
   if (resendTimer) {
     clearInterval(resendTimer)

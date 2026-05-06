@@ -276,6 +276,7 @@ import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
+import { apiErrorFromResponse } from '@/utils/apiError'
 
 const route = useRoute()
 const router = useRouter()
@@ -460,16 +461,16 @@ const requestJson = async (url, options = {}) => {
     })
   })
 
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
   const text = await response.text()
   let data = null
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     data = null
-  }
-
-  if (!response.ok) {
-    throw new Error(data?.detail || data?.error || data?.message || `Request failed: ${response.status}`)
   }
 
   return data
