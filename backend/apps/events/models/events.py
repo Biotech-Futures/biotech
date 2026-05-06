@@ -28,6 +28,7 @@ class Events(models.Model):
         help_text="Zoom URL when is_virtual=True, Google Maps URL otherwise.",
     )
     is_virtual = models.BooleanField(default=False)
+    reminder_sent = models.BooleanField(default=False)
 
     class Meta:
         db_table = "events"

@@ -272,3 +272,11 @@ CHAT_SANITIZER_BLACKLIST = config(
 )
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
+
+# Celery Beat Schedule
+CELERY_BEAT_SCHEDULE = {
+    "send-event-rsvp-reminders-hourly": {
+        "task": "events.send_event_rsvp_reminders",
+        "schedule": 3600,  # every hour in seconds
+    },
+}
