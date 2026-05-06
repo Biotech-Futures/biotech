@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import EmailMultiAlternatives, send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 # Statuses that block a password reset (silent no-op). Onboarding stays separate.
 PASSWORD_RESET_BLOCKED_STATUSES = {'invited', 'pending', 'suspended', 'deactivated'}
-PASSWORD_RESET_FROM_EMAIL = "noreply@biotechfutures.org"
-PASSWORD_RESET_SUPPORT_EMAIL = "biotech.futures@sydney.edu.au"
 
 
 def send_login_code(email: str, redirect_url: str = None) -> bool:
@@ -64,7 +62,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     msg = EmailMultiAlternatives(
         subject="BIOTech Futures: Log in securely",
         body=text_content,
-        from_email="noreply@biotechfutures.org",
+        from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email],
     )
     msg.attach_alternative(html_content, "text/html")
@@ -166,7 +164,7 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
         msg = EmailMultiAlternatives(
             subject="BIOTech Futures: Update your password",
             body=text_content,
-            from_email=PASSWORD_RESET_FROM_EMAIL,
+            from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
         )
         msg.attach_alternative(html_content, "text/html")
@@ -229,19 +227,19 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
         "First_Name": user.first_name,
         "CHANGED_AT": timezone.now(),
         "REQUEST_IP": ip or "unknown",
-        "SUPPORT_EMAIL": PASSWORD_RESET_SUPPORT_EMAIL,
+        "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
     }
     try:
         html_content = render_to_string("emails/password_changed.html", ctx)
         text_content = (
             f"Hi {user.first_name or 'there'},\n\n"
             f"Your BIOTech Futures password was just changed.\n"
-            f"If this wasn't you, contact {PASSWORD_RESET_SUPPORT_EMAIL} immediately."
+            f"If this wasn't you, contact {settings.SUPPORT_EMAIL} immediately."
         )
         msg = EmailMultiAlternatives(
             subject="BIOTech Futures: Your password was changed",
             body=text_content,
-            from_email=PASSWORD_RESET_FROM_EMAIL,
+            from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
         )
         msg.attach_alternative(html_content, "text/html")

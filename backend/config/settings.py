@@ -154,6 +154,9 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+SUPPORT_EMAIL = config("SUPPORT_EMAIL", default="biotech.futures@sydney.edu.au")
 
 CHANNEL_LAYERS = {
     "default": {
@@ -240,7 +243,6 @@ PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
     "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
 )
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
-MAILTRAP_TOKEN = config("MAILTRAP_TOKEN", default="")
 
 # --- Chat sanitiser ----------------------------------------------------------
 # Sanitisation policy is sourced from environment variables so moderation
