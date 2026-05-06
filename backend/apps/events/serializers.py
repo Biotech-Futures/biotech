@@ -5,6 +5,16 @@ from .models import EventRsvp, Events
 
 
 class EventSerializer(serializers.ModelSerializer):
+    # ``registered`` is the FE-facing projection of "the requesting
+    # user has actively RSVP'd ``GOING`` for this event." The view
+    # materialises that set ONCE per request into
+    # ``context["user_rsvp_event_ids"]`` (see
+    # ``services.get_user_registered_event_ids``), so this stays an
+    # O(1) dict lookup per row instead of an N+1 query against
+    # ``EventRsvp``. PENDING / MAYBE / DECLINED all serialize as
+    # ``"registered": false``.
+    registered = serializers.SerializerMethodField()
+
     class Meta:
         model = Events
         fields = [
@@ -20,8 +30,13 @@ class EventSerializer(serializers.ModelSerializer):
             "host_user",
             "event_image",
             "is_virtual",
+            "registered",
         ]
-        read_only_fields = ["id", "host_user"]
+        read_only_fields = ["id", "host_user", "registered"]
+
+    def get_registered(self, event):
+        rsvp_event_ids = self.context.get("user_rsvp_event_ids") or set()
+        return event.id in rsvp_event_ids
 
     def validate(self, attrs):
         start = attrs.get("start_datetime") or getattr(self.instance, "start_datetime", None)
