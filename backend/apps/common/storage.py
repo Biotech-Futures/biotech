@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.core.files.storage import FileSystemStorage
+
+try:
+    from storages.backends.azure_storage import AzureStorage
+except ImportError:  # pragma: no cover - only raised when deps are missing.
+    AzureStorage = None
+
+
+class _BaseAzureContainerStorage(AzureStorage):
+    container_setting_name = ""
+
+    def __init__(self, *args, **kwargs):
+        if AzureStorage is None:  # pragma: no cover - protected by dependency install.
+            raise ImproperlyConfigured(
+                "django-storages must be installed to use Azure Blob managed storage."
+            )
+        kwargs.setdefault("azure_container", getattr(settings, self.container_setting_name))
+        kwargs.setdefault("expiration_secs", settings.AZURE_URL_EXPIRATION_SECS)
+        kwargs.setdefault("custom_domain", settings.AZURE_CUSTOM_DOMAIN or None)
+        super().__init__(*args, **kwargs)
+
+
+class ResourceAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_RESOURCE_CONTAINER"
+
+
+class ChatAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_CHAT_CONTAINER"
+
+
+class LocalContainerStorage(FileSystemStorage):
+    def __init__(self, namespace: str):
+        media_root = Path(getattr(settings, "MEDIA_ROOT", Path(settings.BASE_DIR) / "media"))
+        media_url = getattr(settings, "MEDIA_URL", "/media/").rstrip("/") + "/"
+        super().__init__(
+            location=media_root / namespace,
+            base_url=f"{media_url}{namespace}/",
+        )
+
+
+class ManagedContainerStorage:
+    def __init__(self, namespace: str, azure_storage_cls):
+        self.namespace = namespace
+        self._azure_storage_cls = azure_storage_cls
+        self._storage = self._build_storage()
+
+    def _build_storage(self):
+        # The namespace stays stable across local and Azure backends so callers do not
+        # need different path logic for dev/test versus deploy.
+        if not getattr(settings, "USE_AZURE_BLOB_STORAGE", False):
+            return LocalContainerStorage(self.namespace)
+        return self._azure_storage_cls()
+
+    @property
+    def backend(self):
+        return self._storage
+
+    @property
+    def is_remote(self) -> bool:
+        return bool(AzureStorage is not None and isinstance(self._storage, AzureStorage))
+
+    def save(self, name, content):
+        return self._storage.save(name, content)
+
+    def exists(self, name: str) -> bool:
+        return self._storage.exists(name)
+
+    def delete(self, name: str) -> None:
+        self._storage.delete(name)
+
+    def open(self, name: str, mode: str = "rb"):
+        return self._storage.open(name, mode)
+
+    def url(
+        self,
+        name: str,
+        *,
+        filename: str | None = None,
+        content_type: str | None = None,
+        as_attachment: bool = False,
+    ) -> str:
+        if not self.is_remote:
+            return self._storage.url(name)
+
+        # Azure signed URLs can carry response headers, which lets the backend keep
+        # browser download behavior consistent without proxying the file bytes itself.
+        parameters = {}
+        if content_type:
+            parameters["content_type"] = content_type
+        if filename:
+            disposition = "attachment" if as_attachment else "inline"
+            safe_filename = filename.replace('"', "")
+            parameters["content_disposition"] = f'{disposition}; filename="{safe_filename}"'
+        elif as_attachment:
+            safe_filename = Path(name).name.replace('"', "")
+            parameters["content_disposition"] = f'attachment; filename="{safe_filename}"'
+
+        return self._storage.url(name, parameters=parameters or None)
+
+
+@lru_cache(maxsize=2)
+def get_resource_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("resources", ResourceAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_chat_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("chat", ChatAzureStorage)

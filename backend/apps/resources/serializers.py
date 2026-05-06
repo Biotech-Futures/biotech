@@ -1,8 +1,18 @@
-from rest_framework import serializers
+from pathlib import PurePosixPath
+
 from drf_spectacular.utils import extend_schema_field
-from .models import RoleAssignmentHistory, Roles, Resources, ResourceAudience, ResourceType
+from rest_framework import serializers
+from rest_framework.reverse import reverse
+
 from apps.users.models import User
-from datetime import datetime, time, date
+
+from .models import RoleAssignmentHistory, ResourceAudience, Resources, ResourceType, Roles
+from .services.storage import (
+    delete_managed_resource_file,
+    is_external_storage_key,
+    save_uploaded_resource_file,
+)
+from datetime import date, datetime, time
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
@@ -12,10 +22,26 @@ class ResourceUserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'first_name', 'last_name', 'email']
 
+
 class ResourceTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ResourceType
         fields = ['id', 'type_name', 'type_description']
+
+
+class ResourceAccessSerializer(serializers.Serializer):
+    resource_id = serializers.IntegerField()
+    kind = serializers.CharField()
+    storage_status = serializers.CharField()
+    access_mode = serializers.CharField()
+    access_url = serializers.URLField(allow_null=True)
+    download_url = serializers.URLField(allow_null=True)
+    external_url = serializers.URLField(allow_null=True)
+    file_name = serializers.CharField(allow_null=True)
+    file_mime_type = serializers.CharField(allow_null=True)
+    file_size = serializers.IntegerField(allow_null=True)
+    detail = serializers.CharField(allow_null=True)
+
 
 class RoleSerializer(serializers.ModelSerializer):
     class Meta:
@@ -33,19 +59,16 @@ class RoleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A role with this name already exists.")
         return name
 
+
 class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
-    # Keep nested read-only shape for GETs:
     user = ResourceUserSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
-
-    # Accept role updates via role_id on PATCH:
     role_id = serializers.PrimaryKeyRelatedField(
         queryset=Roles.objects.all(),
         source="role",
         write_only=True,
         required=False,
     )
-
     is_active = serializers.SerializerMethodField()
 
     class Meta:
@@ -56,7 +79,6 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
     def get_is_active(self, obj):
         return obj.valid_to is None or obj.valid_to >= timezone.now()
 
-    # ---- helpers to accept both YYYY-MM-DD and datetimes, and make them TZ-aware
     def _coerce_dt(self, value):
         if value is None:
             return None
@@ -80,14 +102,13 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
         return dt
 
     def validate(self, attrs):
-        # Only for fields being updated in PATCH
         if "valid_from" in attrs:
             attrs["valid_from"] = self._coerce_dt(attrs["valid_from"])
         if "valid_to" in attrs:
             attrs["valid_to"] = self._coerce_dt(attrs["valid_to"])
 
         v_from = attrs.get("valid_from") or getattr(self.instance, "valid_from", None)
-        v_to   = attrs.get("valid_to", None)
+        v_to = attrs.get("valid_to", None)
         if v_from and v_to and v_to < v_from:
             raise serializers.ValidationError("valid_to cannot be before valid_from.")
         return attrs
@@ -111,10 +132,12 @@ class ResourceAudienceWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Each audience rule must include role_id or track_id.")
         return attrs
 
+
 class ResourcesSerializer(serializers.ModelSerializer):
     uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
-    # Resource type field - read as nested object, write as ID
+    uploader_name = serializers.SerializerMethodField()
     resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
+    type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
     type_id = serializers.PrimaryKeyRelatedField(
         queryset=ResourceType.objects.all(),
         source='type',
@@ -123,17 +146,29 @@ class ResourcesSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="ID of the resource type"
     )
-    # Role visibility fields
+    resource_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=ResourceType.objects.all(),
+        source='type',
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Backward-compatible alias for type_id"
+    )
     visible_roles = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    access_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+    storage_status = serializers.SerializerMethodField()
     role_ids = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Roles.objects.all()),
         write_only=True,
         required=False,
         help_text="List of role IDs that can access this resource"
     )
+    uploaded_file = serializers.FileField(write_only=True, required=False, allow_null=True)
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
     audience_rules = ResourceAudienceWriteSerializer(many=True, write_only=True, required=False)
-    
+
     class Meta:
         model = Resources
         fields = [
@@ -141,65 +176,114 @@ class ResourcesSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'resource_type_detail',
+            'type_name',
             'type_id',
+            'resource_type_id',
             'kind',
             'file_mime_type',
             'file_size',
             'storage_key',
+            'uploaded_file',
             'track',
             'group',
             'visibility_scope',
             'uploaded_at',
-            'uploader',  # read-only field for display (automatically set)
+            'uploader',
+            'uploader_name',
             'deleted_at',
-            'visible_roles', ##Custom Field (to be used for appending ResourceRoles data)
-            'role_ids', ##Custom Field (to be used for appending ResourceRoles data)
+            'file_name',
+            'access_url',
+            'download_url',
+            'storage_status',
+            'visible_roles',
+            'role_ids',
             'audiences',
             'audience_rules',
         ]
         read_only_fields = ['id', 'uploaded_at', 'deleted_at']
 
     def validate_description(self, value):
-        """Ensure description is not empty"""
         if not value or not value.strip():
             raise serializers.ValidationError("Resource description cannot be empty.")
         return value.strip()
 
     def validate_name(self, value):
-        """Clean and validate resource name - cannot be null or empty"""
         if not value or not value.strip():
             raise serializers.ValidationError("Resource name cannot be empty.")
-        
+
         cleaned_name = value.strip()
-        
-        # Check for duplicate resource names (excluding deleted resources)
         existing_resources = Resources.objects.filter(
             name__iexact=cleaned_name,
             deleted_at__isnull=True
         )
-        
-        # If updating, exclude current instance from duplicate check
         if self.instance:
             existing_resources = existing_resources.exclude(id=self.instance.id)
-        
         if existing_resources.exists():
             raise serializers.ValidationError(
                 f"A resource with the name '{cleaned_name}' already exists. Please choose a different name."
             )
-        
         return cleaned_name
 
     def validate_role_ids(self, value):
-        """Validate that role_ids are not empty if provided"""
         if value is not None and len(value) == 0:
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+
+        uploaded_file = attrs.get("uploaded_file")
+        kind = attrs.get("kind", getattr(self.instance, "kind", Resources.ResourceKind.FILE))
+        storage_key = attrs.get("storage_key", getattr(self.instance, "storage_key", None))
+
+        if uploaded_file and kind != Resources.ResourceKind.FILE:
+            raise serializers.ValidationError({"uploaded_file": "Only file resources can accept uploaded files."})
+
+        if kind == Resources.ResourceKind.PAGE:
+            if uploaded_file is not None:
+                raise serializers.ValidationError({"uploaded_file": "Page resources cannot accept uploaded files."})
+            if not is_external_storage_key(storage_key):
+                raise serializers.ValidationError(
+                    {"storage_key": "Page resources require an external http(s) storage_key URL."}
+                )
+
+        return attrs
+
     @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):
-        """Get the roles that can access this resource"""
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
         return RoleSerializer([aud.role for aud in audiences], many=True).data
+
+    def get_uploader_name(self, obj):
+        if obj.uploaded_by_id is None:
+            return None
+        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
+
+    def get_file_name(self, obj):
+        if obj.storage_key:
+            return PurePosixPath(obj.storage_key).name or obj.name
+        return obj.name
+
+    def _build_route_url(self, obj, route_name):
+        request = self.context.get("request")
+        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
+
+    def get_access_url(self, obj):
+        if obj.storage_key:
+            return self._build_route_url(obj, "resource-files-access")
+        return None
+
+    def get_download_url(self, obj):
+        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
+            return self._build_route_url(obj, "resource-files-download")
+        return None
+
+    def get_storage_status(self, obj):
+        if not obj.storage_key:
+            return "unavailable"
+        if str(obj.storage_key).startswith(("http://", "https://")):
+            return "external_url"
+        return "managed_key"
 
     def _replace_audiences(self, resource, *, role_ids=None, audience_rules=None):
         if role_ids is None and audience_rules is None:
@@ -220,31 +304,54 @@ class ResourcesSerializer(serializers.ModelSerializer):
                 )
 
     def create(self, validated_data):
-        """Create resource and specify roles for visibility (ResourceRoles)"""
-        role_ids = validated_data.pop('role_ids', [])         
+        role_ids = validated_data.pop('role_ids', [])
         audience_rules = validated_data.pop("audience_rules", [])
+        uploaded_file = validated_data.pop("uploaded_file", None)
+
+        if uploaded_file is not None:
+            validated_data.update(save_uploaded_resource_file(uploaded_file))
+            validated_data["kind"] = Resources.ResourceKind.FILE
+
         resource = super().create(validated_data)
-        
         self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
-        
         return resource
 
     def update(self, instance, validated_data):
-        """Update resource and roles"""
         role_ids = validated_data.pop('role_ids', None)
         audience_rules = validated_data.pop("audience_rules", None)
-        
+        uploaded_file = validated_data.pop("uploaded_file", None)
+        old_storage_key = instance.storage_key
+        incoming_storage_key = validated_data.get("storage_key", instance.storage_key)
+
+        if uploaded_file is not None:
+            validated_data.update(save_uploaded_resource_file(uploaded_file))
+            validated_data["kind"] = Resources.ResourceKind.FILE
+
         resource = super().update(instance, validated_data)
-        
         self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
-        
+
+        if uploaded_file is not None and old_storage_key != resource.storage_key:
+            delete_managed_resource_file(old_storage_key)
+        elif (
+            "storage_key" in validated_data
+            and old_storage_key != incoming_storage_key
+            and not is_external_storage_key(old_storage_key)
+        ):
+            delete_managed_resource_file(old_storage_key)
+
         return resource
 
+
 class ResourceListSerializer(serializers.ModelSerializer):
-    """Simplified serializer for list view"""
     uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+    uploader_name = serializers.SerializerMethodField()
     resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
+    type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
     visible_roles = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    access_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+    storage_status = serializers.SerializerMethodField()
     audiences = ResourceAudienceSerializer(many=True, read_only=True)
 
     class Meta:
@@ -254,6 +361,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'name',
             'description',
             'resource_type_detail',
+            'type_name',
             'kind',
             'file_mime_type',
             'file_size',
@@ -263,12 +371,47 @@ class ResourceListSerializer(serializers.ModelSerializer):
             'visibility_scope',
             'uploaded_at',
             'uploader',
+            'uploader_name',
+            'file_name',
+            'access_url',
+            'download_url',
+            'storage_status',
             'visible_roles',
             'audiences',
         ]
-    
+
     @extend_schema_field(RoleSerializer(many=True))
     def get_visible_roles(self, obj):
-        """Get the roles that can access this resource"""
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
         return RoleSerializer([aud.role for aud in audiences], many=True).data
+
+    def get_uploader_name(self, obj):
+        if obj.uploaded_by_id is None:
+            return None
+        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
+
+    def get_file_name(self, obj):
+        if obj.storage_key:
+            return PurePosixPath(obj.storage_key).name or obj.name
+        return obj.name
+
+    def _build_route_url(self, obj, route_name):
+        request = self.context.get("request")
+        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
+
+    def get_access_url(self, obj):
+        if obj.storage_key:
+            return self._build_route_url(obj, "resource-files-access")
+        return None
+
+    def get_download_url(self, obj):
+        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
+            return self._build_route_url(obj, "resource-files-download")
+        return None
+
+    def get_storage_status(self, obj):
+        if not obj.storage_key:
+            return "unavailable"
+        if str(obj.storage_key).startswith(("http://", "https://")):
+            return "external_url"
+        return "managed_key"

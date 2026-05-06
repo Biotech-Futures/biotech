@@ -9,6 +9,27 @@ from django.utils import timezone
 from rest_framework.permissions import BasePermission
 
 
+class IsResourceAdmin(BasePermission):
+    message = "Admin access is required."
+
+    def has_permission(self, request, view) -> bool:
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated):
+            return False
+        if user.is_staff or getattr(user, "is_superuser", False):
+            return True
+
+        RoleAssignmentHistory = apps.get_model("resources", "RoleAssignmentHistory")
+        now = timezone.now()
+        return RoleAssignmentHistory.objects.filter(
+            user=user,
+            role__role_name__iexact="admin",
+            valid_from__lte=now,
+        ).filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
+        ).exists()
+
+
 class IsInAnyGroup(BasePermission):
     """
     Allow access if the authenticated user belongs to ANY of the groups

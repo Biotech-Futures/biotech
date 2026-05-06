@@ -3,10 +3,15 @@
 # Added MessageUpdateSerializer for edit operations that sets edited_at automatically.
 # Added MessageStatusSerializer for read/delivery tracking.
 
+from django.conf import settings
 from rest_framework import serializers
-from .models import Messages, MessageResource, MessageStatus
-from .utils import sanitize_text
+from rest_framework.reverse import reverse
+
 from apps.resources.models import Resources
+
+from .models import MessageAttachment, MessageResource, MessageStatus, Messages, MessageType
+from .services.storage import save_uploaded_chat_file
+from .utils import sanitize_text
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):
@@ -31,8 +36,41 @@ class MessageStatusSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "delivered_at", "read_at"]
 
 
+class MessageAttachmentSerializer(serializers.ModelSerializer):
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MessageAttachment
+        fields = [
+            "id",
+            "attachment_filename",
+            "attachment_mime_type",
+            "attachment_size",
+            "download_url",
+        ]
+        read_only_fields = fields
+
+    def get_download_url(self, obj):
+        request = self.context.get("request")
+        path = reverse(
+            "group-messages-attachment-download",
+            kwargs={
+                "group_pk": obj.message.group_id,
+                "pk": obj.message_id,
+                "attachment_pk": obj.id,
+            },
+            request=request,
+        )
+        # List/detail serializers can build absolute URLs when DRF has a request, but
+        # tests and non-request code paths still need a stable fallback.
+        if request is not None or not getattr(settings, "BACKEND_URL", ""):
+            return path
+        return f"{settings.BACKEND_URL.rstrip('/')}{path}"
+
+
 class MessageSerializer(serializers.ModelSerializer):
     resources = MessageResourceSerializer(many=True, required=False)
+    attachments = MessageAttachmentSerializer(many=True, read_only=True)
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
@@ -53,6 +91,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "deleted_at",
             "is_deleted",
             "is_edited",
+            "attachments",
             "resources",
         ]
         read_only_fields = [
@@ -78,11 +117,30 @@ class MessageSerializer(serializers.ModelSerializer):
             )
         # Sanitise BEFORE serializer.save() so the moderated text is what
         # gets persisted. Doing this here keeps the rule decoupled from
-        # the view and ensures every write path (REST POST, future bulk
-        # imports, admin tools) goes through the same filter.
+        # the view and ensures every write path goes through the same filter.
         if "message_text" in attrs:
             attrs["message_text"] = sanitize_text(attrs["message_text"])
         return attrs
+
+
+class MessageAttachmentUploadSerializer(serializers.Serializer):
+    message_text = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
+    uploaded_file = serializers.FileField(required=True)
+
+    def validate_message_text(self, value):
+        return sanitize_text((value or "").strip())
+
+    def create(self, validated_data):
+        uploaded_file = validated_data.pop("uploaded_file")
+        attachment_data = save_uploaded_chat_file(uploaded_file)
+        # Chat uploads persist the message row first so attachment downloads can stay
+        # scoped to the same message permission checks as text messages.
+        message = Messages.objects.create(
+            **validated_data,
+            message_type=MessageType.ATTACHMENT,
+        )
+        MessageAttachment.objects.create(message=message, **attachment_data)
+        return message
 
 
 class MessageUpdateSerializer(serializers.ModelSerializer):

@@ -7,6 +7,7 @@ from datetime import timedelta
 from django.urls import reverse
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection, models
 from django.conf import settings
 
@@ -23,6 +24,7 @@ from apps.chat.models import Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
+from apps.common.storage import get_chat_storage
 
 
 # Create your tests here.
@@ -108,6 +110,13 @@ class ChatFeatureTests(TestCase):
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
+        self.chat_storage = get_chat_storage()
+        self.created_chat_storage_keys = []
+
+    def tearDown(self):
+        for storage_key in self.created_chat_storage_keys:
+            if storage_key and self.chat_storage.exists(storage_key):
+                self.chat_storage.delete(storage_key)
 
 
     # --------- helpers ---------
@@ -316,6 +325,79 @@ class ChatFeatureTests(TestCase):
         self.assertEqual(payload["event"], "message.deleted")
         self.assertEqual(payload["group_id"], self.group.id)
         self.assertEqual(payload["message_id"], msg.id)
+
+    def test_rest_attachment_upload_creates_message_and_streams_download(self):
+        upload = SimpleUploadedFile(
+            "group-plan.pdf",
+            b"group plan bytes",
+            content_type="application/pdf",
+        )
+        response = self.client_student.post(
+            reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+            {
+                "message_text": "See attached",
+                "uploaded_file": upload,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.data["message_type"], "attachment")
+        self.assertEqual(response.data["message_text"], "See attached")
+        self.assertEqual(len(response.data["attachments"]), 1)
+
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        attachment = message.attachments.get()
+        self.created_chat_storage_keys.append(attachment.storage_key)
+        self.assertTrue(self.chat_storage.exists(attachment.storage_key))
+
+        download_response = self.client_mentor.get(
+            reverse(
+                "group-messages-attachment-download",
+                kwargs={
+                    "group_pk": self.group.id,
+                    "pk": message.id,
+                    "attachment_pk": attachment.id,
+                },
+            )
+        )
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response["Content-Type"], "application/pdf")
+        self.assertIn("attachment;", download_response["Content-Disposition"])
+        self.assertEqual(b"".join(download_response.streaming_content), b"group plan bytes")
+
+    def test_attachment_download_requires_group_membership(self):
+        upload = SimpleUploadedFile(
+            "group-plan.pdf",
+            b"group plan bytes",
+            content_type="application/pdf",
+        )
+        response = self.client_student.post(
+            reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+            {
+                "uploaded_file": upload,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        attachment = message.attachments.get()
+        self.created_chat_storage_keys.append(attachment.storage_key)
+
+        outsider = get_user_model().objects.create_user(email="outsider@test.com", password="pw")
+        outsider_client = APIClient()
+        outsider_client.force_authenticate(user=outsider)
+        download_response = outsider_client.get(
+            reverse(
+                "group-messages-attachment-download",
+                kwargs={
+                    "group_pk": self.group.id,
+                    "pk": message.id,
+                    "attachment_pk": attachment.id,
+                },
+            )
+        )
+        self.assertEqual(download_response.status_code, 403)
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)

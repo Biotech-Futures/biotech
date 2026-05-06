@@ -50,15 +50,24 @@ INSTALLED_APPS = [
 ]
 
 # Azure Blob Storage
+USE_AZURE_BLOB_STORAGE = config("USE_AZURE_BLOB_STORAGE", default="false", cast=env_bool)
 AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME", default="")
 AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY", default="")
 AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
+AZURE_CONNECTION_STRING = config(
+    "AZURE_CONNECTION_STRING",
+    default=config("AZURE_STORAGE_CONNECTION_STRING", default=""),
+)
+AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
+AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
+AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
-DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
-MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"
 
 AUTH_USER_MODEL = 'users.User'
 

@@ -4,21 +4,31 @@
 # added partial_update() for editing messages which sets edited_at automatically,
 # updated WebSocket broadcast payloads to use new field names.
 
-from django.db.models import Q
-from django.utils import timezone
-from rest_framework import viewsets, status
-from rest_framework.response import Response
+from urllib.parse import urlparse
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.http import FileResponse, HttpResponseRedirect
+from django.db.models import Q
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
 
-from .models import Messages
-from .serializers import MessageSerializer, MessageUpdateSerializer
-from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
+from .management.permissions import CanModerateMessage, IsGroupMemberOrAdmin
+from .models import MessageAttachment, Messages
+from .serializers import (
+    MessageAttachmentUploadSerializer,
+    MessageSerializer,
+    MessageUpdateSerializer,
+)
+from .services.storage import open_managed_chat_file, resolve_managed_chat_file_url
 
 
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
+    parser_classes = [JSONParser]
 
     def get_permissions(self):
         if self.action == "destroy":
@@ -26,23 +36,46 @@ class MessageViewSet(viewsets.ModelViewSet):
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
+        if self.action == "upload":
+            return MessageAttachmentUploadSerializer
         if self.action == "partial_update":
             return MessageUpdateSerializer
         return MessageSerializer
 
+    def _message_queryset(self):
+        return (
+            Messages.objects.filter(deleted_at__isnull=True)
+            .select_related("sender_user")
+            .prefetch_related("attachments", "resources__resource")
+        )
+
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
-        return (
-            Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
-            .select_related("sender_user")
-            .prefetch_related("resources__resource")
+        return self._message_queryset().filter(group_id=gid)
+
+    def _serialize_message(self, message):
+        message = self._message_queryset().get(pk=message.pk)
+        data = MessageSerializer(message, context={"request": self.request}).data
+        # Keep legacy aliases in websocket payloads so the existing frontend and tests
+        # continue to understand message.created without a protocol migration.
+        data["sender_id"] = message.sender_user_id
+        data["text"] = data.get("message_text", "")
+        data["resource_ids"] = list(message.resources.values_list("resource_id", flat=True))
+        return data
+
+    def _broadcast_payload(self, group_id, payload):
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"group_{group_id}",
+            {
+                "type": "chat.message",
+                "payload": payload,
+            },
         )
 
     # GET /chat/groups/{gid}/messages/
     def list(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: ordering uses sent_at instead of sent_datetime
         qs = self.get_queryset().order_by("-sent_at", "-id")
 
         after = request.query_params.get("after")
@@ -63,7 +96,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = self.get_serializer(items, many=True).data
+        data = MessageSerializer(items, many=True, context={"request": request}).data
         next_after = items[0].id if items else None
 
         return Response(
@@ -75,78 +108,108 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{gid}",
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.created",
-                    "group_id": gid,
-                    "message": {
-                        "id": msg.id,
-                        "sender_id": msg.sender_user_id,
-                        "text": msg.message_text,
-                        "message_type": msg.message_type,
-                        # Phase 2 change: was sent_datetime, now sent_at
-                        "sent_at": msg.sent_at.isoformat(),
-                        "resource_ids": list(
-                            msg.resources.values_list("resource_id", flat=True)
-                        ),
-                    },
-                },
-            },
-        )
+        payload = {
+            "event": "message.created",
+            "group_id": gid,
+            "message": self._serialize_message(msg),
+        }
+        self._broadcast_payload(gid, payload)
 
     def create(self, request, *args, **kwargs):
-        resp = super().create(request, *args, **kwargs)
-        resp.status_code = status.HTTP_201_CREATED
-        return resp
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(self._serialize_message(serializer.instance), status=status.HTTP_201_CREATED, headers=headers)
 
-    # Phase 2 addition: PATCH /chat/groups/{gid}/messages/{id}/
-    # Allows editing a message — automatically sets edited_at via MessageUpdateSerializer
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        gid = int(self.kwargs.get("group_pk"))
+        message = serializer.save(sender_user=request.user, group_id=gid)
+        payload = {
+            "event": "message.created",
+            "group_id": gid,
+            "message": self._serialize_message(message),
+        }
+        self._broadcast_payload(gid, payload)
+        return Response(payload["message"], status=status.HTTP_201_CREATED)
+
+    # PATCH /chat/groups/{gid}/messages/{id}/
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # Broadcast edit event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        self._broadcast_payload(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.edited",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                    "message_text": instance.message_text,
-                    "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
-                },
+                "event": "message.edited",
+                "group_id": instance.group_id,
+                "message_id": instance.id,
+                "message_text": instance.message_text,
+                "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
             },
         )
-        return Response(MessageSerializer(instance).data)
+        return Response(self._serialize_message(instance))
 
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Phase 2 change: was instance.deleted_flag = True → instance.save()
-        # Now calls soft_delete() which sets deleted_at = timezone.now()
         instance.soft_delete()
 
-        # Broadcast delete event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        self._broadcast_payload(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.deleted",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                },
+                "event": "message.deleted",
+                "group_id": instance.group_id,
+                "message_id": instance.id,
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"attachments/(?P<attachment_pk>\d+)/download",
+        url_name="attachment-download",
+    )
+    def attachment_download(self, request, *args, **kwargs):
+        message = self.get_object()
+        attachment_pk = kwargs.get("attachment_pk")
+        try:
+            attachment = message.attachments.get(pk=attachment_pk)
+        except MessageAttachment.DoesNotExist:
+            return Response({"detail": "Attachment not found for this message."}, status=status.HTTP_404_NOT_FOUND)
+
+        managed_url = resolve_managed_chat_file_url(
+            attachment.storage_key,
+            filename=attachment.attachment_filename,
+            content_type=attachment.attachment_mime_type,
+            as_attachment=True,
+        )
+        # Prefer redirecting to a signed Blob URL in production; local/test storage falls
+        # back to Django streaming below.
+        if managed_url:
+            parsed_url = urlparse(managed_url)
+            if parsed_url.scheme and parsed_url.netloc:
+                return HttpResponseRedirect(managed_url)
+
+        try:
+            file_handle = open_managed_chat_file(attachment.storage_key)
+        except Exception:
+            return Response({"detail": "The attachment could not be opened for download."}, status=status.HTTP_404_NOT_FOUND)
+
+        response = FileResponse(file_handle, as_attachment=True, filename=attachment.attachment_filename)
+        if attachment.attachment_mime_type:
+            response["Content-Type"] = attachment.attachment_mime_type
+        if attachment.attachment_size is not None:
+            response["Content-Length"] = str(attachment.attachment_size)
+        return response
