@@ -229,8 +229,12 @@ FRONTEND_BASE_URL = config(
 # Magic link still uses hash routing while the others use path routing —
 # unify in a follow-up once the SPA serves /auth/callback without a hash.
 MAGIC_LINK_REDIRECT_URL     = f"{FRONTEND_BASE_URL}/#/auth/callback"
-LOGIN_REDIRECT_URL          = f"{FRONTEND_BASE_URL}/auth/callback"
 PASSWORD_RESET_REDIRECT_URL = f"{FRONTEND_BASE_URL}/auth/reset-password"
+
+# Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
+# when no ?next= is present. Keep it on a Django-side URL so an engineer who
+# types /admin/login/ directly lands on the admin dashboard, not the SPA.
+LOGIN_REDIRECT_URL = "/admin/"
 
 PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
     "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
