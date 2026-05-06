@@ -73,57 +73,41 @@
  */
 
 
-// 从浏览器当前页面的 Cookie 字符串里，把 Django 设置的 csrftoken 取出来。 
-// session负责证明用户是谁，而CSRFheader负责证明这次操作是你的页面主动发起的，不是别的网站代发的
-// 比如：当你登录成功后，Django后端会给浏览器一个session coockie，之后前端请求时只要带上credentials: 'include'，后端就知道是哪个用户
-// 但是，假设你访问了一个恶意网站，网站就有可能偷偷构造一个表单和请求，诱导你的浏览器向后端发送一个POST请求
-// 而 Django 为了安全，通常会在浏览器里设置一个 cookie，名字叫：csrftoken
-// 前端发送 POST / PATCH / DELETE 这种修改型请求时，经常需要把它放到请求头里：X-CSRFToken: <token>
+// Cross-origin note:
+// When the FE runs on a different origin from the BE (e.g. azurestaticapps.net <-> azurewebsites.net),
+// document.cookie cannot read cookies set for the BE's domain (same-origin policy, separate from third-party
+// cookie blocking). We fetch the CSRF token from a JSON endpoint and cache it in module scope. The browser
+// still attaches the csrftoken cookie automatically (credentials: 'include' + SameSite=None; Secure) so
+// Django's CsrfViewMiddleware can validate the X-CSRFToken header against it.
+let cachedCsrfToken: string | null = null
+
 export function getCSRFToken(): string | null {
-  const name = 'csrftoken='
-
-  // document.coockie可能:"csrftoken=abc123; sessionid=xyz456; theme=dark"
-  // 分割后就会变成字符串数组：
-  // [
-  //    "csrftoken=abc123",
-  //    " sessionid=xyz456",
-  //    " theme=dark
-  // ]
-
-  // 这里不能用?.因为返回值不能是undefined，这个不是对象类型，一般应该返回空字符串
-  const cookies = document.cookie ? document.cookie.split(';') : []
-
-  for (const cookie of cookies) {
-    // 去除空格
-    const trimmed = cookie.trim()
-    // startsWith('csrftoken=') 判断是不是我们要找的 token
-    if (trimmed.startsWith(name)) {
-      // slice(name.length) 把 csrftoken= 这一段去掉，只保留值
-      // decodeURIComponent(...) 把 URL 编码的 token 解码回来
-      // 因为空格放在 URL / cookie / query 这类场景里不太方便，常常会被编码成：hello%20world
-      // 把“浏览器里为了安全传输而转义过的字符串”，还原回原来的正常字符。
-      return decodeURIComponent(trimmed.slice(name.length))
-    }
-  }
-
-  return null
+  return cachedCsrfToken
 }
 
 export async function ensureCsrfCookie(apiBaseUrl: string): Promise<boolean> {
-  if (getCSRFToken()) {
-    return true
-  }
+  if (cachedCsrfToken) return true
 
   try {
-    await fetch(`${apiBaseUrl}/api-auth/login/`, {
+    const response = await fetch(`${apiBaseUrl}/services/csrf/`, {
       method: 'GET',
       credentials: 'include'
     })
+    if (response.ok) {
+      const data = await response.json()
+      cachedCsrfToken = data?.csrfToken ?? null
+    }
   } catch (error) {
-    console.error('Failed to warm up CSRF cookie:', error)
+    console.error('Failed to fetch CSRF token:', error)
   }
 
-  return Boolean(getCSRFToken())
+  return Boolean(cachedCsrfToken)
+}
+
+// Clear the cached token. Call after login (Django rotates the CSRF token on login)
+// and after logout so the next unsafe request re-fetches a fresh value.
+export function resetCsrfToken(): void {
+  cachedCsrfToken = null
 }
 
 // TS接口，用来约束buildSessionHeaders参数结构

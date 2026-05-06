@@ -6,7 +6,6 @@ from apps.users.models import User
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
-import mailtrap as mt
 from .models import LoginToken
 
 
@@ -51,7 +50,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     msg = EmailMultiAlternatives(
         subject="BIOTech Futures: Log in securely",
         body=text_content,
-        from_email="noreply@biotechfutures.org",
+        from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email],
     )
     msg.attach_alternative(html_content, "text/html")

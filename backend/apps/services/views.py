@@ -3,7 +3,9 @@ from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import JsonResponse, HttpResponse
+from django.middleware.csrf import get_token
 from django.template.loader import render_to_string
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -25,6 +27,15 @@ from config.errors import (
     UserNotFound,
     error_json_response,
 )
+
+
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def csrf_token_view(request):
+    """Return the CSRF token in the response body so cross-origin SPAs that
+    cannot read cookies via document.cookie can still attach X-CSRFToken
+    on subsequent unsafe requests."""
+    return JsonResponse({"csrfToken": get_token(request)})
 
 
 class SendLoginCodeRequestSerializer(serializers.Serializer):
