@@ -417,7 +417,7 @@ interface SearchPayload {
   scope: 'all' | 'groups' | 'events' | 'announcements' | 'resources'
 }
 
-const isLoginPage = computed(() => route.path === '/login')
+const isLoginPage = computed(() => ['/login', '/auth/callback', '/auth/reset-password'].includes(route.path))
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
