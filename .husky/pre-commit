@@ -1,0 +1,35 @@
+#!/usr/bin/env sh
+
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+run_server=false
+run_web=false
+run_frontend=false
+
+if printf '%s\n' "$staged_files" | grep -q '^admin/apps/server/'; then
+  run_server=true
+fi
+
+if printf '%s\n' "$staged_files" | grep -q '^admin/apps/web/'; then
+  run_web=true
+fi
+
+if printf '%s\n' "$staged_files" | grep -q '^frontend/'; then
+  run_frontend=true
+fi
+
+if [ "$run_server" = false ] && [ "$run_web" = false ] && [ "$run_frontend" = false ]; then
+  exit 0
+fi
+
+if [ "$run_server" = true ]; then
+  pnpm --dir admin --filter server typecheck || exit 1
+fi
+
+if [ "$run_web" = true ]; then
+  pnpm --dir admin --filter web typecheck || exit 1
+fi
+
+if [ "$run_frontend" = true ]; then
+  npm --prefix frontend run type-check || exit 1
+fi

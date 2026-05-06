@@ -1,102 +1,244 @@
-// Pinia auth store with JWT token support
 import { defineStore } from 'pinia'
+
+import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
+import { clearAuthTokens } from '@/utils/authTokens'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 interface User {
   id: number
   email: string
   first_name: string
   last_name: string
-  name: string
+  status?: boolean
   current_role_id?: number | null
   current_role_name?: string | null
   is_staff?: boolean
   is_superuser?: boolean
+  track?: number | null
+  state?: number | null
+  pg_firstname?: string | null
+  pg_lastname?: string | null
+  year_lvl?: string | null
+  school_name?: string | null
+  join_perm?: boolean | null
+  ment_bg?: number | null
+  ment_inst?: string | null
+  ment_reason?: string | null
+}
+
+async function parseResponseJson(response: Response): Promise<any> {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
+function resolveApiError(data: any, fallback: string): string {
+  return data?.detail || data?.error || data?.message || fallback
+}
+
+function resolveNormalizedRole(user: User | null): 'admin' | 'teacher' | 'student' {
+  const rawRole = String(user?.current_role_name || '').toLowerCase()
+
+  if (
+    user?.is_staff === true ||
+    user?.is_superuser === true ||
+    ['admin', 'administrator', 'local_admin', 'global_admin', 'local administrator', 'global administrator'].includes(rawRole)
+  ) {
+    return 'admin'
+  }
+
+  if (['teacher', 'mentor', 'supervisor'].includes(rawRole)) {
+    return 'teacher'
+  }
+
+  return 'student'
+}
+
+async function postPasswordLogin(email: string, password: string): Promise<Response> {
+  const endpoints = ['/api/v1/auth/login/', '/api/v1/login/']
+  let lastResponse: Response | null = null
+
+  for (const path of endpoints) {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildSessionHeaders({
+        includeCSRF: true
+      }),
+      body: JSON.stringify({
+        email,
+        password
+      })
+    })
+
+    lastResponse = response
+
+    if (response.status !== 404) {
+      return response
+    }
+  }
+
+  if (!lastResponse) {
+    throw new Error('Login service is unavailable right now.')
+  }
+
+  return lastResponse
 }
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as User | null,
-    accessToken: null as string | null,
-    refreshToken: null as string | null
+    initialized: false
   }),
+
   getters: {
-    isAuthenticated: (s) => !!s.user, // Session-based auth - user exists means authenticated
-    isAdmin: (s) => {
-      // Check role name OR Django's is_staff/is_superuser flags
-      return s.user?.current_role_name === 'admin' ||
-             s.user?.is_staff === true ||
-             s.user?.is_superuser === true ||
-             false
+    isAuthenticated: (state) => state.initialized && !!state.user,
+
+    initials: (state) => {
+      if (!state.user) return '--'
+
+      const first = state.user.first_name?.[0] || ''
+      const last = state.user.last_name?.[0] || ''
+      return (first + last).toUpperCase() || state.user.email[0].toUpperCase()
     },
-    initials: (s) => {
-      if (!s.user) return '—'
-      const first = s.user.first_name?.[0] || ''
-      const last = s.user.last_name?.[0] || ''
-      return (first + last).toUpperCase() || s.user.email[0].toUpperCase()
+
+    normalizedRole: (state) => resolveNormalizedRole(state.user),
+
+    isAdmin: (state) => resolveNormalizedRole(state.user) === 'admin',
+
+    isTeacher: (state) => resolveNormalizedRole(state.user) === 'teacher',
+
+    displayName: (state) => {
+      const fullName = `${state.user?.first_name || ''} ${state.user?.last_name || ''}`.trim()
+      return fullName || state.user?.email || 'User'
+    },
+
+    displayTrack: (state) => String(state.user?.track ?? state.user?.state ?? 'General'),
+
+    organizationLabel: (state) => state.user?.ment_inst || state.user?.school_name || 'BIOTech Futures',
+
+    roleLabel: (state) => {
+      const role = resolveNormalizedRole(state.user)
+
+      if (role === 'admin') return 'Administrator'
+      if (role === 'teacher') return 'Teacher / Mentor'
+      return 'Student'
     }
   },
+
   actions: {
-    // Fetch full user data from backend including roles
     async fetchUserData() {
       try {
-        const response = await fetch('http://localhost:8000/api/v1/users/me/', {
-          credentials: 'include', // Include session cookie
+        const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+          credentials: 'include',
+          headers: buildSessionHeaders()
         })
 
+        const parsedData = await parseResponseJson(response)
+
         if (response.ok) {
-          const userData = await response.json()
-          this.user = userData
-          localStorage.setItem('auth.user', JSON.stringify(userData))
-          return userData
+          this.user = parsedData
+          localStorage.setItem('auth.user', JSON.stringify(parsedData))
+          return parsedData
         }
+
+        if (response.status === 401) {
+          clearAuthTokens()
+        }
+
+        this.user = null
+        localStorage.removeItem('auth.user')
       } catch (error) {
         console.error('Failed to fetch user data:', error)
+        this.user = null
+        localStorage.removeItem('auth.user')
       }
+
       return null
     },
-    // Login with session-based authentication (Django sessions)
+
+    async initializeAuth() {
+      try {
+        clearAuthTokens()
+        this.hydrate()
+        await this.fetchUserData()
+      } finally {
+        this.initialized = true
+      }
+    },
+
+    async loginWithPassword(email: string, password: string) {
+      clearAuthTokens()
+
+      const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+      if (!csrfReady) {
+        throw new Error('Could not initialize a secure session. Please refresh and try again.')
+      }
+
+      const response = await postPasswordLogin(email, password)
+      const data = await parseResponseJson(response)
+
+      if (!response.ok) {
+        throw new Error(resolveApiError(data, 'Email or password is incorrect.'))
+      }
+
+      // Django rotates the CSRF token on login; drop the cached value so the next
+      // unsafe request fetches the rotated one.
+      resetCsrfToken()
+
+      const user = await this.fetchUserData()
+      if (!user) {
+        throw new Error('Login succeeded, but the current user profile could not be loaded.')
+      }
+
+      this.initialized = true
+      return user
+    },
+
     loginWithUser(userData: User) {
       this.user = userData
+      this.initialized = true
+
       try {
         localStorage.setItem('auth.user', JSON.stringify(userData))
       } catch {}
     },
-    // Login using tokens returned from the magic-link callback
-    loginWithTokens(userData: User, accessToken: string, refreshToken: string) {
-      this.user = userData
-      this.accessToken = accessToken
-      this.refreshToken = refreshToken
+
+    async logout() {
       try {
-        localStorage.setItem('auth.user', JSON.stringify(userData))
-        localStorage.setItem('auth.accessToken', accessToken)
-        localStorage.setItem('auth.refreshToken', refreshToken)
-      } catch {}
+        await ensureCsrfCookie(API_BASE_URL)
+
+        await fetch(`${API_BASE_URL}/services/logout/`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: buildSessionHeaders({
+            includeCSRF: true
+          })
+        })
+      } catch (error) {
+        console.error('Failed to log out from backend session:', error)
+      } finally {
+        this.user = null
+        this.initialized = true
+        clearAuthTokens()
+        resetCsrfToken()
+
+        try {
+          localStorage.removeItem('auth.user')
+        } catch {}
+      }
     },
-    logout() {
-      this.user = null
-      this.accessToken = null
-      this.refreshToken = null
-      try {
-        localStorage.removeItem('auth.user')
-        localStorage.removeItem('auth.accessToken')
-        localStorage.removeItem('auth.refreshToken')
-      } catch {}
-    },
+
     hydrate() {
       try {
         const rawUser = localStorage.getItem('auth.user')
-
         if (rawUser) {
           this.user = JSON.parse(rawUser)
-          // Also restore tokens if they exist (for backward compatibility)
-          const rawAccess = localStorage.getItem('auth.accessToken')
-          const rawRefresh = localStorage.getItem('auth.refreshToken')
-          if (rawAccess) {
-            this.accessToken = rawAccess
-            this.refreshToken = rawRefresh
-          }
         }
       } catch {}
-    }
-  }
+    },
+  },
 })

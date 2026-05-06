@@ -24,6 +24,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     # API v1 endpoints
+    path("api/v1/admin/", include("apps.admin.urls")),
     path("api/v1/", include("apps.users.urls")),
     path("dashboard/v1/", include("apps.dashboard.urls")),
 
@@ -38,7 +39,6 @@ urlpatterns = [
     path("announcements/", include("apps.announcements.urls")),
     path("audit/", include("apps.audit.urls")),
     path("matching/", include("apps.matching_runtime.urls")),
-    path("integrations/", include("apps.integrations.urls")),
     path("certificates/", include("apps.certificates.urls")),
 
     # Services (auth, email, etc)

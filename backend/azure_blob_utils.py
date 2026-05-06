@@ -4,6 +4,7 @@ from azure.storage.blob import (
     generate_blob_sas,
     BlobSasPermissions
 )
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from django.conf import settings
 
 
@@ -15,10 +16,22 @@ def _get_container_client():
     return blob_service.get_container_client(settings.AZURE_CONTAINER)
 
 
+def _create_container_if_missing(container):
+    try:
+        container.create_container()
+    except ResourceExistsError:
+        pass
+
+
 def upload_file(local_path: str, blob_name: str):
     container = _get_container_client()
     with open(local_path, "rb") as data:
-        container.upload_blob(name=blob_name, data=data, overwrite=True)
+        try:
+            container.upload_blob(name=blob_name, data=data, overwrite=True)
+        except ResourceNotFoundError:
+            _create_container_if_missing(container)
+            data.seek(0)
+            container.upload_blob(name=blob_name, data=data, overwrite=True)
     return blob_name
 
 

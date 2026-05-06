@@ -21,7 +21,14 @@ class Events(models.Model):
     host_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     deleted_at = models.DateTimeField(default=None, blank=True, null=True)
     event_image = models.CharField(max_length=255, blank=True, null=True)
+    location_link = models.URLField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Zoom URL when is_virtual=True, Google Maps URL otherwise.",
+    )
     is_virtual = models.BooleanField(default=False)
+    reminder_sent = models.BooleanField(default=False)
 
     class Meta:
         db_table = "events"

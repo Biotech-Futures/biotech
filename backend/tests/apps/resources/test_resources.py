@@ -31,7 +31,7 @@ class RolesApiTests(TestCase):
     def test_roles_requires_auth(self):
         url = reverse("roles-list")
         resp = self.client.get(url)
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_roles_list_ok_and_ordered(self):
         self.client.force_authenticate(self.me)
@@ -277,7 +277,7 @@ class RoleAssignmentPatchApiTests(TestCase):
     def test_patch_requires_admin(self):
         # unauthenticated -> 401
         resp = self.client.patch(self._url(self.a.id), {"role_id": self.r_admin.id}, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # non-admin -> 403
         self.client.force_authenticate(self.non_admin)
@@ -1060,7 +1060,7 @@ class CreateRoleAPITests(TestCase):
         data = {"role_name": "new_role"}
 
         response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_role_non_admin_fails(self):
         """Test that non-admin users cannot create roles"""
@@ -1349,7 +1349,7 @@ class ResourceTypeAPITests(TestCase):
         data = {
             'name': 'Python Guide',
             'description': 'A comprehensive Python programming guide',
-            'resource_type_id': self.guide_type.id
+            'type_id': self.guide_type.id
         }
 
         response = self.client.post(url, data, format='json')
@@ -1361,7 +1361,7 @@ class ResourceTypeAPITests(TestCase):
 
         # Verify in database
         resource = Resources.objects.get(name='Python Guide')
-        self.assertEqual(resource.resource_type, self.guide_type)
+        self.assertEqual(resource.type, self.guide_type)
 
     def test_create_resource_without_type(self):
         """Test creating a resource without specifying type (should be null)"""
@@ -1379,7 +1379,7 @@ class ResourceTypeAPITests(TestCase):
 
         # Verify in database
         resource = Resources.objects.get(name='Untitled Resource')
-        self.assertIsNone(resource.resource_type)
+        self.assertIsNone(resource.type)
 
     def test_list_resources_includes_type(self):
         """Test that listing resources includes resource type information"""
@@ -1387,13 +1387,13 @@ class ResourceTypeAPITests(TestCase):
         Resources.objects.create(
             name='Video Tutorial',
             description='Video tutorial',
-            resource_type=self.video_type,
+            type=self.video_type,
             uploaded_by=self.admin_user
         )
         Resources.objects.create(
             name='PDF Document',
             description='PDF document',
-            resource_type=self.document_type,
+            type=self.document_type,
             uploaded_by=self.admin_user
         )
 
@@ -1416,13 +1416,13 @@ class ResourceTypeAPITests(TestCase):
         resource = Resources.objects.create(
             name='My Resource',
             description='A resource',
-            resource_type=self.document_type,
+            type=self.document_type,
             uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
         data = {
-            'resource_type_id': self.video_type.id
+            'type_id': self.video_type.id
         }
 
         response = self.client.patch(url, data, format='json')
@@ -1432,20 +1432,20 @@ class ResourceTypeAPITests(TestCase):
 
         # Verify in database
         resource.refresh_from_db()
-        self.assertEqual(resource.resource_type, self.video_type)
+        self.assertEqual(resource.type, self.video_type)
 
     def test_update_resource_type_to_null(self):
         """Test removing type from a resource"""
         resource = Resources.objects.create(
             name='My Resource',
             description='A resource',
-            resource_type=self.document_type,
+            type=self.document_type,
             uploaded_by=self.admin_user
         )
 
         url = reverse('resource-files-detail', kwargs={'pk': resource.id})
         data = {
-            'resource_type_id': None
+            'type_id': None
         }
 
         response = self.client.patch(url, data, format='json')
@@ -1455,7 +1455,7 @@ class ResourceTypeAPITests(TestCase):
 
         # Verify in database
         resource.refresh_from_db()
-        self.assertIsNone(resource.resource_type)
+        self.assertIsNone(resource.type)
 
     def test_create_resource_with_invalid_type_id(self):
         """Test error handling for invalid resource type ID"""
@@ -1463,7 +1463,7 @@ class ResourceTypeAPITests(TestCase):
         data = {
             'name': 'Test Resource',
             'description': 'A test resource',
-            'resource_type_id': 99999  # Non-existent ID
+            'type_id': 99999  # Non-existent ID
         }
 
         response = self.client.post(url, data, format='json')
@@ -1476,19 +1476,19 @@ class ResourceTypeAPITests(TestCase):
         Resources.objects.create(
             name='Video 1',
             description='Video',
-            resource_type=self.video_type,
+            type=self.video_type,
             uploaded_by=self.admin_user
         )
         Resources.objects.create(
             name='Video 2',
             description='Video',
-            resource_type=self.video_type,
+            type=self.video_type,
             uploaded_by=self.admin_user
         )
         Resources.objects.create(
             name='Document 1',
             description='Document',
-            resource_type=self.document_type,
+            type=self.document_type,
             uploaded_by=self.admin_user
         )
 
@@ -1507,7 +1507,7 @@ class ResourceTypeAPITests(TestCase):
         resource = Resources.objects.create(
             name='Test Resource',
             description='A test resource',
-            resource_type=self.template_type,
+            type=self.template_type,
             uploaded_by=self.admin_user
         )
 
@@ -1577,7 +1577,7 @@ class ResourceTypeIntegrationTests(TestCase):
             data = {
                 'name': name,
                 'description': description,
-                'resource_type_id': type_id
+                'type_id': type_id
             }
 
             response = self.client.post(url, data, format='json')
@@ -1585,10 +1585,10 @@ class ResourceTypeIntegrationTests(TestCase):
 
         # Verify all were created
         self.assertEqual(Resources.objects.count(), 4)
-        self.assertEqual(Resources.objects.filter(resource_type=self.guide_type).count(), 1)
-        self.assertEqual(Resources.objects.filter(resource_type=self.video_type).count(), 1)
-        self.assertEqual(Resources.objects.filter(resource_type=self.template_type).count(), 1)
-        self.assertEqual(Resources.objects.filter(resource_type=self.document_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(type=self.guide_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(type=self.video_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(type=self.template_type).count(), 1)
+        self.assertEqual(Resources.objects.filter(type=self.document_type).count(), 1)
 
     def test_resource_with_type_and_roles(self):
         """Test creating resource with both type and role visibility"""
@@ -1596,7 +1596,7 @@ class ResourceTypeIntegrationTests(TestCase):
         data = {
             'name': 'Advanced Python Guide',
             'description': 'Python guide for advanced users',
-            'resource_type_id': self.guide_type.id,
+            'type_id': self.guide_type.id,
             'role_ids': [self.supervisor_role.id]
         }
 

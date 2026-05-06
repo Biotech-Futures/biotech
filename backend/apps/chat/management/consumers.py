@@ -11,6 +11,8 @@ from decouple import config
 from apps.chat.models import MessageStatus, Messages
 from apps.chat.tasks import enqueue_process_chat_message_created
 from apps.groups.models import GroupMembership
+from apps.users.utils.roles import get_active_assignment
+from apps.chat.utils import sanitize_text
 
 MAX_MESSAGE_BODY_LENGTH = 2000
 TYPING_EVENT_DEBOUNCE_SECONDS = 1.0
@@ -53,6 +55,17 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         self.conversation_id = int(self.scope["url_route"]["kwargs"]["conversation_id"])
         self.room_group_name = f"conversation_{self.conversation_id}"
         self.legacy_room_group_name = f"group_{self.conversation_id}"
+        # Defensive parsing: the URL route kwarg may be missing, non-numeric,
+        # or otherwise malformed. We refuse the connection cleanly instead
+        # of letting an unhandled exception take the consumer down.
+        url_route = self.scope.get("url_route") or {}
+        raw_group_id = (url_route.get("kwargs") or {}).get("group_id")
+        try:
+            self.group_id = int(raw_group_id)
+        except (TypeError, ValueError):
+            await self.close(code=4400)
+            return
+        self.room_group_name = f"group_{self.group_id}"
 
         user = self.scope["user"]
         if not user.is_authenticated:
@@ -125,6 +138,22 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
 
         message_payload = await self._create_message(user_id, body)
+        # Defensive: a malformed client could send a JSON list / string /
+        # number. Reject anything that is not a dict before we try to
+        # call ``.get`` on it.
+        if not isinstance(content, dict):
+            return
+
+        raw_text = content.get("content")
+        # Sanitise transient broadcasts too, so the same moderation policy
+        # applies whether the message hits the DB via the REST endpoint or
+        # is just echoed across the websocket group.
+        text = sanitize_text(raw_text) if isinstance(raw_text, str) else raw_text
+
+        resource_ids = content.get("resource_ids", [])
+        if not isinstance(resource_ids, list):
+            resource_ids = []
+
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -167,6 +196,13 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 "payload": {
                     "type": "message.read",
                     **receipt_payload,
+                    "event": "client.message",
+                    "group_id": self.group_id,
+                    "message": {
+                        "text": text,
+                        "resource_ids": resource_ids,
+                        "sender_id": self.scope["user"].id,
+                    },
                 },
             },
         )

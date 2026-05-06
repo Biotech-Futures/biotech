@@ -1,0 +1,6 @@
+firstName,lastName,email,role,track,adminTracks,school,yearLevel,interests,institution,mentorReason,maxGroupCount,background,joinPermissionReceived,status
+Ava,Nguyen,ava.nguyen@example.com,student,[TEST] BioTech Alpha,,Sydney Girls High School,10,"Biotechnology, Data Science",,,,,yes,active
+Ben,Turner,ben.turner@example.com,student,[TEST] BioTech Alpha,,Melbourne High School,11,"Genetics, Robotics",,,,,no,inactive
+Mia,Chen,mia.chen@example.com,mentor,[TEST] BioTech Alpha,,,"","Biotechnology, Research",University of Sydney,"Interested in supporting student research projects",2,Research,,active
+Noah,Silva,noah.silva@example.com,supervisor,[TEST] BioTech Alpha,,Perth Modern School,,,,,,,active
+Liam,Taylor,liam.taylor2@example.com,admin,,"[TEST] BioTech Alpha",,,,,,,,,active

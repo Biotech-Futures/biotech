@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from .services import MENTOR_MEMBERSHIPS_ATTR
+
 
 class ProgressQuerySerializer(serializers.Serializer):
     group_id = serializers.IntegerField(required=False, allow_null=True)
@@ -17,10 +19,17 @@ class ProgressSnapshotSerializer(serializers.Serializer):
 class DashboardNextEventSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     event_name = serializers.CharField()
+    description = serializers.CharField(source='event_description', allow_null=True)
+    track = serializers.IntegerField(source='track_id', allow_null=True)
+    groups = serializers.ListField(child=serializers.IntegerField(), allow_empty=True, allow_null=True)
+    event_type = serializers.CharField(allow_null=True)
     start_datetime = serializers.DateTimeField()
+    ends_datetime = serializers.DateTimeField(allow_null=True)
     location = serializers.CharField(allow_null=True, allow_blank=True)
-    link = serializers.URLField(allow_null=True, allow_blank=True)
+    location_link = serializers.URLField(allow_null=True, allow_blank=True)
+    event_image = serializers.URLField(allow_null=True)
     is_virtual = serializers.BooleanField()
+    rsvp_status = serializers.CharField(allow_null=True)
 
 
 class DashboardSummarySerializer(serializers.Serializer):
@@ -28,22 +37,23 @@ class DashboardSummarySerializer(serializers.Serializer):
     stats = serializers.DictField()
 
 
-class DashboardGroupLeadUserSerializer(serializers.Serializer):
-    """Nested lead object for groups-preview; mirrors the dashboard API contract."""
+class DashboardLeadUserSerializer(serializers.Serializer):
+    """Compact projection of the mentor (lead) user embedded in the group preview."""
 
     id = serializers.IntegerField()
-    first_name = serializers.CharField(allow_blank=True)
-    last_name = serializers.CharField(allow_blank=True)
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
 
 
 class DashboardGroupPreviewSerializer(serializers.Serializer):
     """
-    Flattened, UI-specific projection for the dashboard Groups Preview widget.
+    Flattened, deeply-associated group projection used by the dashboard
+    groups-preview endpoint.
 
-    Relies on annotated attributes produced by
-    `apps.dashboard.services.get_groups_preview` so that member count and lead
-    user information are resolved at the database level (no Python-side
-    aggregation).
+    Backed by ``services.get_groups_preview`` which returns an annotated
+    queryset (``member_count`` annotation, mentor memberships prefetched
+    onto ``MENTOR_MEMBERSHIPS_ATTR``), so this serializer never triggers
+    extra queries per row.
     """
 
     group_id = serializers.IntegerField(source="id")
@@ -56,41 +66,30 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
     status = serializers.SerializerMethodField()
 
     @staticmethod
-    def _read(obj, attr, default=None):
-        if isinstance(obj, dict):
-            return obj.get(attr, default)
-        return getattr(obj, attr, default)
+    def _lead_user(group):
+        memberships = getattr(group, MENTOR_MEMBERSHIPS_ATTR, None) or []
+        return memberships[0].user if memberships else None
 
-    def get_lead_user(self, obj):
-        lead_user_id = self._read(obj, "lead_user_id")
-        if lead_user_id is None:
-            return None
-        return DashboardGroupLeadUserSerializer(
-            {
-                "id": lead_user_id,
-                "first_name": self._read(obj, "lead_first_name") or "",
-                "last_name": self._read(obj, "lead_last_name") or "",
-            }
-        ).data
+    def get_lead_user(self, group):
+        user = self._lead_user(group)
+        return DashboardLeadUserSerializer(user).data if user else None
 
-    def get_lead_name(self, obj):
-        if self._read(obj, "lead_user_id") is None:
-            return None
-        first = (self._read(obj, "lead_first_name") or "").strip()
-        last = (self._read(obj, "lead_last_name") or "").strip()
-        full = " ".join(part for part in (first, last) if part)
-        return full or None
+    def get_lead_name(self, group):
+        user = self._lead_user(group)
+        return (user.get_full_name() or user.email) if user else None
 
-    def get_status(self, obj):
-        return "active" if self._read(obj, "deleted_at") is None else "deleted"
+    def get_status(self, group):
+        if group.deleted_at is not None:
+            return "deleted"
+        return "active" if self._lead_user(group) else "inactive"
 
 
 class GroupsPreviewQuerySerializer(serializers.Serializer):
     """Validates query parameters for GET /dashboard/v1/groups-preview/"""
-    mine = serializers.BooleanField(default=False)
+    mine = serializers.BooleanField(required=False, default=False)
     track_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-    page = serializers.IntegerField(default=1, min_value=1)
-    page_size = serializers.IntegerField(default=20, min_value=1, max_value=100)
+    page = serializers.IntegerField(required=False, default=1, min_value=1)
+    page_size = serializers.IntegerField(required=False, default=20, min_value=1, max_value=100)
 
 
 class GroupsPreviewResponseSerializer(serializers.Serializer):

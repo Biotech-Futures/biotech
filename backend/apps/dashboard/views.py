@@ -1,3 +1,4 @@
+from django.core.paginator import Paginator
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status
 from rest_framework.decorators import action
@@ -5,8 +6,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.views import APIView
 
-from django.core.paginator import Paginator
-
+from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
 from .serializers import (
     DashboardGroupPreviewSerializer,
     DashboardNextEventSerializer,
@@ -16,13 +16,11 @@ from .serializers import (
     ProgressQuerySerializer,
     ProgressSnapshotSerializer,
 )
-
 from .services import (
     get_dashboard_summary,
     get_groups_preview,
     get_personalized_next_event,
 )
-from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
 
 
 class DashboardProgressView(APIView):
@@ -79,24 +77,25 @@ class GroupsPreviewView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(request=None, responses={200: DashboardGroupPreviewSerializer(many=True)})
     def get(self, request):
-        params = GroupsPreviewQuerySerializer(data=request.query_params)
-        params.is_valid(raise_exception=True)
-        p = params.validated_data
+        query_serializer = GroupsPreviewQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        params = query_serializer.validated_data
 
-        results = get_groups_preview(
+        queryset = get_groups_preview(
             user=request.user,
-            mine=p["mine"],
-            track_id=p.get("track_id"),
+            mine=params["mine"],
+            track_id=params.get("track_id"),
         )
 
-        paginator = Paginator(results, p["page_size"])
-        page = paginator.get_page(p["page"])
+        paginator = Paginator(queryset, params["page_size"])
+        page = paginator.get_page(params["page"])
 
-        response = GroupsPreviewResponseSerializer({
+        serializer = DashboardGroupPreviewSerializer(page.object_list, many=True)
+        return Response({
             "count": paginator.count,
-            "next": p["page"] + 1 if page.has_next() else None,
-            "previous": p["page"] - 1 if page.has_previous() else None,
-            "results": list(page.object_list),
+            "next": params["page"] + 1 if page.has_next() else None,
+            "previous": params["page"] - 1 if page.has_previous() else None,
+            "results": serializer.data,
         })
-        return Response(response.data)

@@ -1,9 +1,11 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import JsonResponse, HttpResponse
+from django.middleware.csrf import get_token
 from django.template.loader import render_to_string
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -16,6 +18,26 @@ from django.conf import settings
 from . import auth_service
 from apps.users.models import User
 from apps.user_sessions.models import UserSession
+from config.errors import (
+    AccountInactive,
+    EmailAndCodeRequired,
+    EmailRequired,
+    InvalidOrExpiredCode,
+    InvalidOrExpiredResetToken,
+    PasswordResetRateLimited,
+    TooManyFailedAttempts,
+    UserNotFound,
+    WeakPassword,
+)
+
+
+@ensure_csrf_cookie
+@require_http_methods(["GET"])
+def csrf_token_view(request):
+    """Return the CSRF token in the response body so cross-origin SPAs that
+    cannot read cookies via document.cookie can still attach X-CSRFToken
+    on subsequent unsafe requests."""
+    return JsonResponse({"csrfToken": get_token(request)})
 
 
 class SendLoginCodeRequestSerializer(serializers.Serializer):
@@ -62,13 +84,13 @@ class SendLoginCodeView(APIView):
         # edbert: Added redirect_url parameter to support frontend callback
         redirect_url = request.data.get("redirect_url")
         if not email:
-            return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+            raise EmailRequired()
 
         # edbert: Pass redirect_url to auth service
         sent = auth_service.send_login_code(email, redirect_url)
         if sent:
             return Response({"message": "Login code sent"}, status=status.HTTP_200_OK)
-        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        raise UserNotFound()
 
 
 class VerifyLoginCodeView(APIView):
@@ -86,23 +108,23 @@ class VerifyLoginCodeView(APIView):
         email = request.data.get("email")
         code = request.data.get("code")
         if not email or not code:
-            return Response({"error": "Email and code are required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            raise EmailAndCodeRequired()
+
         cache_key = f"otp_attempts:{email}"
         attempts = cache.get(cache_key, 0)
         if attempts >= 5:
-            return Response({"error": "Too many failed attempts. Try again in 5 minutes."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            raise TooManyFailedAttempts()
 
         valid = auth_service.verify_login_code(email, code)
         if not valid:
             cache.set(cache_key, attempts + 1, 300)
-            return Response({"error": "Invalid or expired code"}, status=status.HTTP_400_BAD_REQUEST)
+            raise InvalidOrExpiredCode()
 
-        # At this point user is authenticated 
+        # At this point user is authenticated
         user = User.objects.get(email=email)
-        
+
         if user.account_status in ['suspended', 'deactivated']:
-            return Response({"error": "Account is inactive."}, status=status.HTTP_403_FORBIDDEN)
+            raise AccountInactive()
             
         login(request, user)  # Creates session cookie
         cache.delete(cache_key)
@@ -120,38 +142,175 @@ class VerifyLoginCodeView(APIView):
             status=status.HTTP_200_OK,
         )
 
-def magic_login(request):
-    """Handle magic link authentication with Django sessions"""
-    email = request.GET.get("email")
-    code = request.GET.get("code")
+class MagicLoginView(APIView):
+    """Handle magic link authentication. Errors flow through custom_exception_handler;
+    success returns a 302 redirect to the frontend callback."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-    if not email or not code:
-        return JsonResponse({"error": "Missing email or code"}, status=400)
+    @extend_schema(
+        responses={
+            302: AuthMessageSerializer,
+            400: AuthMessageSerializer,
+            403: AuthMessageSerializer,
+        },
+    )
+    def get(self, request):
+        email = request.GET.get("email")
+        code = request.GET.get("code")
 
-    if not auth_service.verify_login_code(email, code):
-        return JsonResponse({"error": "Invalid or expired code"}, status=400)
+        if not email or not code:
+            raise EmailAndCodeRequired()
 
-    # User is authenticated 
-    user = User.objects.get(email=email)
-    
-    if user.account_status in ['suspended', 'deactivated']:
-        return JsonResponse({"error": "Account is inactive."}, status=403)
-        
-    login(request, user)  # Creates session cookie
+        if not auth_service.verify_login_code(email, code):
+            raise InvalidOrExpiredCode()
 
-    # Redirect to frontend - securely validate domain
-    redirect_url_param = request.GET.get("redirect_url")
-    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/#/auth/callback')
-    
-    if redirect_url_param:
-        parsed_url = urlparse(redirect_url_param)
-        allowed_domains = ['localhost', '127.0.0.1', 'biotechfutures.org']
-        if parsed_url.hostname in allowed_domains:
-            frontend_callback = redirect_url_param
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise InvalidOrExpiredCode()
 
-    redirect_url = f"{frontend_callback}?success=true&email={user.email}"
+        if user.account_status in ['suspended', 'deactivated']:
+            raise AccountInactive()
 
-    return redirect(redirect_url)
+        login(request, user)
+
+        redirect_url_param = request.GET.get("redirect_url")
+        frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
+        if redirect_url_param:
+            parsed_url = urlparse(redirect_url_param)
+            allowed_domains = ['localhost', '127.0.0.1', 'biotechfutures.org']
+            if parsed_url.hostname in allowed_domains:
+                frontend_callback = redirect_url_param
+
+        return redirect(f"{frontend_callback}?success=true&email={user.email}")
+
+
+# --- password reset --------------------------------------------------------
+
+# Rate-limit budgets. Keep stricter than login OTP since reset is higher-stakes.
+PWRESET_REQUEST_PER_EMAIL_LIMIT = 3
+PWRESET_REQUEST_PER_IP_LIMIT = 10
+PWRESET_REQUEST_WINDOW_SECONDS = 900       # 15 min
+PWRESET_CONFIRM_ATTEMPT_LIMIT = 5          # per token — catches accidental retries
+PWRESET_CONFIRM_PER_IP_LIMIT = 20          # per IP — caps brute force across many guessed tokens
+PWRESET_CONFIRM_WINDOW_SECONDS = 900       # 15 min
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=64)
+    new_password = serializers.CharField(write_only=True, max_length=256)
+
+
+class PasswordResetRequestView(APIView):
+    """POST /services/password-reset/request/ — always 200, never reveals if email exists."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        request=PasswordResetRequestSerializer,
+        responses={200: AuthMessageSerializer, 429: AuthMessageSerializer},
+    )
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].lower()
+        ip = _client_ip(request)
+
+        _check_request_throttle(email, ip)
+        _bump_request_counters(email, ip)
+
+        auth_service.send_password_reset(
+            email,
+            ip=ip,
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+        )
+        return Response(
+            {"message": "If an account exists for that email, a reset link has been sent."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """POST /services/password-reset/confirm/ — exchange token + new_password for a reset."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        request=PasswordResetConfirmSerializer,
+        responses={
+            200: AuthMessageSerializer,
+            400: AuthMessageSerializer,
+            429: AuthMessageSerializer,
+        },
+    )
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data["token"]
+        new_password = serializer.validated_data["new_password"]
+
+        ip = _client_ip(request)
+        attempt_key = _confirm_attempt_key(token)
+        ip_key = _confirm_ip_key(ip)
+        if cache.get(attempt_key, 0) >= PWRESET_CONFIRM_ATTEMPT_LIMIT:
+            raise PasswordResetRateLimited()
+        if cache.get(ip_key, 0) >= PWRESET_CONFIRM_PER_IP_LIMIT:
+            raise PasswordResetRateLimited()
+
+        try:
+            auth_service.confirm_password_reset(token=token, new_password=new_password)
+        except (InvalidOrExpiredResetToken, WeakPassword):
+            cache.set(attempt_key, cache.get(attempt_key, 0) + 1, PWRESET_CONFIRM_WINDOW_SECONDS)
+            cache.set(ip_key, cache.get(ip_key, 0) + 1, PWRESET_CONFIRM_WINDOW_SECONDS)
+            raise
+
+        cache.delete(attempt_key)
+        return Response(
+            {"message": "Password reset successful. Please log in with your new password."},
+            status=status.HTTP_200_OK,
+        )
+
+
+def _client_ip(request) -> str:
+    # X-Forwarded-For only safe when terminated by a trusted proxy (Azure Front Door / App Service)
+    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "") or ""
+
+
+def _check_request_throttle(email: str, ip: str) -> None:
+    if cache.get(_email_request_key(email), 0) >= PWRESET_REQUEST_PER_EMAIL_LIMIT:
+        raise PasswordResetRateLimited()
+    if cache.get(_ip_request_key(ip), 0) >= PWRESET_REQUEST_PER_IP_LIMIT:
+        raise PasswordResetRateLimited()
+
+
+def _bump_request_counters(email: str, ip: str) -> None:
+    e_key, i_key = _email_request_key(email), _ip_request_key(ip)
+    cache.set(e_key, cache.get(e_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
+    cache.set(i_key, cache.get(i_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
+
+
+def _email_request_key(email: str) -> str:
+    return f"pwreset_req_email:{email}"
+
+
+def _ip_request_key(ip: str) -> str:
+    return f"pwreset_req_ip:{ip}"
+
+
+def _confirm_attempt_key(token: str) -> str:
+    return f"pwreset_confirm:{token}"
+
+
+def _confirm_ip_key(ip: str) -> str:
+    return f"pwreset_confirm_ip:{ip}"
 
 
 class LogoutView(APIView):

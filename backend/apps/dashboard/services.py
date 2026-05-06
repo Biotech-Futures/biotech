@@ -1,10 +1,13 @@
-from django.db.models import Count, OuterRef, Prefetch, Q, Subquery
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack, Events
 from apps.groups.models import Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
+
+
+MENTOR_MEMBERSHIPS_ATTR = "_mentor_memberships"
 
 def _get_active_role_ids(user):
     now = timezone.now()
@@ -46,16 +49,23 @@ def _event_role_ids(event):
     return {target.role_id for target in getattr(event, "_dashboard_role_targets", [])}
 
 
-def _build_payload(event):
-    # Events.humanitix_link is the stored URL; the dashboard API still exposes it as "link"
-    # for DashboardNextEventSerializer and existing clients.
+def _build_payload(event, user_rsvp=None):
+    group_targets = _event_group_targets(event)
+
     return {
         "id": event.id,
         "event_name": event.event_name,
+        "event_description": getattr(event, 'description', None),
+        "track_id": event.track_id,
+        "groups": [t.group_id for t in group_targets] if group_targets else [],
+        "event_type": getattr(event, 'event_type', None),
         "start_datetime": event.start_datetime,
+        "ends_datetime": event.ends_datetime,
         "location": event.location,
-        "link": event.humanitix_link,
+        "location_link": event.location_link,
+        "event_image": getattr(event, 'event_image', None),
         "is_virtual": event.is_virtual,
+        "rsvp_status": user_rsvp.rsvp_status if user_rsvp else "pending",
     }
 
 
@@ -74,13 +84,14 @@ def _match_for_admin(event, admin_track_ids):
     if not is_platform_wide and not matching_group_targets and not matching_track_ids:
         return None
 
-    return _build_payload(event)
+    user_rsvp = _prefetched_user_rsvp(event)
+    return _build_payload(event, user_rsvp=user_rsvp)
 
 
 def _match_for_member(event, *, user_group_ids, user_track_ids, user_role_ids):
     user_rsvp = _prefetched_user_rsvp(event)
     if user_rsvp and user_rsvp.rsvp_status != EventRsvp.RsvpStatus.DECLINED:
-        return _build_payload(event)
+        return _build_payload(event, user_rsvp=user_rsvp)
 
     track_ids = _event_track_ids(event)
     group_targets = _event_group_targets(event)
@@ -99,7 +110,7 @@ def _match_for_member(event, *, user_group_ids, user_track_ids, user_role_ids):
     if user_rsvp and user_rsvp.rsvp_status == EventRsvp.RsvpStatus.DECLINED:
         return None
 
-    return _build_payload(event)
+    return _build_payload(event, user_rsvp=user_rsvp)
 
 
 def get_personalized_next_event(user):
@@ -173,62 +184,45 @@ def get_dashboard_summary(user):
         }
     }
 
-def get_groups_preview(user, mine=False, track_id=None):
+def get_groups_preview(*, user, mine=False, track_id=None):
     """
     Returns an annotated queryset of active groups scoped to the user.
 
-    The queryset is enriched via database-level annotations so that the
-    dashboard projection can be rendered without any Python-side aggregation:
+    Scoping is delegated to ``Groups.objects.for_user(user, mine=mine)``
+    so every consumer that needs "groups visible to this user" shares
+    one canonical implementation (DRY querysets). This service then
+    layers on the dashboard-specific projection: ``member_count``
+    annotation + a ``Prefetch`` that materialises mentor memberships
+    onto ``MENTOR_MEMBERSHIPS_ATTR``, so the caller can hand the
+    queryset directly to ``DashboardGroupPreviewSerializer`` without
+    iterating in Python.
 
-      * ``member_count`` — count of active memberships
-      * ``lead_user_id`` / ``lead_first_name`` / ``lead_last_name`` — the
-        first active mentor's user info (flattened via ``Subquery``)
-
-    Scoping:
-      * Admin without ``mine=True`` → all active groups in their track scope
-      * Admin with ``mine=True``    → only groups they are a member of
-      * Non-admin (any)             → only groups they are a member of
-
-    Optional ``track_id`` further filters results to a single track.
+    ``track_id`` (optional) further narrows the result to a single track.
     """
-
-    # One mentor per group for the preview: first active MENTOR by membership id (deterministic).
-    mentor_subquery = (
-        GroupMembership.objects.filter(
-            group_id=OuterRef("pk"),
-            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
-            left_at__isnull=True,
-        )
-        .select_related("user")
-        .order_by("id")
-    )
-
     qs = (
-        Groups.objects.filter(deleted_at__isnull=True)
+        Groups.objects.for_user(user, mine=mine)
         .select_related("track")
         .annotate(
             # Reverse relation default name from GroupMembership -> Groups.
             member_count=Count(
                 "groupmembership",
                 filter=Q(groupmembership__left_at__isnull=True),
-            ),
-            lead_user_id=Subquery(mentor_subquery.values("user_id")[:1]),
-            lead_first_name=Subquery(mentor_subquery.values("user__first_name")[:1]),
-            lead_last_name=Subquery(mentor_subquery.values("user__last_name")[:1]),
+            )
+        )
+        .prefetch_related(
+            Prefetch(
+                "groupmembership_set",
+                queryset=GroupMembership.objects.filter(
+                    membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+                    left_at__isnull=True,
+                )
+                .select_related("user")
+                .order_by("id"),
+                to_attr=MENTOR_MEMBERSHIPS_ATTR,
+            )
         )
         .order_by("group_name", "id")
     )
-
-    if is_operational_admin(user) and not mine:
-        admin_track_ids = get_admin_track_ids(user)
-        if admin_track_ids is not None:
-            qs = qs.filter(track_id__in=admin_track_ids)
-    else:
-        member_group_ids = GroupMembership.objects.filter(
-            user=user,
-            left_at__isnull=True,
-        ).values_list("group_id", flat=True)
-        qs = qs.filter(id__in=member_group_ids)
 
     if track_id is not None:
         qs = qs.filter(track_id=track_id)

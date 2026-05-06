@@ -3,16 +3,21 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import './assets/main.css'
-
-const app = createApp(App)
-const pinia = createPinia()
-
-app.use(pinia)
-app.use(router)
-
-// Optional: restore login state from local storage on first load
 import { useAuthStore } from './stores/auth'
-const auth = useAuthStore()
-auth.hydrate()
 
-app.mount('#app')
+const bootstrap = async () => {
+  const app = createApp(App)
+  const pinia = createPinia()
+
+  app.use(pinia)
+
+  const auth = useAuthStore()
+  await auth.initializeAuth()
+
+  app.use(router)
+  await router.isReady()
+
+  app.mount('#app')
+}
+
+bootstrap()

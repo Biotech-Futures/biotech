@@ -20,17 +20,29 @@ MEDIA_URL = "/media/"
 
 # Dev cookies
 SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_SAMESITE = "Lax"
 
 # Local frontend
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 # Dev callback
 MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"
+# Channels dev config
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}

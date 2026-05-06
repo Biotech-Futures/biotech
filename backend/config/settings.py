@@ -31,13 +31,13 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    'apps.admin.apps.AdminConfig',
     'apps.users',
     'apps.groups',
     'apps.chat',
     'apps.resources',
     'apps.announcements',
     'apps.audit',
-    'apps.integrations',
     'apps.dashboard',
     'apps.events',
     'apps.user_sessions',
@@ -60,7 +60,10 @@ INSTALLED_APPS = [
 AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME", default="")
 AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY", default="")
 AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
-AZURE_CUSTOM_DOMAIN = "btfuturesblobstorage.blob.core.windows.net"
+AZURE_CUSTOM_DOMAIN = config(
+    "AZURE_CUSTOM_DOMAIN",
+    default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
+)
 DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
 MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
 
@@ -119,6 +122,7 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
 }
 
 
@@ -205,6 +209,12 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BEAT_SCHEDULE = {
+    "send-event-rsvp-reminders-hourly": {
+        "task": "events.send_event_rsvp_reminders",
+        "schedule": 3600,  # every hour in seconds
+    },
+}
 
 # Email
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -213,34 +223,121 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+SUPPORT_EMAIL = config("SUPPORT_EMAIL", default="biotech.futures@sydney.edu.au")
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "[{asctime}] {levelname} {name} :: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+        "config": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
     default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
     cast=Csv()
 )
+
 CORS_ALLOW_CREDENTIALS = True
 
 SESSION_COOKIE_NAME = 'sessionid'
 SESSION_COOKIE_AGE = 86400
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SECURE = False
-SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'None'
 SESSION_COOKIE_DOMAIN = None
 SESSION_SAVE_EVERY_REQUEST = False
 
 CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
 CSRF_TRUSTED_ORIGINS = config(
     "CSRF_TRUSTED_ORIGINS",
-    default="http://localhost:5173,http://127.0.0.1:5173",
+    default="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
     cast=Csv()
 )
 
-MAGIC_LINK_REDIRECT_URL = config("MAGIC_LINK_REDIRECT_URL", default="http://localhost:5173/#/auth/callback")
-LOGIN_REDIRECT_URL = config("LOGIN_REDIRECT_URL", default="http://localhost:5173/auth/callback")
+FRONTEND_BASE_URL = config(
+    "FRONTEND_BASE_URL", default="http://localhost:5173"
+).rstrip("/")
+
+# Magic link still uses hash routing while the others use path routing —
+# unify in a follow-up once the SPA serves /auth/callback without a hash.
+MAGIC_LINK_REDIRECT_URL     = f"{FRONTEND_BASE_URL}/#/auth/callback"
+PASSWORD_RESET_REDIRECT_URL = f"{FRONTEND_BASE_URL}/auth/reset-password"
+
+# Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
+# when no ?next= is present. Keep it on a Django-side URL so an engineer who
+# types /admin/login/ directly lands on the admin dashboard, not the SPA.
+LOGIN_REDIRECT_URL = "/admin/"
+
+PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
+    "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
+)
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
-MAILTRAP_TOKEN = config("MAILTRAP_TOKEN", default="")
+
+# --- Chat sanitiser ----------------------------------------------------------
+# Sanitisation policy is sourced from environment variables so moderation
+# changes do not require a code deploy. See apps/chat/utils.py for the full
+# stem / whole-word grammar.
+#
+#   CHAT_SANITIZER_BLACKLIST    comma-separated entries. Each entry is one of:
+#                                 - a stem (trailing ``*``), e.g. ``fuck*`` —
+#                                   substring match with leet/spacing
+#                                   tolerance; catches ``fucker``, ``brainfuck``,
+#                                   ``f*ck``, ``fuuuck`` automatically.
+#                                 - a whole-word, e.g. ``hell`` — letter-
+#                                   boundary anchored, used for short letter
+#                                   sequences that occur as substrings of
+#                                   innocent words (``hello``, ``passive``).
+#   CHAT_SANITIZER_REPLACEMENT  replacement token, "***" by default.
+CHAT_SANITIZER_BLACKLIST = config(
+    "CHAT_SANITIZER_BLACKLIST",
+    default=(
+        # Stems (trailing "*" -> substring + leet-tolerant match).
+        "fuck*,shit*,dick*,bitch*,cock*,cunt*,prick*,"
+        "pussy*,nigger*,nigga*,faggot*,"
+        # Whole-words (no trailing "*" -> letter-boundary anchored).
+        "hell,damn,crap,piss,ass,asshole,arsehole,asshat,bastard,wanker,twat"
+    ),
+    cast=Csv(),
+)
+
+CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")

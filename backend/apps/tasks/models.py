@@ -1,29 +1,34 @@
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.db.models import Q
 from django.db.models import Count, Q
 
 
 class TaskQuerySet(models.QuerySet):
     def get_dashboard_tasks(self):
+        """Canonical dashboard-scoped Tasks queryset.
+
+        Returns active (non-soft-deleted) tasks with their milestone /
+        group joined via ``select_related`` and ``assignments``
+        prefetched, so any consumer that iterates rows avoids N+1.
+        Designed to be chained: callers add ``.filter(...)`` for group
+        scoping and then call ``.get_task_totals()`` for aggregates,
+        which keeps the query construction inside the data-access layer
+        per SRP.
+        """
         return (
             self.filter(deleted_at__isnull=True)
             .select_related("milestone", "milestone__group")
             .prefetch_related("assignments")
-            .values(
-                "milestone__id",
-                "milestone__milestone_name",
-                "milestone__group__id",
-            )
-            .annotate(
-                total_tasks=Count("id"),
-                completed_tasks=Count("id", filter=Q(completed=True)),
-            )
         )
 
     def get_task_totals(self):
-        from django.db.models import Count, Q
-        return self.filter(deleted_at__isnull=True).aggregate(
+        """Aggregate ``total_tasks`` / ``completed_tasks`` on the
+        current queryset. Chainable off ``get_dashboard_tasks()`` or any
+        other scoped queryset.
+        """
+        return self.aggregate(
             total_tasks=Count("id"),
             completed_tasks=Count("id", filter=Q(completed=True)),
         )
@@ -49,6 +54,7 @@ class Milestone(models.Model):
     class Meta:
         db_table = 'milestone'
         verbose_name = "Milestone"
+        ordering = ["id"]
         indexes = [
             models.Index(fields=['group']),
             models.Index(fields=['completed']),
@@ -96,6 +102,13 @@ class TaskAssignees(models.Model):
         return f"TaskAssignee: {self.user} assigned to {self.task} at {self.assigned_datetime}"
 
 
+class TaskStatus(models.TextChoices):
+    TODO = "todo", "To Do"
+    IN_PROGRESS = "in_progress", "In Progress"
+    DONE = "done", "Done"
+    BLOCKED = "blocked", "Blocked"
+
+
 class Tasks(models.Model):
     objects = TaskManager()
 
@@ -103,6 +116,7 @@ class Tasks(models.Model):
     due_date = models.DateTimeField()
     deleted_at = models.DateTimeField(null=True, blank=True)
     completed = models.BooleanField(default=False)
+    status = models.CharField(max_length=50, choices=TaskStatus.choices, default=TaskStatus.TODO)
     milestone = models.ForeignKey('Milestone', null=True, blank=True, on_delete=models.SET_NULL)
     task_description = models.CharField(max_length=255, blank=True, null=True)
 
