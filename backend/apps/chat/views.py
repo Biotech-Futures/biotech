@@ -15,10 +15,12 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from .contracts import build_chat_message_payload, build_reaction_summary
 from .management.permissions import CanModerateMessage, IsGroupMemberOrAdmin
-from .models import MessageAttachment, Messages
+from .models import MessageAttachment, MessageReaction, Messages
 from .serializers import (
     MessageAttachmentUploadSerializer,
+    MessageReactionToggleSerializer,
     MessageSerializer,
     MessageUpdateSerializer,
 )
@@ -38,6 +40,8 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == "upload":
             return MessageAttachmentUploadSerializer
+        if self.action == "react":
+            return MessageReactionToggleSerializer
         if self.action == "partial_update":
             return MessageUpdateSerializer
         return MessageSerializer
@@ -46,7 +50,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         return (
             Messages.objects.filter(deleted_at__isnull=True)
             .select_related("sender_user")
-            .prefetch_related("attachments", "resources__resource")
+            .prefetch_related("attachments", "resources__resource", "reactions", "statuses")
         )
 
     def get_queryset(self):
@@ -55,13 +59,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def _serialize_message(self, message):
         message = self._message_queryset().get(pk=message.pk)
-        data = MessageSerializer(message, context={"request": self.request}).data
-        # Keep legacy aliases in websocket payloads so the existing frontend and tests
-        # continue to understand message.created without a protocol migration.
-        data["sender_id"] = message.sender_user_id
-        data["text"] = data.get("message_text", "")
-        data["resource_ids"] = list(message.resources.values_list("resource_id", flat=True))
-        return data
+        return build_chat_message_payload(message, request=self.request)
 
     def _broadcast_payload(self, group_id, payload):
         channel_layer = get_channel_layer()
@@ -111,6 +109,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         payload = {
             "event": "message.created",
             "group_id": gid,
+            "conversation_id": gid,
             "message": self._serialize_message(msg),
         }
         self._broadcast_payload(gid, payload)
@@ -136,6 +135,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         payload = {
             "event": "message.created",
             "group_id": gid,
+            "conversation_id": gid,
             "message": self._serialize_message(message),
         }
         self._broadcast_payload(gid, payload)
@@ -153,6 +153,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             {
                 "event": "message.edited",
                 "group_id": instance.group_id,
+                "conversation_id": instance.group_id,
                 "message_id": instance.id,
                 "message_text": instance.message_text,
                 "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
@@ -170,10 +171,45 @@ class MessageViewSet(viewsets.ModelViewSet):
             {
                 "event": "message.deleted",
                 "group_id": instance.group_id,
+                "conversation_id": instance.group_id,
                 "message_id": instance.id,
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="react")
+    def react(self, request, *args, **kwargs):
+        message = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        emoji_string = serializer.validated_data["emoji_string"]
+
+        reaction, created = MessageReaction.objects.get_or_create(
+            message=message,
+            user=request.user,
+            emoji_string=emoji_string,
+        )
+        if not created:
+            reaction.delete()
+
+        message = self._message_queryset().get(pk=message.pk)
+        payload = {
+            "type": "message.reaction_updated",
+            "group_id": message.group_id,
+            "conversation_id": message.group_id,
+            "message_id": message.id,
+            "emoji_string": emoji_string,
+            "reactions": build_reaction_summary(message),
+            "updated_by": request.user.id,
+        }
+        self._broadcast_payload(message.group_id, payload)
+        return Response(
+            {
+                **payload,
+                "toggled_on": created,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(
         detail=True,

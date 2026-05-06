@@ -20,3 +20,9 @@ MIGRATION_MODULES = {
     'certificates': None,
     'announcements': None,
 }
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}

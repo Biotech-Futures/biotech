@@ -9,7 +9,13 @@ from rest_framework.reverse import reverse
 
 from apps.resources.models import Resources
 
-from .models import MessageAttachment, MessageResource, MessageStatus, Messages, MessageType
+from .models import (
+    MessageAttachment,
+    MessageResource,
+    MessageStatus,
+    Messages,
+    MessageType,
+)
 from .services.storage import save_uploaded_chat_file
 from .utils import sanitize_text
 
@@ -74,30 +80,62 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    sender_id = serializers.IntegerField(source="sender_user_id", read_only=True)
+    conversation_id = serializers.IntegerField(source="group_id", read_only=True)
+    created_at = serializers.DateTimeField(source="sent_at", read_only=True)
+    body = serializers.CharField(source="message_text", read_only=True)
+    text = serializers.CharField(source="message_text", read_only=True)
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    resource_ids = serializers.SerializerMethodField()
+    reactions = serializers.SerializerMethodField()
+    read_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
         fields = [
             "id",
             "group",
+            "conversation_id",
             "sender_user",
+            "sender_id",
             "sender_name",
             "message_text",
+            "text",
+            "body",
             "message_type",
             "sent_at",
+            "created_at",
             "edited_at",
             "deleted_at",
             "is_deleted",
             "is_edited",
             "attachments",
             "resources",
+            "resource_ids",
+            "reactions",
+            "read_by",
         ]
         read_only_fields = [
             "id", "group", "sender_user",
             "sent_at", "edited_at", "deleted_at",
         ]
+
+    def get_resource_ids(self, obj):
+        return [link.resource_id for link in obj.resources.all()]
+
+    def get_reactions(self, obj):
+        reactions = {}
+        for reaction in obj.reactions.all():
+            reactions[reaction.emoji_string] = reactions.get(reaction.emoji_string, 0) + 1
+        return reactions
+
+    def get_read_by(self, obj):
+        return sorted(
+            status.user_id
+            for status in obj.statuses.all()
+            if status.status == MessageStatus.StatusChoices.READ
+        )
 
     def create(self, validated_data):
         resources_data = validated_data.pop("resources", [])
@@ -141,6 +179,16 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
         )
         MessageAttachment.objects.create(message=message, **attachment_data)
         return message
+
+
+class MessageReactionToggleSerializer(serializers.Serializer):
+    emoji_string = serializers.CharField(max_length=64)
+
+    def validate_emoji_string(self, value):
+        emoji = (value or "").strip()
+        if not emoji:
+            raise serializers.ValidationError("emoji_string is required.")
+        return emoji
 
 
 class MessageUpdateSerializer(serializers.ModelSerializer):

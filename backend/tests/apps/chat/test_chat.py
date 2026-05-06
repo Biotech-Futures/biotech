@@ -20,7 +20,8 @@ try:
     HAS_CHANNELS_TESTING = True
 except ImportError:
     HAS_CHANNELS_TESTING = False
-from apps.chat.models import Messages
+from apps.chat.management.consumers import GroupChatConsumer
+from apps.chat.models import MessageReaction, MessageStatus, Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
@@ -127,6 +128,17 @@ class ChatFeatureTests(TestCase):
     def _detail_url(self, mid, group_id=None):
         gid = group_id or self.group.id
         return reverse("group-messages-detail", kwargs={"group_pk": gid, "pk": mid})
+
+    def _build_consumer(self, user):
+        consumer = GroupChatConsumer()
+        consumer.scope = {"user": user}
+        consumer.group_id = self.group.id
+        consumer.room_group_name = f"group_{self.group.id}"
+        consumer.channel_name = "test-channel"
+        consumer.channel_layer = MagicMock()
+        consumer.channel_layer.group_send = AsyncMock()
+        consumer._typing_started_last_sent_at = 0.0
+        return consumer
 
     # --------- tests ---------
 
@@ -398,6 +410,139 @@ class ChatFeatureTests(TestCase):
             )
         )
         self.assertEqual(download_response.status_code, 403)
+
+    def test_reaction_toggle_adds_new(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="react to me",
+        )
+        response = self.client_student.post(
+            reverse("group-messages-react", kwargs={"group_pk": self.group.id, "pk": message.id}),
+            {"emoji_string": "👍"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.data["message_id"], message.id)
+        self.assertEqual(response.data["reactions"]["👍"], 1)
+        self.assertTrue(response.data["toggled_on"])
+        self.assertTrue(
+            MessageReaction.objects.filter(
+                message=message,
+                user=self.student,
+                emoji_string="👍",
+            ).exists()
+        )
+
+    def test_reaction_toggle_removes_existing(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="toggle me",
+        )
+        url = reverse("group-messages-react", kwargs={"group_pk": self.group.id, "pk": message.id})
+
+        first_response = self.client_student.post(url, {"emoji_string": "❤️"}, format="json")
+        self.assertEqual(first_response.status_code, 200, first_response.content)
+        second_response = self.client_student.post(url, {"emoji_string": "❤️"}, format="json")
+        self.assertEqual(second_response.status_code, 200, second_response.content)
+        self.assertEqual(second_response.data["reactions"].get("❤️", 0), 0)
+        self.assertFalse(second_response.data["toggled_on"])
+        self.assertFalse(
+            MessageReaction.objects.filter(
+                message=message,
+                user=self.student,
+                emoji_string="❤️",
+            ).exists()
+        )
+
+    def test_message_list_includes_reactions_and_read_by(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="status payload",
+        )
+        MessageReaction.objects.create(message=message, user=self.student, emoji_string="👍")
+        MessageReaction.objects.create(message=message, user=self.mentor, emoji_string="👍")
+        status = MessageStatus.objects.create(
+            message=message,
+            user=self.mentor,
+            status=MessageStatus.StatusChoices.SENT,
+        )
+        status.mark_read()
+
+        response = self.client_student.get(self._list_url())
+        self.assertEqual(response.status_code, 200, response.content)
+        item = next(entry for entry in response.data["items"] if entry["id"] == message.id)
+        self.assertEqual(item["reactions"], {"👍": 2})
+        self.assertEqual(item["read_by"], [self.mentor.id])
+        self.assertEqual(item["conversation_id"], self.group.id)
+        self.assertEqual(item["body"], "status payload")
+        self.assertEqual(item["text"], "status payload")
+        self.assertEqual(item["sender_id"], self.student.id)
+
+    def test_consumer_message_send_persists_and_broadcasts(self):
+        consumer = self._build_consumer(self.student)
+
+        async_to_sync(consumer.receive_json)({"type": "message.send", "body": "hello socket"})
+
+        self.assertTrue(
+            Messages.objects.filter(
+                group=self.group,
+                sender_user=self.student,
+                message_text="hello socket",
+            ).exists()
+        )
+        consumer.channel_layer.group_send.assert_awaited_once()
+        group_name, envelope = consumer.channel_layer.group_send.call_args.args
+        self.assertEqual(group_name, f"group_{self.group.id}")
+        self.assertEqual(envelope["type"], "chat.message")
+        self.assertEqual(envelope["payload"]["event"], "message.created")
+        self.assertEqual(envelope["payload"]["message"]["body"], "hello socket")
+
+    def test_consumer_mark_read_uses_existing_payload_shape(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="mark me read",
+        )
+        consumer = self._build_consumer(self.mentor)
+
+        async_to_sync(consumer.receive_json)({
+            "action": "client.mark_read",
+            "message_ids": [message.id],
+        })
+
+        consumer.channel_layer.group_send.assert_awaited_once()
+        _, envelope = consumer.channel_layer.group_send.call_args.args
+        self.assertEqual(envelope["type"], "chat.message_read")
+        payload = envelope["payload"]
+        self.assertEqual(payload["type"], "message.read")
+        self.assertEqual(payload["message_ids"], [message.id])
+        self.assertEqual(payload["message_id"], message.id)
+        self.assertEqual(payload["read_by"], self.mentor.id)
+
+        status = MessageStatus.objects.get(message=message, user=self.mentor)
+        self.assertEqual(status.status, MessageStatus.StatusChoices.READ)
+        self.assertIsNotNone(status.read_at)
+
+    def test_consumer_typing_uses_existing_payload_shape(self):
+        consumer = self._build_consumer(self.student)
+
+        async_to_sync(consumer.receive_json)({
+            "action": "client.typing",
+            "status": "started",
+        })
+
+        consumer.channel_layer.group_send.assert_awaited_once()
+        _, envelope = consumer.channel_layer.group_send.call_args.args
+        self.assertEqual(envelope["type"], "chat.typing_event")
+        payload = envelope["payload"]
+        self.assertEqual(payload["type"], "typing.updated")
+        self.assertEqual(payload["status"], "started")
+        self.assertEqual(payload["group_id"], self.group.id)
+        self.assertEqual(payload["conversation_id"], self.group.id)
+        self.assertEqual(payload["user_id"], self.student.id)
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)

@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
+from urllib.parse import quote
 from decouple import config, Csv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,6 +13,12 @@ def env_bool(value):
     if value in {"0", "false", "f", "no", "n", "off", "release", "prod", "production", ""}:
         return False
     raise ValueError(f"Invalid truth value: {value}")
+
+
+def build_redis_url(*, host, port, db=0, password="", use_ssl=False):
+    scheme = "rediss" if use_ssl else "redis"
+    credentials = f":{quote(password)}@" if password else ""
+    return f"{scheme}://{credentials}{host}:{port}/{db}"
 
 SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-only-not-for-production")
 DEBUG = config("DEBUG", default="true", cast=env_bool)
@@ -70,6 +77,25 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
 AUTH_USER_MODEL = 'users.User'
+
+REDIS_HOST = config("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = config("REDIS_PORT", default=6379, cast=int)
+REDIS_PASSWORD = config("REDIS_PASSWORD", default="")
+REDIS_USE_SSL = config("REDIS_USE_SSL", default="false", cast=env_bool)
+REDIS_CHANNEL_DB = config("REDIS_CHANNEL_DB", default=0, cast=int)
+CHANNEL_REDIS_URL = config(
+    "CHANNEL_REDIS_URL",
+    default=config(
+        "REDIS_URL",
+        default=build_redis_url(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_CHANNEL_DB,
+            password=REDIS_PASSWORD,
+            use_ssl=REDIS_USE_SSL,
+        ),
+    ),
+)
 
 # REST Framework with Django Session Authentication
 REST_FRAMEWORK = {
@@ -169,7 +195,10 @@ SUPPORT_EMAIL = config("SUPPORT_EMAIL", default="biotech.futures@sydney.edu.au")
 
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [CHANNEL_REDIS_URL],
+        },
     }
 }
 
