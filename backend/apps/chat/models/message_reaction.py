@@ -3,6 +3,8 @@ from django.db import models
 
 
 class MessageReaction(models.Model):
+    # One row means one user selected one emoji on one message. Aggregate reaction counts are
+    # derived at read/broadcast time so the toggle endpoint can stay simple and idempotent.
     message = models.ForeignKey(
         "Messages",
         on_delete=models.CASCADE,

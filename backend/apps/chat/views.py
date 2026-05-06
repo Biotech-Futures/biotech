@@ -47,6 +47,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         return MessageSerializer
 
     def _message_queryset(self):
+        # Load the related chat state up front because the canonical message payload includes
+        # attachments, resource links, reactions, and read receipts in one response.
         return (
             Messages.objects.filter(deleted_at__isnull=True)
             .select_related("sender_user")
@@ -63,6 +65,8 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def _broadcast_payload(self, group_id, payload):
         channel_layer = get_channel_layer()
+        # HTTP-created messages broadcast through the same group channel the websocket consumer
+        # joins, so REST and socket-originated activity land in one live stream.
         async_to_sync(channel_layer.group_send)(
             f"group_{group_id}",
             {
@@ -106,6 +110,8 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
+        # Reuse the same event envelope as uploads so the frontend only needs one upsert path
+        # for persisted chat messages regardless of how they were created.
         payload = {
             "event": "message.created",
             "group_id": gid,
@@ -184,6 +190,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         emoji_string = serializer.validated_data["emoji_string"]
 
+        # The frontend treats reactions as a toggle per emoji, so repeated clicks from the same
+        # user add/remove the same row instead of creating duplicate reaction state.
         reaction, created = MessageReaction.objects.get_or_create(
             message=message,
             user=request.user,
@@ -199,6 +207,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             "conversation_id": message.group_id,
             "message_id": message.id,
             "emoji_string": emoji_string,
+            # Broadcast the authoritative aggregate map after the toggle so every client can
+            # reconcile its local reaction chips without reloading the whole message.
             "reactions": build_reaction_summary(message),
             "updated_by": request.user.id,
         }

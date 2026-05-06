@@ -29,6 +29,8 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4400)
             return
 
+        # Keep the stored group id as the single routing primitive even when the client uses
+        # the newer conversation-style socket alias.
         self.room_group_name = f"group_{self.group_id}"
         self._typing_started_last_sent_at = 0.0
 
@@ -62,6 +64,8 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             await self._send_error("not_participant", "You are not a participant in this conversation.")
             return
 
+        # Accept both the newer canonical event names and the older action/content payloads so
+        # existing clients can gain reactions/read receipts without a protocol cut-over.
         event_type = content.get("type")
         action = content.get("action")
 
@@ -179,6 +183,8 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         )
 
     async def _handle_legacy_client_message(self, content):
+        # This branch intentionally keeps the old ephemeral client.message echo for callers that
+        # still send raw content/resource_ids over the socket without persisting a message row.
         raw_text = content.get("content")
         text = sanitize_text(raw_text) if isinstance(raw_text, str) else raw_text
 
@@ -279,6 +285,8 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             sender_user_id=user_id,
             message_text=body,
         )
+        # Prefetch the related chat state once so build_chat_message_payload can emit the full
+        # frontend contract in a single websocket frame without N+1 lookups.
         message = Messages.objects.select_related("sender_user").prefetch_related(
             "attachments",
             "resources__resource",
@@ -302,6 +310,8 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         read_ids = []
         read_at = None
         for message in messages:
+            # Keep read receipts idempotent: a socket reconnect or duplicated event should update
+            # the existing per-user status row instead of creating parallel delivery state.
             status, _ = MessageStatus.objects.get_or_create(
                 message=message,
                 user_id=user_id,

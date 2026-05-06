@@ -80,6 +80,8 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    # These aliases preserve compatibility with both the older frontend message shape and the
+    # newer conversation-oriented socket payload shape.
     sender_id = serializers.IntegerField(source="sender_user_id", read_only=True)
     conversation_id = serializers.IntegerField(source="group_id", read_only=True)
     created_at = serializers.DateTimeField(source="sent_at", read_only=True)
@@ -125,6 +127,8 @@ class MessageSerializer(serializers.ModelSerializer):
         return [link.resource_id for link in obj.resources.all()]
 
     def get_reactions(self, obj):
+        # Keep reactions as a simple emoji->count map so clients do not need to understand the
+        # underlying row model when rendering chips or reconciling websocket updates.
         reactions = {}
         for reaction in obj.reactions.all():
             reactions[reaction.emoji_string] = reactions.get(reaction.emoji_string, 0) + 1
@@ -185,6 +189,8 @@ class MessageReactionToggleSerializer(serializers.Serializer):
     emoji_string = serializers.CharField(max_length=64)
 
     def validate_emoji_string(self, value):
+        # Reactions are sent one emoji at a time; normalization here keeps the toggle endpoint
+        # tolerant of whitespace without letting empty values through.
         emoji = (value or "").strip()
         if not emoji:
             raise serializers.ValidationError("emoji_string is required.")
