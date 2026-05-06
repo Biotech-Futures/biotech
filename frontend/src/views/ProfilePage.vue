@@ -81,6 +81,7 @@ import { computed, onMounted, ref } from 'vue'
 
 import { buildSessionHeaders } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
+import { apiErrorFromResponse } from '@/utils/apiError'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -155,12 +156,12 @@ async function loadTracks() {
     })
   })
 
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
   const text = await response.text()
   const data = text ? JSON.parse(text) : null
-
-  if (!response.ok) {
-    throw new Error(data?.detail || data?.error || `Request failed: ${response.status}`)
-  }
 
   const items = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : [])
   trackById.value = new Map(

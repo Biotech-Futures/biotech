@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
+import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -33,10 +34,6 @@ async function parseResponseJson(response: Response): Promise<any> {
   } catch {
     return null
   }
-}
-
-function resolveApiError(data: any, fallback: string): string {
-  return data?.detail || data?.error || data?.message || fallback
 }
 
 function resolveNormalizedRole(user: User | null): 'admin' | 'teacher' | 'student' {
@@ -182,12 +179,21 @@ export const useAuthStore = defineStore('auth', {
       const data = await parseResponseJson(response)
 
       if (!response.ok) {
-        throw new Error(resolveApiError(data, 'Email or password is incorrect.'))
+        throw new ApiError(
+          normalizeApiErrorBody(
+            data,
+            'Email or password is incorrect.',
+            response.headers.get('X-Request-ID') || undefined,
+            response.status
+          ),
+          response.status
+        )
       }
 
-      // Django rotates the CSRF token on login; drop the cached value so the next
-      // unsafe request fetches the rotated one.
+      // Django rotates the CSRF token on login; refresh the cached value before
+      // any immediate unsafe request can build headers from an empty cache.
       resetCsrfToken()
+      await ensureCsrfCookie(API_BASE_URL)
 
       const user = await this.fetchUserData()
       if (!user) {

@@ -550,6 +550,7 @@ import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/util
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
+import { apiErrorFromResponse } from '@/utils/apiError'
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
 import { useThemeStore } from '@/stores/theme'
 import { getAccentClass } from '@/utils/ui'
@@ -1299,16 +1300,16 @@ async function fetchJson(url, options = {}) {
     return null
   }
 
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
   const text = await response.text()
   let data = null
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     data = null
-  }
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`)
   }
 
   return data
