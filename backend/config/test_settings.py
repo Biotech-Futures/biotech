@@ -18,7 +18,5 @@ MIGRATION_MODULES = {
     'tasks': None,
     'workshops': None,
     'certificates': None,
-    'integrations': None,
     'announcements': None,
-    'emailing': None,
 }

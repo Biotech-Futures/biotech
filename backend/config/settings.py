@@ -31,7 +31,6 @@ INSTALLED_APPS = [
     'apps.resources',
     'apps.announcements',
     'apps.audit',
-    'apps.integrations',
     'apps.dashboard',
     'apps.events',
     'apps.user_sessions',
@@ -223,8 +222,19 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=Csv()
 )
 
-MAGIC_LINK_REDIRECT_URL = config("MAGIC_LINK_REDIRECT_URL", default="http://localhost:5173/#/auth/callback")
-LOGIN_REDIRECT_URL = config("LOGIN_REDIRECT_URL", default="http://localhost:5173/auth/callback")
+FRONTEND_BASE_URL = config(
+    "FRONTEND_BASE_URL", default="http://localhost:5173"
+).rstrip("/")
+
+# Magic link still uses hash routing while the others use path routing —
+# unify in a follow-up once the SPA serves /auth/callback without a hash.
+MAGIC_LINK_REDIRECT_URL     = f"{FRONTEND_BASE_URL}/#/auth/callback"
+LOGIN_REDIRECT_URL          = f"{FRONTEND_BASE_URL}/auth/callback"
+PASSWORD_RESET_REDIRECT_URL = f"{FRONTEND_BASE_URL}/auth/reset-password"
+
+PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
+    "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
+)
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
 MAILTRAP_TOKEN = config("MAILTRAP_TOKEN", default="")
 
