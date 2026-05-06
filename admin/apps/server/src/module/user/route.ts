@@ -18,7 +18,6 @@ import {
   updateStatus,
   deleteUser,
 } from "./service.js";
-import { queryStudents } from "./service/student.js";
 
 export const userRoute = new Hono();
 
@@ -28,17 +27,6 @@ userRoute.get("/", sValidator("query", queryUsersSchema), async (c) => {
   const result = await queryUsers(params);
   return c.json(result);
 });
-
-// GET /api/v1/user/students - List students with student-specific filters
-userRoute.get(
-  "/students",
-  sValidator("query", queryStudentsSchema),
-  async (c) => {
-    const params = c.req.valid("query");
-    const result = await queryStudents(params);
-    return c.json(result);
-  },
-);
 
 // GET /api/v1/user/tracks - List tracks available for filtering and assignment
 userRoute.get("/tracks", async (c) => {
