@@ -66,7 +66,6 @@ const normalizeDirectAuthRedirect = () => {
 
 normalizeDirectAuthRedirect()
 
-// 创建router实例
 const router = createRouter({
   history: createWebHashHistory(),
   routes: routes

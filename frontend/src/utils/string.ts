@@ -1,11 +1,7 @@
-// 从一段文本里提取首字母缩写  getInitials('Google Research') // 'GR'
+
 export function getInitials(text: string): string {
   if (!text) return 'GR'
 
-  // 转成字符串+去掉首尾空格+按空白字符拆分成单词数组+只取前两个单词
-  // String('abc')   // 'abc'
-  // '  Shiqi Fang  '.trim()   'Shiqi Fang'
-  // \s,表示空白字符,例如：空格,tab,换行; + 表示“一个或多个”:'Shiqi Fang'.split(/\s+/)   ['Shiqi', 'Fang']
   const words = String(text).trim().split(/\s+/).slice(0, 2)
 
   // ['Shiqi', 'Fang'].map(word => word[0])    ['S', 'F']

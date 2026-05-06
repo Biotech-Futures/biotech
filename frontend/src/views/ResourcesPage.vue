@@ -56,11 +56,9 @@
         class="resource-card"
         @click="openResource(resource)"
       >
-        <!-- 顶部封面（可编辑，admin 可见按钮） -->
         <div class="resource-banner" :style="bannerStyle(resource)">
           <i v-if="!resource.cover" :class="getResourceIcon(resource.type)" class="banner-icon"></i>
 
-          <!-- 管理员：变更封面 -->
           <button
             v-if="isAdmin"
             type="button"
@@ -71,7 +69,6 @@
             <i class="fas fa-image"></i>
           </button>
 
-          <!-- 管理员：移除封面 -->
           <button
             v-if="isAdmin && resource.cover"
             type="button"
@@ -83,7 +80,6 @@
             <i class="fas fa-trash"></i>
           </button>
 
-          <!-- 隐藏的文件选择器 -->
           <input
             type="file"
             accept="image/*"
@@ -95,7 +91,6 @@
 
         <div class="resource-content">
           <div class="resource-title">{{ resource.title }}</div>
-          <!-- 移除 Updated ...，仅保留类型 -->
           <div class="resource-meta">
             <span class="res-type">{{ prettyType(resource.type) }}</span>
           </div>
@@ -126,7 +121,6 @@ interface FrontendResource {
   cover?: string | null
 }
 
-// 资源数据（从 API 获取）
 const backendResources = ref<Resource[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -143,11 +137,9 @@ const resources = computed<FrontendResource[]>(() => {
   }))
 })
 
-/** Admin 权限（Pinia） */
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.isAdmin)
 
-// 搜索/筛选
 const searchQuery = ref('')
 const filters = ['All Resources', 'Documents', 'Videos', 'Templates', 'Guides'] as const
 type FilterOption = typeof filters[number]
@@ -193,7 +185,6 @@ const loadResources = async (): Promise<void> => {
   }
 }
 
-// 图标与类型显示
 const getResourceIcon = (type: ResourceTypeKey): string => {
   const iconMap: Record<'document' | 'video' | 'template' | 'guide', string> = {
     document: 'fas fa-file-alt',
@@ -219,12 +210,10 @@ const prettyType = (type: ResourceTypeKey): string => {
   return 'Resource'
 }
 
-// 打开资源（占位逻辑）
 const openResource = (resource: FrontendResource) => {
   alert(`Opening resource: ${resource.title}`)
 }
 
-// —— 封面图可编辑（仅 admin） —— //
 const coverInputs = new Map<number, HTMLInputElement>()
 const setCoverInputRef = (el: Element | ComponentPublicInstance | null, id: number) => {
   if (el instanceof HTMLInputElement) {
@@ -240,11 +229,11 @@ const onCoverPicked = (event: Event, res: FrontendResource) => {
   if (!file) return
   const reader = new FileReader()
   reader.onload = () => {
-    res.cover = String(reader.result) // dataURL 即时预览
+    res.cover = String(reader.result)
     try { localStorage.setItem(`resourceCover:${res.id}`, res.cover) } catch {}
   }
   reader.readAsDataURL(file)
-  input.value = '' // 清空，避免同图不触发 change
+  input.value = ''
 }
 
 const resetCover = (resource: FrontendResource) => {
@@ -252,7 +241,6 @@ const resetCover = (resource: FrontendResource) => {
   resource.cover = null
 }
 
-// 载入时恢复本地封面持久化并加载资源
 onMounted(async () => {
   await loadResources()
 
@@ -264,7 +252,6 @@ onMounted(async () => {
   })
 })
 
-// 横幅样式：有封面则显示图片，否则用品牌渐变
 const bannerStyle = (res: FrontendResource): string => {
   const base = 'height:120px; display:flex; align-items:center; justify-content:center; color:#fff;'
   if (res?.cover) {
@@ -330,7 +317,6 @@ const getAudienceClass = (role: Audience): string => {
   opacity: 0.95;
 }
 
-/* 编辑封面按钮（仅管理员可见） */
 .edit-cover-btn {
   position: absolute;
   right: 10px;
