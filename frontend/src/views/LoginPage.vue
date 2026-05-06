@@ -237,6 +237,12 @@
                       :required="loginMode === 'password'"
                     />
                   </div>
+
+                  <div class="forgot-password-row">
+                    <a href="/#/auth/reset-password" class="forgot-password-link">
+                      Forgot password?
+                    </a>
+                  </div>
                 </div>
 
                 <button
@@ -2514,6 +2520,24 @@ onBeforeUnmount(() => {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+.forgot-password-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.forgot-password-link {
+  color: var(--emerald-700);
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.forgot-password-link:hover,
+.forgot-password-link:focus-visible {
+  text-decoration: underline;
 }
 
 .field-label {
