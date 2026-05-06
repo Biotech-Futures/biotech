@@ -92,16 +92,16 @@ class ChatFeatureTests(TestCase):
         
         # --- resources ---
         self.res1 = Resources.objects.create(
-            resource_name="R1",
-            resource_description="d1",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(minutes=1),
+            name="R1",
+            description="d1",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(minutes=1),
         )
         self.res2 = Resources.objects.create(
-            resource_name="R2",
-            resource_description="d2",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(minutes=1),
+            name="R2",
+            description="d2",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(minutes=1),
         )
 
         # API clients
