@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -185,6 +185,10 @@ export const useAuthStore = defineStore('auth', {
         throw new Error(resolveApiError(data, 'Email or password is incorrect.'))
       }
 
+      // Django rotates the CSRF token on login; drop the cached value so the next
+      // unsafe request fetches the rotated one.
+      resetCsrfToken()
+
       const user = await this.fetchUserData()
       if (!user) {
         throw new Error('Login succeeded, but the current user profile could not be loaded.')
@@ -220,6 +224,7 @@ export const useAuthStore = defineStore('auth', {
         this.user = null
         this.initialized = true
         clearAuthTokens()
+        resetCsrfToken()
 
         try {
           localStorage.removeItem('auth.user')
