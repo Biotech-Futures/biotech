@@ -185,9 +185,10 @@ export const useAuthStore = defineStore('auth', {
         throw new Error(resolveApiError(data, 'Email or password is incorrect.'))
       }
 
-      // Django rotates the CSRF token on login; drop the cached value so the next
-      // unsafe request fetches the rotated one.
+      // Django rotates the CSRF token on login; refresh the cached value before
+      // any immediate unsafe request can build headers from an empty cache.
       resetCsrfToken()
+      await ensureCsrfCookie(API_BASE_URL)
 
       const user = await this.fetchUserData()
       if (!user) {

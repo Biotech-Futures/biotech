@@ -275,7 +275,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { buildSessionHeaders } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 
 const route = useRoute()
 const router = useRouter()
@@ -437,11 +437,21 @@ const buildChatWebSocketUrl = (groupId) => {
 
 const requestJson = async (url, options = {}) => {
   const isFormData = options.body instanceof FormData
+  const method = String(options.method || 'GET').toUpperCase()
+  const shouldIncludeCSRF = !['GET', 'HEAD', 'OPTIONS'].includes(method)
+
+  if (shouldIncludeCSRF) {
+    const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+    if (!csrfReady) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+  }
+
   const response = await fetch(url, {
     credentials: 'include',
     ...options,
     headers: buildSessionHeaders({
-      includeCSRF: options.method && options.method !== 'GET',
+      includeCSRF: shouldIncludeCSRF,
       isFormData,
       headers: {
         Accept: 'application/json',

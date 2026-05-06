@@ -370,7 +370,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
-import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
   LOGIN_LANGUAGE_KEY,
@@ -667,9 +667,7 @@ const credentialStepLabel = computed(() => isPasswordLoginMode.value ? t('passwo
 const loginActionLabel = computed(() => isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode'))
 const emailStepHelper = computed(() => isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'))
 
-/*
-  Hero showcase metrics.
-*/
+
 const resetPointerVariables = (element) => {
   if (!element) {
     return
@@ -688,8 +686,6 @@ const updatePointerVariables = (element, clientX, clientY) => {
     return
   }
 
-  // 获取矩形信息对象，包含：rect.left这个元素离浏览器左边多远，
-  // rect.top离顶部多远,rect.width宽多少,rect.height高多少
   const rect = element.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
@@ -1134,6 +1130,9 @@ const verifyOTP = async () => {
       await triggerOtpErrorFeedback()
       return
     }
+
+    resetCsrfToken()
+    await ensureCsrfCookie(API_BASE_URL)
 
     await auth.fetchUserData()
 
