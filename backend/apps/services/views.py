@@ -28,7 +28,6 @@ from config.errors import (
     TooManyFailedAttempts,
     UserNotFound,
     WeakPassword,
-    error_json_response,
 )
 
 
@@ -143,38 +142,48 @@ class VerifyLoginCodeView(APIView):
             status=status.HTTP_200_OK,
         )
 
-def magic_login(request):
-    """Handle magic link authentication with Django sessions"""
-    email = request.GET.get("email")
-    code = request.GET.get("code")
+class MagicLoginView(APIView):
+    """Handle magic link authentication. Errors flow through custom_exception_handler;
+    success returns a 302 redirect to the frontend callback."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-    if not email or not code:
-        return error_json_response(EmailAndCodeRequired)
+    @extend_schema(
+        responses={
+            302: AuthMessageSerializer,
+            400: AuthMessageSerializer,
+            403: AuthMessageSerializer,
+        },
+    )
+    def get(self, request):
+        email = request.GET.get("email")
+        code = request.GET.get("code")
 
-    if not auth_service.verify_login_code(email, code):
-        return error_json_response(InvalidOrExpiredCode)
+        if not email or not code:
+            raise EmailAndCodeRequired()
 
-    # User is authenticated
-    user = User.objects.get(email=email)
+        if not auth_service.verify_login_code(email, code):
+            raise InvalidOrExpiredCode()
 
-    if user.account_status in ['suspended', 'deactivated']:
-        return error_json_response(AccountInactive)
-        
-    login(request, user)  # Creates session cookie
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise InvalidOrExpiredCode()
 
-    # Redirect to frontend - securely validate domain
-    redirect_url_param = request.GET.get("redirect_url")
-    frontend_callback = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/#/auth/callback')
-    
-    if redirect_url_param:
-        parsed_url = urlparse(redirect_url_param)
-        allowed_domains = ['localhost', '127.0.0.1', 'biotechfutures.org']
-        if parsed_url.hostname in allowed_domains:
-            frontend_callback = redirect_url_param
+        if user.account_status in ['suspended', 'deactivated']:
+            raise AccountInactive()
 
-    redirect_url = f"{frontend_callback}?success=true&email={user.email}"
+        login(request, user)
 
-    return redirect(redirect_url)
+        redirect_url_param = request.GET.get("redirect_url")
+        frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
+        if redirect_url_param:
+            parsed_url = urlparse(redirect_url_param)
+            allowed_domains = ['localhost', '127.0.0.1', 'biotechfutures.org']
+            if parsed_url.hostname in allowed_domains:
+                frontend_callback = redirect_url_param
+
+        return redirect(f"{frontend_callback}?success=true&email={user.email}")
 
 
 # --- password reset --------------------------------------------------------
