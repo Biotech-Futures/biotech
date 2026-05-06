@@ -18,7 +18,7 @@ class GroupMemberDict(TypedDict):
     name: str
     email: str
     role: str  # "student" or "mentor"
-    membership_id: Optional[int]
+    membershipId: Optional[int]
 
 
 class GroupSenderDict(TypedDict):
@@ -43,8 +43,8 @@ class GroupDict(TypedDict):
     track: str
     members: List[GroupMemberDict]
     mentor: Optional[GroupMemberDict]
-    created_at: str
-    updated_at: str
+    createdAt: str
+    updatedAt: str
 
 
 class GroupBaseRow(TypedDict):
@@ -113,7 +113,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "name": f"{user.first_name} {user.last_name}".strip(),
             "email": user.email,
             "role": role,
-            "membership_id": membership.id,
+            "membershipId": membership.id,
         }
         
         if role == "mentor":
@@ -133,8 +133,8 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "track": row["track"],
             "members": members_by_group_id.get(group_id, []),
             "mentor": mentor_by_group_id.get(group_id, None),
-            "created_at": row["created_at"].isoformat(),
-            "updated_at": row["created_at"].isoformat(),
+            "createdAt": row["created_at"].isoformat(),
+            "updatedAt": row["created_at"].isoformat(),
         })
     
     return result
