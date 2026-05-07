@@ -1,4 +1,5 @@
 import { buildSessionHeaders } from './csrf'
+import { apiErrorFromResponse } from './apiError'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -31,7 +32,7 @@ export const fetchEvents = async (): Promise<BackendEvent[] | EventListResponse>
   })
 
   if (!res.ok) {
-    throw new Error('Failed to fetch events')
+    throw await apiErrorFromResponse(res, 'Failed to fetch events')
   }
 
   return res.json()

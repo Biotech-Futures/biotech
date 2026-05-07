@@ -3,8 +3,6 @@
     <header
       class="header"
       v-if="!isLoginPage"
-      @pointermove="handleHeaderPointerMove"
-      @pointerleave="resetHeaderPointer"
     >
       <div class="header-ribbon-stage" aria-hidden="true">
         <svg
@@ -417,7 +415,7 @@ interface SearchPayload {
   scope: 'all' | 'groups' | 'events' | 'announcements' | 'resources'
 }
 
-const isLoginPage = computed(() => route.path === '/login')
+const isLoginPage = computed(() => ['/login', '/auth/callback', '/auth/reset-password'].includes(route.path))
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
@@ -473,30 +471,6 @@ const submitSearch = () => {
 const clearSearch = () => {
   searchQuery.value = ''
   focusSearch()
-}
-
-const handleHeaderPointerMove = (event: PointerEvent) => {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) return
-
-  const rect = target.getBoundingClientRect()
-  const x = (event.clientX - rect.left) / rect.width
-  const y = (event.clientY - rect.top) / rect.height
-
-  target.style.setProperty('--header-pointer-x', `${x}`)
-  target.style.setProperty('--header-pointer-y', `${y}`)
-  target.style.setProperty('--header-glow-x', `${event.clientX - rect.left}px`)
-  target.style.setProperty('--header-glow-y', `${event.clientY - rect.top}px`)
-}
-
-const resetHeaderPointer = (event: PointerEvent) => {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) return
-
-  target.style.setProperty('--header-pointer-x', '0.5')
-  target.style.setProperty('--header-pointer-y', '0.5')
-  target.style.setProperty('--header-glow-x', '50%')
-  target.style.setProperty('--header-glow-y', '50%')
 }
 
 const handleSidebarLinkPointerMove = (event: PointerEvent) => {
@@ -902,28 +876,13 @@ select {
 }
 
 .header {
-  --header-pointer-x: 0.5;
-  --header-pointer-y: 0.5;
-  --header-glow-x: 50%;
-  --header-glow-y: 50%;
   position: sticky;
   top: 0;
   z-index: 24;
   overflow: hidden;
   backdrop-filter: blur(20px) saturate(135%);
   -webkit-backdrop-filter: blur(20px) saturate(135%);
-  background:
-    radial-gradient(
-      440px circle at var(--header-glow-x) var(--header-glow-y),
-      rgba(214, 229, 255, 0.12) 0%,
-      rgba(182, 229, 208, 0.08) 18%,
-      transparent 58%
-    ),
-    linear-gradient(
-      180deg,
-      rgba(14, 23, 20, 0.96) 0%,
-      rgba(11, 19, 17, 0.96) 100%
-    );
+  background: linear-gradient(180deg, rgba(14, 23, 20, 0.96) 0%, rgba(11, 19, 17, 0.96) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
     0 18px 44px rgba(7, 13, 12, 0.18),
@@ -978,10 +937,6 @@ select {
   height: 100%;
   width: auto;
   min-width: 48%;
-  transform:
-    translateX(calc((var(--header-pointer-x) - 0.5) * 26px))
-    translateY(calc((var(--header-pointer-y) - 0.5) * 12px));
-  transition: transform 220ms ease;
   overflow: visible;
 }
 
@@ -997,14 +952,12 @@ select {
   opacity: 0.34;
   filter: url(#headerRibbonBlur);
   stroke-dasharray: 320 40 180 54;
-  animation: ribbonDriftA 18s linear infinite;
 }
 
 .ribbon-front {
   stroke-width: 6.5;
   opacity: 0.82;
   stroke-dasharray: 220 32 120 28;
-  animation: ribbonDriftB 14s linear infinite;
 }
 
 .header-content {
@@ -2110,14 +2063,7 @@ select {
 }
 
 .is-night-mode .header {
-  background:
-    radial-gradient(
-      440px circle at var(--header-glow-x) var(--header-glow-y),
-      rgba(100, 220, 140, 0.08) 0%,
-      rgba(80, 200, 160, 0.05) 18%,
-      transparent 58%
-    ),
-    linear-gradient(180deg, rgba(7, 18, 14, 0.97) 0%, rgba(5, 14, 10, 0.97) 100%);
+  background: linear-gradient(180deg, rgba(7, 18, 14, 0.97) 0%, rgba(5, 14, 10, 0.97) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
@@ -2412,14 +2358,7 @@ select {
 }
 
 .is-day-mode .header {
-  background:
-    radial-gradient(
-      440px circle at var(--header-glow-x) var(--header-glow-y),
-      rgba(140, 200, 80, 0.16) 0%,
-      rgba(100, 180, 100, 0.10) 22%,
-      transparent 58%
-    ),
-    linear-gradient(180deg, rgba(216, 234, 196, 0.99) 0%, rgba(202, 220, 178, 0.99) 100%);
+  background: linear-gradient(180deg, rgba(216, 234, 196, 0.99) 0%, rgba(202, 220, 178, 0.99) 100%);
   border-bottom: 1px solid rgba(100, 150, 50, 0.22);
   box-shadow:
     0 12px 32px rgba(60, 110, 20, 0.13),
@@ -2533,36 +2472,6 @@ select {
 .is-day-mode .calendar-overlay {
   background: linear-gradient(180deg, rgba(196, 222, 162, 0.97) 0%, rgba(180, 208, 146, 0.99) 100%);
   border-color: rgba(100, 150, 50, 0.20);
-}
-
-@keyframes ribbonDriftA {
-  0% {
-    stroke-dashoffset: 0;
-    transform: translateX(0);
-  }
-  50% {
-    stroke-dashoffset: -180;
-    transform: translateX(-10px);
-  }
-  100% {
-    stroke-dashoffset: -360;
-    transform: translateX(0);
-  }
-}
-
-@keyframes ribbonDriftB {
-  0% {
-    stroke-dashoffset: 0;
-    transform: translateX(0);
-  }
-  50% {
-    stroke-dashoffset: 160;
-    transform: translateX(12px);
-  }
-  100% {
-    stroke-dashoffset: 320;
-    transform: translateX(0);
-  }
 }
 
 @media (max-width: 1024px) {
