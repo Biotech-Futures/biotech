@@ -10,6 +10,7 @@ from django.db import transaction
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
+from apps.admin.scope_utils import get_admin_track_ids
 
 
 # Type definitions
@@ -18,7 +19,7 @@ class GroupMemberDict(TypedDict):
     name: str
     email: str
     role: str  # "student" or "mentor"
-    membership_id: Optional[int]
+    membershipId: Optional[int]
 
 
 class GroupSenderDict(TypedDict):
@@ -43,8 +44,8 @@ class GroupDict(TypedDict):
     track: str
     members: List[GroupMemberDict]
     mentor: Optional[GroupMemberDict]
-    created_at: str
-    updated_at: str
+    createdAt: str
+    updatedAt: str
 
 
 class GroupBaseRow(TypedDict):
@@ -113,7 +114,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "name": f"{user.first_name} {user.last_name}".strip(),
             "email": user.email,
             "role": role,
-            "membership_id": membership.id,
+            "membershipId": membership.id,
         }
         
         if role == "mentor":
@@ -133,8 +134,8 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "track": row["track"],
             "members": members_by_group_id.get(group_id, []),
             "mentor": mentor_by_group_id.get(group_id, None),
-            "created_at": row["created_at"].isoformat(),
-            "updated_at": row["created_at"].isoformat(),
+            "createdAt": row["created_at"].isoformat(),
+            "updatedAt": row["created_at"].isoformat(),
         })
     
     return result
@@ -231,6 +232,7 @@ def query_groups(
     search_group: Optional[str] = None,
     track: Optional[str] = None,
     mentor_status: Optional[str] = None,
+    requesting_user=None,
 ) -> dict:
     """
     Query groups with pagination and filtering.
@@ -248,7 +250,11 @@ def query_groups(
     """
     offset = (page - 1) * limit
     where = _build_group_where(search_name, search_group, track, mentor_status)
-    
+
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
+
     # Get total count
     total = Groups.objects.filter(where).count()
     

@@ -8,9 +8,10 @@ from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile
 from apps.chat.models import Messages
 from apps.users.models import UserInterest, AreasOfInterest
+from apps.admin.scope_utils import get_admin_track_ids
 
 
-def get_mentor_list() -> List[Dict[str, Any]]:
+def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
     """
     Fetch all mentors with their assignment counts, certificates, interests, and last message info.
     
@@ -32,9 +33,12 @@ def get_mentor_list() -> List[Dict[str, Any]]:
     }
     
     # 2. Fetch all mentor base info
+    mentor_qs = MentorProfile.objects.select_related('user', 'user__track')
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        mentor_qs = mentor_qs.filter(Q(user__track_id__in=track_ids) | Q(user__track__isnull=True))
     mentor_rows = (
-        MentorProfile.objects
-        .select_related('user', 'user__track')
+        mentor_qs
         .values(
             'institution',
             'user_id',

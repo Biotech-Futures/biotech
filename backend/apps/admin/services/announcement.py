@@ -13,6 +13,7 @@ from apps.announcements.models import Announcement, AnnouncementAudience
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks
 from apps.users.models import User
+from apps.admin.scope_utils import get_admin_track_ids
 
 
 # Type definitions
@@ -252,7 +253,7 @@ def _fetch_announcement(announcement_id: int) -> Optional[Dict[str, Any]]:
     }
 
 
-def list_announcements(params: QueryAnnouncementsInput) -> Dict[str, Any]:
+def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) -> Dict[str, Any]:
     """
     List announcements with filtering and pagination.
     
@@ -281,7 +282,11 @@ def list_announcements(params: QueryAnnouncementsInput) -> Dict[str, Any]:
         queryset = queryset.filter(archived_at__isnull=False)
     else:  # archived is False or None
         queryset = queryset.filter(archived_at__isnull=True)
-    
+
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
+
     # Get total count
     total = queryset.count()
     
@@ -529,14 +534,13 @@ def send_announcement_email(announcement_id: int) -> Dict[str, Any]:
     return {"msg": "Email sent successfully", "sent": len(emails)}
 
 
-def list_announcement_tracks() -> Dict[str, Any]:
+def list_announcement_tracks(requesting_user=None) -> Dict[str, Any]:
     """Get all tracks for announcement reference data."""
-    tracks = list(
-        Tracks.objects
-        .all()
-        .order_by("track_name")
-        .values("id", name=F("track_name"))
-    )
+    qs = Tracks.objects.all()
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        qs = qs.filter(id__in=track_ids)
+    tracks = list(qs.order_by("track_name").values("id", name=F("track_name")))
     return {"msg": "Tracks retrieved successfully", "data": tracks}
 
 

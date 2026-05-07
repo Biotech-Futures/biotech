@@ -9,6 +9,7 @@ from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetR
 from apps.groups.models import Groups, Tracks
 from apps.resources.models import Roles
 from apps.users.models import User
+from apps.admin.scope_utils import get_admin_track_ids
 
 
 # Type definitions
@@ -99,12 +100,13 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def query_events(params: QueryEventsInput) -> PaginatedEventResponse:
+def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEventResponse:
     """
     Query events with pagination and filtering.
 
     Args:
         params: Dictionary with page, limit, host_user_id, and upcoming filters
+        requesting_user: The admin user making the request (for scope filtering)
 
     Returns:
         Dictionary with events list, total count, and pagination info
@@ -125,6 +127,10 @@ def query_events(params: QueryEventsInput) -> PaginatedEventResponse:
     if upcoming:
         now = timezone.now()
         queryset = queryset.filter(start_datetime__gte=now)
+
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     # Get total count
     total = queryset.count()
@@ -507,14 +513,13 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
 
 # ── Reference data ────────────────────────────────────────────────────────────
 
-def query_groups() -> Dict[str, Any]:
+def query_groups(requesting_user=None) -> Dict[str, Any]:
     """Get all groups for reference data."""
-    groups = list(
-        Groups.objects
-        .filter(deleted_at__isnull=True)
-        .order_by("id")
-        .values("id", "group_name")
-    )
+    qs = Groups.objects.filter(deleted_at__isnull=True)
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        qs = qs.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
+    groups = list(qs.order_by("id").values("id", "group_name"))
     return {
         "msg": "Groups retrieved successfully",
         "data": [{"id": g["id"], "groupName": g["group_name"]} for g in groups],
@@ -535,14 +540,13 @@ def query_roles() -> Dict[str, Any]:
     }
 
 
-def query_tracks() -> Dict[str, Any]:
+def query_tracks(requesting_user=None) -> Dict[str, Any]:
     """Get all tracks for reference data."""
-    tracks = list(
-        Tracks.objects
-        .all()
-        .order_by("id")
-        .values("id", "track_name")
-    )
+    qs = Tracks.objects.all()
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        qs = qs.filter(id__in=track_ids)
+    tracks = list(qs.order_by("id").values("id", "track_name"))
     return {
         "msg": "Tracks retrieved successfully",
         "data": [{"id": t["id"], "trackName": t["track_name"]} for t in tracks],

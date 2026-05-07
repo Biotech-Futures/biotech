@@ -4,28 +4,1381 @@ info:
   version: 1.0.0
   description: API Documentation for the New BIOTech Futures Mentoring Platform
 paths:
+  /announcements/v1/:
+    get:
+      operationId: announcements_v1_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - announcements
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAnnouncementList'
+          description: ''
+    post:
+      operationId: announcements_v1_create
+      tags:
+      - announcements
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+          description: ''
+  /announcements/v1/{id}/:
+    get:
+      operationId: announcements_v1_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this announcement.
+        required: true
+      tags:
+      - announcements
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+          description: ''
+    put:
+      operationId: announcements_v1_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this announcement.
+        required: true
+      tags:
+      - announcements
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+          description: ''
+    patch:
+      operationId: announcements_v1_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this announcement.
+        required: true
+      tags:
+      - announcements
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAnnouncement'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAnnouncement'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAnnouncement'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Announcement'
+          description: ''
+    delete:
+      operationId: announcements_v1_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this announcement.
+        required: true
+      tags:
+      - announcements
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/announcement/:
+    get:
+      operationId: api_v1_admin_announcement_retrieve
+      description: GET /api/v1/announcement - List announcements with pagination and
+        filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_v1_admin_announcement_create
+      description: GET /api/v1/announcement - List announcements with pagination and
+        filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/announcement/{announcement_id}/:
+    get:
+      operationId: api_v1_admin_announcement_retrieve_2
+      description: GET /api/v1/announcement/{id} - Get single announcement
+      parameters:
+      - in: path
+        name: announcement_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: api_v1_admin_announcement_update
+      description: GET /api/v1/announcement/{id} - Get single announcement
+      parameters:
+      - in: path
+        name: announcement_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/announcement/{announcement_id}/archive/:
+    post:
+      operationId: api_v1_admin_announcement_archive_create
+      description: POST /api/v1/announcement/{id}/archive - Archive announcement
+      parameters:
+      - in: path
+        name: announcement_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/announcement/{announcement_id}/notify/:
+    post:
+      operationId: api_v1_admin_announcement_notify_create
+      description: POST /api/v1/announcement/{id}/notify - Send announcement email
+        notification
+      parameters:
+      - in: path
+        name: announcement_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/announcement/roles/:
+    get:
+      operationId: api_v1_admin_announcement_roles_retrieve
+      description: GET /api/v1/announcement/roles - List available announcement roles
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/announcement/tracks/:
+    get:
+      operationId: api_v1_admin_announcement_tracks_retrieve
+      description: GET /api/v1/announcement/tracks - List available announcement tracks
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/:
+    get:
+      operationId: api_v1_admin_event_retrieve
+      description: GET /api/v1/event - List events with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_v1_admin_event_create
+      description: GET /api/v1/event - List events with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/{event_id}/:
+    get:
+      operationId: api_v1_admin_event_retrieve_2
+      description: GET /api/v1/event/{id} - Get single event
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: api_v1_admin_event_update
+      description: GET /api/v1/event/{id} - Get single event
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: api_v1_admin_event_destroy
+      description: GET /api/v1/event/{id} - Get single event
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/event/{event_id}/rsvp/:
+    get:
+      operationId: api_v1_admin_event_rsvp_retrieve
+      description: GET /api/v1/event/{id}/rsvp - Get event RSVPs
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_v1_admin_event_rsvp_create
+      description: GET /api/v1/event/{id}/rsvp - Get event RSVPs
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/{event_id}/targets/:
+    get:
+      operationId: api_v1_admin_event_targets_retrieve
+      description: GET /api/v1/event/{id}/targets - Get event targets
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/meta/groups/:
+    get:
+      operationId: api_v1_admin_event_meta_groups_retrieve
+      description: GET /api/v1/event/meta/groups - List groups for event targeting
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/meta/roles/:
+    get:
+      operationId: api_v1_admin_event_meta_roles_retrieve
+      description: GET /api/v1/event/meta/roles - List roles for event targeting
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/meta/tracks/:
+    get:
+      operationId: api_v1_admin_event_meta_tracks_retrieve
+      description: GET /api/v1/event/meta/tracks - List tracks for event targeting
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/event/rsvp/{rsvp_id}/:
+    put:
+      operationId: api_v1_admin_event_rsvp_update
+      description: PUT /api/v1/event/rsvp/{rsvpId} - Update event RSVP
+      parameters:
+      - in: path
+        name: rsvp_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/group/:
+    get:
+      operationId: api_v1_admin_group_retrieve
+      description: GET /api/v1/group - List groups with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/group/{group_id}/:
+    get:
+      operationId: api_v1_admin_group_retrieve_2
+      description: GET /api/v1/group/{id} - Get single group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: api_v1_admin_group_update
+      description: GET /api/v1/group/{id} - Get single group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/group/{group_id}/members/{user_id}/:
+    delete:
+      operationId: api_v1_admin_group_members_destroy
+      description: DELETE /api/v1/group/{id}/members/{userId} - Remove a student from
+        a group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: user_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/group/{group_id}/messages/:
+    get:
+      operationId: api_v1_admin_group_messages_retrieve
+      description: GET /api/v1/group/{id}/messages - View group message history
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/group/{group_id}/messages/{message_id}/:
+    delete:
+      operationId: api_v1_admin_group_messages_destroy
+      description: DELETE /api/v1/group/{id}/messages/{messageId} - Remove a message
+        from a group
+      parameters:
+      - in: path
+        name: group_id
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: message_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/match/confirm/:
+    post:
+      operationId: api_v1_admin_match_confirm_create
+      description: POST /api/v1/match/confirm - Confirm student assignments
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/match/individual/:
+    get:
+      operationId: api_v1_admin_match_individual_retrieve
+      description: GET /api/v1/match/individual - Get individual students
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/match/student/:
+    get:
+      operationId: api_v1_admin_match_student_retrieve
+      description: GET /api/v1/match/student - Get match for authenticated user
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor/:
+    get:
+      operationId: api_v1_admin_mentor_retrieve
+      description: GET /api/v1/mentor - Get mentor list
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/bulk-replace-inactive/:
+    post:
+      operationId: api_v1_admin_mentor_match_bulk_replace_inactive_create
+      description: POST /api/v1/mentor-match/bulk-replace-inactive - Replace all inactive
+        mentor assignments
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/confirm/:
+    post:
+      operationId: api_v1_admin_mentor_match_confirm_create
+      description: POST /api/v1/mentor-match/confirm - Confirm mentor assignments
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/groups/:
+    get:
+      operationId: api_v1_admin_mentor_match_groups_retrieve
+      description: GET /api/v1/mentor-match/groups - Get list of unmatched groups
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/matched-groups/:
+    get:
+      operationId: api_v1_admin_mentor_match_matched_groups_retrieve
+      description: GET /api/v1/mentor-match/matched-groups - Get list of matched groups
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/mentors/:
+    get:
+      operationId: api_v1_admin_mentor_match_mentors_retrieve
+      description: GET /api/v1/mentor-match/mentors - Get list of mentors
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/recommend/:
+    get:
+      operationId: api_v1_admin_mentor_match_recommend_retrieve
+      description: GET /api/v1/mentor-match/recommend - Get mentor recommendations
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/replace/:
+    post:
+      operationId: api_v1_admin_mentor_match_replace_create
+      description: POST /api/v1/mentor-match/replace - Replace mentor assignment
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor-match/unassign/:
+    post:
+      operationId: api_v1_admin_mentor_match_unassign_create
+      description: POST /api/v1/mentor-match/unassign - Unassign mentors from groups
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/mentor/{mentor_id}/active/:
+    patch:
+      operationId: api_v1_admin_mentor_active_partial_update
+      description: PATCH /api/v1/mentor/{mentorId}/active - Update mentor active status
+      parameters:
+      - in: path
+        name: mentor_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/:
+    get:
+      operationId: api_v1_admin_resource_retrieve
+      description: GET /api/v1/resource - List resources with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_v1_admin_resource_create
+      description: GET /api/v1/resource - List resources with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/{resource_id}/:
+    get:
+      operationId: api_v1_admin_resource_retrieve_2
+      description: GET /api/v1/resource/{id} - Get single resource
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: api_v1_admin_resource_update
+      description: GET /api/v1/resource/{id} - Get single resource
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: api_v1_admin_resource_partial_update
+      description: GET /api/v1/resource/{id} - Get single resource
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: api_v1_admin_resource_destroy
+      description: GET /api/v1/resource/{id} - Get single resource
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/resource/{resource_id}/assign-role/:
+    post:
+      operationId: api_v1_admin_resource_assign_role_create
+      description: POST /api/v1/resource/{id}/assign-role - Assign role to resource
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/{resource_id}/download/:
+    get:
+      operationId: api_v1_admin_resource_download_retrieve
+      description: GET /api/v1/resource/{id}/download - Download resource file
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/{resource_id}/remove-role/:
+    delete:
+      operationId: api_v1_admin_resource_remove_role_destroy
+      description: DELETE /api/v1/resource/{id}/remove-role - Remove role from resource
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/resource/{resource_id}/upload/:
+    post:
+      operationId: api_v1_admin_resource_upload_create_2
+      description: POST /api/v1/resource/{id}/upload - Replace resource file
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/roles/:
+    get:
+      operationId: api_v1_admin_resource_roles_retrieve
+      description: GET /api/v1/resource/roles - List available resource roles
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/tracks/:
+    get:
+      operationId: api_v1_admin_resource_tracks_retrieve
+      description: GET /api/v1/resource/tracks - List available resource tracks
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/types/:
+    get:
+      operationId: api_v1_admin_resource_types_retrieve
+      description: GET /api/v1/resource/types - List available resource types
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/resource/upload/:
+    post:
+      operationId: api_v1_admin_resource_upload_create
+      description: POST /api/v1/resource/upload - Upload resource file
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/summary/:
+    get:
+      operationId: api_v1_admin_summary_retrieve
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOperationsSummary'
+          description: ''
+  /api/v1/admin/user/:
+    get:
+      operationId: api_v1_admin_user_retrieve
+      description: GET /api/v1/user - List users with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_v1_admin_user_create
+      description: GET /api/v1/user - List users with pagination and filters
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/user/{user_id}/:
+    get:
+      operationId: api_v1_admin_user_retrieve_2
+      description: GET /api/v1/user/{id} - Get single user
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: api_v1_admin_user_update
+      description: GET /api/v1/user/{id} - Get single user
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: api_v1_admin_user_destroy
+      description: GET /api/v1/user/{id} - Get single user
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/user/{user_id}/status/:
+    patch:
+      operationId: api_v1_admin_user_status_partial_update
+      description: PATCH /api/v1/user/{id}/status - Activate or deactivate account
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/user/bulk/:
+    post:
+      operationId: api_v1_admin_user_bulk_create
+      description: POST /api/v1/user/bulk - Bulk create users (JSON array)
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/user/bulk-csv/:
+    post:
+      operationId: api_v1_admin_user_bulk_csv_create
+      description: POST /api/v1/user/bulk-csv - Bulk create users from CSV text
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/user/tracks/:
+    get:
+      operationId: api_v1_admin_user_tracks_retrieve
+      description: GET /api/v1/user/tracks - List tracks available for filtering and
+        assignment
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/user/ungrouped-check/:
+    get:
+      operationId: api_v1_admin_user_ungrouped_check_retrieve
+      description: GET /api/v1/user/ungrouped-check - Check if there are ungrouped
+        students
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/users/bulk-status/:
+    post:
+      operationId: api_v1_admin_users_bulk_status_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkUserStatus'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BulkUserStatus'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkUserStatus'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/admin/users/bulk-track/:
+    post:
+      operationId: api_v1_admin_users_bulk_track_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkUserTrack'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BulkUserTrack'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkUserTrack'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/login/:
+    post:
+      operationId: api_v1_login_create
+      description: Unified Session-based Password Login with Brute-Force lockout
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordLoginBody'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordLoginBody'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordLoginBody'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
   /api/v1/registration:
     post:
       operationId: api_v1_registration_create
       tags:
       - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+        required: true
       security:
       - cookieAuth: []
       - {}
       responses:
         '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRegisterRequest'
+          description: ''
+  /api/v1/tasks/:
+    get:
+      operationId: api_v1_tasks_list
+      parameters:
+      - in: query
+        name: assigned_user
+        schema:
+          type: number
+      - in: query
+        name: deleted
+        schema:
+          type: string
+          format: date-time
+          nullable: true
+      - in: query
+        name: group_id
+        schema:
+          type: number
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: parent_id
+        schema:
+          type: number
+      - in: query
+        name: task_type
+        schema:
+          type: string
+          enum:
+          - group
+          - individual
+        description: |-
+          * `group` - Group
+          * `individual` - Individual
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTaskList'
+          description: ''
+    post:
+      operationId: api_v1_tasks_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskCreate'
+          description: ''
+  /api/v1/tasks/{id}/:
+    get:
+      operationId: api_v1_tasks_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+          description: ''
+    put:
+      operationId: api_v1_tasks_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TaskUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskUpdate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskUpdate'
+          description: ''
+    patch:
+      operationId: api_v1_tasks_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTaskUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTaskUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTaskUpdate'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskUpdate'
+          description: ''
+    delete:
+      operationId: api_v1_tasks_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
           description: No response body
+  /api/v1/tasks/{id}/check/:
+    post:
+      operationId: api_v1_tasks_check_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskToggle'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TaskToggle'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskToggle'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskToggle'
+          description: ''
   /api/v1/updjoinperms:
     post:
       operationId: api_v1_updjoinperms_create
       tags:
       - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinPermissionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JoinPermissionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JoinPermissionRequest'
+        required: true
       security:
       - cookieAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinPermissionRequest'
+          description: ''
   /api/v1/users/:
     get:
       operationId: api_v1_users_list
@@ -175,6 +1528,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+          description: ''
+  /audit/v1/:
+    get:
+      operationId: audit_v1_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - audit
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /audit/v1/{id}/:
+    get:
+      operationId: audit_v1_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this audit log.
+        required: true
+      tags:
+      - audit
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLog'
           description: ''
   /certificates/v1/:
     get:
@@ -561,7 +1956,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/Message'
-        required: true
       security:
       - cookieAuth: []
       responses:
@@ -626,7 +2020,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/Message'
-        required: true
       security:
       - cookieAuth: []
       responses:
@@ -657,13 +2050,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedMessage'
+              $ref: '#/components/schemas/PatchedMessageUpdate'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedMessage'
+              $ref: '#/components/schemas/PatchedMessageUpdate'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedMessage'
+              $ref: '#/components/schemas/PatchedMessageUpdate'
       security:
       - cookieAuth: []
       responses:
@@ -671,7 +2064,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/MessageUpdate'
           description: ''
     delete:
       operationId: chat_groups_messages_destroy
@@ -695,50 +2088,63 @@ paths:
       responses:
         '204':
           description: No response body
-  /events/api/v1/events/{id}/invite/{uid}:
-    post:
-      operationId: events_api_v1_events_invite_create
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      - in: path
-        name: uid
-        schema:
-          type: integer
-        required: true
+  /dashboard/groups-preview/:
+    get:
+      operationId: dashboard_groups_preview_list
       tags:
-      - events
+      - dashboard
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DashboardGroupPreview'
+          description: ''
+  /dashboard/next-event/:
+    get:
+      operationId: dashboard_next_event_retrieve
+      tags:
+      - dashboard
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardNextEvent'
+          description: ''
+        '204':
+          description: No response body
+  /dashboard/progress/:
+    get:
+      operationId: dashboard_progress_retrieve
+      tags:
+      - dashboard
       security:
       - cookieAuth: []
       responses:
         '200':
           description: No response body
-  /events/api/v1/events/{id}/invites:
+  /dashboard/summary/:
     get:
-      operationId: events_api_v1_events_invites_list
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
+      operationId: dashboard_summary_retrieve
       tags:
-      - events
+      - dashboard
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /dashboard/v1/groups-preview/:
+    get:
+      operationId: dashboard_v1_groups_preview_list
+      tags:
+      - dashboard
       security:
       - cookieAuth: []
       responses:
@@ -746,26 +2152,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedEventInviteSerializersList'
+                type: array
+                items:
+                  $ref: '#/components/schemas/DashboardGroupPreview'
           description: ''
-  /events/api/v1/events/invites/me:
+  /dashboard/v1/next-event/:
     get:
-      operationId: events_api_v1_events_invites_me_list
-      parameters:
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
+      operationId: dashboard_v1_next_event_retrieve
       tags:
-      - events
+      - dashboard
       security:
       - cookieAuth: []
       responses:
@@ -773,8 +2168,30 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedEventInviteSerializersList'
+                $ref: '#/components/schemas/DashboardNextEvent'
           description: ''
+        '204':
+          description: No response body
+  /dashboard/v1/progress/:
+    get:
+      operationId: dashboard_v1_progress_retrieve
+      tags:
+      - dashboard
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /dashboard/v1/summary/:
+    get:
+      operationId: dashboard_v1_summary_retrieve
+      tags:
+      - dashboard
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
   /events/v1/:
     get:
       operationId: events_v1_list
@@ -820,6 +2237,196 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Event'
+          description: ''
+  /events/v1/{id}/invite/{uid}:
+    post:
+      operationId: events_v1_invite_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: uid
+        schema:
+          type: integer
+        required: true
+      tags:
+      - events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRsvpRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EventRsvpRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EventRsvpRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventRsvpUpsert'
+          description: ''
+  /events/v1/{id}/invites:
+    get:
+      operationId: events_v1_invites_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventRsvpList'
+          description: ''
+  /events/v1/{id}/rsvp/{uid}:
+    post:
+      operationId: events_v1_rsvp_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: uid
+        schema:
+          type: integer
+        required: true
+      tags:
+      - events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRsvpRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EventRsvpRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EventRsvpRequest'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventRsvpUpsert'
+          description: ''
+  /events/v1/{id}/rsvps:
+    get:
+      operationId: events_v1_rsvps_list
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventRsvpList'
+          description: ''
+  /events/v1/invites/me:
+    get:
+      operationId: events_v1_invites_me_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventRsvpList'
+          description: ''
+  /events/v1/rsvps/me:
+    get:
+      operationId: events_v1_rsvps_me_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEventRsvpList'
           description: ''
   /groups/countries/:
     get:
@@ -988,7 +2595,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedGroupMemberList'
+                $ref: '#/components/schemas/PaginatedGroupMembershipList'
           description: ''
     post:
       operationId: groups_group_members_create
@@ -998,13 +2605,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GroupMember'
+              $ref: '#/components/schemas/GroupMembership'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/GroupMember'
+              $ref: '#/components/schemas/GroupMembership'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/GroupMember'
+              $ref: '#/components/schemas/GroupMembership'
         required: true
       security:
       - cookieAuth: []
@@ -1013,7 +2620,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupMember'
+                $ref: '#/components/schemas/GroupMembership'
           description: ''
   /groups/group-members/{id}/:
     get:
@@ -1023,7 +2630,7 @@ paths:
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this group members.
+        description: A unique integer value identifying this group membership.
         required: true
       tags:
       - groups
@@ -1034,7 +2641,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupMember'
+                $ref: '#/components/schemas/GroupMembership'
           description: ''
     put:
       operationId: groups_group_members_update
@@ -1043,7 +2650,7 @@ paths:
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this group members.
+        description: A unique integer value identifying this group membership.
         required: true
       tags:
       - groups
@@ -1051,13 +2658,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GroupMember'
+              $ref: '#/components/schemas/GroupMembership'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/GroupMember'
+              $ref: '#/components/schemas/GroupMembership'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/GroupMember'
+              $ref: '#/components/schemas/GroupMembership'
         required: true
       security:
       - cookieAuth: []
@@ -1066,7 +2673,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupMember'
+                $ref: '#/components/schemas/GroupMembership'
           description: ''
     patch:
       operationId: groups_group_members_partial_update
@@ -1075,7 +2682,7 @@ paths:
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this group members.
+        description: A unique integer value identifying this group membership.
         required: true
       tags:
       - groups
@@ -1083,13 +2690,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedGroupMember'
+              $ref: '#/components/schemas/PatchedGroupMembership'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedGroupMember'
+              $ref: '#/components/schemas/PatchedGroupMembership'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedGroupMember'
+              $ref: '#/components/schemas/PatchedGroupMembership'
       security:
       - cookieAuth: []
       responses:
@@ -1097,7 +2704,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupMember'
+                $ref: '#/components/schemas/GroupMembership'
           description: ''
     delete:
       operationId: groups_group_members_destroy
@@ -1106,7 +2713,7 @@ paths:
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this group members.
+        description: A unique integer value identifying this group membership.
         required: true
       tags:
       - groups
@@ -1134,7 +2741,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupMember'
+                $ref: '#/components/schemas/GroupMembership'
           description: ''
   /groups/groups/:
     get:
@@ -1282,6 +2889,183 @@ paths:
       responses:
         '204':
           description: No response body
+  /groups/groups/{id}/add-members/:
+    post:
+      operationId: groups_groups_add_members_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BulkUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkUser'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedGroupMembershipList'
+          description: ''
+  /groups/groups/{id}/assign-mentor/:
+    post:
+      operationId: groups_groups_assign_mentor_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorAssignment'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MentorAssignment'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MentorAssignment'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupMembership'
+          description: ''
+  /groups/groups/{id}/remove-members/:
+    post:
+      operationId: groups_groups_remove_members_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BulkUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkUser'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedGroupMembershipList'
+          description: ''
+  /groups/groups/{id}/replace-mentor/:
+    post:
+      operationId: groups_groups_replace_mentor_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this groups.
+        required: true
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MentorAssignment'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MentorAssignment'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MentorAssignment'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupMembership'
+          description: ''
+  /groups/groups/bulk-create/:
+    post:
+      operationId: groups_groups_bulk_create_create
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkGroupCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BulkGroupCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkGroupCreate'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedGroupList'
+          description: ''
   /groups/tracks/:
     get:
       operationId: groups_tracks_list
@@ -1423,6 +3207,299 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Track'
+          description: ''
+  /matching/v1/recommendations/:
+    get:
+      operationId: matching_v1_recommendations_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - matching
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMatchRecommendationList'
+          description: ''
+    post:
+      operationId: matching_v1_recommendations_create
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRecommendation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MatchRecommendation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MatchRecommendation'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRecommendation'
+          description: ''
+  /matching/v1/recommendations/{id}/:
+    get:
+      operationId: matching_v1_recommendations_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this match recommendation.
+        required: true
+      tags:
+      - matching
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRecommendation'
+          description: ''
+    put:
+      operationId: matching_v1_recommendations_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this match recommendation.
+        required: true
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRecommendation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MatchRecommendation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MatchRecommendation'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRecommendation'
+          description: ''
+    patch:
+      operationId: matching_v1_recommendations_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this match recommendation.
+        required: true
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMatchRecommendation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMatchRecommendation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMatchRecommendation'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRecommendation'
+          description: ''
+  /matching/v1/recommendations/bulk-accept/:
+    post:
+      operationId: matching_v1_recommendations_bulk_accept_create
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRecommendationAccept'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BulkRecommendationAccept'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkRecommendationAccept'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMatchRecommendationList'
+          description: ''
+  /matching/v1/runs/:
+    get:
+      operationId: matching_v1_runs_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - matching
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMatchRunList'
+          description: ''
+    post:
+      operationId: matching_v1_runs_create
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRun'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MatchRun'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MatchRun'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRun'
+          description: ''
+  /matching/v1/runs/{id}/:
+    get:
+      operationId: matching_v1_runs_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this match run.
+        required: true
+      tags:
+      - matching
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRun'
+          description: ''
+    put:
+      operationId: matching_v1_runs_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this match run.
+        required: true
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRun'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MatchRun'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MatchRun'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRun'
+          description: ''
+    patch:
+      operationId: matching_v1_runs_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this match run.
+        required: true
+      tags:
+      - matching
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMatchRun'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMatchRun'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMatchRun'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRun'
           description: ''
   /resources/api/v1/roles/:
     get:
@@ -1641,7 +3718,8 @@ paths:
       - in: path
         name: id
         schema:
-          type: string
+          type: integer
+        description: A unique integer value identifying this Resource.
         required: true
       tags:
       - resources
@@ -1668,7 +3746,8 @@ paths:
       - in: path
         name: id
         schema:
-          type: string
+          type: integer
+        description: A unique integer value identifying this Resource.
         required: true
       tags:
       - resources
@@ -1699,7 +3778,8 @@ paths:
       - in: path
         name: id
         schema:
-          type: string
+          type: integer
+        description: A unique integer value identifying this Resource.
         required: true
       tags:
       - resources
@@ -1716,7 +3796,8 @@ paths:
       - in: path
         name: id
         schema:
-          type: string
+          type: integer
+        description: A unique integer value identifying this Resource.
         required: true
       tags:
       - resources
@@ -1749,7 +3830,8 @@ paths:
       - in: path
         name: id
         schema:
-          type: string
+          type: integer
+        description: A unique integer value identifying this Resource.
         required: true
       tags:
       - resources
@@ -2084,233 +4166,335 @@ paths:
       - cookieAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+  /services/magic/:
+    get:
+      operationId: services_magic_retrieve
+      description: |-
+        Handle magic link authentication. Errors flow through custom_exception_handler;
+        success returns a 302 redirect to the frontend callback.
+      tags:
+      - services
+      security:
+      - {}
+      responses:
+        '302':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+  /services/password-reset/confirm/:
+    post:
+      operationId: services_password_reset_confirm_create
+      description: POST /services/password-reset/confirm/ — exchange token + new_password
+        for a reset.
+      tags:
+      - services
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+  /services/password-reset/request/:
+    post:
+      operationId: services_password_reset_request_create
+      description: POST /services/password-reset/request/ — always 200, never reveals
+        if email exists.
+      tags:
+      - services
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
   /services/send-login-code/:
     post:
       operationId: services_send_login_code_create
       tags:
       - services
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendLoginCodeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendLoginCodeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendLoginCodeRequest'
+        required: true
       security:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
   /services/verify-login-code/:
     post:
       operationId: services_verify_login_code_create
       tags:
       - services
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyLoginCodeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VerifyLoginCodeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VerifyLoginCodeRequest'
+        required: true
       security:
       - {}
       responses:
         '200':
-          description: No response body
-  /tasks/api/v1/createtask:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyLoginCodeResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMessage'
+          description: ''
+  /users/admin/summary/:
+    get:
+      operationId: users_admin_summary_retrieve
+      tags:
+      - users
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOperationsSummary'
+          description: ''
+  /users/admin/users/bulk-status/:
     post:
-      operationId: tasks_api_v1_createtask_create
+      operationId: users_admin_users_bulk_status_create
       tags:
-      - tasks
+      - users
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TaskCreate'
+              $ref: '#/components/schemas/BulkUserStatus'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/TaskCreate'
+              $ref: '#/components/schemas/BulkUserStatus'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/TaskCreate'
+              $ref: '#/components/schemas/BulkUserStatus'
         required: true
       security:
       - cookieAuth: []
-      - {}
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TaskCreate'
-          description: ''
-  /tasks/api/v1/milestones/:
-    get:
-      operationId: tasks_api_v1_milestones_list
-      parameters:
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
-      tags:
-      - tasks
-      security:
-      - cookieAuth: []
-      - {}
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedMilestoneList'
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
           description: ''
-  /tasks/api/v1/tasks/:
-    get:
-      operationId: tasks_api_v1_tasks_list
-      parameters:
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
+  /users/admin/users/bulk-track/:
+    post:
+      operationId: users_admin_users_bulk_track_create
       tags:
-      - tasks
-      security:
-      - cookieAuth: []
-      - {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedTaskList'
-          description: ''
-  /tasks/api/v1/tasks/{id}/:
-    get:
-      operationId: tasks_api_v1_tasks_retrieve
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - tasks
-      security:
-      - cookieAuth: []
-      - {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Task'
-          description: ''
-    put:
-      operationId: tasks_api_v1_tasks_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - tasks
+      - users
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Task'
+              $ref: '#/components/schemas/BulkUserTrack'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/Task'
+              $ref: '#/components/schemas/BulkUserTrack'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/Task'
+              $ref: '#/components/schemas/BulkUserTrack'
         required: true
       security:
       - cookieAuth: []
-      - {}
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
           description: ''
-    patch:
-      operationId: tasks_api_v1_tasks_partial_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
+  /users/login/:
+    post:
+      operationId: users_login_create
+      description: Unified Session-based Password Login with Brute-Force lockout
       tags:
-      - tasks
+      - users
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedTask'
+              $ref: '#/components/schemas/PasswordLoginBody'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedTask'
+              $ref: '#/components/schemas/PasswordLoginBody'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedTask'
+              $ref: '#/components/schemas/PasswordLoginBody'
+        required: true
       security:
-      - cookieAuth: []
       - {}
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Task'
+                $ref: '#/components/schemas/User'
           description: ''
-  /tasks/api/v1/tasks/delete/{id}/:
-    delete:
-      operationId: tasks_api_v1_tasks_delete_destroy
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        required: true
-      tags:
-      - tasks
-      security:
-      - cookieAuth: []
-      - {}
-      responses:
-        '204':
-          description: No response body
   /users/registration:
     post:
       operationId: users_registration_create
       tags:
       - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+        required: true
       security:
       - cookieAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRegisterRequest'
+          description: ''
   /users/updjoinperms:
     post:
       operationId: users_updjoinperms_create
       tags:
       - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinPermissionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JoinPermissionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JoinPermissionRequest'
+        required: true
       security:
       - cookieAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinPermissionRequest'
+          description: ''
   /users/users/:
     get:
       operationId: users_users_list
@@ -2463,6 +4647,285 @@ paths:
           description: ''
 components:
   schemas:
+    AccountStatusEnum:
+      enum:
+      - invited
+      - pending
+      - active
+      - suspended
+      - deactivated
+      type: string
+      description: |-
+        * `invited` - Invited
+        * `pending` - Pending
+        * `active` - Active
+        * `suspended` - Suspended
+        * `deactivated` - Deactivated
+    ActionEnum:
+      enum:
+      - create
+      - update
+      - delete
+      - login
+      - logout
+      - export
+      - import
+      type: string
+      description: |-
+        * `create` - Create
+        * `update` - Update
+        * `delete` - Delete
+        * `login` - Login
+        * `logout` - Logout
+        * `export` - Export
+        * `import` - Import
+    AdminOperationsSummary:
+      type: object
+      properties:
+        track_scope:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        active_users:
+          type: integer
+        invited_or_pending_users:
+          type: integer
+        suspended_or_deactivated_users:
+          type: integer
+        active_groups:
+          type: integer
+        groups_without_mentor:
+          type: integer
+        unassigned_match_recommendations:
+          type: integer
+        upcoming_events:
+          type: integer
+      required:
+      - active_groups
+      - active_users
+      - groups_without_mentor
+      - invited_or_pending_users
+      - suspended_or_deactivated_users
+      - unassigned_match_recommendations
+      - upcoming_events
+    Announcement:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        author_user:
+          type: integer
+          readOnly: true
+        author_email:
+          type: string
+          format: email
+          readOnly: true
+        track:
+          type: integer
+          nullable: true
+        title:
+          type: string
+          maxLength: 255
+        body:
+          type: string
+        visibility_scope:
+          $ref: '#/components/schemas/AnnouncementVisibilityScopeEnum'
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+        audiences:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnouncementAudience'
+          readOnly: true
+        audience_rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnouncementAudienceWrite'
+          writeOnly: true
+      required:
+      - audiences
+      - author_email
+      - author_user
+      - body
+      - id
+      - published_at
+      - title
+    AnnouncementAudience:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        role:
+          type: integer
+          nullable: true
+        role_name:
+          type: string
+          readOnly: true
+        track:
+          type: integer
+          nullable: true
+        track_name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - role_name
+      - track_name
+    AnnouncementAudienceWrite:
+      type: object
+      properties:
+        role_id:
+          type: integer
+        track_id:
+          type: integer
+    AnnouncementVisibilityScopeEnum:
+      enum:
+      - public
+      - role
+      - track
+      - scoped
+      type: string
+      description: |-
+        * `public` - Public
+        * `role` - Role
+        * `track` - Track
+        * `scoped` - Scoped
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        actor_user:
+          type: integer
+          readOnly: true
+          nullable: true
+        actor_email:
+          type: string
+          format: email
+          readOnly: true
+        entity_type:
+          type: string
+          readOnly: true
+        entity_id:
+          type: integer
+          readOnly: true
+        action:
+          allOf:
+          - $ref: '#/components/schemas/ActionEnum'
+          readOnly: true
+        before_state:
+          readOnly: true
+          nullable: true
+        after_state:
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - actor_email
+      - actor_user
+      - after_state
+      - before_state
+      - created_at
+      - entity_id
+      - entity_type
+      - id
+    AuthMessage:
+      type: object
+      properties:
+        message:
+          type: string
+        error:
+          type: string
+    BlankEnum:
+      enum:
+      - ''
+    BulkGroupCreate:
+      type: object
+      properties:
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkGroupCreateItem'
+      required:
+      - groups
+    BulkGroupCreateItem:
+      type: object
+      properties:
+        group_name:
+          type: string
+          maxLength: 255
+        track:
+          type: integer
+        member_user_ids:
+          type: array
+          items:
+            type: integer
+        mentor_user_id:
+          type: integer
+          nullable: true
+      required:
+      - group_name
+      - track
+    BulkRecommendationAccept:
+      type: object
+      properties:
+        recommendation_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+      required:
+      - recommendation_ids
+    BulkUser:
+      type: object
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+      required:
+      - user_ids
+    BulkUserStatus:
+      type: object
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        account_status:
+          $ref: '#/components/schemas/AccountStatusEnum'
+      required:
+      - account_status
+      - user_ids
+    BulkUserTrack:
+      type: object
+      properties:
+        user_ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        track_id:
+          type: integer
+      required:
+      - track_id
+      - user_ids
     Country:
       type: object
       properties:
@@ -2475,6 +4938,117 @@ components:
       required:
       - country_name
       - id
+    CreatorRoleEnum:
+      enum:
+      - global_admin
+      - track_admin
+      - mentor
+      - supervisor
+      - student
+      type: string
+      description: |-
+        * `global_admin` - Global Administrator
+        * `track_admin` - Track Administrator
+        * `mentor` - Mentor
+        * `supervisor` - Supervisor
+        * `student` - Student
+    DashboardGroupPreview:
+      type: object
+      description: |-
+        Flattened, deeply-associated group projection used by the dashboard
+        groups-preview endpoint.
+
+        Backed by ``services.get_groups_preview`` which returns an annotated
+        queryset (``member_count`` annotation, mentor memberships prefetched
+        onto ``MENTOR_MEMBERSHIPS_ATTR``), so this serializer never triggers
+        extra queries per row.
+      properties:
+        id:
+          type: integer
+        group_name:
+          type: string
+        track_id:
+          type: integer
+        track_name:
+          type: string
+        member_count:
+          type: integer
+        lead_user:
+          type: string
+          readOnly: true
+        lead_name:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+      required:
+      - group_name
+      - id
+      - lead_name
+      - lead_user
+      - member_count
+      - status
+      - track_id
+      - track_name
+    DashboardNextEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        event_name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        track:
+          type: integer
+          nullable: true
+        groups:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        event_type:
+          type: string
+          nullable: true
+        start_datetime:
+          type: string
+          format: date-time
+        ends_datetime:
+          type: string
+          format: date-time
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        location_link:
+          type: string
+          format: uri
+          nullable: true
+        event_image:
+          type: string
+          format: uri
+          nullable: true
+        is_virtual:
+          type: boolean
+        rsvp_status:
+          type: string
+          nullable: true
+      required:
+      - description
+      - ends_datetime
+      - event_image
+      - event_name
+      - event_type
+      - groups
+      - id
+      - is_virtual
+      - location
+      - location_link
+      - rsvp_status
+      - start_datetime
+      - track
     Event:
       type: object
       properties:
@@ -2487,7 +5061,15 @@ components:
         description:
           type: string
           nullable: true
-          maxLength: 255
+        track:
+          type: integer
+          nullable: true
+        event_type:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/EventTypeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
         start_datetime:
           type: string
           format: date-time
@@ -2498,9 +5080,11 @@ components:
           type: string
           nullable: true
           maxLength: 255
-        humanitix_link:
+        location_link:
           type: string
           format: uri
+          nullable: true
+          description: Zoom URL when is_virtual=True, Google Maps URL otherwise.
           maxLength: 255
         host_user:
           type: integer
@@ -2516,10 +5100,9 @@ components:
       - ends_datetime
       - event_name
       - host_user
-      - humanitix_link
       - id
       - start_datetime
-    EventInviteSerializers:
+    EventRsvp:
       type: object
       properties:
         id:
@@ -2529,17 +5112,55 @@ components:
           type: integer
         user:
           type: integer
-        sent_datetime:
+        rsvp_status:
+          $ref: '#/components/schemas/RsvpStatusEnum'
+        responded_at:
           type: string
           format: date-time
-        attendance_status:
-          type: boolean
-        rsvp_status:
-          type: boolean
+          nullable: true
       required:
       - event
       - id
       - user
+    EventRsvpRequest:
+      type: object
+      properties:
+        rsvp_status:
+          allOf:
+          - $ref: '#/components/schemas/RsvpStatusEnum'
+          default: pending
+    EventRsvpUpsert:
+      type: object
+      properties:
+        event:
+          type: integer
+        user:
+          type: integer
+        rsvp_status:
+          $ref: '#/components/schemas/RsvpStatusEnum'
+        responded_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - event
+      - user
+    EventTypeEnum:
+      enum:
+      - workshop
+      - webinar
+      - symposium
+      - networking
+      - social
+      - other
+      type: string
+      description: |-
+        * `workshop` - Workshop
+        * `webinar` - Webinar
+        * `symposium` - Symposium
+        * `networking` - Networking
+        * `social` - Social
+        * `other` - Other
     Group:
       type: object
       properties:
@@ -2551,26 +5172,22 @@ components:
           maxLength: 255
         track:
           type: integer
-        creation_datetime:
+        created_at:
           type: string
           format: date-time
           readOnly: true
-        deleted_flag:
-          type: boolean
-          readOnly: true
-        deleted_datetime:
+        deleted_at:
           type: string
           format: date-time
           readOnly: true
           nullable: true
       required:
-      - creation_datetime
-      - deleted_datetime
-      - deleted_flag
+      - created_at
+      - deleted_at
       - group_name
       - id
       - track
-    GroupMember:
+    GroupMembership:
       type: object
       properties:
         id:
@@ -2580,10 +5197,123 @@ components:
           type: integer
         user:
           type: integer
+        membership_role:
+          oneOf:
+          - $ref: '#/components/schemas/MembershipRoleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+        left_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
       required:
       - group
       - id
+      - joined_at
+      - left_at
       - user
+    JoinPermissionBody:
+      type: object
+      properties:
+        Email:
+          type: string
+          format: email
+        ResponseID:
+          type: string
+          maxLength: 255
+      required:
+      - Email
+      - ResponseID
+    JoinPermissionRequest:
+      type: object
+      properties:
+        body:
+          $ref: '#/components/schemas/JoinPermissionBody'
+      required:
+      - body
+    KindEnum:
+      enum:
+      - file
+      - page
+      type: string
+      description: |-
+        * `file` - File
+        * `page` - Page
+    MatchRecommendation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        match_run:
+          type: integer
+        group:
+          type: integer
+        mentor_user:
+          type: integer
+        score:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,4})?$
+          nullable: true
+        explanation:
+          nullable: true
+        accepted:
+          type: boolean
+      required:
+      - group
+      - id
+      - match_run
+      - mentor_user
+    MatchRun:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        initiated_by_user:
+          type: integer
+        track:
+          type: integer
+          nullable: true
+        run_type:
+          $ref: '#/components/schemas/RunTypeEnum'
+        rules_snapshot:
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchRecommendation'
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - initiated_by_user
+      - recommendations
+      - run_type
+    MembershipRoleEnum:
+      enum:
+      - mentor
+      - student
+      type: string
+      description: |-
+        * `mentor` - Mentor
+        * `student` - Student
+    MentorAssignment:
+      type: object
+      properties:
+        mentor_user_id:
+          type: integer
+      required:
+      - mentor_user_id
     MentorCertificate:
       type: object
       properties:
@@ -2714,44 +5444,42 @@ components:
           readOnly: true
         message_text:
           type: string
-          maxLength: 255
-        sent_datetime:
+        message_type:
+          $ref: '#/components/schemas/MessageTypeEnum'
+        sent_at:
           type: string
           format: date-time
           readOnly: true
-        attachments:
-          type: array
-          items:
-            $ref: '#/components/schemas/MessageAttachment'
+        edited_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        deleted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        is_deleted:
+          type: boolean
+          readOnly: true
+        is_edited:
+          type: boolean
           readOnly: true
         resources:
           type: array
           items:
             $ref: '#/components/schemas/MessageResource'
       required:
-      - attachments
+      - deleted_at
+      - edited_at
       - group
       - id
-      - message_text
+      - is_deleted
+      - is_edited
       - sender_name
       - sender_user
-      - sent_datetime
-    MessageAttachment:
-      type: object
-      properties:
-        id:
-          type: integer
-          readOnly: true
-        attachment_id:
-          type: string
-          maxLength: 255
-        attachment_filename:
-          type: string
-          maxLength: 255
-      required:
-      - attachment_filename
-      - attachment_id
-      - id
+      - sent_at
     MessageResource:
       type: object
       properties:
@@ -2768,25 +5496,70 @@ components:
       - id
       - resource_id
       - resource_name
-    Milestone:
+    MessageTypeEnum:
+      enum:
+      - text
+      - resource
+      - system
+      type: string
+      description: |-
+        * `text` - Text
+        * `resource` - Resource Link
+        * `system` - System Message
+    MessageUpdate:
       type: object
       properties:
-        id:
-          type: integer
-          readOnly: true
-        group:
-          type: integer
-        milestone_name:
+        message_text:
           type: string
-          maxLength: 255
-        completed:
-          type: boolean
-        deleted_flag:
-          type: boolean
+    NullEnum:
+      enum:
+      - null
+    PaginatedAnnouncementList:
+      type: object
       required:
-      - group
-      - id
-      - milestone_name
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Announcement'
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
     PaginatedCountryList:
       type: object
       required:
@@ -2810,29 +5583,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Country'
-    PaginatedEventInviteSerializersList:
-      type: object
-      required:
-      - count
-      - results
-      properties:
-        count:
-          type: integer
-          example: 123
-        next:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=4
-        previous:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=2
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/EventInviteSerializers'
     PaginatedEventList:
       type: object
       required:
@@ -2856,6 +5606,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Event'
+    PaginatedEventRsvpList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventRsvp'
     PaginatedGroupList:
       type: object
       required:
@@ -2879,7 +5652,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Group'
-    PaginatedGroupMemberList:
+    PaginatedGroupMembershipList:
       type: object
       required:
       - count
@@ -2901,7 +5674,53 @@ components:
         results:
           type: array
           items:
-            $ref: '#/components/schemas/GroupMember'
+            $ref: '#/components/schemas/GroupMembership'
+    PaginatedMatchRecommendationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchRecommendation'
+    PaginatedMatchRunList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchRun'
     PaginatedMentorCertificateList:
       type: object
       required:
@@ -2948,29 +5767,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Message'
-    PaginatedMilestoneList:
-      type: object
-      required:
-      - count
-      - results
-      properties:
-        count:
-          type: integer
-          example: 123
-        next:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=4
-        previous:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=2
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/Milestone'
     PaginatedResourceListList:
       type: object
       required:
@@ -3109,6 +5905,79 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/User'
+    PasswordLoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+      - email
+      - password
+    PasswordResetConfirm:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 64
+        new_password:
+          type: string
+          writeOnly: true
+          maxLength: 256
+      required:
+      - new_password
+      - token
+    PasswordResetRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    PatchedAnnouncement:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        author_user:
+          type: integer
+          readOnly: true
+        author_email:
+          type: string
+          format: email
+          readOnly: true
+        track:
+          type: integer
+          nullable: true
+        title:
+          type: string
+          maxLength: 255
+        body:
+          type: string
+        visibility_scope:
+          $ref: '#/components/schemas/AnnouncementVisibilityScopeEnum'
+        published_at:
+          type: string
+          format: date-time
+          readOnly: true
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+        audiences:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnouncementAudience'
+          readOnly: true
+        audience_rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnnouncementAudienceWrite'
+          writeOnly: true
     PatchedCountry:
       type: object
       properties:
@@ -3129,19 +5998,16 @@ components:
           maxLength: 255
         track:
           type: integer
-        creation_datetime:
+        created_at:
           type: string
           format: date-time
           readOnly: true
-        deleted_flag:
-          type: boolean
-          readOnly: true
-        deleted_datetime:
+        deleted_at:
           type: string
           format: date-time
           readOnly: true
           nullable: true
-    PatchedGroupMember:
+    PatchedGroupMembership:
       type: object
       properties:
         id:
@@ -3151,6 +6017,64 @@ components:
           type: integer
         user:
           type: integer
+        membership_role:
+          oneOf:
+          - $ref: '#/components/schemas/MembershipRoleEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+        left_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+    PatchedMatchRecommendation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        match_run:
+          type: integer
+        group:
+          type: integer
+        mentor_user:
+          type: integer
+        score:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,6}(?:\.\d{0,4})?$
+          nullable: true
+        explanation:
+          nullable: true
+        accepted:
+          type: boolean
+    PatchedMatchRun:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        initiated_by_user:
+          type: integer
+        track:
+          type: integer
+          nullable: true
+        run_type:
+          $ref: '#/components/schemas/RunTypeEnum'
+        rules_snapshot:
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchRecommendation'
+          readOnly: true
     PatchedMentorCertificateUpdate:
       type: object
       description: |-
@@ -3179,75 +6103,73 @@ components:
           format: uri
           nullable: true
           maxLength: 500
-    PatchedMessage:
+    PatchedMessageUpdate:
       type: object
       properties:
-        id:
-          type: integer
-          readOnly: true
-        group:
-          type: integer
-          readOnly: true
-        sender_user:
-          type: integer
-          readOnly: true
-        sender_name:
-          type: string
-          readOnly: true
         message_text:
           type: string
-          maxLength: 255
-        sent_datetime:
-          type: string
-          format: date-time
-          readOnly: true
-        attachments:
-          type: array
-          items:
-            $ref: '#/components/schemas/MessageAttachment'
-          readOnly: true
-        resources:
-          type: array
-          items:
-            $ref: '#/components/schemas/MessageResource'
     PatchedResources:
       type: object
       properties:
         id:
           type: integer
           readOnly: true
-        resource_name:
+        name:
           type: string
           maxLength: 255
-        resource_description:
+        description:
           type: string
           maxLength: 255
         resource_type_detail:
           allOf:
           - $ref: '#/components/schemas/ResourceType'
           readOnly: true
-        resource_type_id:
+        type_id:
           type: integer
           writeOnly: true
           nullable: true
           description: ID of the resource type
-        upload_datetime:
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        file_mime_type:
+          type: string
+          nullable: true
+          maxLength: 100
+        file_size:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        storage_key:
+          type: string
+          nullable: true
+          maxLength: 255
+        track:
+          type: integer
+          nullable: true
+        group:
+          type: integer
+          nullable: true
+        visibility_scope:
+          $ref: '#/components/schemas/VisibilityScope866Enum'
+        uploaded_at:
           type: string
           format: date-time
           readOnly: true
         uploader:
           allOf:
-          - $ref: '#/components/schemas/User'
+          - $ref: '#/components/schemas/ResourceUser'
           readOnly: true
-        deleted_flag:
-          type: boolean
-        deleted_datetime:
+        deleted_at:
           type: string
           format: date-time
           readOnly: true
           nullable: true
         visible_roles:
-          type: string
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
           readOnly: true
         role_ids:
           type: array
@@ -3255,6 +6177,16 @@ components:
             type: integer
           writeOnly: true
           description: List of role IDs that can access this resource
+        audiences:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAudience'
+          readOnly: true
+        audience_rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAudienceWrite'
+          writeOnly: true
     PatchedRole:
       type: object
       properties:
@@ -3272,7 +6204,7 @@ components:
           readOnly: true
         user:
           allOf:
-          - $ref: '#/components/schemas/User'
+          - $ref: '#/components/schemas/ResourceUser'
           readOnly: true
         role:
           allOf:
@@ -3289,29 +6221,25 @@ components:
           format: date-time
           nullable: true
         is_active:
-          type: string
+          type: boolean
           readOnly: true
-    PatchedTask:
+    PatchedTaskUpdate:
       type: object
       properties:
-        id:
-          type: integer
-          readOnly: true
-        task_name:
+        name:
           type: string
           maxLength: 255
+        description:
+          type: string
         due_date:
           type: string
           format: date-time
-        deleted_flag:
-          type: boolean
-        milestone:
+          nullable: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        parent:
           type: integer
           nullable: true
-        task_description:
-          type: string
-          nullable: true
-          maxLength: 255
     PatchedTrack:
       type: object
       properties:
@@ -3320,7 +6248,7 @@ components:
           readOnly: true
         track_name:
           type: string
-          maxLength: 255
+          maxLength: 100
         state:
           type: integer
     PatchedUser:
@@ -3339,44 +6267,80 @@ components:
           type: string
           format: email
           maxLength: 254
-        status:
-          type: boolean
+        account_status:
+          $ref: '#/components/schemas/AccountStatusEnum'
         track:
           type: integer
           nullable: true
-        state:
+        current_role_id:
           type: integer
           nullable: true
-        current_role_id:
-          type: string
           readOnly: true
         current_role_name:
           type: string
+          nullable: true
           readOnly: true
         pg_firstname:
           type: string
+          nullable: true
           readOnly: true
         pg_lastname:
           type: string
+          nullable: true
           readOnly: true
         year_lvl:
           type: string
+          nullable: true
           readOnly: true
         school_name:
           type: string
+          nullable: true
           readOnly: true
         join_perm:
-          type: string
-          readOnly: true
-        ment_bg:
-          type: string
+          type: boolean
+          nullable: true
           readOnly: true
         ment_inst:
           type: string
+          nullable: true
           readOnly: true
         ment_reason:
           type: string
+          nullable: true
           readOnly: true
+        ment_max_groups:
+          type: integer
+          nullable: true
+          readOnly: true
+    ResourceAudience:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        role:
+          type: integer
+          nullable: true
+        role_name:
+          type: string
+          readOnly: true
+        track:
+          type: integer
+          nullable: true
+        track_name:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - role_name
+      - track_name
+    ResourceAudienceWrite:
+      type: object
+      properties:
+        role_id:
+          type: integer
+        track_id:
+          type: integer
     ResourceList:
       type: object
       description: Simplified serializer for list view
@@ -3384,30 +6348,62 @@ components:
         id:
           type: integer
           readOnly: true
-        resource_name:
+        name:
           type: string
           maxLength: 255
-        resource_description:
+        description:
           type: string
           maxLength: 255
         resource_type_detail:
           allOf:
           - $ref: '#/components/schemas/ResourceType'
           readOnly: true
-        upload_datetime:
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        file_mime_type:
+          type: string
+          nullable: true
+          maxLength: 100
+        file_size:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        storage_key:
+          type: string
+          nullable: true
+          maxLength: 255
+        track:
+          type: integer
+          nullable: true
+        group:
+          type: integer
+          nullable: true
+        visibility_scope:
+          $ref: '#/components/schemas/VisibilityScope866Enum'
+        uploaded_at:
           type: string
           format: date-time
         uploader:
           allOf:
-          - $ref: '#/components/schemas/User'
+          - $ref: '#/components/schemas/ResourceUser'
           readOnly: true
         visible_roles:
-          type: string
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+          readOnly: true
+        audiences:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAudience'
           readOnly: true
       required:
+      - audiences
+      - description
       - id
-      - resource_description
-      - resource_name
+      - name
       - resource_type_detail
       - uploader
       - visible_roles
@@ -3427,44 +6423,89 @@ components:
       required:
       - id
       - type_name
+    ResourceUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        first_name:
+          type: string
+          maxLength: 255
+        last_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 254
+      required:
+      - email
+      - first_name
+      - id
+      - last_name
     Resources:
       type: object
       properties:
         id:
           type: integer
           readOnly: true
-        resource_name:
+        name:
           type: string
           maxLength: 255
-        resource_description:
+        description:
           type: string
           maxLength: 255
         resource_type_detail:
           allOf:
           - $ref: '#/components/schemas/ResourceType'
           readOnly: true
-        resource_type_id:
+        type_id:
           type: integer
           writeOnly: true
           nullable: true
           description: ID of the resource type
-        upload_datetime:
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        file_mime_type:
+          type: string
+          nullable: true
+          maxLength: 100
+        file_size:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        storage_key:
+          type: string
+          nullable: true
+          maxLength: 255
+        track:
+          type: integer
+          nullable: true
+        group:
+          type: integer
+          nullable: true
+        visibility_scope:
+          $ref: '#/components/schemas/VisibilityScope866Enum'
+        uploaded_at:
           type: string
           format: date-time
           readOnly: true
         uploader:
           allOf:
-          - $ref: '#/components/schemas/User'
+          - $ref: '#/components/schemas/ResourceUser'
           readOnly: true
-        deleted_flag:
-          type: boolean
-        deleted_datetime:
+        deleted_at:
           type: string
           format: date-time
           readOnly: true
           nullable: true
         visible_roles:
-          type: string
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
           readOnly: true
         role_ids:
           type: array
@@ -3472,13 +6513,24 @@ components:
             type: integer
           writeOnly: true
           description: List of role IDs that can access this resource
+        audiences:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAudience'
+          readOnly: true
+        audience_rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResourceAudienceWrite'
+          writeOnly: true
       required:
-      - deleted_datetime
+      - audiences
+      - deleted_at
+      - description
       - id
-      - resource_description
-      - resource_name
+      - name
       - resource_type_detail
-      - upload_datetime
+      - uploaded_at
       - uploader
       - visible_roles
     Role:
@@ -3501,7 +6553,7 @@ components:
           readOnly: true
         user:
           allOf:
-          - $ref: '#/components/schemas/User'
+          - $ref: '#/components/schemas/ResourceUser'
           readOnly: true
         role:
           allOf:
@@ -3518,7 +6570,7 @@ components:
           format: date-time
           nullable: true
         is_active:
-          type: string
+          type: boolean
           readOnly: true
       required:
       - id
@@ -3526,50 +6578,192 @@ components:
       - role
       - user
       - valid_from
+    RsvpStatusEnum:
+      enum:
+      - pending
+      - going
+      - maybe
+      - declined
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `going` - Going
+        * `maybe` - Maybe
+        * `declined` - Declined
+    RunTypeEnum:
+      enum:
+      - auto
+      - manual
+      - rerun
+      type: string
+      description: |-
+        * `auto` - Automatic
+        * `manual` - Manual
+        * `rerun` - Re-run
+    SendLoginCodeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        redirect_url:
+          type: string
+      required:
+      - email
+    StatusEnum:
+      enum:
+      - todo
+      - in_progress
+      - done
+      - blocked
+      type: string
+      description: |-
+        * `todo` - To Do
+        * `in_progress` - In Progress
+        * `done` - Done
+        * `blocked` - Blocked
     Task:
       type: object
       properties:
         id:
           type: integer
           readOnly: true
-        task_name:
+        name:
           type: string
-          maxLength: 255
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
         due_date:
           type: string
           format: date-time
-        deleted_flag:
+          readOnly: true
+          nullable: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        completed:
           type: boolean
-        milestone:
+          readOnly: true
+        parent:
           type: integer
+          readOnly: true
           nullable: true
-        task_description:
+        task_type:
+          allOf:
+          - $ref: '#/components/schemas/TaskTypeEnum'
+          readOnly: true
+        group:
+          type: integer
+          readOnly: true
+          nullable: true
+        assigned_user:
+          type: integer
+          readOnly: true
+          nullable: true
+        created_by:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        creator_role:
+          allOf:
+          - $ref: '#/components/schemas/CreatorRoleEnum'
+          readOnly: true
+        deleted_at:
           type: string
+          format: date-time
+          readOnly: true
           nullable: true
-          maxLength: 255
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
       required:
+      - assigned_user
+      - completed
+      - created_at
+      - created_by
+      - creator_role
+      - deleted_at
+      - description
       - due_date
+      - group
       - id
-      - task_name
+      - name
+      - parent
+      - status
+      - task_type
+      - updated_at
     TaskCreate:
       type: object
       properties:
-        task_name:
+        id:
+          type: integer
+          readOnly: true
+        name:
           type: string
           maxLength: 255
+        description:
+          type: string
         due_date:
           type: string
           format: date-time
-        milestone:
+          nullable: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        parent:
           type: integer
           nullable: true
-        task_description:
-          type: string
+        task_type:
+          $ref: '#/components/schemas/TaskTypeEnum'
+        group:
+          type: integer
           nullable: true
-          maxLength: 255
+        assigned_user:
+          type: integer
+          nullable: true
       required:
-      - due_date
-      - task_name
+      - id
+      - name
+      - task_type
+    TaskToggle:
+      type: object
+      properties:
+        completed:
+          type: boolean
+    TaskTypeEnum:
+      enum:
+      - group
+      - individual
+      type: string
+      description: |-
+        * `group` - Group
+        * `individual` - Individual
+    TaskUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        parent:
+          type: integer
+          nullable: true
+      required:
+      - name
     Track:
       type: object
       properties:
@@ -3578,7 +6772,7 @@ components:
           readOnly: true
         track_name:
           type: string
-          maxLength: 255
+          maxLength: 100
         state:
           type: integer
       required:
@@ -3601,43 +6795,50 @@ components:
           type: string
           format: email
           maxLength: 254
-        status:
-          type: boolean
+        account_status:
+          $ref: '#/components/schemas/AccountStatusEnum'
         track:
           type: integer
           nullable: true
-        state:
+        current_role_id:
           type: integer
           nullable: true
-        current_role_id:
-          type: string
           readOnly: true
         current_role_name:
           type: string
+          nullable: true
           readOnly: true
         pg_firstname:
           type: string
+          nullable: true
           readOnly: true
         pg_lastname:
           type: string
+          nullable: true
           readOnly: true
         year_lvl:
           type: string
+          nullable: true
           readOnly: true
         school_name:
           type: string
+          nullable: true
           readOnly: true
         join_perm:
-          type: string
-          readOnly: true
-        ment_bg:
-          type: string
+          type: boolean
+          nullable: true
           readOnly: true
         ment_inst:
           type: string
+          nullable: true
           readOnly: true
         ment_reason:
           type: string
+          nullable: true
+          readOnly: true
+        ment_max_groups:
+          type: integer
+          nullable: true
           readOnly: true
       required:
       - current_role_id
@@ -3647,13 +6848,131 @@ components:
       - id
       - join_perm
       - last_name
-      - ment_bg
       - ment_inst
+      - ment_max_groups
       - ment_reason
       - pg_firstname
       - pg_lastname
       - school_name
       - year_lvl
+    UserRegisterBody:
+      type: object
+      properties:
+        Title:
+          type: string
+          format: email
+        FirstName:
+          type: string
+          maxLength: 255
+        Surname:
+          type: string
+          maxLength: 255
+        Country:
+          type: string
+          maxLength: 255
+        Region:
+          type: string
+          maxLength: 255
+        SupervisorEmail:
+          type: string
+          format: email
+        SupervisorFirstName:
+          type: string
+          maxLength: 255
+        SupervisorSurname:
+          type: string
+          maxLength: 255
+        GuardianEmail:
+          type: string
+          format: email
+        GuardianName:
+          type: string
+          maxLength: 255
+        GuardianSurname:
+          type: string
+          maxLength: 255
+        SchoolName:
+          type: string
+          maxLength: 255
+        YearLevel:
+          type: string
+          maxLength: 255
+        Areaofinterest:
+          type: string
+          maxLength: 255
+      required:
+      - Areaofinterest
+      - Country
+      - FirstName
+      - GuardianEmail
+      - GuardianName
+      - GuardianSurname
+      - SchoolName
+      - SupervisorEmail
+      - SupervisorFirstName
+      - SupervisorSurname
+      - Surname
+      - Title
+      - YearLevel
+    UserRegisterRequest:
+      type: object
+      properties:
+        body:
+          $ref: '#/components/schemas/UserRegisterBody'
+      required:
+      - body
+    VerifiedUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+      required:
+      - email
+      - first_name
+      - id
+      - last_name
+    VerifyLoginCodeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+      required:
+      - code
+      - email
+    VerifyLoginCodeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/VerifiedUser'
+      required:
+      - success
+      - user
+    VisibilityScope866Enum:
+      enum:
+      - public
+      - role
+      - track
+      - group
+      - scoped
+      type: string
+      description: |-
+        * `public` - Public
+        * `role` - Role
+        * `track` - Track
+        * `group` - Group
+        * `scoped` - Scoped
   securitySchemes:
     cookieAuth:
       type: apiKey

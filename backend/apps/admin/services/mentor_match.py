@@ -11,6 +11,7 @@ from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
 from apps.admin.algorithms.mentor import match_mentors
 from apps.admin.services.mentor import get_mentor_list
+from apps.admin.scope_utils import get_admin_track_ids
 
 
 def _group_interests_by_key(rows: List[Dict], key_field: str, interest_field: str) -> Dict[Any, List[str]]:
@@ -177,20 +178,20 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
     return recommendations
 
 
-def get_mentors() -> List[Dict[str, Any]]:
+def get_mentors(requesting_user=None) -> List[Dict[str, Any]]:
     """
     Get mentors using the same response shape as the admin mentor module.
-    
+
     Returns:
         List of mentor dictionaries
     """
-    return get_mentor_list()
+    return get_mentor_list(requesting_user=requesting_user)
 
 
-def get_unmatched_groups() -> List[Dict[str, Any]]:
+def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     """
     Get all groups without mentors.
-    
+
     Returns:
         List of unmatched group dictionaries
     """
@@ -199,13 +200,14 @@ def get_unmatched_groups() -> List[Dict[str, Any]]:
         left_at__isnull=True,
         user__mentorprofile__isnull=False
     )
-    
+
+    groups_qs = Groups.objects.filter(~Exists(mentor_subquery), deleted_at__isnull=True)
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        groups_qs = groups_qs.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
+
     unmatched_groups_base = (
-        Groups.objects
-        .filter(
-            
-            ~Exists(mentor_subquery), deleted_at__isnull=True
-        )
+        groups_qs
         .select_related('track')
         .values(
             'group_name',
@@ -294,20 +296,26 @@ def get_unmatched_groups() -> List[Dict[str, Any]]:
     return result
 
 
-def get_matched_groups() -> List[Dict[str, Any]]:
+def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     """
     Get all groups with assigned mentors.
-    
+
     Returns:
         List of matched group dictionaries with mentor and student info
     """
-    rows = (
-        GroupMembership.objects
-        .filter(
-            left_at__isnull=True,
-            group__deleted_at__isnull=True,
-            user__mentorprofile__isnull=False
+    membership_qs = GroupMembership.objects.filter(
+        left_at__isnull=True,
+        group__deleted_at__isnull=True,
+        user__mentorprofile__isnull=False
+    )
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        membership_qs = membership_qs.filter(
+            Q(group__track_id__in=track_ids) | Q(group__track__isnull=True)
         )
+
+    rows = (
+        membership_qs
         .select_related('group', 'group__track', 'user')
         .values(
             'group_id',

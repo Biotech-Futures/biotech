@@ -1,6 +1,9 @@
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.admin.permissions import IsAdminScoped
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_tracks,
@@ -43,12 +46,14 @@ from apps.admin.services.mentor_match import (
 # USER ENDPOINTS
 # ============================================================================
 class UserListCreateView(APIView):
-    """GET /api/v1/user - List users with pagination and filters"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         active = request.query_params.get("active")
         if active is not None:
             active = active.lower() == "true"
         result = query_users(
+            requesting_user=request.user,
             page=int(request.query_params.get("page", 1)),
             limit=int(request.query_params.get("limit", 10)),
             search=request.query_params.get("search"),
@@ -61,7 +66,6 @@ class UserListCreateView(APIView):
         )
         return Response(result)
 
-    """POST /api/v1/user - Create single user"""
     def post(self, request):
         result = create_user(request.data)
         code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
@@ -69,26 +73,26 @@ class UserListCreateView(APIView):
 
 
 class UserTracksListView(APIView):
-    """GET /api/v1/user/tracks - List tracks available for filtering and assignment"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = query_tracks()
+        result = query_tracks(requesting_user=request.user)
         return Response(result)
 
 
 class UserDetailView(APIView):
-    """GET /api/v1/user/{id} - Get single user"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, user_id):
         result = query_user_by_id(int(user_id))
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
-    """PUT /api/v1/user/{id} - Update user info or role"""
     def put(self, request, user_id):
         result = update_user(int(user_id), request.data)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
-    """DELETE /api/v1/user/{id} - Delete user"""
     def delete(self, request, user_id):
         result = delete_user(int(user_id))
         code = status.HTTP_200_OK if result.get("msg") == "User deleted successfully" else status.HTTP_404_NOT_FOUND
@@ -96,7 +100,8 @@ class UserDetailView(APIView):
 
 
 class UserStatusUpdateView(APIView):
-    """PATCH /api/v1/user/{id}/status - Activate or deactivate account"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def patch(self, request, user_id):
         is_active = request.data.get("isActive")
         if is_active is None:
@@ -110,7 +115,8 @@ class UserStatusUpdateView(APIView):
 
 
 class UserBulkCreateView(APIView):
-    """POST /api/v1/user/bulk - Bulk create users (JSON array)"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         users = request.data
         if not isinstance(users, list):
@@ -123,7 +129,8 @@ class UserBulkCreateView(APIView):
 
 
 class UserBulkCsvView(APIView):
-    """POST /api/v1/user/bulk-csv - Bulk create users from CSV text"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         csv_text = request.data.get("csv", "")
         if not csv_text:
@@ -140,7 +147,8 @@ class UserBulkCsvView(APIView):
 
 
 class UserUngroupedCheckView(APIView):
-    """GET /api/v1/user/ungrouped-check - Check if there are ungrouped students"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = has_ungrouped_students()
         return Response({"msg": "Ungrouped students check completed", "data": {"hasUngrouped": result}})
@@ -151,6 +159,8 @@ class UserUngroupedCheckView(APIView):
 # ============================================================================
 class GroupListView(APIView):
     """GET /api/v1/group - List groups with pagination and filters"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = query_groups(
             page=int(request.query_params.get("page", 1)),
@@ -159,12 +169,15 @@ class GroupListView(APIView):
             search_group=request.query_params.get("searchGroup"),
             track=request.query_params.get("track"),
             mentor_status=request.query_params.get("mentorStatus"),
+            requesting_user=request.user,
         )
         return Response(result)
 
 
 class GroupDetailView(APIView):
     """GET /api/v1/group/{id} - Get single group"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, group_id):
         result = query_group_by_id(group_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -183,6 +196,8 @@ class GroupDetailView(APIView):
 
 class GroupMessagesListView(APIView):
     """GET /api/v1/group/{id}/messages - View group message history"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, group_id):
         result = query_group_messages(
             group_id,
@@ -194,6 +209,8 @@ class GroupMessagesListView(APIView):
 
 class GroupMessageDetailView(APIView):
     """DELETE /api/v1/group/{id}/messages/{messageId} - Remove a message from a group"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def delete(self, request, group_id, message_id):
         result = remove_group_message(group_id, int(message_id))
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -202,6 +219,8 @@ class GroupMessageDetailView(APIView):
 
 class GroupMemberRemoveView(APIView):
     """DELETE /api/v1/group/{id}/members/{userId} - Remove a student from a group"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def delete(self, request, group_id, user_id):
         result = remove_group_member(group_id, int(user_id))
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -213,6 +232,8 @@ class GroupMemberRemoveView(APIView):
 # ============================================================================
 class MatchStudentView(APIView):
     """GET /api/v1/match/student - Get match for authenticated user"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         uid = str(request.user.id) if request.user.is_authenticated else None
         if not uid:
@@ -230,6 +251,8 @@ class MatchStudentView(APIView):
 
 class MatchIndividualView(APIView):
     """GET /api/v1/match/individual - Get individual students"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = get_individual_students()
         return Response({"msg": "Individual students retrieved successfully", "data": result})
@@ -237,6 +260,8 @@ class MatchIndividualView(APIView):
 
 class MatchConfirmView(APIView):
     """POST /api/v1/match/confirm - Confirm student assignments"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         result = confirm_student_assignments(request.data)
         return Response({"msg": "Assignments confirmed successfully", "data": result})
@@ -247,6 +272,8 @@ class MatchConfirmView(APIView):
 # ============================================================================
 class EventListCreateView(APIView):
     """GET /api/v1/event - List events with pagination and filters"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         upcoming = request.query_params.get("upcoming", "false").lower() == "true"
         result = query_events({
@@ -254,7 +281,7 @@ class EventListCreateView(APIView):
             "limit": int(request.query_params.get("limit", 10)),
             "host_user_id": request.query_params.get("hostUserId"),
             "upcoming": upcoming,
-        })
+        }, requesting_user=request.user)
         return Response(result)
 
     """POST /api/v1/event - Create event"""
@@ -265,6 +292,8 @@ class EventListCreateView(APIView):
 
 class EventDetailView(APIView):
     """GET /api/v1/event/{id} - Get single event"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, event_id):
         result = query_event_by_id(event_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -285,6 +314,8 @@ class EventDetailView(APIView):
 
 class EventRsvpListCreateView(APIView):
     """GET /api/v1/event/{id}/rsvp - Get event RSVPs"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, event_id):
         result = query_event_rsvps(event_id)
         return Response(result)
@@ -298,6 +329,8 @@ class EventRsvpListCreateView(APIView):
 
 class EventRsvpDetailView(APIView):
     """PUT /api/v1/event/rsvp/{rsvpId} - Update event RSVP"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def put(self, request, rsvp_id):
         result = update_event_rsvp(rsvp_id, request.data)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -306,6 +339,8 @@ class EventRsvpDetailView(APIView):
 
 class EventTargetsView(APIView):
     """GET /api/v1/event/{id}/targets - Get event targets"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, event_id):
         result = query_event_targets(event_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -314,13 +349,17 @@ class EventTargetsView(APIView):
 
 class EventMetaGroupsView(APIView):
     """GET /api/v1/event/meta/groups - List groups for event targeting"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = event_query_groups()
+        result = event_query_groups(requesting_user=request.user)
         return Response(result)
 
 
 class EventMetaRolesView(APIView):
     """GET /api/v1/event/meta/roles - List roles for event targeting"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = event_query_roles()
         return Response(result)
@@ -328,8 +367,10 @@ class EventMetaRolesView(APIView):
 
 class EventMetaTracksView(APIView):
     """GET /api/v1/event/meta/tracks - List tracks for event targeting"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = event_query_tracks()
+        result = event_query_tracks(requesting_user=request.user)
         return Response(result)
 
 
@@ -338,6 +379,8 @@ class EventMetaTracksView(APIView):
 # ============================================================================
 class ResourceListCreateView(APIView):
     """GET /api/v1/resource - List resources with pagination and filters"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = query_resources({
             "page": int(request.query_params.get("page", 1)),
@@ -352,7 +395,7 @@ class ResourceListCreateView(APIView):
             "order": request.query_params.get("order", "newest"),
             "uploader": request.query_params.get("uploader"),
             "role_slug": request.query_params.get("roleSlug"),
-        })
+        }, requesting_user=request.user)
         return Response(result)
 
     """POST /api/v1/resource - Create resource"""
@@ -367,6 +410,8 @@ class ResourceListCreateView(APIView):
 
 class ResourceDetailView(APIView):
     """GET /api/v1/resource/{id} - Get single resource"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, resource_id):
         result = query_resource_by_id(resource_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -393,6 +438,8 @@ class ResourceDetailView(APIView):
 
 class ResourceDownloadView(APIView):
     """GET /api/v1/resource/{id}/download - Download resource file"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, resource_id):
         result = download_resource(resource_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -401,6 +448,8 @@ class ResourceDownloadView(APIView):
 
 class ResourceUploadView(APIView):
     """POST /api/v1/resource/upload - Upload resource file"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         uploader = None
         if hasattr(request, "user") and request.user.is_authenticated:
@@ -413,6 +462,8 @@ class ResourceUploadView(APIView):
 
 class ResourceFileReplaceView(APIView):
     """POST /api/v1/resource/{id}/upload - Replace resource file"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request, resource_id):
         result = replace_resource_file(resource_id, request.data)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
@@ -421,6 +472,8 @@ class ResourceFileReplaceView(APIView):
 
 class ResourceRolesListView(APIView):
     """GET /api/v1/resource/roles - List available resource roles"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = list_resource_roles()
         return Response(result)
@@ -428,6 +481,8 @@ class ResourceRolesListView(APIView):
 
 class ResourceTypesListView(APIView):
     """GET /api/v1/resource/types - List available resource types"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = list_resource_types()
         return Response(result)
@@ -435,13 +490,17 @@ class ResourceTypesListView(APIView):
 
 class ResourceTracksListView(APIView):
     """GET /api/v1/resource/tracks - List available resource tracks"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = list_resource_tracks()
+        result = list_resource_tracks(requesting_user=request.user)
         return Response(result)
 
 
 class ResourceAssignRoleView(APIView):
     """POST /api/v1/resource/{id}/assign-role - Assign role to resource"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request, resource_id):
         role_id = request.data.get("roleId")
         if role_id is None:
@@ -456,6 +515,8 @@ class ResourceAssignRoleView(APIView):
 
 class ResourceRemoveRoleView(APIView):
     """DELETE /api/v1/resource/{id}/remove-role - Remove role from resource"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def delete(self, request, resource_id):
         role_id = request.data.get("roleId")
         if role_id is None:
@@ -473,6 +534,8 @@ class ResourceRemoveRoleView(APIView):
 # ============================================================================
 class AnnouncementListCreateView(APIView):
     """GET /api/v1/announcement - List announcements with pagination and filters"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         archived = request.query_params.get("archived")
         if archived is not None:
@@ -482,7 +545,7 @@ class AnnouncementListCreateView(APIView):
             "limit": int(request.query_params.get("limit", 10)),
             "search": request.query_params.get("search"),
             "archived": archived,
-        })
+        }, requesting_user=request.user)
         return Response(result)
 
     """POST /api/v1/announcement - Create announcement"""
@@ -497,6 +560,8 @@ class AnnouncementListCreateView(APIView):
 
 class AnnouncementDetailView(APIView):
     """GET /api/v1/announcement/{id} - Get single announcement"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request, announcement_id):
         result = get_announcement_by_id(announcement_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -511,6 +576,8 @@ class AnnouncementDetailView(APIView):
 
 class AnnouncementArchiveView(APIView):
     """POST /api/v1/announcement/{id}/archive - Archive announcement"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request, announcement_id):
         result = archive_announcement(announcement_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
@@ -519,6 +586,8 @@ class AnnouncementArchiveView(APIView):
 
 class AnnouncementNotifyView(APIView):
     """POST /api/v1/announcement/{id}/notify - Send announcement email notification"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request, announcement_id):
         result = send_announcement_email(announcement_id)
         code = status.HTTP_200_OK if result.get("sent", 0) > 0 else status.HTTP_400_BAD_REQUEST
@@ -527,13 +596,17 @@ class AnnouncementNotifyView(APIView):
 
 class AnnouncementTracksListView(APIView):
     """GET /api/v1/announcement/tracks - List available announcement tracks"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = list_announcement_tracks()
+        result = list_announcement_tracks(requesting_user=request.user)
         return Response(result)
 
 
 class AnnouncementRolesListView(APIView):
     """GET /api/v1/announcement/roles - List available announcement roles"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         result = list_announcement_roles()
         return Response(result)
@@ -544,13 +617,17 @@ class AnnouncementRolesListView(APIView):
 # ============================================================================
 class MentorListView(APIView):
     """GET /api/v1/mentor - Get mentor list"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        mentors = get_mentor_list()
+        mentors = get_mentor_list(requesting_user=request.user)
         return Response({"msg": "Mentors retrieved successfully", "data": mentors})
 
 
 class MentorActiveStatusUpdateView(APIView):
     """PATCH /api/v1/mentor/{mentorId}/active - Update mentor active status"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def patch(self, request, mentor_id):
         is_active = request.data.get("isActive")
         if is_active is None:
@@ -567,6 +644,8 @@ class MentorActiveStatusUpdateView(APIView):
 # ============================================================================
 class MentorMatchRecommendView(APIView):
     """GET /api/v1/mentor-match/recommend - Get mentor recommendations"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
         admin_user_id = str(request.user.id) if request.user.is_authenticated else None
         if not admin_user_id:
@@ -579,27 +658,35 @@ class MentorMatchRecommendView(APIView):
 
 class MentorMatchMentorsListView(APIView):
     """GET /api/v1/mentor-match/mentors - Get list of mentors"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = get_mentors()
+        result = get_mentors(requesting_user=request.user)
         return Response({"msg": "Mentors retrieved successfully", "data": result})
 
 
 class MentorMatchGroupsListView(APIView):
     """GET /api/v1/mentor-match/groups - Get list of unmatched groups"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = get_unmatched_groups()
+        result = get_unmatched_groups(requesting_user=request.user)
         return Response({"msg": "Unmatched groups retrieved successfully", "data": result})
 
 
 class MentorMatchMatchedGroupsListView(APIView):
     """GET /api/v1/mentor-match/matched-groups - Get list of matched groups"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def get(self, request):
-        result = get_matched_groups()
+        result = get_matched_groups(requesting_user=request.user)
         return Response({"msg": "Matched groups retrieved successfully", "data": result})
 
 
 class MentorMatchConfirmView(APIView):
     """POST /api/v1/mentor-match/confirm - Confirm mentor assignments"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         result = confirm_mentor_assignments(request.data)
         return Response({"msg": "Mentor assignments confirmed successfully", "data": result})
@@ -607,6 +694,8 @@ class MentorMatchConfirmView(APIView):
 
 class MentorMatchReplaceView(APIView):
     """POST /api/v1/mentor-match/replace - Replace mentor assignment"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         result = replace_mentor(request.data)
         return Response({"msg": "Mentor replaced successfully", "data": result})
@@ -614,6 +703,8 @@ class MentorMatchReplaceView(APIView):
 
 class MentorMatchBulkReplaceInactiveView(APIView):
     """POST /api/v1/mentor-match/bulk-replace-inactive - Replace all inactive mentor assignments"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         result = bulk_replace_inactive_mentors()
         return Response({"msg": "Inactive mentors replaced successfully", "data": result})
@@ -621,6 +712,8 @@ class MentorMatchBulkReplaceInactiveView(APIView):
 
 class MentorMatchUnassignView(APIView):
     """POST /api/v1/mentor-match/unassign - Unassign mentors from groups"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
     def post(self, request):
         group_ids = request.data.get("groupIds", [])
         result = unassign_mentors(group_ids)
