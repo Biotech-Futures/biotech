@@ -1,6 +1,8 @@
 from rest_framework.permissions import BasePermission
 from apps.groups.models import GroupMembership
 from apps.users.utils.roles import get_active_assignment
+from django.utils import timezone
+from datetime import timedelta
 
 ROLE_ADMIN = "admin"
 ROLE_SUPERVISOR = "supervisor"
@@ -56,3 +58,31 @@ class CanModerateMessage(BasePermission):
             ).exists()
 
         return False
+
+
+class CanEditMessage(BasePermission):
+    """
+    For PATCH (edit):
+      - admin: edit everywhere, anytime
+      - sender: edit only their own messages within 10 minutes of sending
+    """
+    def has_object_permission(self, request, view, obj):
+        u = request.user
+        if not u or not u.is_authenticated:
+            return False
+
+        # Admin → global access, anytime
+        if _has_active_role_name(u, {ROLE_ADMIN}):
+            return True
+
+        # Must be the sender
+        if obj.sender_user != u:
+            return False
+
+        # Check if within 10 minutes
+        now = timezone.now()
+        time_limit = timedelta(minutes=10)
+        if now - obj.sent_at > time_limit:
+            return False
+
+        return True

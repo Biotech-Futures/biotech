@@ -13,7 +13,7 @@ from channels.layers import get_channel_layer
 
 from .models import Messages
 from .serializers import MessageSerializer, MessageUpdateSerializer
-from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
+from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage, CanEditMessage
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -23,6 +23,8 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "destroy":
             return [CanModerateMessage()]
+        elif self.action == "partial_update":
+            return [CanEditMessage()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
