@@ -14,6 +14,7 @@ from apps.resources.models import Resources, ResourceAudience, Roles, ResourceTy
 from apps.groups.models import Tracks, Groups
 from apps.users.models import User
 from azure_blob_utils import upload_file, generate_sas_url
+from apps.admin.scope_utils import get_admin_track_ids
 
 
 # Constants
@@ -251,11 +252,18 @@ def resolve_uploader_for_db(
     }
 
 
-def fetch_resources_from_db(params: QueryResourcesInput) -> List[ResourceRowDict]:
+def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -> List[ResourceRowDict]:
     """Fetch resources from database with filters and pagination."""
     queryset = Resources.objects.select_related(
         'type', 'track', 'group', 'uploaded_by'
     ).filter(deleted_at__isnull=True)
+
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        queryset = queryset.filter(
+            Q(track_id__in=track_ids) | Q(track__isnull=True, group__track_id__in=track_ids) |
+            Q(track__isnull=True, group__isnull=True)
+        )
     
     # Apply filters
     if params.get('uploader_user_id'):
@@ -441,14 +449,14 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
 
 # Main service functions
 
-def query_resources(params: QueryResourcesInput) -> Dict[str, Any]:
+def query_resources(params: QueryResourcesInput, requesting_user=None) -> Dict[str, Any]:
     """Query resources with pagination and filtering."""
     page = params.get('page', 1)
     limit = params.get('limit', 10)
     offset = (page - 1) * limit
-    
+
     # Fetch from database
-    resource_rows = fetch_resources_from_db(params)
+    resource_rows = fetch_resources_from_db(params, requesting_user=requesting_user)
     resources_list = hydrate_resources(resource_rows)
     
     # Apply client-side filters
@@ -953,10 +961,14 @@ def list_resource_types() -> Dict[str, Any]:
     }
 
 
-def list_resource_tracks() -> Dict[str, Any]:
+def list_resource_tracks(requesting_user=None) -> Dict[str, Any]:
     """List all resource tracks."""
-    tracks = Tracks.objects.all().order_by('track_name')
-    
+    qs = Tracks.objects.all()
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        qs = qs.filter(id__in=track_ids)
+    tracks = qs.order_by('track_name')
+
     return {
         'msg': 'Tracks retrieved successfully',
         'data': [
