@@ -18,6 +18,7 @@ DEBUG = config("DEBUG", default="true", cast=env_bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
 INSTALLED_APPS = [
+    'daphne',
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -40,7 +41,6 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.services',
     'matching',
-    'daphne',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
