@@ -1,15 +1,19 @@
 """Business logic for the events app.
 
-Keeping query and registration mechanics here (rather than inside views)
-maintains the project's "no fat views" rule: ``views.py`` should only
-parse the request, enforce permissions, and shape the response.
+Permission model in one paragraph:
 
-The single source of truth for "is this user a target of this event?"
-lives in :func:`can_user_rsvp_to_event`. Both the FE-facing register
-shortcut (``POST .../register/``) and the full RSVP endpoint
-(``POST .../rsvp/``) gate writes through it, so the role-permission
-contract — "admins push events, users RSVP" — has exactly one
-implementation that needs to change if the rule changes.
+* Events are *pushed* — only admins create them. Global admins (is_staff
+  / is_superuser / AdminScope.is_global) can CRUD any event. Track admins
+  can CRUD only events whose track FK is in their AdminScope.
+* Users RSVP. The user-side state machine is accepted / tentative /
+  declined. PENDING is reserved for admin-issued invites awaiting a
+  response and is rejected on the user-submit path.
+
+`can_user_rsvp_to_event` is the single source of truth for "is this
+user a target of this event?" Both the read queryset
+(`visible_events_queryset`) and the write helper (`set_user_rsvp`)
+funnel through the same rule so a user who can SEE an event can RSVP
+to it, and vice-versa.
 """
 
 from django.db.models import Exists, OuterRef, Q
@@ -30,65 +34,59 @@ from .models import (
 )
 
 
-def get_user_registered_event_ids(user):
-    """Return a ``set`` of event ids ``user`` has *registered* for.
+def get_user_accepted_event_ids(user):
+    """Return event ids the user has ACCEPTED.
 
-    "Registered" is defined narrowly as ``rsvp_status == GOING`` — the
-    user has actively committed to attending. PENDING / MAYBE / DECLINED
-    all serialize as ``registered: false``. This is the single source
-    of truth used by both the per-row ``EventSerializer.registered``
-    field and the ``?registered=true`` / ``?mine=true`` filters, so any
-    future contract change happens in exactly one place.
-
-    The 4-value ``RsvpStatus`` enum stays the canonical record of
-    *intent*; ``registered`` is a derived projection of "going".
-
-    Returning a ``set`` keeps O(1) membership checks for the serializer
-    so listing N events stays O(N) without an N+1 query against
-    ``EventRsvp``.
+    The set is the truth behind both `EventSerializer.accepted` and the
+    `?accepted=true` filter, so the contract change happens here only.
+    Tentative / declined / pending all serialize as `accepted: false`.
     """
     if not user or not user.is_authenticated:
         return set()
     return set(
         EventRsvp.objects.filter(
             user=user,
-            rsvp_status=EventRsvp.RsvpStatus.GOING,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
         ).values_list("event_id", flat=True)
     )
 
 
+def get_request_accepted_event_ids(request):
+    """Per-request memoized wrapper around `get_user_accepted_event_ids`.
+
+    The list view's filter and serializer context both need this set;
+    caching on `request` keeps it to one query per request.
+    """
+    if request is None:
+        return set()
+    cached = getattr(request, "_cached_accepted_event_ids", None)
+    if cached is None:
+        cached = get_user_accepted_event_ids(getattr(request, "user", None))
+        request._cached_accepted_event_ids = cached
+    return cached
+
+
 # ---------------------------------------------------------------------------
-# Visibility gate.
+# Visibility gate. Mirrored on the read side by visible_events_queryset.
 # ---------------------------------------------------------------------------
+
 
 def can_user_rsvp_to_event(user, event) -> bool:
-    """Return True iff ``user`` is a legitimate target of ``event``.
+    """True iff `user` may RSVP to `event`.
 
-    Mirrors the role-permission model:
-
-    * **Global admins** (``is_staff`` / ``is_superuser`` /
-      ``AdminScope.is_global``) can RSVP to anything.
-    * **Track admins** are restricted to events within their assigned
-      tracks — events whose direct ``track`` FK, ``EventTargetTrack``
-      rows, or ``EventTargetGroup``'s parent track is in their scope
-      — plus untargeted (platform-wide) events.
-    * **Explicit invitees** (any existing ``EventRsvp`` row for this
-      ``(event, user)`` pair) can always change their state. This is
-      what makes "decline → I changed my mind, going" work without
-      the user losing access the moment they decline.
-    * **Untargeted events** (no track / no group / no role targeting
-      on the event) are open to every authenticated user — same as a
-      platform-wide announcement.
-    * **Targeted events** require the user's scope to intersect every
-      *present* targeting axis (AND across axes, OR within an axis).
-
-    The "AND across axes, OR within axis" rule mirrors the dashboard's
-    next-event ``_is_member_match`` so the two surfaces (read vs.
-    write) agree on who is "a target". Diverging would mean a user
-    could see an event in their next-event card but be told "403"
-    when they click Register — the worst kind of inconsistency.
-
-    Pure / side-effect-free / unit-testable in isolation.
+    Rules:
+    * Global admin           → yes, always.
+    * Track admin            → yes for events touching their tracks
+                               (direct FK / EventTargetTrack / parent
+                               track of any EventTargetGroup) or for
+                               untargeted org-wide events.
+    * Existing invitee       → yes, regardless of current status. A
+                               declined user must be able to flip back.
+    * Untargeted event       → yes for any authenticated user.
+    * Targeted event         → user's scope must intersect every present
+                               targeting axis (AND across axes, OR
+                               within an axis). Same shape as the
+                               dashboard's `_is_member_match`.
     """
     if not user or not user.is_authenticated:
         return False
@@ -100,11 +98,6 @@ def can_user_rsvp_to_event(user, event) -> bool:
         not target_track_ids and not target_group_ids and not target_role_ids
     )
 
-    # Operational admins. Global admins (admin_track_ids is None)
-    # bypass entirely; track admins must be scoped to a track the
-    # event touches OR the event must be untargeted (platform-wide
-    # announcements stay visible org-wide regardless of a track
-    # admin's narrow scope).
     if is_operational_admin(user):
         admin_track_ids = get_admin_track_ids(user)
         if admin_track_ids is None:
@@ -112,27 +105,24 @@ def can_user_rsvp_to_event(user, event) -> bool:
         if is_untargeted:
             return True
         admin_track_ids_set = set(admin_track_ids)
-        # Tracks reachable through any of the event's targeting axes.
+        # Tracks the event reaches — direct + via group's parent track.
         event_admin_relevant_tracks = set(target_track_ids) | {
             target.group.track_id
             for target in EventTargetGroup.objects.filter(event=event).select_related("group")
         }
         return bool(admin_track_ids_set & event_admin_relevant_tracks)
 
-    # Explicit invite — admin already named this user. Includes the
-    # ``DECLINED`` case on purpose: a declined invite must remain
-    # actionable so the user can flip back to going / maybe.
+    # Pre-existing invite (any status, including DECLINED) keeps the
+    # user in the loop.
     if EventRsvp.objects.filter(event=event, user=user).exists():
         return True
 
-    # Untargeted event = platform-wide announcement, open to all.
     if is_untargeted:
         return True
 
     user_group_ids, user_track_ids, user_role_ids = _user_scope(user)
 
-    # AND across axes, OR within an axis. An axis with no targets is a
-    # free pass on that axis (matches dashboard's _is_member_match).
+    # AND across axes / OR within an axis.
     track_ok = (not target_track_ids) or bool(target_track_ids & user_track_ids)
     group_ok = (not target_group_ids) or bool(target_group_ids & user_group_ids)
     role_ok = (not target_role_ids) or bool(target_role_ids & user_role_ids)
@@ -140,35 +130,21 @@ def can_user_rsvp_to_event(user, event) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Read-side scoping: ``GET /events/v1/`` filters to events the requesting
-# user is permitted to *see*, mirroring the write-side gate above.
+# Read-side scoping for GET /events/v1/. Mirrors the gate above.
 # ---------------------------------------------------------------------------
 
 
 def visible_events_queryset(user, base_qs):
-    """Return ``base_qs`` filtered to events visible to ``user``.
+    """Filter `base_qs` to events visible to `user`.
 
-    The read-side counterpart to :func:`can_user_rsvp_to_event` — the
-    same role-model rules expressed as a queryset filter so DRF's
-    pagination, search, and ordering keep operating at the DB layer.
+    * Anonymous              → untargeted only.
+    * Global admin           → everything.
+    * Track admin            → events touching their tracks ∪ untargeted.
+    * Authenticated user     → invited ∪ untargeted ∪ targeting match
+                               (AND across axes / OR within axis).
 
-    Visibility rules (mirror the gate, expressed in SQL):
-
-    * **Anonymous** → only untargeted (platform-wide) events. Keeps
-      the public Events page working for unauthenticated visitors
-      without leaking targeted internal events.
-    * **Global admin** → everything in ``base_qs``.
-    * **Track admin** → events whose targeting touches their tracks
-      (direct FK, ``EventTargetTrack``, or ``EventTargetGroup``'s
-      parent track) ∪ untargeted events.
-    * **Authenticated non-admin** → events they're explicitly invited
-      to (any RSVP status) ∪ untargeted events ∪ events whose
-      targeting axes intersect their scope (AND across axes, OR
-      within an axis).
-
-    Implemented with ``Exists`` subqueries instead of joins, so we
-    avoid the row-multiplication / ``DISTINCT`` headache that
-    multi-axis ``EventTarget*`` joins would cause.
+    Uses `Exists` subqueries so multi-axis filtering doesn't multiply
+    rows (no DISTINCT needed).
     """
     has_track_target = Exists(
         EventTargetTrack.objects.filter(event_id=OuterRef("id"))
@@ -208,12 +184,9 @@ def visible_events_queryset(user, base_qs):
         )
         return base_qs.filter(in_admin_scope | untargeted_q)
 
-    # Authenticated non-admin: invited ∪ untargeted ∪ targeting match.
     user_group_ids, user_track_ids, user_role_ids = _user_scope(user)
-
     invited_event_ids = EventRsvp.objects.filter(user=user).values("event_id")
 
-    # AND across axes / OR within axis, expressed via Exists.
     track_axis_pass = (Q(track__isnull=True) & ~has_track_target) | (
         Q(track_id__in=list(user_track_ids))
         | Exists(
@@ -236,17 +209,66 @@ def visible_events_queryset(user, base_qs):
         )
     )
 
+    # Supervisor scope. A supervisor inherits read access to events that
+    # target any of their supervisees' groups / tracks — they need to
+    # see what's been pushed to their students.
+    supervisor_q = _supervisor_visibility_q(user)
+
     return base_qs.filter(
         Q(id__in=invited_event_ids)
         | (track_axis_pass & group_axis_pass & role_axis_pass)
+        | supervisor_q
     )
 
 
-def _event_target_track_ids(event) -> set:
-    """Tracks the event targets — the direct ``event.track`` FK plus
-    every ``EventTargetTrack`` row. Returned as a ``set`` so the gate
-    can intersect cheaply.
+def _supervisor_visibility_q(user):
+    """Q matching events visible through this user's supervisor scope.
+
+    The supervisor sees events targeting any group their supervisees
+    belong to, plus the parent tracks of those groups (direct FK or
+    EventTargetTrack). Returns a never-matching Q if the user has no
+    supervisees, so the caller can OR it in safely.
     """
+    from apps.users.models import StudentProfile
+    from apps.groups.models import GroupMembership
+
+    supervisee_ids = list(
+        StudentProfile.objects.filter(supervisor_id=user.id)
+        .values_list("user_id", flat=True)
+    )
+    if not supervisee_ids:
+        return Q(pk__in=[])
+
+    rows = list(
+        GroupMembership.objects.filter(
+            user_id__in=supervisee_ids, left_at__isnull=True
+        ).values_list("group_id", "group__track_id")
+    )
+    group_ids = sorted({r[0] for r in rows if r[0]})
+    track_ids = sorted({r[1] for r in rows if r[1]})
+    if not group_ids and not track_ids:
+        return Q(pk__in=[])
+
+    q = Q(pk__in=[])
+    if track_ids:
+        q = q | Q(track_id__in=track_ids) | Exists(
+            EventTargetTrack.objects.filter(
+                event_id=OuterRef("id"),
+                track_id__in=track_ids,
+            )
+        )
+    if group_ids:
+        q = q | Exists(
+            EventTargetGroup.objects.filter(
+                event_id=OuterRef("id"),
+                group_id__in=group_ids,
+            )
+        )
+    return q
+
+
+def _event_target_track_ids(event) -> set:
+    """Direct event.track FK ∪ EventTargetTrack rows."""
     track_ids = set()
     if event.track_id is not None:
         track_ids.add(event.track_id)
@@ -269,16 +291,13 @@ def _event_target_role_ids(event) -> set:
 
 
 def _user_scope(user):
-    """Materialise ``(group_ids, track_ids, role_ids)`` for ``user``.
+    """(group_ids, track_ids, role_ids) for `user`.
 
-    A user's track scope is the union of:
-      - tracks of the groups they're an active member of, plus
-      - their own ``user.track_id`` (if the User model carries one).
-
-    Done here rather than inline in :func:`can_user_rsvp_to_event` so
-    each axis is one unambiguous query and the gate function reads as
-    pure boolean logic.
+    Tracks come from the user's group memberships' parent tracks plus
+    `user.track_id` if that field exists on the User model.
     """
+    # Imports kept local to dodge circular-import risk between events,
+    # groups, and resources.
     from apps.groups.models import GroupMembership
     from apps.resources.models import RoleAssignmentHistory
 
@@ -293,8 +312,6 @@ def _user_scope(user):
         user_track_ids.add(user_track_id)
 
     now = timezone.now()
-    from django.db.models import Q
-
     user_role_ids = set(
         RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now)
         .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
@@ -304,46 +321,30 @@ def _user_scope(user):
 
 
 # ---------------------------------------------------------------------------
-# RSVP mutators — the single write path through which both
-# ``/register/`` and ``/rsvp/`` flow.
+# RSVP write path. Both /register/ and /rsvp/ funnel through here.
 # ---------------------------------------------------------------------------
 
-# RSVP statuses a *user* may submit for themselves. ``PENDING`` is
-# excluded on purpose: PENDING is the state the admin's invite flow
-# leaves an RSVP in until the user responds. The user's own action
-# always carries an opinion (going / maybe / declined).
+# PENDING is admin-only — it's the state an invite sits in until the
+# user responds. Letting users submit it would silently overwrite
+# admin invites.
 USER_SUBMITTABLE_RSVP_STATUSES = (
-    EventRsvp.RsvpStatus.GOING,
-    EventRsvp.RsvpStatus.MAYBE,
+    EventRsvp.RsvpStatus.ACCEPTED,
+    EventRsvp.RsvpStatus.TENTATIVE,
     EventRsvp.RsvpStatus.DECLINED,
 )
 
 
 def set_user_rsvp(user, event_id, rsvp_status):
-    """Set ``user``'s RSVP on event ``event_id`` to ``rsvp_status``.
+    """Upsert `user`'s RSVP on `event_id` to `rsvp_status`.
 
-    Returns ``(event, rsvp, created)``:
-      - ``event``  : resolved ``Events`` instance.
-      - ``rsvp``   : persisted ``EventRsvp`` row.
-      - ``created``: ``True`` iff a new RSVP row was inserted by this
-                     call (vs. updating an existing one).
-
-    Raises:
-      - :class:`rest_framework.exceptions.NotFound` if the event is
-        missing or soft-deleted.
-      - :class:`rest_framework.exceptions.ValidationError` if the
-        event has already ended, or if ``rsvp_status`` is not one a
-        user is allowed to set themselves.
-      - :class:`rest_framework.exceptions.PermissionDenied` if the
-        user is not a legitimate target of the event (per
-        :func:`can_user_rsvp_to_event`).
-
-    All write paths funnel through here so the visibility gate cannot
-    be bypassed by adding a new endpoint that forgets to call it.
+    Returns `(event, rsvp, created)`. Raises:
+        NotFound          — event missing or soft-deleted.
+        ValidationError   — event already ended, or status not user-submittable.
+        PermissionDenied  — user is not a target of the event.
     """
     if rsvp_status not in USER_SUBMITTABLE_RSVP_STATUSES:
         raise ValidationError(
-            {"rsvp_status": "Must be one of: going, maybe, declined."}
+            {"rsvp_status": "Must be one of: accepted, tentative, declined."}
         )
 
     event = Events.objects.filter(id=event_id, deleted_at__isnull=True).first()
@@ -354,9 +355,8 @@ def set_user_rsvp(user, event_id, rsvp_status):
         raise ValidationError("Event has already ended; RSVP is closed.")
 
     if not can_user_rsvp_to_event(user, event):
-        # 403 rather than 404 because the FE can already enumerate
-        # the event via ``GET /events/v1/`` (which is currently
-        # globally-visible). Hiding existence here would be theatre.
+        # 403 over 404: events are listable via GET, so hiding existence
+        # here would be theatre.
         raise PermissionDenied("You are not a target of this event.")
 
     rsvp, created = EventRsvp.objects.update_or_create(
@@ -368,17 +368,3 @@ def set_user_rsvp(user, event_id, rsvp_status):
         },
     )
     return event, rsvp, created
-
-
-def register_user_for_event(user, event_id):
-    """Backward-compatible alias for ``POST .../register/``.
-
-    Equivalent to ``set_user_rsvp(user, event_id, GOING)``. Kept as a
-    distinct function so the FE's existing ``register`` button doesn't
-    need to know about the wider RSVP state machine; the gate logic
-    is shared because both endpoints route through
-    :func:`set_user_rsvp`.
-
-    Returns ``(event, rsvp, created)`` matching the original signature.
-    """
-    return set_user_rsvp(user, event_id, EventRsvp.RsvpStatus.GOING)

@@ -1189,6 +1189,33 @@ paths:
         description: |-
           * `group` - Group
           * `individual` - Individual
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum: [todo, in_progress, done, blocked]
+      - in: query
+        name: completed
+        schema:
+          type: boolean
+      - in: query
+        name: due_date_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: due_date_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: search
+        schema:
+          type: string
+      - in: query
+        name: ordering
+        schema:
+          type: string
       tags:
       - api
       security:
@@ -1321,6 +1348,43 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/tasks/bulk/check/:
+    post:
+      operationId: api_v1_tasks_bulk_check_create
+      description: Flip or set `completed` on up to 200 tasks in one call.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_ids]
+              properties:
+                task_ids:
+                  type: array
+                  items: { type: integer }
+                  minItems: 1
+                  maxItems: 200
+                completed:
+                  type: boolean
+                  description: If omitted, each row flips.
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  not_found: { type: array, items: { type: integer } }
+                  forbidden: { type: array, items: { type: integer } }
+          description: ''
   /api/v1/tasks/{id}/check/:
     post:
       operationId: api_v1_tasks_check_create
@@ -2202,6 +2266,50 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: when
+        required: false
+        in: query
+        description: 'Time window: upcoming (default), past, all.'
+        schema:
+          type: string
+          enum: [upcoming, past, all]
+      - name: search
+        required: false
+        in: query
+        description: Substring match against event_name and description.
+        schema:
+          type: string
+      - name: ordering
+        required: false
+        in: query
+        schema:
+          type: string
+      - name: rsvp_status
+        required: false
+        in: query
+        description: csv of accepted, tentative, declined, pending.
+        schema:
+          type: string
+      - name: category
+        required: false
+        in: query
+        schema:
+          type: string
+      - name: user
+        required: false
+        in: query
+        schema:
+          type: integer
+      - name: group
+        required: false
+        in: query
+        schema:
+          type: integer
+      - name: track
+        required: false
+        in: query
+        schema:
+          type: integer
       tags:
       - events
       security:
@@ -2238,17 +2346,31 @@ paths:
               schema:
                 $ref: '#/components/schemas/Event'
           description: ''
-  /events/v1/{id}/invite/{uid}:
-    post:
-      operationId: events_v1_invite_create
+  /events/v1/{id}/:
+    get:
+      operationId: events_v1_retrieve
       parameters:
       - in: path
         name: id
         schema:
           type: integer
         required: true
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+          description: ''
+    put:
+      operationId: events_v1_update
+      parameters:
       - in: path
-        name: uid
+        name: id
         schema:
           type: integer
         required: true
@@ -2258,13 +2380,8 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EventRsvpRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/EventRsvpRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/EventRsvpRequest'
+              $ref: '#/components/schemas/Event'
+        required: true
       security:
       - cookieAuth: []
       responses:
@@ -2272,29 +2389,40 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventRsvpUpsert'
+                $ref: '#/components/schemas/Event'
           description: ''
-  /events/v1/{id}/invites:
-    get:
-      operationId: events_v1_invites_list
+    patch:
+      operationId: events_v1_partial_update
       parameters:
       - in: path
         name: id
         schema:
           type: integer
         required: true
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
+      tags:
+      - events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Event'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+          description: ''
+    delete:
+      operationId: events_v1_destroy
+      parameters:
+      - in: path
+        name: id
         schema:
           type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
+        required: true
       tags:
       - events
       security:
@@ -2304,9 +2432,52 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedEventRsvpList'
+                $ref: '#/components/schemas/Event'
           description: ''
-  /events/v1/{id}/rsvp/{uid}:
+  /events/v1/{id}/rsvp/bulk/:
+    post:
+      operationId: events_v1_rsvp_bulk_create
+      description: Upsert many invites in one transaction.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_ids]
+              properties:
+                user_ids:
+                  type: array
+                  items: { type: integer }
+                  minItems: 1
+                  maxItems: 200
+                rsvp_status:
+                  type: string
+                  enum: [pending, accepted, tentative, declined]
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_id: { type: integer }
+                  rsvp_status: { type: string }
+                  created: { type: array, items: { type: integer } }
+                  updated: { type: array, items: { type: integer } }
+                  not_found: { type: array, items: { type: integer } }
+          description: ''
+  /events/v1/{id}/rsvp/{uid}/:
     post:
       operationId: events_v1_rsvp_create
       parameters:
@@ -2342,7 +2513,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventRsvpUpsert'
           description: ''
-  /events/v1/{id}/rsvps:
+  /events/v1/{id}/rsvps/:
     get:
       operationId: events_v1_rsvps_list
       parameters:
@@ -2374,34 +2545,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedEventRsvpList'
           description: ''
-  /events/v1/invites/me:
-    get:
-      operationId: events_v1_invites_me_list
-      parameters:
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: page_size
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
-      tags:
-      - events
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedEventRsvpList'
-          description: ''
-  /events/v1/rsvps/me:
+  /events/v1/rsvps/me/:
     get:
       operationId: events_v1_rsvps_me_list
       parameters:
@@ -6581,14 +6725,14 @@ components:
     RsvpStatusEnum:
       enum:
       - pending
-      - going
-      - maybe
+      - accepted
+      - tentative
       - declined
       type: string
       description: |-
         * `pending` - Pending
-        * `going` - Going
-        * `maybe` - Maybe
+        * `accepted` - Accepted
+        * `tentative` - Tentative
         * `declined` - Declined
     RunTypeEnum:
       enum:

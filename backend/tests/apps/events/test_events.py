@@ -136,11 +136,11 @@ class EventAPITests(APITestCase):
 class EventListFiltersAndSearchTests(APITestCase):
     """Tests for FE-page additions to ``GET /events/v1/``:
 
-      - ``?registered=true`` / ``?mine=true`` filter
+      - ``?rsvp_status=`` filter (single or comma-separated)
       - ``?category=`` filter (maps to ``event_type``)
       - ``?search=`` over event_name / description
       - ``?page_size=`` honored by the list pagination
-      - ``"registered": bool`` field on every row
+      - ``"accepted": bool`` field on every row
     """
 
     url = "/events/v1/"
@@ -179,36 +179,21 @@ class EventListFiltersAndSearchTests(APITestCase):
         EventRsvp.objects.create(
             event=self.workshop,
             user=self.user,
-            rsvp_status=EventRsvp.RsvpStatus.GOING,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
             responded_at=timezone.now(),
         )
 
-    # ----- registered / mine filter -----------------------------------
+    # ----- ?rsvp_status= filter ---------------------------------------
 
-    def test_registered_true_returns_only_user_rsvps(self):
+    def test_rsvp_status_accepted_returns_only_accepted_rsvps(self):
         self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url + "?registered=true")
+        response = self.client.get(self.url + "?rsvp_status=accepted")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [row["id"] for row in response.data["results"]]
         self.assertEqual(ids, [self.workshop.id])
 
-    def test_mine_true_is_alias_for_registered_true(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url + "?mine=true")
-        ids = [row["id"] for row in response.data["results"]]
-        self.assertEqual(ids, [self.workshop.id])
-
-    def test_registered_false_returns_complement(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url + "?registered=false")
-        ids = {row["id"] for row in response.data["results"]}
-        self.assertEqual(ids, {self.webinar.id, self.networking.id})
-
-    def test_anonymous_registered_true_returns_empty(self):
-        response = self.client.get(self.url + "?registered=true")
-        self.assertEqual(response.data["results"], [])
-
-    def test_declined_rsvp_not_treated_as_registered(self):
+    def test_rsvp_status_multi_value_unions_statuses(self):
+        # User: accepted on workshop, declined on webinar.
         EventRsvp.objects.create(
             event=self.webinar,
             user=self.user,
@@ -216,24 +201,58 @@ class EventListFiltersAndSearchTests(APITestCase):
             responded_at=timezone.now(),
         )
         self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url + "?registered=true")
+        response = self.client.get(self.url + "?rsvp_status=accepted,declined")
+        ids = {row["id"] for row in response.data["results"]}
+        self.assertEqual(ids, {self.workshop.id, self.webinar.id})
+
+    def test_rsvp_status_tentative_excludes_other_statuses(self):
+        EventRsvp.objects.create(
+            event=self.webinar,
+            user=self.user,
+            rsvp_status=EventRsvp.RsvpStatus.TENTATIVE,
+            responded_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url + "?rsvp_status=tentative")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.webinar.id])
+
+    def test_anonymous_rsvp_status_returns_empty(self):
+        response = self.client.get(self.url + "?rsvp_status=accepted")
+        self.assertEqual(response.data["results"], [])
+
+    def test_invalid_rsvp_status_returns_empty(self):
+        # Unknown values must NOT silently turn into "all events".
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url + "?rsvp_status=going")
+        self.assertEqual(response.data["results"], [])
+
+    def test_declined_rsvp_not_treated_as_accepted(self):
+        EventRsvp.objects.create(
+            event=self.webinar,
+            user=self.user,
+            rsvp_status=EventRsvp.RsvpStatus.DECLINED,
+            responded_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.url + "?rsvp_status=accepted")
         ids = [row["id"] for row in response.data["results"]]
         self.assertEqual(ids, [self.workshop.id])
 
     # ----- registered field on every row ------------------------------
 
-    def test_registered_field_true_for_user_rsvps(self):
+    def test_accepted_field_true_for_user_rsvps(self):
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.url)
         rows = {row["id"]: row for row in response.data["results"]}
-        self.assertTrue(rows[self.workshop.id]["registered"])
-        self.assertFalse(rows[self.webinar.id]["registered"])
-        self.assertFalse(rows[self.networking.id]["registered"])
+        self.assertTrue(rows[self.workshop.id]["accepted"])
+        self.assertFalse(rows[self.webinar.id]["accepted"])
+        self.assertFalse(rows[self.networking.id]["accepted"])
 
-    def test_registered_field_false_for_anonymous(self):
+    def test_accepted_field_false_for_anonymous(self):
         response = self.client.get(self.url)
         for row in response.data["results"]:
-            self.assertFalse(row["registered"])
+            self.assertFalse(row["accepted"])
 
     # ----- category filter --------------------------------------------
 
@@ -270,16 +289,14 @@ class EventListFiltersAndSearchTests(APITestCase):
         self.assertEqual(upper_ids, [self.workshop.id])
         self.assertEqual(upper_ids, lower_ids)
 
-    def test_search_combines_with_registered_filter(self):
-        # ``self.user`` is registered for the workshop only, so a
-        # search for "workshop" + ``registered=true`` should still
-        # return the workshop, but a search for "networking" +
-        # ``registered=true`` should return nothing.
+    def test_search_combines_with_rsvp_status_filter(self):
+        # ``self.user`` has accepted the workshop only. Search +
+        # ?rsvp_status=accepted should still narrow correctly.
         self.client.force_authenticate(user=self.user)
-        positive = self.client.get(self.url + "?search=workshop&registered=true")
+        positive = self.client.get(self.url + "?search=workshop&rsvp_status=accepted")
         self.assertEqual([row["id"] for row in positive.data["results"]], [self.workshop.id])
 
-        negative = self.client.get(self.url + "?search=networking&registered=true")
+        negative = self.client.get(self.url + "?search=networking&rsvp_status=accepted")
         self.assertEqual(negative.data["results"], [])
 
     # ----- pagination via ?page_size ----------------------------------
@@ -297,11 +314,9 @@ class EventListFiltersAndSearchTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertLessEqual(len(response.data["results"]), 100)
 
-    def test_pending_rsvp_not_treated_as_registered(self):
-        # Locks the GOING-only contract: a PENDING RSVP must NOT
-        # surface as ``registered=true`` (per filter or per-row field).
-        # If we ever loosen this back to "non-declined", this test
-        # is the canary that fails first.
+    def test_pending_rsvp_not_treated_as_accepted(self):
+        # PENDING must not surface as accepted=true on the row, and
+        # ?rsvp_status=accepted must not return PENDING events.
         # ``responded_at`` is left NULL because the model's check
         # constraint forbids a timestamp on a PENDING row.
         EventRsvp.objects.create(
@@ -311,7 +326,7 @@ class EventListFiltersAndSearchTests(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
 
-        filtered = self.client.get(self.url + "?registered=true")
+        filtered = self.client.get(self.url + "?rsvp_status=accepted")
         self.assertEqual(
             [row["id"] for row in filtered.data["results"]],
             [self.workshop.id],
@@ -319,135 +334,20 @@ class EventListFiltersAndSearchTests(APITestCase):
 
         listing = self.client.get(self.url)
         rows = {row["id"]: row for row in listing.data["results"]}
-        self.assertFalse(rows[self.webinar.id]["registered"])
+        self.assertFalse(rows[self.webinar.id]["accepted"])
 
-    def test_maybe_rsvp_not_treated_as_registered(self):
-        # Same contract guard, but for MAYBE — keeps the GOING-only
-        # rule symmetric across the three non-going statuses.
+    def test_tentative_rsvp_not_treated_as_accepted(self):
         EventRsvp.objects.create(
             event=self.webinar,
             user=self.user,
-            rsvp_status=EventRsvp.RsvpStatus.MAYBE,
+            rsvp_status=EventRsvp.RsvpStatus.TENTATIVE,
             responded_at=timezone.now(),
         )
         self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url + "?registered=true")
+        response = self.client.get(self.url + "?rsvp_status=accepted")
         self.assertEqual(
             [row["id"] for row in response.data["results"]],
             [self.workshop.id],
-        )
-
-
-class EventRegisterActionTests(APITestCase):
-    """Tests for ``POST /events/v1/{id}/register/``."""
-
-    def setUp(self):
-        self.user = User.objects.create_user(email="reg@test.com", password="pw")
-        now = timezone.now()
-        self.future_event = Events.objects.create(
-            event_name="Upcoming Workshop",
-            description="Open for registration.",
-            start_datetime=now + timezone.timedelta(days=1),
-            ends_datetime=now + timezone.timedelta(days=1, hours=2),
-            location="Online",
-        )
-        self.past_event = Events.objects.create(
-            event_name="Closed Workshop",
-            description="Already over.",
-            start_datetime=now - timezone.timedelta(days=2),
-            ends_datetime=now - timezone.timedelta(days=2) + timezone.timedelta(hours=1),
-            location="Online",
-        )
-
-    def _url(self, event_id):
-        return f"/events/v1/{event_id}/register/"
-
-    def test_authenticated_user_can_register_returns_200(self):
-        # Spec: register always returns 200, regardless of whether
-        # this is the first call or an idempotent repeat. Locks the
-        # contract documented in the API guide ("first call → 200").
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.future_event.id))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["event_id"], self.future_event.id)
-        self.assertEqual(response.data["user_id"], self.user.id)
-        self.assertTrue(response.data["registered"])
-        self.assertIsNotNone(response.data["registered_at"])
-
-        # The RSVP row exists AND is in the GOING state — the response
-        # would lie if we created a row in any other status.
-        rsvp = EventRsvp.objects.get(event=self.future_event, user=self.user)
-        self.assertEqual(rsvp.rsvp_status, EventRsvp.RsvpStatus.GOING)
-
-    def test_repeat_registration_is_idempotent_returns_200(self):
-        self.client.force_authenticate(user=self.user)
-        first = self.client.post(self._url(self.future_event.id))
-        self.assertEqual(first.status_code, status.HTTP_200_OK)
-
-        second = self.client.post(self._url(self.future_event.id))
-        self.assertEqual(second.status_code, status.HTTP_200_OK)
-        self.assertTrue(second.data["registered"])
-
-        # Only one RSVP row for this user/event combination.
-        self.assertEqual(
-            EventRsvp.objects.filter(event=self.future_event, user=self.user).count(),
-            1,
-        )
-
-    def test_register_for_missing_event_returns_404(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(999999))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_register_for_past_event_returns_400(self):
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.past_event.id))
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_register_for_soft_deleted_event_returns_404(self):
-        self.future_event.deleted_at = timezone.now()
-        self.future_event.save(update_fields=["deleted_at"])
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.future_event.id))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_anonymous_register_is_rejected(self):
-        response = self.client.post(self._url(self.future_event.id))
-        self.assertIn(
-            response.status_code,
-            {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN},
-        )
-
-    def test_register_after_decline_flips_status_to_going(self):
-        # Regression guard for the ``update_or_create`` choice in
-        # ``register_user_for_event``. With the older ``get_or_create``
-        # path, a previously-DECLINED RSVP would be returned untouched
-        # and the FE would receive ``registered=true`` on a row whose
-        # underlying RSVP was still DECLINED — a quiet lie. The flip
-        # is what makes the response truthful.
-        EventRsvp.objects.create(
-            event=self.future_event,
-            user=self.user,
-            rsvp_status=EventRsvp.RsvpStatus.DECLINED,
-            responded_at=timezone.now(),
-        )
-
-        self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.future_event.id))
-
-        # Spec: register always returns 200; this exercises the
-        # "row existed but in a different status" branch.
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data["registered"])
-
-        rsvp = EventRsvp.objects.get(event=self.future_event, user=self.user)
-        self.assertEqual(rsvp.rsvp_status, EventRsvp.RsvpStatus.GOING)
-
-        # And exactly one row — the existing one was updated, not
-        # duplicated.
-        self.assertEqual(
-            EventRsvp.objects.filter(event=self.future_event, user=self.user).count(),
-            1,
         )
 
 
@@ -456,14 +356,13 @@ class EventRegisterActionTests(APITestCase):
 #
 # Per the Roles & Permissions structure, events are pushed by admins
 # and users RSVP to events they're targeted by — they don't self-add
-# to arbitrary events. These tests exercise the gate against the
-# existing ``/register/`` endpoint (which now routes through the same
-# ``set_user_rsvp`` helper as ``/rsvp/``).
+# to arbitrary events. These tests exercise the gate against
+# ``POST /events/v1/{id}/rsvp/``.
 # ---------------------------------------------------------------------------
 
 
-class EventRegisterVisibilityGateTests(APITestCase):
-    """Permission-gate behavior for ``POST /events/v1/{id}/register/``.
+class EventRsvpVisibilityGateTests(APITestCase):
+    """Permission-gate behavior for ``POST /events/v1/{id}/rsvp/``.
 
     The fixture builds two tracks, two groups (one per track), and a
     user who is a member of *only* the first group. We then create
@@ -521,21 +420,30 @@ class EventRegisterVisibilityGateTests(APITestCase):
         EventTargetGroup.objects.create(event=self.event_for_group_b, group=self.group_b)
 
     def _url(self, event_id):
-        return f"/events/v1/{event_id}/register/"
+        return f"/events/v1/{event_id}/rsvp/"
+
+    def _accept_payload(self):
+        return {"rsvp_status": EventRsvp.RsvpStatus.ACCEPTED}
 
     def test_untargeted_event_is_open_to_any_authenticated_user(self):
         # An event with no targets is platform-wide; any logged-in
-        # user can register. This is the path the existing register
-        # tests rely on, so a regression here would cascade.
+        # user can RSVP.
         self.client.force_authenticate(user=self.outsider)
-        response = self.client.post(self._url(self.untargeted_event.id))
+        response = self.client.post(
+            self._url(self.untargeted_event.id),
+            self._accept_payload(),
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.data["registered"])
 
-    def test_member_of_target_group_can_register(self):
+    def test_member_of_target_group_can_rsvp(self):
         # ``self.user`` IS a member of group_a, the event's only target.
         self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.event_for_group_a.id))
+        response = self.client.post(
+            self._url(self.event_for_group_a.id),
+            self._accept_payload(),
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(
             EventRsvp.objects.filter(
@@ -549,7 +457,11 @@ class EventRegisterVisibilityGateTests(APITestCase):
         # admin didn't target their group with. Locking this down is
         # the whole point of the gate.
         self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.event_for_group_b.id))
+        response = self.client.post(
+            self._url(self.event_for_group_b.id),
+            self._accept_payload(),
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         # And no RSVP row was created — the failure is total, not partial.
@@ -573,13 +485,17 @@ class EventRegisterVisibilityGateTests(APITestCase):
         )
 
         self.client.force_authenticate(user=self.user)
-        response = self.client.post(self._url(self.event_for_group_b.id))
+        response = self.client.post(
+            self._url(self.event_for_group_b.id),
+            self._accept_payload(),
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         rsvp = EventRsvp.objects.get(
             event=self.event_for_group_b, user=self.user
         )
-        self.assertEqual(rsvp.rsvp_status, EventRsvp.RsvpStatus.GOING)
+        self.assertEqual(rsvp.rsvp_status, EventRsvp.RsvpStatus.ACCEPTED)
 
 
 # ---------------------------------------------------------------------------
@@ -588,10 +504,11 @@ class EventRegisterVisibilityGateTests(APITestCase):
 
 
 class EventRsvpSetActionTests(APITestCase):
-    """End-to-end coverage for the new ``/rsvp/`` endpoint.
+    """End-to-end coverage for the ``/rsvp/`` endpoint.
 
-    Same gate as ``/register/`` (covered above); these tests focus on
-    the bits unique to ``/rsvp/`` — accepting going/maybe/declined,
+    Visibility-gate behavior is covered in
+    ``EventRsvpVisibilityGateTests`` above; these tests focus on the
+    bits unique to ``/rsvp/`` — accepting going/maybe/declined,
     rejecting pending, idempotency on status changes.
     """
 
@@ -616,33 +533,29 @@ class EventRsvpSetActionTests(APITestCase):
     def _url(self, event_id):
         return f"/events/v1/{event_id}/rsvp/"
 
-    def test_user_can_rsvp_going(self):
+    def test_user_can_rsvp_accepted(self):
         self.client.force_authenticate(user=self.user)
         response = self.client.post(
             self._url(self.future_event.id),
-            {"rsvp_status": EventRsvp.RsvpStatus.GOING},
+            {"rsvp_status": EventRsvp.RsvpStatus.ACCEPTED},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["rsvp_status"], EventRsvp.RsvpStatus.GOING)
-        self.assertTrue(response.data["registered"])
+        self.assertEqual(response.data["rsvp_status"], EventRsvp.RsvpStatus.ACCEPTED)
         self.assertIsNotNone(response.data["responded_at"])
 
         rsvp = EventRsvp.objects.get(event=self.future_event, user=self.user)
-        self.assertEqual(rsvp.rsvp_status, EventRsvp.RsvpStatus.GOING)
+        self.assertEqual(rsvp.rsvp_status, EventRsvp.RsvpStatus.ACCEPTED)
 
-    def test_user_can_rsvp_maybe(self):
+    def test_user_can_rsvp_tentative(self):
         self.client.force_authenticate(user=self.user)
         response = self.client.post(
             self._url(self.future_event.id),
-            {"rsvp_status": EventRsvp.RsvpStatus.MAYBE},
+            {"rsvp_status": EventRsvp.RsvpStatus.TENTATIVE},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["rsvp_status"], EventRsvp.RsvpStatus.MAYBE)
-        # ``registered`` is the FE-facing alias for "going", so MAYBE
-        # must not surface as registered=true.
-        self.assertFalse(response.data["registered"])
+        self.assertEqual(response.data["rsvp_status"], EventRsvp.RsvpStatus.TENTATIVE)
 
     def test_user_can_rsvp_declined(self):
         self.client.force_authenticate(user=self.user)
@@ -653,18 +566,17 @@ class EventRsvpSetActionTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["rsvp_status"], EventRsvp.RsvpStatus.DECLINED)
-        self.assertFalse(response.data["registered"])
 
     def test_status_transitions_update_in_place(self):
-        # going → maybe → declined → going. Each call updates the
+        # accepted → tentative → declined → going. Each call updates the
         # row in place; we never end up with multiple RSVPs for the
         # same (event, user) pair.
         self.client.force_authenticate(user=self.user)
         for new_status in [
-            EventRsvp.RsvpStatus.GOING,
-            EventRsvp.RsvpStatus.MAYBE,
+            EventRsvp.RsvpStatus.ACCEPTED,
+            EventRsvp.RsvpStatus.TENTATIVE,
             EventRsvp.RsvpStatus.DECLINED,
-            EventRsvp.RsvpStatus.GOING,
+            EventRsvp.RsvpStatus.ACCEPTED,
         ]:
             response = self.client.post(
                 self._url(self.future_event.id),
@@ -709,7 +621,7 @@ class EventRsvpSetActionTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         response = self.client.post(
             self._url(self.past_event.id),
-            {"rsvp_status": EventRsvp.RsvpStatus.GOING},
+            {"rsvp_status": EventRsvp.RsvpStatus.ACCEPTED},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -718,7 +630,7 @@ class EventRsvpSetActionTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         response = self.client.post(
             self._url(999999),
-            {"rsvp_status": EventRsvp.RsvpStatus.GOING},
+            {"rsvp_status": EventRsvp.RsvpStatus.ACCEPTED},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -726,7 +638,7 @@ class EventRsvpSetActionTests(APITestCase):
     def test_anonymous_rsvp_is_rejected(self):
         response = self.client.post(
             self._url(self.future_event.id),
-            {"rsvp_status": EventRsvp.RsvpStatus.GOING},
+            {"rsvp_status": EventRsvp.RsvpStatus.ACCEPTED},
             format="json",
         )
         self.assertIn(
@@ -734,10 +646,9 @@ class EventRsvpSetActionTests(APITestCase):
             {status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN},
         )
 
-    def test_register_endpoint_blocks_non_targets_too(self):
-        # Cross-check that ``/register/`` and ``/rsvp/`` route through
-        # the same gate. We seed a targeted event the user is NOT a
-        # member of, then try ``/register/`` — must be 403.
+    def test_rsvp_endpoint_blocks_non_targets(self):
+        # Seed a targeted event the user is NOT a member of, then try
+        # ``/rsvp/`` — must be 403.
         country = Countries.objects.create(country_name="Locked Country")
         state = CountryStates.objects.create(country=country, state_name="Locked State")
         track = Tracks.objects.create(track_name="Locked Track", state=state)
@@ -752,13 +663,11 @@ class EventRsvpSetActionTests(APITestCase):
         EventTargetGroup.objects.create(event=targeted_event, group=group)
 
         self.client.force_authenticate(user=self.user)
-        register_resp = self.client.post(f"/events/v1/{targeted_event.id}/register/")
         rsvp_resp = self.client.post(
             f"/events/v1/{targeted_event.id}/rsvp/",
-            {"rsvp_status": EventRsvp.RsvpStatus.GOING},
+            {"rsvp_status": EventRsvp.RsvpStatus.ACCEPTED},
             format="json",
         )
-        self.assertEqual(register_resp.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(rsvp_resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
@@ -1099,3 +1008,592 @@ class EventListVisibilityScopingTests(APITestCase):
                 "Track B Webinar",
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Scoped id filters: ?user= / ?group= / ?track= on GET /events/v1/.
+# Each filter is permission-checked against the caller; an unauthorised
+# id returns an empty result, never a wider list.
+# ---------------------------------------------------------------------------
+
+
+class EventScopedIdFilterTests(APITestCase):
+    """Tests for the user/group/track id filters."""
+
+    url = "/events/v1/"
+
+    def setUp(self):
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
+        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
+
+        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
+        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
+
+        self.member_a = User.objects.create_user(email="ma@test.com", password="pw")
+        GroupMembership.objects.create(
+            group=self.group_a,
+            user=self.member_a,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+
+        self.outsider = User.objects.create_user(email="out@test.com", password="pw")
+
+        self.track_admin_a = User.objects.create_user(email="taa@test.com", password="pw")
+        AdminScope.objects.create(user=self.track_admin_a, track=self.track_a, is_global=False)
+
+        self.global_admin = User.objects.create_user(email="ga@test.com", password="pw", is_staff=True)
+
+        now = timezone.now()
+        self.event_for_group_a = Events.objects.create(
+            event_name="Group A Workshop",
+            start_datetime=now + timezone.timedelta(days=1),
+            ends_datetime=now + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=self.event_for_group_a, group=self.group_a)
+
+        self.event_for_group_b = Events.objects.create(
+            event_name="Group B Workshop",
+            start_datetime=now + timezone.timedelta(days=2),
+            ends_datetime=now + timezone.timedelta(days=2, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=self.event_for_group_b, group=self.group_b)
+
+        self.event_for_track_a = Events.objects.create(
+            event_name="Track A Webinar",
+            start_datetime=now + timezone.timedelta(days=3),
+            ends_datetime=now + timezone.timedelta(days=3, hours=1),
+            location="Online",
+            track=self.track_a,
+        )
+
+    # ----- ?user= filter ---------------------------------------------
+
+    def test_user_filter_self_returns_own_rsvps(self):
+        # member_a has accepted the Group A workshop. ?user=<self> works
+        # for non-admins.
+        EventRsvp.objects.create(
+            event=self.event_for_group_a,
+            user=self.member_a,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+            responded_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.member_a)
+        response = self.client.get(self.url + f"?user={self.member_a.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_user_filter_other_user_blocked_for_non_admin(self):
+        # member_a tries to query the global admin's RSVPs — must be
+        # silently empty, not 403, not the full list.
+        EventRsvp.objects.create(
+            event=self.event_for_group_a,
+            user=self.global_admin,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+            responded_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.member_a)
+        response = self.client.get(self.url + f"?user={self.global_admin.id}")
+        self.assertEqual(response.data["results"], [])
+
+    def test_user_filter_admin_can_audit_any_user(self):
+        # Global admin queries member_a's RSVPs — allowed.
+        EventRsvp.objects.create(
+            event=self.event_for_group_a,
+            user=self.member_a,
+            rsvp_status=EventRsvp.RsvpStatus.TENTATIVE,
+            responded_at=timezone.now(),
+        )
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(self.url + f"?user={self.member_a.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_user_filter_anonymous_returns_empty(self):
+        response = self.client.get(self.url + f"?user={self.member_a.id}")
+        self.assertEqual(response.data["results"], [])
+
+    # ----- ?group= filter --------------------------------------------
+
+    def test_group_filter_member_can_query_own_group(self):
+        self.client.force_authenticate(user=self.member_a)
+        response = self.client.get(self.url + f"?group={self.group_a.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_group_filter_outsider_blocked(self):
+        # Outsider has no membership in group_a — silent empty.
+        self.client.force_authenticate(user=self.outsider)
+        response = self.client.get(self.url + f"?group={self.group_a.id}")
+        self.assertEqual(response.data["results"], [])
+
+    def test_group_filter_member_blocked_from_other_group(self):
+        # member_a is in group_a but tries ?group=group_b — silent empty.
+        self.client.force_authenticate(user=self.member_a)
+        response = self.client.get(self.url + f"?group={self.group_b.id}")
+        self.assertEqual(response.data["results"], [])
+
+    def test_group_filter_track_admin_limited_to_own_tracks(self):
+        # track_admin_a may query group_a (in track_a) but not group_b.
+        self.client.force_authenticate(user=self.track_admin_a)
+        ok_response = self.client.get(self.url + f"?group={self.group_a.id}")
+        self.assertEqual(
+            [row["id"] for row in ok_response.data["results"]],
+            [self.event_for_group_a.id],
+        )
+        blocked_response = self.client.get(self.url + f"?group={self.group_b.id}")
+        self.assertEqual(blocked_response.data["results"], [])
+
+    def test_group_filter_global_admin_any_group(self):
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(self.url + f"?group={self.group_b.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_b.id])
+
+    # ----- ?track= filter --------------------------------------------
+
+    def test_track_filter_member_can_query_own_track(self):
+        # member_a is in group_a (track_a). Track filter returns events
+        # touching track_a: the direct-FK one and the group-targeted one.
+        self.client.force_authenticate(user=self.member_a)
+        response = self.client.get(self.url + f"?track={self.track_a.id}")
+        ids = {row["id"] for row in response.data["results"]}
+        self.assertEqual(
+            ids,
+            {self.event_for_group_a.id, self.event_for_track_a.id},
+        )
+
+    def test_track_filter_outsider_blocked(self):
+        self.client.force_authenticate(user=self.outsider)
+        response = self.client.get(self.url + f"?track={self.track_a.id}")
+        self.assertEqual(response.data["results"], [])
+
+    def test_track_filter_track_admin_blocked_from_other_track(self):
+        self.client.force_authenticate(user=self.track_admin_a)
+        response = self.client.get(self.url + f"?track={self.track_b.id}")
+        self.assertEqual(response.data["results"], [])
+
+    def test_track_filter_global_admin_any_track(self):
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(self.url + f"?track={self.track_b.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_b.id])
+
+
+# ---------------------------------------------------------------------------
+# Supervisor scope on the scoped id filters.
+#
+# A supervisor's view scope = self ∪ supervisees ∪ mentors of those
+# supervisees' groups. Tested across ?user= / ?group= / ?track=.
+# ---------------------------------------------------------------------------
+
+
+class EventSupervisorScopeFilterTests(APITestCase):
+    """Supervisor scope on ?user= / ?group= / ?track=."""
+
+    url = "/events/v1/"
+
+    def setUp(self):
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
+        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
+
+        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
+        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
+
+        # Supervisor and a profile row so StudentProfile.supervisor FK resolves.
+        self.supervisor = User.objects.create_user(email="sup@test.com", password="pw")
+        self.supervisor_profile = SupervisorProfile.objects.create(
+            user=self.supervisor, school_name="Test School"
+        )
+
+        # A second supervisor (negative case for isolation).
+        self.other_supervisor = User.objects.create_user(email="sup2@test.com", password="pw")
+        SupervisorProfile.objects.create(user=self.other_supervisor, school_name="Test School")
+
+        # Student supervised by self.supervisor; member of group_a.
+        self.student = User.objects.create_user(email="stu@test.com", password="pw")
+        StudentProfile.objects.create(
+            user=self.student,
+            pg_first_name="Q",
+            pg_last_name="W",
+            school_name="Test School",
+            year_lvl="10",
+            supervisor=self.supervisor_profile,
+        )
+        GroupMembership.objects.create(
+            group=self.group_a,
+            user=self.student,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+
+        # Mentor of group_a (in the supervisor's reach via the supervisee).
+        self.mentor = User.objects.create_user(email="men@test.com", password="pw")
+        GroupMembership.objects.create(
+            group=self.group_a,
+            user=self.mentor,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+
+        # Mentor of group_b (NOT in scope — different group, no supervisee there).
+        self.outside_mentor = User.objects.create_user(email="omn@test.com", password="pw")
+        GroupMembership.objects.create(
+            group=self.group_b,
+            user=self.outside_mentor,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+
+        # Unrelated student (no relationship to self.supervisor).
+        self.outsider_student = User.objects.create_user(email="osu@test.com", password="pw")
+        StudentProfile.objects.create(
+            user=self.outsider_student,
+            pg_first_name="O",
+            pg_last_name="S",
+            school_name="Test School",
+            year_lvl="10",
+        )
+        GroupMembership.objects.create(
+            group=self.group_b,
+            user=self.outsider_student,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+
+        now = timezone.now()
+        self.event_for_group_a = Events.objects.create(
+            event_name="Group A Event",
+            start_datetime=now + timezone.timedelta(days=1),
+            ends_datetime=now + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=self.event_for_group_a, group=self.group_a)
+
+        self.event_for_group_b = Events.objects.create(
+            event_name="Group B Event",
+            start_datetime=now + timezone.timedelta(days=2),
+            ends_datetime=now + timezone.timedelta(days=2, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=self.event_for_group_b, group=self.group_b)
+
+        # Seed RSVPs we will look up via ?user=.
+        EventRsvp.objects.create(
+            event=self.event_for_group_a,
+            user=self.student,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+            responded_at=timezone.now(),
+        )
+        EventRsvp.objects.create(
+            event=self.event_for_group_a,
+            user=self.mentor,
+            rsvp_status=EventRsvp.RsvpStatus.TENTATIVE,
+            responded_at=timezone.now(),
+        )
+        EventRsvp.objects.create(
+            event=self.event_for_group_b,
+            user=self.outside_mentor,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+            responded_at=timezone.now(),
+        )
+
+    # ----- ?user= ----------------------------------------------------
+
+    def test_supervisor_can_query_supervisee_user(self):
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?user={self.student.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_supervisor_can_query_mentor_of_supervisee_group(self):
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?user={self.mentor.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_supervisor_blocked_from_unrelated_user(self):
+        # outside_mentor is a mentor of group_b, no supervisee there.
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?user={self.outside_mentor.id}")
+        self.assertEqual(response.data["results"], [])
+
+    def test_other_supervisor_cannot_query_unrelated_supervisee(self):
+        # `other_supervisor` does not supervise anyone.
+        self.client.force_authenticate(user=self.other_supervisor)
+        response = self.client.get(self.url + f"?user={self.student.id}")
+        self.assertEqual(response.data["results"], [])
+
+    # ----- ?group= ---------------------------------------------------
+
+    def test_supervisor_can_query_group_containing_supervisee(self):
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?group={self.group_a.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_supervisor_blocked_from_unrelated_group(self):
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?group={self.group_b.id}")
+        self.assertEqual(response.data["results"], [])
+
+    # ----- ?track= ---------------------------------------------------
+
+    def test_supervisor_can_query_track_of_supervisee_group(self):
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?track={self.track_a.id}")
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [self.event_for_group_a.id])
+
+    def test_supervisor_blocked_from_unrelated_track(self):
+        self.client.force_authenticate(user=self.supervisor)
+        response = self.client.get(self.url + f"?track={self.track_b.id}")
+        self.assertEqual(response.data["results"], [])
+
+
+# ---------------------------------------------------------------------------
+# Detail / update / destroy on EventViewSet, the ?when= filter, targeting
+# fields on create+update, and the bulk-invite endpoint. Each class builds
+# its own minimal world rather than sharing a fixture so failures point at
+# the surface they belong to.
+# ---------------------------------------------------------------------------
+
+
+class EventDetailAndDestroyTests(APITestCase):
+    """GET/PATCH/DELETE /events/v1/{id}/."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="d-admin@t.com", password="pw", is_staff=True)
+        self.user = User.objects.create_user(email="d-user@t.com", password="pw")
+        now = timezone.now()
+        self.event = Events.objects.create(
+            event_name="Detail Event",
+            description="x",
+            start_datetime=now + timezone.timedelta(days=1),
+            ends_datetime=now + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+
+    def _url(self, pk):
+        return f"/events/v1/{pk}/"
+
+    def test_authenticated_user_can_retrieve_visible_event(self):
+        self.client.force_authenticate(user=self.user)
+        r = self.client.get(self._url(self.event.id))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["id"], self.event.id)
+
+    def test_admin_can_patch_event(self):
+        self.client.force_authenticate(user=self.admin)
+        r = self.client.patch(self._url(self.event.id), {"event_name": "Renamed"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.event_name, "Renamed")
+
+    def test_non_admin_patch_blocked(self):
+        self.client.force_authenticate(user=self.user)
+        r = self.client.patch(self._url(self.event.id), {"event_name": "Renamed"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_soft_delete(self):
+        self.client.force_authenticate(user=self.admin)
+        r = self.client.delete(self._url(self.event.id))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.event.refresh_from_db()
+        self.assertIsNotNone(self.event.deleted_at)
+
+    def test_re_delete_returns_404(self):
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+        r = self.client.delete(self._url(self.event.id))
+        # The visibility queryset filters soft-deleted, so a re-DELETE
+        # 404s. Clients should treat the first 200 as authoritative.
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class EventWhenFilterTests(APITestCase):
+    """?when=upcoming (default) | past | all on the list endpoint."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(email="when@t.com", password="pw")
+        now = timezone.now()
+        self.upcoming = Events.objects.create(
+            event_name="Upcoming",
+            start_datetime=now + timezone.timedelta(days=1),
+            ends_datetime=now + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        self.past = Events.objects.create(
+            event_name="Past",
+            start_datetime=now - timezone.timedelta(days=2),
+            ends_datetime=now - timezone.timedelta(days=2) + timezone.timedelta(hours=1),
+            location="Online",
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_default_returns_upcoming_only(self):
+        r = self.client.get("/events/v1/")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertIn(self.upcoming.id, ids)
+        self.assertNotIn(self.past.id, ids)
+
+    def test_when_past_returns_past_only(self):
+        r = self.client.get("/events/v1/?when=past")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertIn(self.past.id, ids)
+        self.assertNotIn(self.upcoming.id, ids)
+
+    def test_when_all_returns_both(self):
+        r = self.client.get("/events/v1/?when=all")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertIn(self.past.id, ids)
+        self.assertIn(self.upcoming.id, ids)
+
+    def test_unknown_when_falls_back_to_upcoming(self):
+        r = self.client.get("/events/v1/?when=garbage")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertNotIn(self.past.id, ids)
+
+
+class EventTargetingTests(APITestCase):
+    """target_group_ids / target_track_ids on create + PATCH."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="t-admin@t.com", password="pw", is_staff=True)
+        country = Countries.objects.create(country_name="X")
+        state = CountryStates.objects.create(country=country, state_name="Y")
+        self.track_a = Tracks.objects.create(track_name="A", state=state)
+        self.track_b = Tracks.objects.create(track_name="B", state=state)
+        self.group_a = Groups.objects.create(group_name="GA", track=self.track_a)
+        self.client.force_authenticate(user=self.admin)
+
+    def _payload(self, **overrides):
+        now = timezone.now()
+        body = {
+            "event_name": "Targeted",
+            "start_datetime": (now + timezone.timedelta(days=1)).isoformat(),
+            "ends_datetime": (now + timezone.timedelta(days=1, hours=1)).isoformat(),
+            "is_virtual": True,
+        }
+        body.update(overrides)
+        return body
+
+    def test_create_with_target_groups_persists_rows(self):
+        r = self.client.post(
+            "/events/v1/",
+            self._payload(target_group_ids=[self.group_a.id]),
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        self.assertEqual(
+            list(EventTargetGroup.objects.filter(event_id=r.data["id"]).values_list("group_id", flat=True)),
+            [self.group_a.id],
+        )
+
+    def test_patch_replaces_target_set(self):
+        event = Events.objects.create(
+            event_name="Existing",
+            start_datetime=timezone.now() + timezone.timedelta(days=1),
+            ends_datetime=timezone.now() + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=event, group=self.group_a)
+        r = self.client.patch(
+            f"/events/v1/{event.id}/",
+            {"target_group_ids": []},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertFalse(EventTargetGroup.objects.filter(event=event).exists())
+
+    def test_patch_omitting_field_leaves_targets_unchanged(self):
+        event = Events.objects.create(
+            event_name="Existing",
+            start_datetime=timezone.now() + timezone.timedelta(days=1),
+            ends_datetime=timezone.now() + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=event, group=self.group_a)
+        r = self.client.patch(
+            f"/events/v1/{event.id}/",
+            {"event_name": "Renamed only"},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertTrue(EventTargetGroup.objects.filter(event=event, group=self.group_a).exists())
+
+
+class EventBulkInviteTests(APITestCase):
+    """POST /events/v1/{id}/rsvp/bulk/."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="bi-admin@t.com", password="pw", is_staff=True)
+        self.u1 = User.objects.create_user(email="bi1@t.com", password="pw")
+        self.u2 = User.objects.create_user(email="bi2@t.com", password="pw")
+        now = timezone.now()
+        self.event = Events.objects.create(
+            event_name="Bulk Invite Event",
+            start_datetime=now + timezone.timedelta(days=1),
+            ends_datetime=now + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        self.client.force_authenticate(user=self.admin)
+
+    def _url(self):
+        return f"/events/v1/{self.event.id}/rsvp/bulk/"
+
+    def test_bulk_invite_creates_rows(self):
+        r = self.client.post(
+            self._url(),
+            {"user_ids": [self.u1.id, self.u2.id]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(set(r.data["created"]), {self.u1.id, self.u2.id})
+        self.assertEqual(r.data["not_found"], [])
+        self.assertEqual(
+            EventRsvp.objects.filter(event=self.event).count(),
+            2,
+        )
+
+    def test_bulk_invite_reports_unknown_user_ids(self):
+        r = self.client.post(
+            self._url(),
+            {"user_ids": [self.u1.id, 999999]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertIn(999999, r.data["not_found"])
+        self.assertEqual(set(r.data["created"]), {self.u1.id})
+
+    def test_bulk_invite_upsert_updates_existing_row(self):
+        EventRsvp.objects.create(
+            event=self.event, user=self.u1, rsvp_status=EventRsvp.RsvpStatus.DECLINED
+        )
+        r = self.client.post(
+            self._url(),
+            {"user_ids": [self.u1.id], "rsvp_status": EventRsvp.RsvpStatus.ACCEPTED},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data["updated"], [self.u1.id])
+        self.u1_rsvp = EventRsvp.objects.get(event=self.event, user=self.u1)
+        self.assertEqual(self.u1_rsvp.rsvp_status, EventRsvp.RsvpStatus.ACCEPTED)
+
+    def test_student_cannot_bulk_invite(self):
+        student = User.objects.create_user(email="student-bi@t.com", password="pw")
+        self.client.force_authenticate(user=student)
+        r = self.client.post(
+            self._url(),
+            {"user_ids": [self.u1.id]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_empty_user_ids_rejected(self):
+        r = self.client.post(self._url(), {"user_ids": []}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
