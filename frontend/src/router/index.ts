@@ -73,6 +73,8 @@ const router = createRouter({
 
 import { useAuthStore } from '../stores/auth'
 
+const ADMIN_FRONTEND_URL = 'https://mentoringadmin.biotechfutures.org'
+
 router.beforeEach((to, from, next) => {
 
   const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
@@ -81,6 +83,9 @@ router.beforeEach((to, from, next) => {
   if (!publicPaths.includes(to.path) && !auth.isAuthenticated) {
     next('/login')
 
+  } else if (auth.isAuthenticated && auth.isAdmin) {
+    window.location.assign(ADMIN_FRONTEND_URL)
+    return
   } else if (to.path === '/login' && auth.isAuthenticated) {
     next('/dashboard')
   } else {

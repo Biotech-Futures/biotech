@@ -46,10 +46,10 @@
     <nav class="mobile-tabs">
       <button
         class="tab-btn"
-        :class="{ active: activeTab === 'plan' }"
-        @click="activeTab = 'plan'"
+        :class="{ active: activeTab === 'tasks' }"
+        @click="activeTab = 'tasks'"
       >
-        Plan
+        Tasks
       </button>
       <button
         class="tab-btn"
@@ -62,59 +62,94 @@
 
     <!-- Desktop: two columns; mobile: single column via tabs -->
     <div class="split" :data-active="activeTab">
-      <!-- Left column: Plan -->
-      <section class="pane pane--plan card">
+      <!-- Left column: Tasks -->
+      <section class="pane pane--tasks card">
         <div class="card-header">
-          <h3 class="card-title">Plan</h3>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="true" title="Milestone creation is not available yet">
-            <i class="fas fa-plus"></i> Add Milestone
-          </button>
+          <h3 class="card-title">Tasks</h3>
+          <div class="task-header-actions">
+            <button
+              v-if="canCreateGroupTasks"
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="!backendGroupId || isLoadingTasks"
+              title="Create a shared group task"
+              @click="createTask('group')"
+            >
+              <i class="fas fa-plus"></i> Group Task
+            </button>
+            <button
+              v-if="canCreateIndividualTasks"
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="!backendGroupId || isLoadingTasks"
+              title="Create an individual task"
+              @click="createTask('individual')"
+            >
+              <i class="fas fa-user-plus"></i> Individual Task
+            </button>
+          </div>
         </div>
-        <div class="card-content plan-content">
-          <div v-if="planError" class="chat-alert" style="margin-bottom:1rem;">
-            {{ planError }}
+        <div class="card-content tasks-content">
+          <div v-if="taskError" class="chat-alert" style="margin-bottom:1rem;">
+            {{ taskError }}
           </div>
-          <div v-if="isLoadingPlan" class="chat-alert" style="margin-bottom:1rem;">
-            Loading plan...
+          <div v-if="isLoadingTasks" class="chat-alert" style="margin-bottom:1rem;">
+            Loading tasks...
           </div>
-          <div v-for="m in tasks" :key="m.id" class="milestone">
-            <div class="milestone-header">
-              <div class="milestone-title">
-                <i class="fas fa-flag"></i>
-                {{ m.milestone }}
+
+          <div
+            v-for="section in taskSections"
+            :key="section.key"
+            class="task-section"
+          >
+            <div class="task-section-header">
+              <div class="task-section-title">
+                <i :class="section.icon"></i>
+                {{ section.title }}
               </div>
-              <div class="milestone-status">
-                {{ countCompleted(m) }}/{{ m.tasks.length }} Completed
+              <div class="task-section-status">
+                {{ section.completed }}/{{ section.total }} Completed
               </div>
             </div>
-
             <div class="task-list">
               <div
-                v-for="t in m.tasks"
-                :key="t.id"
+                v-for="row in section.rows"
+                :key="row.task.id"
                 class="task-item"
+                :class="{ 'is-subtask': row.depth > 0 }"
+                :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
               >
-                <div :class="['task-checkbox', { checked: t.completed }]" />
-                <div class="task-body">
-                  <div :class="['task-label', { completed: t.completed }]">{{ t.name }}</div>
-                  <div class="task-meta">
-                    <span v-if="t.dueDate"><i class="fas fa-calendar"></i> {{ formatDate(t.dueDate) }}</span>
-                    <span v-if="t.status"><i class="fas fa-circle"></i> {{ formatTaskStatus(t.status) }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="add-task-row">
                 <button
                   type="button"
-                  class="btn btn-outline btn-sm add-task-btn"
-                  @click.stop="addTask(m)"
-                  :disabled="!backendGroupId || isLoadingPlan"
-                  title="Add a new task under this milestone"
+                  :class="['task-checkbox', { checked: row.task.completed }]"
+                  :disabled="isUpdatingTask(row.task.id) || (auth.isStudent && row.task.taskType === 'group')"
+                  :title="auth.isStudent && row.task.taskType === 'group' ? 'Students can view group task status only' : 'Toggle task status'"
+                  @click="toggleTask(row.task)"
+                />
+                <div class="task-body">
+                  <div :class="['task-label', { completed: row.task.completed }]">{{ row.task.name }}</div>
+                  <div v-if="row.task.description" class="task-description">{{ row.task.description }}</div>
+                  <div class="task-meta">
+                    <span v-if="row.task.dueDate"><i class="fas fa-calendar"></i> {{ formatDate(row.task.dueDate) }}</span>
+                    <span v-if="row.task.status"><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span>
+                    <span v-if="row.task.assignedUser"><i class="fas fa-user"></i> User {{ row.task.assignedUser }}</span>
+                    <span v-if="row.task.creatorRole"><i class="fas fa-id-badge"></i> {{ formatTaskStatus(row.task.creatorRole) }}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm add-subtask-btn"
+                  :disabled="isLoadingTasks"
+                  title="Add a sub-task"
+                  @click="createTask(row.task.taskType, row.task)"
                 >
                   <i class="fas fa-plus"></i>
-                  Add Task
+                  Sub-task
                 </button>
+              </div>
+
+              <div v-if="!section.rows.length" class="task-empty-state">
+                No {{ section.title.toLowerCase() }} are available yet.
               </div>
             </div>
           </div>
@@ -301,14 +336,13 @@ const isLoadingGroupOptions = ref(false)
 const groupOptionsError = ref('')
 
 // Active mobile tab
-const activeTab = ref('plan')
+const activeTab = ref('tasks')
 
-// Live plan state
+// Live task state
 const tasks = ref([])
-const isLoadingPlan = ref(false)
-const planError = ref('')
-
-const countCompleted = (m) => m.tasks.filter(t => t.completed).length
+const isLoadingTasks = ref(false)
+const taskError = ref('')
+const updatingTaskIds = ref(new Set())
 
 const messages = ref([])
 
@@ -673,70 +707,130 @@ const loadGroup = async () => {
   }
 }
 
-const buildPlanItems = (milestones, taskItems) => {
-  const tasksByMilestoneId = new Map()
+const normalizeTask = (task) => ({
+  id: task?.id,
+  name: task?.name || task?.task_name || 'Untitled task',
+  description: task?.description || task?.task_description || '',
+  dueDate: task?.due_date || '',
+  status: task?.status || '',
+  completed: task?.completed === true || String(task?.status || '').toLowerCase() === 'done',
+  parent: task?.parent ?? null,
+  taskType: task?.task_type || 'group',
+  group: task?.group ?? null,
+  assignedUser: task?.assigned_user ?? null,
+  creatorRole: task?.creator_role || '',
+  createdBy: task?.created_by || null
+})
 
-  taskItems.forEach((task) => {
-    const milestoneId = Number(task?.milestone)
-    if (!tasksByMilestoneId.has(milestoneId)) {
-      tasksByMilestoneId.set(milestoneId, [])
-    }
+const groupMemberUserIds = computed(() => new Set(
+  groupMemberships.value
+    .filter(item => !item.leftAt)
+    .map(item => Number(item.userId))
+    .filter(Number.isFinite)
+))
 
-    tasksByMilestoneId.get(milestoneId).push({
-      id: task?.id,
-      name: task?.task_name || 'Untitled task',
-      completed: task?.completed === true || String(task?.status || '').toLowerCase() === 'done',
-      status: task?.status || '',
-      dueDate: task?.due_date || '',
-      description: task?.task_description || ''
-    })
-  })
+const isTaskRelevantToCurrentGroup = (task) => {
+  const currentGroupId = getBackendGroupId()
+  if (!currentGroupId) return false
 
-  return milestones.map((milestone) => {
-    const milestoneTasks = tasksByMilestoneId.get(Number(milestone?.id)) || []
-    const isCompleted = milestone?.completed === true
+  if (task.taskType === 'group') {
+    return String(task.group) === String(currentGroupId)
+  }
 
-    return {
-      id: milestone?.id,
-      milestone: milestone?.milestone_name || 'Untitled milestone',
-      completed: isCompleted,
-      tasks: milestoneTasks.map((task) => ({
-        ...task,
-        completed: task.completed || isCompleted
-      }))
-    }
-  })
+  return groupMemberUserIds.value.has(Number(task.assignedUser))
 }
 
-const loadPlan = async () => {
+const buildTaskRows = (items) => {
+  const byId = new Map()
+  const childrenByParent = new Map()
+
+  items.forEach((task) => {
+    byId.set(Number(task.id), task)
+  })
+
+  items.forEach((task) => {
+    const parentId = Number(task.parent)
+    if (!parentId || !byId.has(parentId)) return
+    if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, [])
+    childrenByParent.get(parentId).push(task)
+  })
+
+  const roots = items.filter(task => {
+    const parentId = Number(task.parent)
+    return !parentId || !byId.has(parentId)
+  })
+
+  const rows = []
+  const appendRows = (task, depth = 0) => {
+    rows.push({ task, depth })
+    ;(childrenByParent.get(Number(task.id)) || []).forEach(child => appendRows(child, depth + 1))
+  }
+
+  roots.forEach(task => appendRows(task))
+  return rows
+}
+
+const createTaskSection = (key, title, icon, sectionTasks) => {
+  const rows = buildTaskRows(sectionTasks)
+  const total = sectionTasks.length
+  const completed = sectionTasks.filter(task => task.completed).length
+
+  return {
+    key,
+    title,
+    icon,
+    rows,
+    total,
+    completed
+  }
+}
+
+const taskSections = computed(() => {
+  const relevantTasks = tasks.value.filter(isTaskRelevantToCurrentGroup)
+  const groupTasks = relevantTasks.filter(task => task.taskType === 'group')
+  const individualTasks = relevantTasks.filter(task => task.taskType === 'individual')
+
+  return [
+    createTaskSection('group', 'Group Tasks', 'fas fa-users', groupTasks),
+    createTaskSection('individual', 'Individual Tasks', 'fas fa-user-check', individualTasks)
+  ]
+})
+
+const canCreateGroupTasks = computed(() => auth.isMentor || auth.isSupervisor)
+const canCreateIndividualTasks = computed(() => auth.isStudent || auth.isMentor || auth.isSupervisor)
+
+const isUpdatingTask = (taskId) => updatingTaskIds.value.has(Number(taskId))
+
+const setTaskUpdating = (taskId, value) => {
+  const next = new Set(updatingTaskIds.value)
+  const id = Number(taskId)
+  if (value) next.add(id)
+  else next.delete(id)
+  updatingTaskIds.value = next
+}
+
+const loadTasks = async () => {
   const currentGroupId = getBackendGroupId()
   if (!currentGroupId) {
     tasks.value = []
-    planError.value = 'Live plan data needs a backend numeric group id.'
+    taskError.value = 'Live task data needs a backend numeric group id.'
     return
   }
 
-  isLoadingPlan.value = true
-  planError.value = ''
+  isLoadingTasks.value = true
+  taskError.value = ''
 
   try {
-    const [milestonesData, tasksData] = await Promise.all([
-      requestJson(`${API_BASE_URL}/tasks/api/v1/milestones/?page_size=100&group_id=${currentGroupId}&deleted=false`),
-      requestJson(`${API_BASE_URL}/tasks/api/v1/tasks/?page_size=100&group_id=${currentGroupId}&deleted=false`)
-    ])
-
-    const milestoneItems = extractCollectionItems(milestonesData)
-    const taskItems = extractCollectionItems(tasksData)
-
-    tasks.value = buildPlanItems(milestoneItems, taskItems)
-    if (!tasks.value.length) {
-      planError.value = 'No milestones have been created for this group yet.'
+    const data = await requestJson(`${API_BASE_URL}/api/v1/tasks/?page_size=100&deleted=false`)
+    tasks.value = extractCollectionItems(data).map(normalizeTask)
+    if (!tasks.value.filter(isTaskRelevantToCurrentGroup).length) {
+      taskError.value = 'No tasks have been created for this group yet.'
     }
   } catch (error) {
     tasks.value = []
-    planError.value = error instanceof Error ? error.message : 'Plan data could not be loaded.'
+    taskError.value = error instanceof Error ? error.message : 'Task data could not be loaded.'
   } finally {
-    isLoadingPlan.value = false
+    isLoadingTasks.value = false
   }
 }
 
@@ -745,7 +839,7 @@ const normalizeMessage = (item) => {
   const sentAt = raw?.sent_at || raw?.sent_datetime || raw?.created_at || new Date().toISOString()
   const senderId = Number(raw?.sender_user || raw?.sender_id || raw?.sender_user_id || 0)
   const currentUserId = Number(auth.user?.id || 0)
-  const isOwn = currentUserId > 0 && senderId === currentUserId
+  const isOwn = raw?.isOwn === true || (currentUserId > 0 && senderId === currentUserId)
   const messageText = raw?.message_text || raw?.text || ''
   const messageType = raw?.message_type || 'text'
   const attachments = [
@@ -788,33 +882,86 @@ const getBackendGroupId = () => {
 
 const backendGroupId = computed(() => getBackendGroupId())
 
-const addTask = async (milestone) => {
+const resolveIndividualTaskAssignee = (parentTask = null) => {
+  if (parentTask?.assignedUser) return Number(parentTask.assignedUser)
+  if (auth.isStudent && auth.user?.id) return Number(auth.user.id)
+
+  const studentMemberships = groupMemberships.value.filter(item => {
+    const role = String(item.role || '').toLowerCase()
+    return !item.leftAt && role.includes('student')
+  })
+  const defaultAssignee = studentMemberships[0]?.userId || ''
+  const assignee = window.prompt('Assignee user id', defaultAssignee ? String(defaultAssignee) : '')
+  const assigneeId = Number(assignee)
+  return Number.isFinite(assigneeId) && assigneeId > 0 ? assigneeId : null
+}
+
+const createTask = async (taskType, parentTask = null) => {
   const currentGroupId = getBackendGroupId()
-  if (!currentGroupId || !milestone?.id) {
-    planError.value = 'A backend milestone is required before tasks can be added.'
+  if (!currentGroupId) {
+    taskError.value = 'A backend numeric group id is required before tasks can be added.'
     return
   }
 
-  const taskName = window.prompt('New task name')
+  const label = parentTask ? 'New sub-task name' : taskType === 'group' ? 'New group task name' : 'New individual task name'
+  const taskName = window.prompt(label)
   if (!taskName || !taskName.trim()) return
 
-  const dueDate = new Date()
-  dueDate.setDate(dueDate.getDate() + 7)
+  const payload = {
+    name: taskName.trim(),
+    description: '',
+    status: 'todo',
+    task_type: taskType
+  }
+
+  if (parentTask?.id) {
+    payload.parent = Number(parentTask.id)
+  }
+
+  if (taskType === 'group') {
+    payload.group = Number(currentGroupId)
+  } else {
+    const assigneeId = resolveIndividualTaskAssignee(parentTask)
+    if (!assigneeId) return
+    payload.assigned_user = assigneeId
+  }
 
   try {
-    await requestJson(`${API_BASE_URL}/tasks/api/v1/createtask`, {
+    await requestJson(`${API_BASE_URL}/api/v1/tasks/`, {
       method: 'POST',
-      body: JSON.stringify({
-        task_name: taskName.trim(),
-        milestone: Number(milestone.id),
-        due_date: dueDate.toISOString(),
-        task_description: ''
-      })
+      body: JSON.stringify(payload)
     })
 
-    await loadPlan()
+    await loadTasks()
   } catch (error) {
-    planError.value = error instanceof Error ? error.message : 'Task could not be created.'
+    taskError.value = error instanceof Error ? error.message : 'Task could not be created.'
+  }
+}
+
+const toggleTask = async (task) => {
+  if (!task?.id || isUpdatingTask(task.id)) return
+
+  setTaskUpdating(task.id, true)
+  taskError.value = ''
+
+  try {
+    const updatedTask = await requestJson(`${API_BASE_URL}/api/v1/tasks/${task.id}/check/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        completed: !task.completed
+      })
+    })
+    const normalized = normalizeTask(updatedTask)
+    const index = tasks.value.findIndex(item => Number(item.id) === Number(task.id))
+    if (index === -1) {
+      tasks.value.push(normalized)
+    } else {
+      tasks.value.splice(index, 1, normalized)
+    }
+  } catch (error) {
+    taskError.value = error instanceof Error ? error.message : 'Task status could not be updated.'
+  } finally {
+    setTaskUpdating(task.id, false)
   }
 }
 
@@ -833,10 +980,29 @@ const applyMessageUpdate = (messageId, updater) => {
   messages.value.splice(index, 1, nextValue)
 }
 
+const isPendingMessage = (message) => String(message?.id || '').startsWith('pending-') || Boolean(message?.isLocalOnly)
+
+const findMatchingPendingMessageIndex = (message) => {
+  if (!message?.isOwn) return -1
+
+  return messages.value.findIndex(item =>
+    isPendingMessage(item) &&
+    item.isOwn &&
+    item.text === message.text &&
+    item.messageType === message.messageType
+  )
+}
+
 const upsertMessage = (message) => {
   const normalized = normalizeMessage(message)
   const index = messages.value.findIndex(item => String(item.id) === String(normalized.id))
   if (index === -1) {
+    const pendingIndex = findMatchingPendingMessageIndex(normalized)
+    if (pendingIndex !== -1) {
+      messages.value.splice(pendingIndex, 1, normalized)
+      return
+    }
+
     messages.value.push(normalized)
     return
   }
@@ -1066,8 +1232,22 @@ const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pen
 
     if (pendingId) {
       const index = messages.value.findIndex(message => message.id === pendingId)
-      if (index !== -1) {
-        messages.value.splice(index, 1, normalizeMessage(savedMessage))
+      const normalizedSavedMessage = normalizeMessage(savedMessage)
+      const existingIndex = messages.value.findIndex(message => String(message.id) === String(normalizedSavedMessage.id))
+
+      if (index !== -1 && existingIndex !== -1 && index !== existingIndex) {
+        messages.value.splice(index, 1)
+        messages.value.splice(existingIndex > index ? existingIndex - 1 : existingIndex, 1, {
+          ...messages.value[existingIndex > index ? existingIndex - 1 : existingIndex],
+          ...normalizedSavedMessage
+        })
+      } else if (index !== -1) {
+        messages.value.splice(index, 1, normalizedSavedMessage)
+      } else if (existingIndex !== -1) {
+        messages.value.splice(existingIndex, 1, {
+          ...messages.value[existingIndex],
+          ...normalizedSavedMessage
+        })
       } else {
         upsertMessage(savedMessage)
       }
@@ -1254,15 +1434,17 @@ const reloadGroupDetail = async () => {
   disconnectChatSocket()
   tasks.value = []
   messages.value = []
-  planError.value = ''
+  taskError.value = ''
   chatError.value = ''
 
   await loadGroup()
   if (sequence !== loadSequence) return
 
+  await loadGroupMembers()
+  if (sequence !== loadSequence) return
+
   await Promise.all([
-    loadGroupMembers(),
-    loadPlan(),
+    loadTasks(),
     loadMessages()
   ])
   if (sequence !== loadSequence) return
@@ -1398,8 +1580,8 @@ onBeforeUnmount(() => {
   height: 70vh;
 }
 
-/* Plan pane */
-.pane--plan {
+/* Tasks pane */
+.pane--tasks {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1427,13 +1609,60 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
 }
-.plan-content {
+.tasks-content {
   padding-right: 2px; /* for visible scrollbar */
+}
+
+.task-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.task-section {
+  border-bottom: 1px solid var(--border-light);
+  padding: 0.9rem 0;
+}
+
+.task-section:last-child {
+  border-bottom: 0;
+}
+
+.task-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+
+.task-section-title {
+  color: var(--charcoal);
+  font-weight: 700;
+}
+
+.task-section-title i {
+  margin-right: 0.45rem;
+  color: var(--air-force-blue);
+}
+
+.task-section-status {
+  color: #6c757d;
+  font-size: 0.84rem;
+  font-weight: 700;
 }
 
 .task-body {
   flex: 1;
   min-width: 0;
+}
+
+.task-description {
+  margin-top: 0.18rem;
+  color: #6c757d;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .task-meta {
@@ -1541,16 +1770,21 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-/* Add Task row */
-.add-task-row {
-  padding-left: 0.25rem;
-  margin-top: 0.4rem;
-}
-.add-task-btn {
+.add-subtask-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   border-color: var(--border-light);
+  flex-shrink: 0;
+}
+
+.task-empty-state {
+  padding: 0.8rem;
+  color: #6c757d;
+  background: #f8f9fa;
+  border: 1px dashed var(--border-light);
+  border-radius: 8px;
+  font-size: 0.88rem;
 }
 
 /* Discussion header */
@@ -1714,7 +1948,7 @@ onBeforeUnmount(() => {
   }
   .mobile-tabs { display: flex; }
   .split .pane { display: none; }
-  .split[data-active="plan"] .pane--plan { display: block; }
+  .split[data-active="tasks"] .pane--tasks { display: block; }
   .split[data-active="discussion"] .pane--discussion { display: block; }
   .card {
     min-height: 220px;
@@ -2044,12 +2278,12 @@ onBeforeUnmount(() => {
 
 .group-detail--night .card-title,
 .group-detail--night .pane--discussion .chat-header h3,
-.group-detail--night .milestone-title,
+.group-detail--night .task-section-title,
 .group-detail--night .task-label {
   color: #ecf7f2 !important;
 }
 
-.group-detail--night .milestone-status,
+.group-detail--night .task-section-status,
 .group-detail--night .message-date,
 .group-detail--night .message-time {
   color: rgba(214, 232, 223, 0.72) !important;
@@ -2090,7 +2324,7 @@ onBeforeUnmount(() => {
     display: none;
   }
 
-  .split[data-active="plan"] .pane--plan,
+  .split[data-active="tasks"] .pane--tasks,
   .split[data-active="discussion"] .pane--discussion {
     display: block;
   }
@@ -2212,13 +2446,13 @@ onBeforeUnmount(() => {
 
 .card-title,
 .pane--discussion .chat-header h3,
-.milestone-title,
+.task-section-title,
 .task-label {
   color: var(--charcoal) !important;
 }
 
 .chat-status,
-.milestone-status,
+.task-section-status,
 .message-date,
 .message-time,
 .typing-indicator,
@@ -2317,7 +2551,7 @@ onBeforeUnmount(() => {
   background: #f8f9fa;
 }
 
-.milestone {
+.task-section {
   border-bottom-color: var(--border-light);
 }
 
@@ -2330,12 +2564,12 @@ onBeforeUnmount(() => {
   border-color: var(--air-force-blue);
 }
 
-.add-task-btn {
+.add-subtask-btn {
   color: var(--air-force-blue);
   border-color: var(--border-light);
 }
 
-.add-task-btn:hover {
+.add-subtask-btn:hover {
   background: #f1f5f7;
   border-color: var(--air-force-blue);
 }
