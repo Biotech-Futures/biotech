@@ -499,7 +499,7 @@ class GroupsPreviewViewTest(TestCase):
 # Progress API tests
 # ---------------------------------------------------------------------------
 from apps.users.models import MentorProfile
-from apps.tasks.models import Milestone, Tasks
+from apps.tasks.models import CreatorRole, Task, TaskType
 
 class DashboardProgressApiTests(TestCase):
     url = "/dashboard/v1/progress/"
@@ -540,18 +540,14 @@ class DashboardProgressApiTests(TestCase):
             user=self.student,
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
-        self.milestone = Milestone.objects.create(
+    def _create_task(self, *, completed=False, days_from_now=7, name="Test Task"):
+        return Task.objects.create(
+            name=name,
+            task_type=TaskType.GROUP,
             group=self.group,
-            milestone_name="Check-in #1",
-        )
-
-    def _create_task(self, *, completed=False, days_from_now=7):
-        due = timezone.now() + timedelta(days=days_from_now)
-        return Tasks.objects.create(
-            task_name="Test Task",
-            due_date=due,
-            milestone=self.milestone,
+            due_date=timezone.now() + timedelta(days=days_from_now),
             completed=completed,
+            creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
     def test_unauthenticated_returns_403(self):
@@ -564,7 +560,7 @@ class DashboardProgressApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             set(response.data.keys()),
-            {"completionRate", "completedTasks", "totalTasks", "currentWeek", "nextMilestone", "nextMilestoneDate"},
+            {"completionRate", "completedTasks", "totalTasks", "currentWeek", "nextTask", "nextTaskDate"},
         )
 
     def test_student_can_access_own_group(self):
@@ -598,9 +594,9 @@ class DashboardProgressApiTests(TestCase):
         self.assertEqual(response.data["completionRate"], 0)
         self.assertEqual(response.data["totalTasks"], 0)
 
-    def test_next_milestone_returned(self):
-        self._create_task(completed=False)
+    def test_next_task_returned(self):
+        self._create_task(completed=False, name="Check-in #1")
         self.client.force_authenticate(user=self.student)
         response = self.client.get(self.url + f"?group_id={self.group.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["nextMilestone"], "Check-in #1")
+        self.assertEqual(response.data["nextTask"], "Check-in #1")
