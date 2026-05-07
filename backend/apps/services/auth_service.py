@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from apps.user_sessions.models import UserSession
 from apps.users.models import User
+from apps.users.utils.admin_scope import is_operational_admin
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
 from .models import LoginToken, PasswordResetToken
 
@@ -141,11 +142,19 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     known-email request into a 500 — that would let an attacker enumerate users
     by comparing responses against the silent 200 returned for unknown emails.
     """
-    base = getattr(
-        settings,
-        "PASSWORD_RESET_REDIRECT_URL",
-        "http://localhost:5173/auth/reset-password",
-    )
+    # Admins reset their password on the admin portal; everyone else on the user app.
+    if is_operational_admin(user):
+        base = getattr(
+            settings,
+            "ADMIN_PASSWORD_RESET_REDIRECT_URL",
+            "https://mentoringadmin.biotechfutures.org/auth/reset-password",
+        )
+    else:
+        base = getattr(
+            settings,
+            "PASSWORD_RESET_REDIRECT_URL",
+            "http://localhost:5173/auth/reset-password",
+        )
     reset_link = f"{base}?token={token}"
 
     ctx = {
