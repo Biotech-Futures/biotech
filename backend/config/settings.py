@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'apps.certificates',
     'apps.services',
     'matching',
+    'daphne',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
