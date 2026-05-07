@@ -219,6 +219,8 @@ function toApiEventPayload(data: CreateEvent | UpdateEvent) {
     hostUserId: data.hostUserId ?? null,
     startAt: toIsoFromDatetimeLocal(data.startAt),
     endsAt: toIsoFromDatetimeLocal(data.endsAt),
+    location_link: data.locationLink ?? null,
+    locationLink: undefined,
   };
 }
 
