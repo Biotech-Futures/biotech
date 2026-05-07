@@ -161,10 +161,39 @@ class ChatFeatureTests(TestCase):
         ids2 = [it["id"] for it in resp2.data["items"]]
         self.assertEqual(ids2, [m3.id])
 
-    def test_delete_forbidden_for_student(self):
+    def test_delete_allowed_for_sender_within_10_minutes(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete")
         url = self._detail_url(msg.id)
         resp = self.client_student.delete(url)
+        self.assertEqual(resp.status_code, 204)
+        msg.refresh_from_db()
+        self.assertIsNotNone(msg.deleted_at)
+
+    def test_delete_forbidden_for_sender_after_10_minutes(self):
+        msg = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="too old to delete",
+            sent_at=timezone.now() - timedelta(minutes=11),
+        )
+        url = self._detail_url(msg.id)
+        resp = self.client_student.delete(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_forbidden_for_non_sender_regular_user(self):
+        other_student = get_user_model().objects.create_user(email="student2@test.com", password="pw")
+        now = timezone.now()
+        future = now.replace(year=2099)
+        RoleAssignmentHistory.objects.create(
+            user=other_student, role=self.role_student, valid_from=now, valid_to=future
+        )
+        GroupMembership.objects.create(user=other_student, group=self.group)
+        client_other_student = APIClient()
+        client_other_student.force_authenticate(user=other_student)
+
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="not yours")
+        url = self._detail_url(msg.id)
+        resp = client_other_student.delete(url)
         self.assertEqual(resp.status_code, 403)
 
     def test_delete_allowed_for_mentor_in_own_group(self):

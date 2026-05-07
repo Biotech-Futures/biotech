@@ -1,4 +1,6 @@
 from rest_framework.permissions import BasePermission
+from datetime import timedelta
+from django.utils import timezone
 from apps.groups.models import GroupMembership
 from apps.users.utils.roles import get_active_assignment
 
@@ -33,9 +35,11 @@ class IsGroupMemberOrAdmin(BasePermission):
 
 class CanModerateMessage(BasePermission):
     """
-    For DELETE:
+    For DELETE /chat/groups/{group_id}/messages/{message_id}/:
+      - sender (self-delete): allowed only within (10 minutes)
+       of the message's sent_at
       - admin: moderate everywhere
-      - supervisor: moderate everywhere
+      - supervisor: moderate everywhere (within their groups)
       - mentor: only in groups they belong to
     """
     def has_object_permission(self, request, view, obj):
@@ -43,11 +47,13 @@ class CanModerateMessage(BasePermission):
         if not u or not u.is_authenticated:
             return False
 
-        # Admin → global access
+        if obj.sender_user_id == u.id:
+            if timezone.now() <= obj.sent_at + timedelta(minutes=10):
+                return True
+
         if _has_active_role_name(u, {ROLE_ADMIN}):
             return True
 
-        # Mentor / Supervisor → only if member of THIS group
         if _has_active_role_name(u, {ROLE_MENTOR, ROLE_SUPERVISOR}):
             return GroupMembership.objects.filter(
                 user=u,
