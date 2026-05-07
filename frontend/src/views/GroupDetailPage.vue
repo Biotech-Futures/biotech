@@ -1905,13 +1905,11 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition:
     border-color 0.18s ease,
-    transform 0.18s ease,
     background 0.18s ease;
 }
 
 .reaction-btn:hover {
   border-color: var(--border-strong);
-  transform: translateY(-1px);
 }
 
 .reaction-count {
@@ -2149,14 +2147,12 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: blur(24px);
   transition:
     border-color 0.28s ease,
-    box-shadow 0.28s ease,
-    transform 0.28s ease;
+    box-shadow 0.28s ease;
 }
 
 .card:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
 }
 
 .card::before {
@@ -2427,14 +2423,13 @@ onBeforeUnmount(() => {
   box-shadow: 0 2px 4px var(--shadow);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition: box-shadow 0.2s ease;
 }
 
 .card:hover,
 .pane--discussion .chat-container:hover {
   border-color: var(--border-light);
   box-shadow: 0 4px 12px var(--shadow);
-  transform: translateY(-2px);
 }
 
 .card-header,
@@ -2556,7 +2551,11 @@ onBeforeUnmount(() => {
 }
 
 .task-item:hover {
-  background-color: #f8f9fa;
+  margin: 0;
+  padding-top: 0.5rem;
+  padding-right: 0;
+  padding-bottom: 0.5rem;
+  background-color: transparent;
 }
 
 .task-checkbox.checked {
