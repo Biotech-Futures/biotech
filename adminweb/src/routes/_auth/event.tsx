@@ -420,7 +420,7 @@ function EventPage() {
         eventName: editingEvent.eventName,
         description: editingEvent.description,
         location: editingEvent.location,
-        locationLink: editingEvent.locationLink,
+        locationLink: editingEvent.location_link,
         isVirtual: editingEvent.isVirtual,
         startAt: toDatetimeLocal(editingEvent.startDatetime),
         endsAt: toDatetimeLocal(editingEvent.endsDatetime),
@@ -543,10 +543,10 @@ function EventPage() {
                   <TableCell>
                     {event.location
                       ? event.location
-                      : event.locationLink
+                      : event.location_link
                         ? (
                           <a
-                            href={event.locationLink}
+                            href={event.location_link}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-500 underline"
@@ -689,19 +689,19 @@ function EventPage() {
                 <p className="text-sm">{viewingEvent?.location || "---"}</p>
               </div>
             )}
-            {viewingEvent?.locationLink && (
+            {viewingEvent?.location_link && (
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase">
                   {viewingEvent.isVirtual ? "Meeting Link" : "Google Map Link"}
                 </Label>
                 <p className="text-sm">
                   <a
-                    href={viewingEvent.locationLink}
+                    href={viewingEvent.location_link}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-500 underline"
                   >
-                    {viewingEvent.locationLink}
+                    {viewingEvent.location_link}
                   </a>
                 </p>
               </div>
