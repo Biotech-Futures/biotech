@@ -74,6 +74,19 @@ urlpatterns = [
     path('mentor/<int:mentor_id>/active/', views.MentorActiveStatusUpdateView.as_view(), name='mentor-active-status'),
     
     # ========================================================================
+    # TASK ROUTES
+    # ========================================================================
+    path('task/', views.AdminTaskListCreateView.as_view(), name='admin-task-list-create'),
+    path('task/<int:task_id>/', views.AdminTaskDetailView.as_view(), name='admin-task-detail'),
+    path('task/<int:task_id>/toggle/', views.AdminTaskToggleView.as_view(), name='admin-task-toggle'),
+
+    # ========================================================================
+    # ADMIN AUTH ROUTES
+    # ========================================================================
+    path('auth/password-status/', views.AdminPasswordStatusView.as_view(), name='admin-password-status'),
+    path('auth/set-password/', views.AdminSetPasswordView.as_view(), name='admin-set-password'),
+
+    # ========================================================================
     # MENTOR MATCH ROUTES
     # ========================================================================
     path('mentor-match/recommend/', views.MentorMatchRecommendView.as_view(), name='mentor-match-recommend'),

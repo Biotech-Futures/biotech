@@ -10,9 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SigninRouteImport } from './routes/signin'
+import { Route as SetupPasswordRouteImport } from './routes/setup-password'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
 import { Route as AuthUserRouteImport } from './routes/_auth/user'
+import { Route as AuthTaskRouteImport } from './routes/_auth/task'
 import { Route as AuthStudentRouteImport } from './routes/_auth/student'
 import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
 import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentorMatching'
@@ -28,6 +30,11 @@ const SigninRoute = SigninRouteImport.update({
   path: '/signin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SetupPasswordRoute = SetupPasswordRouteImport.update({
+  id: '/setup-password',
+  path: '/setup-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRouteRoute = AuthRouteRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
@@ -40,6 +47,11 @@ const AuthIndexRoute = AuthIndexRouteImport.update({
 const AuthUserRoute = AuthUserRouteImport.update({
   id: '/user',
   path: '/user',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthTaskRoute = AuthTaskRouteImport.update({
+  id: '/task',
+  path: '/task',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthStudentRoute = AuthStudentRouteImport.update({
@@ -90,6 +102,7 @@ const AuthAnnouncementRoute = AuthAnnouncementRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
+  '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
   '/announcement': typeof AuthAnnouncementRoute
   '/demo': typeof AuthDemoRoute
@@ -100,9 +113,11 @@ export interface FileRoutesByFullPath {
   '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
   '/student': typeof AuthStudentRoute
+  '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
 }
 export interface FileRoutesByTo {
+  '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
   '/announcement': typeof AuthAnnouncementRoute
   '/demo': typeof AuthDemoRoute
@@ -113,12 +128,14 @@ export interface FileRoutesByTo {
   '/mentorMatching': typeof AuthMentorMatchingRoute
   '/resource': typeof AuthResourceRoute
   '/student': typeof AuthStudentRoute
+  '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
   '/': typeof AuthIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_auth': typeof AuthRouteRouteWithChildren
+  '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
   '/_auth/announcement': typeof AuthAnnouncementRoute
   '/_auth/demo': typeof AuthDemoRoute
@@ -129,6 +146,7 @@ export interface FileRoutesById {
   '/_auth/mentorMatching': typeof AuthMentorMatchingRoute
   '/_auth/resource': typeof AuthResourceRoute
   '/_auth/student': typeof AuthStudentRoute
+  '/_auth/task': typeof AuthTaskRoute
   '/_auth/user': typeof AuthUserRoute
   '/_auth/': typeof AuthIndexRoute
 }
@@ -136,6 +154,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/setup-password'
     | '/signin'
     | '/announcement'
     | '/demo'
@@ -146,9 +165,11 @@ export interface FileRouteTypes {
     | '/mentorMatching'
     | '/resource'
     | '/student'
+    | '/task'
     | '/user'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/setup-password'
     | '/signin'
     | '/announcement'
     | '/demo'
@@ -159,11 +180,13 @@ export interface FileRouteTypes {
     | '/mentorMatching'
     | '/resource'
     | '/student'
+    | '/task'
     | '/user'
     | '/'
   id:
     | '__root__'
     | '/_auth'
+    | '/setup-password'
     | '/signin'
     | '/_auth/announcement'
     | '/_auth/demo'
@@ -174,12 +197,14 @@ export interface FileRouteTypes {
     | '/_auth/mentorMatching'
     | '/_auth/resource'
     | '/_auth/student'
+    | '/_auth/task'
     | '/_auth/user'
     | '/_auth/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
+  SetupPasswordRoute: typeof SetupPasswordRoute
   SigninRoute: typeof SigninRoute
 }
 
@@ -190,6 +215,13 @@ declare module '@tanstack/react-router' {
       path: '/signin'
       fullPath: '/signin'
       preLoaderRoute: typeof SigninRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup-password': {
+      id: '/setup-password'
+      path: '/setup-password'
+      fullPath: '/setup-password'
+      preLoaderRoute: typeof SetupPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -211,6 +243,13 @@ declare module '@tanstack/react-router' {
       path: '/user'
       fullPath: '/user'
       preLoaderRoute: typeof AuthUserRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/task': {
+      id: '/_auth/task'
+      path: '/task'
+      fullPath: '/task'
+      preLoaderRoute: typeof AuthTaskRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/student': {
@@ -289,6 +328,7 @@ interface AuthRouteRouteChildren {
   AuthMentorMatchingRoute: typeof AuthMentorMatchingRoute
   AuthResourceRoute: typeof AuthResourceRoute
   AuthStudentRoute: typeof AuthStudentRoute
+  AuthTaskRoute: typeof AuthTaskRoute
   AuthUserRoute: typeof AuthUserRoute
   AuthIndexRoute: typeof AuthIndexRoute
 }
@@ -303,6 +343,7 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthMentorMatchingRoute: AuthMentorMatchingRoute,
   AuthResourceRoute: AuthResourceRoute,
   AuthStudentRoute: AuthStudentRoute,
+  AuthTaskRoute: AuthTaskRoute,
   AuthUserRoute: AuthUserRoute,
   AuthIndexRoute: AuthIndexRoute,
 }
@@ -313,6 +354,7 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   AuthRouteRoute: AuthRouteRouteWithChildren,
+  SetupPasswordRoute: SetupPasswordRoute,
   SigninRoute: SigninRoute,
 }
 export const routeTree = rootRouteImport

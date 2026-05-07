@@ -1,3 +1,4 @@
+from django.contrib.auth import update_session_auth_hash
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -35,6 +36,10 @@ from apps.admin.services.announcement import (
     list_announcement_tracks, list_announcement_roles,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
+from apps.admin.services.task import (
+    list_admin_tasks, get_admin_task_by_id, create_admin_task,
+    update_admin_task, delete_admin_task, toggle_admin_task,
+)
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
     confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
@@ -718,3 +723,98 @@ class MentorMatchUnassignView(APIView):
         group_ids = request.data.get("groupIds", [])
         result = unassign_mentors(group_ids)
         return Response({"msg": "Mentors unassigned successfully", "data": result})
+
+
+# ============================================================================
+# TASK ENDPOINTS
+# ============================================================================
+class AdminTaskListCreateView(APIView):
+    """GET /api/v1/admin/task/ — List tasks visible to admin"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        page = int(request.query_params.get("page", 1))
+        limit = int(request.query_params.get("limit", 10))
+        task_type = request.query_params.get("task_type") or None
+        result = list_admin_tasks(request.user, page=page, limit=limit, task_type=task_type)
+        return Response(result)
+
+    def post(self, request):
+        result = create_admin_task(request.user, request.data)
+        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class AdminTaskDetailView(APIView):
+    """GET/PATCH/DELETE /api/v1/admin/task/{task_id}/ — Task detail"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, task_id):
+        result = get_admin_task_by_id(request.user, task_id)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+    def patch(self, request, task_id):
+        result = update_admin_task(request.user, task_id, request.data)
+        if result.get("msg") == "Task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result)
+
+    def delete(self, request, task_id):
+        result = delete_admin_task(request.user, task_id)
+        if result.get("msg") == "Task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result, status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminTaskToggleView(APIView):
+    """POST /api/v1/admin/task/{task_id}/toggle/ — Toggle task completion"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, task_id):
+        completed = request.data.get("completed")
+        if completed is None:
+            return Response(
+                {"msg": "completed field is required", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = toggle_admin_task(request.user, task_id, bool(completed))
+        if result.get("msg") == "Task not found":
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result)
+
+
+# ============================================================================
+# ADMIN AUTH ENDPOINTS
+# ============================================================================
+class AdminPasswordStatusView(APIView):
+    """GET /api/v1/admin/auth/password-status/ — check if user has a usable password."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "msg": "Password status retrieved",
+            "data": {"hasPassword": request.user.has_usable_password()},
+        })
+
+
+class AdminSetPasswordView(APIView):
+    """POST /api/v1/admin/auth/set-password/ — set password for first-time admin."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.has_usable_password():
+            return Response(
+                {"msg": "Password is already set", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        password = request.data.get("password", "")
+        if not password or len(password) < 8:
+            return Response(
+                {"msg": "Password must be at least 8 characters", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.set_password(password)
+        request.user.save(update_fields=["password"])
+        update_session_auth_hash(request, request.user)
+        return Response({"msg": "Password set successfully", "data": True})
