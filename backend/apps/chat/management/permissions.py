@@ -1,15 +1,8 @@
 from rest_framework.permissions import BasePermission
-from apps.groups.models import GroupMembership
-from apps.users.utils.roles import get_active_assignment
 
-ROLE_ADMIN = "admin"
-ROLE_SUPERVISOR = "supervisor"
-ROLE_MENTOR = "mentor"
+from apps.groups.models import Groups
 
-
-def _has_active_role_name(user, allowed_names):
-    rah = get_active_assignment(user)
-    return bool(rah and rah.role and rah.role.role_name in allowed_names)
+from apps.chat.rbac import can_access_chat_group, can_manage_chat_message
 
 
 class IsGroupMemberOrAdmin(BasePermission):
@@ -21,14 +14,11 @@ class IsGroupMemberOrAdmin(BasePermission):
         u = request.user
         if not u or not u.is_authenticated:
             return False
-        if u.is_staff or _has_active_role_name(u, {ROLE_ADMIN}):
-            return True
         gid = view.kwargs.get("group_pk")
-        return GroupMembership.objects.filter(
-            user=u,
-            group_id=gid,
-            left_at__isnull=True,
-        ).exists()
+        group = Groups.objects.only("id", "track_id").filter(pk=gid).first()
+        # Developer note: chat views delegate group scope checks to the shared RBAC
+        # helper so REST, download, and websocket access stay aligned.
+        return can_access_chat_group(u, group)
 
 
 class CanModerateMessage(BasePermission):
@@ -39,20 +29,4 @@ class CanModerateMessage(BasePermission):
       - mentor: only in groups they belong to
     """
     def has_object_permission(self, request, view, obj):
-        u = request.user
-        if not u or not u.is_authenticated:
-            return False
-
-        # Admin → global access
-        if _has_active_role_name(u, {ROLE_ADMIN}):
-            return True
-
-        # Mentor / Supervisor → only if member of THIS group
-        if _has_active_role_name(u, {ROLE_MENTOR, ROLE_SUPERVISOR}):
-            return GroupMembership.objects.filter(
-                user=u,
-                group=obj.group,
-                left_at__isnull=True,
-            ).exists()
-
-        return False
+        return can_manage_chat_message(getattr(request, "user", None), obj)

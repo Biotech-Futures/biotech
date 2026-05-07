@@ -27,13 +27,15 @@ from urllib.parse import urlparse
 from rest_framework import mixins, pagination, permissions, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience
 from .serializers import (
     RoleSerializer,
     RoleAssignmentHistorySerializer,
     ResourceAccessSerializer,
+    ResourcePublicDetailSerializer,
+    ResourcePublicListSerializer,
     ResourcesSerializer,
-    ResourceListSerializer,
     ResourceTypeSerializer,
 )
 from django.db.models import Q
@@ -47,6 +49,11 @@ from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
 from django.http import FileResponse, HttpResponseRedirect
+from .rbac import (
+    can_access_resource_file,
+    can_manage_resource_file,
+    filter_resources_for_user,
+)
 from .models import ResourceType
 from .permissions import IsResourceAdmin
 from .services.storage import (
@@ -318,7 +325,9 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def get_serializer_class(self):
         if self.action == 'list':
-            return ResourceListSerializer
+            return ResourcePublicListSerializer
+        if self.action == 'retrieve':
+            return ResourcePublicDetailSerializer
         return ResourcesSerializer
 
     def get_queryset(self):
@@ -327,45 +336,15 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if not user or not user.is_authenticated:
             return Resources.objects.none()
 
-        user_roles = self._get_user_roles(user)
         queryset = Resources.objects.filter(
             deleted_at__isnull=True
         ).select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track')
 
-        if self.action == 'list' and not self._is_admin_user(user):
-            access_filter = (
-                Q(uploaded_by=user)
-                | Q(visibility_scope=Resources.VisibilityScope.PUBLIC)
-                | Q(audiences__role__in=user_roles)
-            )
-            if user.track_id:
-                access_filter |= Q(audiences__track_id=user.track_id)
-            queryset = queryset.filter(access_filter).distinct()
+        if self.action == 'list':
+            queryset = filter_resources_for_user(queryset, user)
 
         queryset = self._apply_filters(queryset)
         return queryset.order_by('-uploaded_at')
-
-    def _get_user_roles(self, user):
-        now = timezone.now()
-        return RoleAssignmentHistory.objects.filter(
-            user=user,
-            valid_from__lte=now
-        ).filter(
-            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-        ).values_list('role', flat=True)
-
-    def _is_admin_user(self, user):
-        # Resource management treats an active business-role "admin" the same as Django
-        # staff because some flows authenticate through app roles rather than admin site flags.
-        if user.is_staff or getattr(user, "is_superuser", False):
-            return True
-        return RoleAssignmentHistory.objects.filter(
-            user=user,
-            role__role_name__iexact="admin",
-            valid_from__lte=timezone.now(),
-        ).filter(
-            Q(valid_to__isnull=True) | Q(valid_to__gte=timezone.now())
-        ).exists()
 
     def _apply_filters(self, queryset):
         params = self.request.query_params
@@ -406,15 +385,14 @@ class ResourcesViewSet(mixins.ListModelMixin,
         return queryset
 
     def get_permissions(self):
-        if self.action in ['create']:
-            return [IsAuthenticated(), IsResourceAdmin()]
-        elif self.action in ['update', 'partial_update']:
-            return [IsAuthenticated(), IsResourceAdmin()]
-        elif self.action in ['destroy']:
+        if self.action in ['assign_role', 'remove_role']:
             return [IsAuthenticated(), IsResourceAdmin()]
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
+        track = self._requested_track_for_write()
+        if not can_manage_resource_file(self.request.user, track=track):
+            raise PermissionDenied("You do not have permission to manage resource files in this scope.")
         resource = serializer.save(uploaded_by=self.request.user)
         log_audit_event(
             actor=self.request.user,
@@ -426,6 +404,9 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def perform_update(self, serializer):
         resource = self.get_object()
+        track = self._requested_track_for_write(instance=resource)
+        if not can_manage_resource_file(self.request.user, resource=resource, track=track):
+            raise PermissionDenied("You do not have permission to manage resource files in this scope.")
         before_state = ResourcesSerializer(resource).data
         resource = serializer.save()
         log_audit_event(
@@ -437,66 +418,39 @@ class ResourcesViewSet(mixins.ListModelMixin,
             after_state=ResourcesSerializer(resource).data,
         )
 
+    def _serialize_public_resource(self, resource):
+        return ResourcePublicDetailSerializer(resource, context={"request": self.request})
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            self._serialize_public_resource(serializer.instance).data,
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(self._serialize_public_resource(serializer.instance).data)
+
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-
-        can_access, reason = self._user_can_access_resource(request.user, instance)
-        if not can_access:
-            return Response(
-                {
-                    "error": "Permission denied",
-                    "detail": reason
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
+        if not can_access_resource_file(request.user, instance):
+            return Response({"detail": "You do not have access to this resource."}, status=status.HTTP_403_FORBIDDEN)
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
-    def _user_can_access_resource(self, user, resource):
-        if self._is_admin_user(user):
-            return True, "Admin access granted"
-
-        if resource.uploaded_by == user:
-            return True, "Access granted as uploader"
-
-        if resource.visibility_scope == Resources.VisibilityScope.PUBLIC:
-            return True, "Access granted because the resource is public"
-
-        user_roles = self._get_user_roles(user)
-        audiences = ResourceAudience.objects.filter(resource=resource).select_related("role", "track")
-        resource_role_names = [aud.role.role_name for aud in audiences if aud.role_id]
-        resource_track_names = [aud.track.track_name for aud in audiences if aud.track_id]
-
-        user_role_objects = set(user_roles)
-        role_access = any(aud.role_id in user_role_objects for aud in audiences if aud.role_id)
-        track_access = any(aud.track_id == user.track_id for aud in audiences if aud.track_id and user.track_id)
-
-        if role_access or track_access:
-            return True, "Access granted based on audience scope"
-
-        if not resource_role_names:
-            reason = "This resource has no role restrictions, but you are not the uploader."
-        else:
-            from apps.resources.models import RoleAssignmentHistory
-            now = timezone.now()
-            user_role_names = list(RoleAssignmentHistory.objects.filter(
-                user=user,
-                valid_from__lte=now,
-            ).filter(
-                Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-            ).values_list('role__role_name', flat=True))
-
-            reason = (
-                f"This resource is restricted to users with the following role(s): {', '.join(resource_role_names)}. "
-                f"Track scope(s): {', '.join(resource_track_names) if resource_track_names else 'None'}. "
-                f"Your current role(s): {', '.join(user_role_names) if user_role_names else 'None'}."
-            )
-
-        return False, reason
-
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        if not can_manage_resource_file(request.user, resource=instance):
+            return Response({"detail": "You do not have permission to manage this resource."}, status=status.HTTP_403_FORBIDDEN)
         before_state = ResourcesSerializer(instance).data
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted_at"])
@@ -528,7 +482,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             access_mode = "managed_file" if resource.kind == Resources.ResourceKind.FILE else "managed_page"
             detail = None
 
-        serializer = ResourceListSerializer(resource, context={"request": self.request})
+        serializer = ResourcePublicListSerializer(resource, context={"request": self.request})
         resource_data = serializer.data
         return {
             "resource_id": resource.id,
@@ -547,9 +501,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
     @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
     def access(self, request, pk=None):
         resource = self.get_object()
-        can_access, reason = self._user_can_access_resource(request.user, resource)
-        if not can_access:
-            return Response({"error": "Permission denied", "detail": reason}, status=status.HTTP_403_FORBIDDEN)
+        if not can_access_resource_file(request.user, resource):
+            return Response({"detail": "You do not have access to this resource."}, status=status.HTTP_403_FORBIDDEN)
 
         payload = self._build_access_payload(resource)
         return Response(ResourceAccessSerializer(payload).data, status=status.HTTP_200_OK)
@@ -557,9 +510,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
     @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
     def download(self, request, pk=None):
         resource = self.get_object()
-        can_access, reason = self._user_can_access_resource(request.user, resource)
-        if not can_access:
-            return Response({"error": "Permission denied", "detail": reason}, status=status.HTTP_403_FORBIDDEN)
+        if not can_access_resource_file(request.user, resource):
+            return Response({"detail": "You do not have access to this resource."}, status=status.HTTP_403_FORBIDDEN)
 
         payload = self._build_access_payload(resource)
         external_url = payload["external_url"]
@@ -569,10 +521,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         storage_key = (resource.storage_key or "").strip()
         if not storage_key:
             return Response(
-                {
-                    "detail": payload["detail"],
-                    "resource": ResourceAccessSerializer(payload).data,
-                },
+                {"detail": payload["detail"]},
                 status=status.HTTP_409_CONFLICT,
             )
 
@@ -607,6 +556,28 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if resource.file_size is not None:
             response["Content-Length"] = str(resource.file_size)
         return response
+
+    def _requested_track_for_write(self, instance=None):
+        track_id = self.request.data.get("track")
+        group_id = self.request.data.get("group")
+
+        if track_id not in (None, ""):
+            return track_id
+
+        if group_id not in (None, ""):
+            from apps.groups.models import Groups
+
+            group = Groups.objects.only("id", "track_id").filter(pk=group_id).first()
+            if group is not None:
+                return group.track_id
+
+        if instance is not None:
+            if instance.track_id:
+                return instance.track_id
+            if instance.group_id:
+                return instance.group.track_id
+
+        return None
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsResourceAdmin])
     def assign_role(self, request, pk=None):

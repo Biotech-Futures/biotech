@@ -1,10 +1,9 @@
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
-from apps.groups.models import GroupMembership
-from apps.users.utils.roles import get_active_assignment
 from apps.chat.utils import sanitize_text
 
-ROLE_ADMIN = "admin"
+from apps.chat.rbac import can_access_chat_group
+from apps.groups.models import Groups
 
 class GroupChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -27,14 +26,7 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4403)
             return
 
-        # Allow admin/supervisor globally
-        if await self._has_admin_access(user):
-            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-            await self.accept()
-            return
-
-        # Otherwise require membership
-        if not await self.is_member(user.id):
+        if not await self._can_access_group(user):
             await self.close(code=4403)
             return
 
@@ -42,20 +34,9 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         await self.accept()
 
     @database_sync_to_async
-    def _has_admin_access(self, user):
-        rah = get_active_assignment(user)
-        return bool(
-            rah and rah.role and rah.role.role_name in {ROLE_ADMIN}
-        )
-
-    @database_sync_to_async
-    def is_member(self, uid):
-        return GroupMembership.objects.filter(
-            user_id=uid,
-            group_id=self.group_id,
-            left_at__isnull=True,
-        ).exists()
-
+    def _can_access_group(self, user):
+        group = Groups.objects.only("id", "track_id").filter(pk=self.group_id).first()
+        return can_access_chat_group(user, group)
 
     async def receive_json(self, content, **kwargs):
         # Defensive: a malformed client could send a JSON list / string /

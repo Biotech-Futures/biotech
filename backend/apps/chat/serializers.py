@@ -7,6 +7,7 @@ from django.conf import settings
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
+from apps.common.filenames import sanitize_upload_filename
 from apps.resources.models import Resources
 
 from .models import MessageAttachment, MessageResource, MessageStatus, Messages, MessageType
@@ -29,6 +30,15 @@ class MessageResourceSerializer(serializers.ModelSerializer):
         fields = ["id", "resource_id", "resource_name"]
 
 
+class MessageResourcePublicSerializer(serializers.ModelSerializer):
+    resource_id = serializers.IntegerField(read_only=True)
+    resource_name = serializers.CharField(source="resource.name", read_only=True)
+
+    class Meta:
+        model = MessageResource
+        fields = ["resource_id", "resource_name"]
+
+
 class MessageStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageStatus
@@ -37,6 +47,7 @@ class MessageStatusSerializer(serializers.ModelSerializer):
 
 
 class MessageAttachmentSerializer(serializers.ModelSerializer):
+    attachment_filename = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -49,6 +60,9 @@ class MessageAttachmentSerializer(serializers.ModelSerializer):
             "download_url",
         ]
         read_only_fields = fields
+
+    def get_attachment_filename(self, obj):
+        return sanitize_upload_filename(obj.attachment_filename)
 
     def get_download_url(self, obj):
         request = self.context.get("request")
@@ -121,6 +135,30 @@ class MessageSerializer(serializers.ModelSerializer):
         if "message_text" in attrs:
             attrs["message_text"] = sanitize_text(attrs["message_text"])
         return attrs
+
+
+class MessagePublicSerializer(serializers.ModelSerializer):
+    resources = MessageResourcePublicSerializer(many=True, read_only=True)
+    attachments = MessageAttachmentSerializer(many=True, read_only=True)
+    sender_name = serializers.CharField(
+        source="sender_user.get_full_name", read_only=True
+    )
+    is_edited = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Messages
+        fields = [
+            "id",
+            "sender_name",
+            "message_text",
+            "message_type",
+            "sent_at",
+            "edited_at",
+            "is_edited",
+            "attachments",
+            "resources",
+        ]
+        read_only_fields = fields
 
 
 class MessageAttachmentUploadSerializer(serializers.Serializer):

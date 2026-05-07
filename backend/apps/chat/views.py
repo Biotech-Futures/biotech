@@ -8,21 +8,27 @@ from urllib.parse import urlparse
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.db import transaction
 from django.http import FileResponse, HttpResponseRedirect
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.common.filenames import sanitize_upload_filename
 from .management.permissions import CanModerateMessage, IsGroupMemberOrAdmin
+from .rbac import can_access_chat_group
 from .models import MessageAttachment, Messages
 from .serializers import (
     MessageAttachmentUploadSerializer,
+    MessagePublicSerializer,
     MessageSerializer,
     MessageUpdateSerializer,
 )
 from .services.storage import open_managed_chat_file, resolve_managed_chat_file_url
+from apps.groups.models import Groups
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -32,7 +38,9 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action == "destroy":
-            return [CanModerateMessage()]
+            return [IsAuthenticated(), CanModerateMessage()]
+        if self.action in {"upload", "attachment_download"}:
+            return [IsAuthenticated()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
@@ -40,6 +48,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             return MessageAttachmentUploadSerializer
         if self.action == "partial_update":
             return MessageUpdateSerializer
+        if self.action == "retrieve":
+            return MessagePublicSerializer
         return MessageSerializer
 
     def _message_queryset(self):
@@ -53,9 +63,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         gid = self.kwargs.get("group_pk")
         return self._message_queryset().filter(group_id=gid)
 
-    def _serialize_message(self, message):
+    def _serialize_public_message(self, message):
         message = self._message_queryset().get(pk=message.pk)
-        data = MessageSerializer(message, context={"request": self.request}).data
+        return MessagePublicSerializer(message, context={"request": self.request}).data
+
+    def _serialize_broadcast_message(self, message):
+        message = self._message_queryset().get(pk=message.pk)
+        data = MessagePublicSerializer(message, context={"request": self.request}).data
         # Keep legacy aliases in websocket payloads so the existing frontend and tests
         # continue to understand message.created without a protocol migration.
         data["sender_id"] = message.sender_user_id
@@ -72,6 +86,17 @@ class MessageViewSet(viewsets.ModelViewSet):
                 "payload": payload,
             },
         )
+
+    def _build_message_created_payload(self, group_id, message):
+        return {
+            "event": "message.created",
+            "group_id": group_id,
+            "message": self._serialize_broadcast_message(message),
+        }
+
+    def _get_group(self):
+        group_pk = self.kwargs.get("group_pk")
+        return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
 
     # GET /chat/groups/{gid}/messages/
     def list(self, request, *args, **kwargs):
@@ -96,7 +121,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = MessageSerializer(items, many=True, context={"request": request}).data
+        data = MessagePublicSerializer(items, many=True, context={"request": request}).data
         next_after = items[0].id if items else None
 
         return Response(
@@ -108,11 +133,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-        payload = {
-            "event": "message.created",
-            "group_id": gid,
-            "message": self._serialize_message(msg),
-        }
+        payload = self._build_message_created_payload(gid, msg)
         self._broadcast_payload(gid, payload)
 
     def create(self, request, *args, **kwargs):
@@ -120,7 +141,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
-        return Response(self._serialize_message(serializer.instance), status=status.HTTP_201_CREATED, headers=headers)
+        return Response(self._serialize_public_message(serializer.instance), status=status.HTTP_201_CREATED, headers=headers)
 
     @action(
         detail=False,
@@ -129,17 +150,28 @@ class MessageViewSet(viewsets.ModelViewSet):
         parser_classes=[MultiPartParser, FormParser],
     )
     def upload(self, request, *args, **kwargs):
+        group = self._get_group()
+        if group is None:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_chat_group(request.user, group):
+            return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        gid = int(self.kwargs.get("group_pk"))
-        message = serializer.save(sender_user=request.user, group_id=gid)
-        payload = {
-            "event": "message.created",
-            "group_id": gid,
-            "message": self._serialize_message(message),
-        }
-        self._broadcast_payload(gid, payload)
-        return Response(payload["message"], status=status.HTTP_201_CREATED)
+        gid = group.id
+        with transaction.atomic():
+            message = serializer.save(sender_user=request.user, group_id=gid)
+            payload = self._build_message_created_payload(gid, message)
+            # Developer note: upload writes the message + attachment first, then publishes
+            # on commit so websocket consumers never receive an attachment event for rows
+            # that later roll back.
+            transaction.on_commit(
+                lambda group_id=gid, message_payload=payload: self._broadcast_payload(
+                    group_id,
+                    message_payload,
+                )
+            )
+        return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
     def partial_update(self, request, *args, **kwargs):
@@ -158,7 +190,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
             },
         )
-        return Response(self._serialize_message(instance))
+        return Response(self._serialize_public_message(instance))
 
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
@@ -182,16 +214,23 @@ class MessageViewSet(viewsets.ModelViewSet):
         url_name="attachment-download",
     )
     def attachment_download(self, request, *args, **kwargs):
+        group = self._get_group()
+        if group is None:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
         message = self.get_object()
         attachment_pk = kwargs.get("attachment_pk")
-        try:
-            attachment = message.attachments.get(pk=attachment_pk)
-        except MessageAttachment.DoesNotExist:
+        attachment = message.attachments.filter(pk=attachment_pk).first()
+        if attachment is None:
             return Response({"detail": "Attachment not found for this message."}, status=status.HTTP_404_NOT_FOUND)
 
+        if not can_access_chat_group(request.user, group):
+            return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
+
+        safe_filename = sanitize_upload_filename(attachment.attachment_filename)
         managed_url = resolve_managed_chat_file_url(
             attachment.storage_key,
-            filename=attachment.attachment_filename,
+            filename=safe_filename,
             content_type=attachment.attachment_mime_type,
             as_attachment=True,
         )
@@ -207,7 +246,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response({"detail": "The attachment could not be opened for download."}, status=status.HTTP_404_NOT_FOUND)
 
-        response = FileResponse(file_handle, as_attachment=True, filename=attachment.attachment_filename)
+        response = FileResponse(file_handle, as_attachment=True, filename=safe_filename)
         if attachment.attachment_mime_type:
             response["Content-Type"] = attachment.attachment_mime_type
         if attachment.attachment_size is not None:

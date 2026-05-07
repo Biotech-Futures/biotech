@@ -4,6 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
+from apps.common.filenames import sanitize_upload_filename
 from apps.users.models import User
 
 from .models import RoleAssignmentHistory, ResourceAudience, Resources, ResourceType, Roles
@@ -261,7 +262,7 @@ class ResourcesSerializer(serializers.ModelSerializer):
 
     def get_file_name(self, obj):
         if obj.storage_key:
-            return PurePosixPath(obj.storage_key).name or obj.name
+            return sanitize_upload_filename(PurePosixPath(obj.storage_key).name)
         return obj.name
 
     def _build_route_url(self, obj, route_name):
@@ -342,48 +343,13 @@ class ResourcesSerializer(serializers.ModelSerializer):
         return resource
 
 
-class ResourceListSerializer(serializers.ModelSerializer):
-    uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+class _BaseResourcePublicSerializer(serializers.ModelSerializer):
     uploader_name = serializers.SerializerMethodField()
-    resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
     type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
-    visible_roles = serializers.SerializerMethodField()
     file_name = serializers.SerializerMethodField()
     access_url = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
     storage_status = serializers.SerializerMethodField()
-    audiences = ResourceAudienceSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = Resources
-        fields = [
-            'id',
-            'name',
-            'description',
-            'resource_type_detail',
-            'type_name',
-            'kind',
-            'file_mime_type',
-            'file_size',
-            'storage_key',
-            'track',
-            'group',
-            'visibility_scope',
-            'uploaded_at',
-            'uploader',
-            'uploader_name',
-            'file_name',
-            'access_url',
-            'download_url',
-            'storage_status',
-            'visible_roles',
-            'audiences',
-        ]
-
-    @extend_schema_field(RoleSerializer(many=True))
-    def get_visible_roles(self, obj):
-        audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
-        return RoleSerializer([aud.role for aud in audiences], many=True).data
 
     def get_uploader_name(self, obj):
         if obj.uploaded_by_id is None:
@@ -392,7 +358,7 @@ class ResourceListSerializer(serializers.ModelSerializer):
 
     def get_file_name(self, obj):
         if obj.storage_key:
-            return PurePosixPath(obj.storage_key).name or obj.name
+            return sanitize_upload_filename(PurePosixPath(obj.storage_key).name)
         return obj.name
 
     def _build_route_url(self, obj, route_name):
@@ -415,3 +381,43 @@ class ResourceListSerializer(serializers.ModelSerializer):
         if str(obj.storage_key).startswith(("http://", "https://")):
             return "external_url"
         return "managed_key"
+
+
+class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
+    class Meta:
+        model = Resources
+        fields = [
+            'id',
+            'name',
+            'description',
+            'type_name',
+            'kind',
+            'file_mime_type',
+            'file_size',
+            'uploaded_at',
+            'uploader_name',
+            'file_name',
+            'access_url',
+            'download_url',
+            'storage_status',
+        ]
+
+
+class ResourcePublicDetailSerializer(_BaseResourcePublicSerializer):
+    class Meta:
+        model = Resources
+        fields = [
+            'id',
+            'name',
+            'description',
+            'type_name',
+            'kind',
+            'file_mime_type',
+            'file_size',
+            'uploaded_at',
+            'uploader_name',
+            'file_name',
+            'access_url',
+            'download_url',
+            'storage_status',
+        ]

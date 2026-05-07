@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.storage import FileSystemStorage
+from django.utils import timezone
+
+from apps.common.filenames import sanitize_upload_filename
 
 try:
     from storages.backends.azure_storage import AzureStorage
@@ -96,13 +101,79 @@ class ManagedContainerStorage:
             parameters["content_type"] = content_type
         if filename:
             disposition = "attachment" if as_attachment else "inline"
-            safe_filename = filename.replace('"', "")
+            safe_filename = sanitize_upload_filename(filename)
             parameters["content_disposition"] = f'{disposition}; filename="{safe_filename}"'
         elif as_attachment:
-            safe_filename = Path(name).name.replace('"', "")
+            safe_filename = sanitize_upload_filename(Path(name).name)
             parameters["content_disposition"] = f'attachment; filename="{safe_filename}"'
 
         return self._storage.url(name, parameters=parameters or None)
+
+
+class ManagedFileService:
+    def __init__(self, storage_factory: Callable[[], ManagedContainerStorage]):
+        self._storage_factory = storage_factory
+
+    def _storage(self) -> ManagedContainerStorage:
+        return self._storage_factory()
+
+    def build_storage_name(self, original_name: str | None) -> str:
+        # Developer note: this helper centralizes shared file mechanics, but callers
+        # still choose the resource-vs-chat container by passing a storage factory.
+        safe_name = sanitize_upload_filename(original_name)
+        day = timezone.now().strftime("%Y/%m/%d")
+        return f"{day}/{uuid4().hex}/{safe_name}"
+
+    def save_uploaded_file(
+        self,
+        uploaded_file,
+        *,
+        content_type_field: str,
+        size_field: str,
+        original_filename_field: str | None = None,
+    ) -> dict:
+        storage_name = self.build_storage_name(getattr(uploaded_file, "name", ""))
+        saved_name = self._storage().save(storage_name, uploaded_file)
+        file_data = {
+            "storage_key": saved_name,
+            content_type_field: getattr(uploaded_file, "content_type", None) or None,
+            size_field: getattr(uploaded_file, "size", None),
+        }
+        if original_filename_field:
+            file_data[original_filename_field] = sanitize_upload_filename(
+                getattr(uploaded_file, "name", None)
+            )
+        return file_data
+
+    def delete(self, storage_key: str | None) -> None:
+        if not storage_key:
+            return
+        storage = self._storage()
+        if storage.exists(storage_key):
+            storage.delete(storage_key)
+
+    def resolve_url(
+        self,
+        storage_key: str | None,
+        *,
+        filename: str | None = None,
+        content_type: str | None = None,
+        as_attachment: bool = False,
+    ):
+        if not storage_key:
+            return None
+        try:
+            return self._storage().url(
+                storage_key,
+                filename=filename,
+                content_type=content_type,
+                as_attachment=as_attachment,
+            )
+        except Exception:
+            return None
+
+    def open(self, storage_key: str, mode: str = "rb"):
+        return self._storage().open(storage_key, mode)
 
 
 @lru_cache(maxsize=2)

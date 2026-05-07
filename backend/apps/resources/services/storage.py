@@ -1,10 +1,7 @@
-from pathlib import Path
-from uuid import uuid4
+from apps.common.storage import ManagedFileService, get_resource_storage
 
-from django.utils import timezone
-from django.utils.text import slugify
 
-from apps.common.storage import get_resource_storage
+RESOURCE_FILE_SERVICE = ManagedFileService(get_resource_storage)
 
 
 def is_external_storage_key(storage_key: str | None) -> bool:
@@ -18,32 +15,23 @@ def is_managed_storage_key(storage_key: str | None) -> bool:
 
 
 def build_managed_storage_name(original_name: str) -> str:
-    original = Path(original_name or "upload.bin").name
-    suffix = Path(original).suffix.lower()
-    stem = slugify(Path(original).stem) or "file"
-    day = timezone.now().strftime("%Y/%m/%d")
-    # Storage keys are container-relative; the resource/chat container split is chosen
-    # by the storage backend, not encoded into the key.
-    return f"{day}/{uuid4().hex}/{stem}{suffix}"
+    # Developer note: resource files keep their own container/backend even though
+    # the low-level save/delete/open/url mechanics are shared in common.storage.
+    return RESOURCE_FILE_SERVICE.build_storage_name(original_name)
 
 
 def save_uploaded_resource_file(uploaded_file) -> dict:
-    storage = get_resource_storage()
-    storage_name = build_managed_storage_name(uploaded_file.name)
-    saved_name = storage.save(storage_name, uploaded_file)
-    return {
-        "storage_key": saved_name,
-        "file_mime_type": getattr(uploaded_file, "content_type", None) or None,
-        "file_size": getattr(uploaded_file, "size", None),
-    }
+    return RESOURCE_FILE_SERVICE.save_uploaded_file(
+        uploaded_file,
+        content_type_field="file_mime_type",
+        size_field="file_size",
+    )
 
 
 def delete_managed_resource_file(storage_key: str | None) -> None:
     if not is_managed_storage_key(storage_key):
         return
-    storage = get_resource_storage()
-    if storage.exists(storage_key):
-        storage.delete(storage_key)
+    RESOURCE_FILE_SERVICE.delete(storage_key)
 
 
 def resolve_managed_storage_url(
@@ -55,16 +43,13 @@ def resolve_managed_storage_url(
 ):
     if not is_managed_storage_key(storage_key):
         return None
-    try:
-        return get_resource_storage().url(
-            storage_key,
-            filename=filename,
-            content_type=content_type,
-            as_attachment=as_attachment,
-        )
-    except Exception:
-        return None
+    return RESOURCE_FILE_SERVICE.resolve_url(
+        storage_key,
+        filename=filename,
+        content_type=content_type,
+        as_attachment=as_attachment,
+    )
 
 
 def open_managed_resource_file(storage_key: str):
-    return get_resource_storage().open(storage_key, "rb")
+    return RESOURCE_FILE_SERVICE.open(storage_key, "rb")
