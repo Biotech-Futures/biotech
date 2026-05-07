@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'admin/**'
+      - 'adminweb/**'
       - '.github/workflows/admin-static-web-app.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches: [main]
     paths:
-      - 'admin/**'
+      - 'adminweb/**'
       - '.github/workflows/admin-static-web-app.yml'
 
 jobs:
