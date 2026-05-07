@@ -36,7 +36,9 @@ async function parseResponseJson(response: Response): Promise<any> {
   }
 }
 
-function resolveNormalizedRole(user: User | null): 'admin' | 'teacher' | 'student' {
+type NormalizedRole = 'admin' | 'mentor' | 'supervisor' | 'student'
+
+function resolveNormalizedRole(user: User | null): NormalizedRole {
   const rawRole = String(user?.current_role_name || '').toLowerCase()
 
   if (
@@ -47,8 +49,12 @@ function resolveNormalizedRole(user: User | null): 'admin' | 'teacher' | 'studen
     return 'admin'
   }
 
-  if (['teacher', 'mentor', 'supervisor'].includes(rawRole)) {
-    return 'teacher'
+  if (['teacher', 'mentor'].includes(rawRole)) {
+    return 'mentor'
+  }
+
+  if (rawRole === 'supervisor') {
+    return 'supervisor'
   }
 
   return 'student'
@@ -106,7 +112,13 @@ export const useAuthStore = defineStore('auth', {
 
     isAdmin: (state) => resolveNormalizedRole(state.user) === 'admin',
 
-    isTeacher: (state) => resolveNormalizedRole(state.user) === 'teacher',
+    isMentor: (state) => resolveNormalizedRole(state.user) === 'mentor',
+
+    isSupervisor: (state) => resolveNormalizedRole(state.user) === 'supervisor',
+
+    isStudent: (state) => resolveNormalizedRole(state.user) === 'student',
+
+    isTeacher: (state) => ['mentor', 'supervisor'].includes(resolveNormalizedRole(state.user)),
 
     displayName: (state) => {
       const fullName = `${state.user?.first_name || ''} ${state.user?.last_name || ''}`.trim()
@@ -121,7 +133,8 @@ export const useAuthStore = defineStore('auth', {
       const role = resolveNormalizedRole(state.user)
 
       if (role === 'admin') return 'Administrator'
-      if (role === 'teacher') return 'Teacher / Mentor'
+      if (role === 'mentor') return 'Mentor'
+      if (role === 'supervisor') return 'Supervisor'
       return 'Student'
     }
   },
