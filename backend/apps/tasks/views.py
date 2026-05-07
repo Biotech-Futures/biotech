@@ -1,48 +1,23 @@
-from django.shortcuts import get_object_or_404
+from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.response import Response
 from rest_framework import generics, permissions, status
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.views import APIView
-from django.db import transaction
-from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from rest_framework.response import Response
 
-from .filters import MilestoneFilter, TaskFilter
-from .models import Tasks, Milestone
-from .serializers import TaskSerializer, MilestoneSerializer, TaskCreateSerializer, DeleteTaskResponseSerializer
-
-
-class TaskRetrieveview(generics.RetrieveAPIView):
-    queryset = Tasks.objects.select_related("milestone")
-    serializer_class = TaskSerializer
-    permission_classes = [permissions.AllowAny]
-
-
-class TaskRetrieveUpdateView(generics.RetrieveUpdateAPIView):
-    queryset = Tasks.objects.select_related("milestone")
-    permission_classes = [permissions.AllowAny]
-
-    def get_serializer_class(self):
-        return TaskSerializer
-
-    def patch(self, request, *args, **kwargs):
-        task = self.get_object()
-        data = request.data
-        if "task_name" in data:
-            task.task_name = data["task_name"]
-            task.save(update_fields=["task_name"])
-
-        if "task_description" in data:
-            task.task_description = data["task_description"]
-            task.save(update_fields=["task_description"])
-
-        if "milestone_id" in data:
-            milestone = get_object_or_404(Milestone, pk=data["milestone_id"])
-            task.milestone = milestone
-            task.save(update_fields=["milestone"])
-
-        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+from .filters import TaskFilter
+from .models import Task
+from .permissions import (
+    CanToggleTask,
+    IsTaskManager,
+    resolve_creator_role,
+    visible_tasks,
+)
+from .serializers import (
+    TaskCreateSerializer,
+    TaskSerializer,
+    TaskToggleSerializer,
+    TaskUpdateSerializer,
+)
 
 
 class TaskPagePagination(PageNumberPagination):
@@ -52,41 +27,77 @@ class TaskPagePagination(PageNumberPagination):
     max_page_size = 100
 
 
-class MilestoneListHTMLView(generics.ListAPIView):
-    queryset = Milestone.objects.all()
-    serializer_class = MilestoneSerializer
-    permission_classes = [permissions.AllowAny]
-    pagination_class = TaskPagePagination
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = MilestoneFilter
-
-
-class TaskCreateView(generics.CreateAPIView):
-    queryset = Tasks.objects.select_related("milestone")
-    serializer_class = TaskCreateSerializer
-    permission_classes = [permissions.AllowAny]
-
-
-class TaskListHTMLView(generics.ListAPIView):
-    serializer_class = TaskSerializer
-    permission_classes = [permissions.AllowAny]
+class TaskListCreateView(generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsTaskManager]
     pagination_class = TaskPagePagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = TaskFilter
-    queryset = Tasks.objects.all()
+
+    def get_queryset(self):
+        return visible_tasks(self.request.user).order_by("id")
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return TaskCreateSerializer
+        return TaskSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            task_type = serializer.validated_data["task_type"]
+            group = serializer.validated_data.get("group")
+            assigned_user = serializer.validated_data.get("assigned_user")
+            creator_role = resolve_creator_role(
+                request.user, task_type, group=group, assigned_user=assigned_user
+            )
+            task = serializer.save(created_by=request.user, creator_role=creator_role)
+        return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
 
-class DeleteTaskView(APIView):
-    permission_classes = [permissions.AllowAny]
+class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAuthenticated, IsTaskManager]
 
-    @extend_schema(
-        request=None,
-        responses={200: DeleteTaskResponseSerializer},
-    )
+    def get_queryset(self):
+        # Detail lookups use the visibility filter so non-visible tasks 404.
+        return visible_tasks(self.request.user)
+
+    def get_serializer_class(self):
+        if self.request.method in ("PATCH", "PUT"):
+            return TaskUpdateSerializer
+        return TaskSerializer
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            self.perform_update(serializer)
+        return Response(TaskSerializer(instance).data, status=status.HTTP_200_OK)
+
     @transaction.atomic
-    def delete(self, request, *args, **kwargs):
-        task_id = kwargs.get("pk")
-        task = get_object_or_404(Tasks, pk=task_id)
-        task.deleted_at = timezone.now()
-        task.save(update_fields=["deleted_at"])
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.deleted_at is not None:
+            return Response(TaskSerializer(instance).data, status=status.HTTP_200_OK)
+        instance.soft_delete()
+        instance.refresh_from_db()
+        return Response(TaskSerializer(instance).data, status=status.HTTP_200_OK)
+
+
+class TaskToggleView(generics.GenericAPIView):
+    queryset = Task.objects.filter(deleted_at__isnull=True)
+    serializer_class = TaskToggleSerializer
+    permission_classes = [permissions.IsAuthenticated, CanToggleTask]
+
+    def post(self, request, *args, **kwargs):
+        task = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_value = serializer.validated_data.get("completed")
+
+        with transaction.atomic():
+            task.completed = (not task.completed) if new_value is None else new_value
+            task.save(update_fields=["completed", "updated_at"])
         return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
