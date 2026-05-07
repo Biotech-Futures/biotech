@@ -76,3 +76,25 @@ class EventRsvpRequestSerializer(serializers.Serializer):
         required=False,
         default=EventRsvp.RsvpStatus.PENDING,
     )
+
+
+class EventRsvpSubmitSerializer(serializers.Serializer):
+    """Input shape for ``POST /events/v1/{id}/rsvp/`` — the user-side
+    RSVP submission.
+
+    Distinct from :class:`EventRsvpRequestSerializer` (which the
+    admin-side invite flow uses) because users may *not* submit
+    ``PENDING``: pending is the state an admin's invite leaves a row
+    in until the user responds; the user's own action always carries
+    an opinion. Restricting the choices at the serializer layer means
+    a stray ``rsvp_status=pending`` body is rejected with a clean 400
+    rather than silently accepted and overwriting an admin's invite.
+    """
+
+    USER_SUBMITTABLE_CHOICES = [
+        (EventRsvp.RsvpStatus.GOING, "Going"),
+        (EventRsvp.RsvpStatus.MAYBE, "Maybe"),
+        (EventRsvp.RsvpStatus.DECLINED, "Declined"),
+    ]
+
+    rsvp_status = serializers.ChoiceField(choices=USER_SUBMITTABLE_CHOICES)
