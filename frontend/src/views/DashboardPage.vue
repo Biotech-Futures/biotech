@@ -6,22 +6,11 @@
     :class="[isDayMode ? 'is-day-mode' : 'is-night-mode', { 'is-fx-disabled': !isDashboardFxRunningAllowed }]"
     :style="dashboardThemeStyle"
   >
-
-
     <div class="dashboard-page-inner">
       <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
-
-      <div class="dashboard-backdrop-orb orb-one" aria-hidden="true"></div>
-      <div class="dashboard-backdrop-orb orb-two" aria-hidden="true"></div>
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
-
-
       <section class="dashboard-hero-shell">
-
-
         <div class="dashboard-hero-card interactive-surface">
-
-
           <div class="dashboard-theme-rail">
             <button
               type="button"
@@ -33,37 +22,13 @@
               <i :class="isDayMode ? 'fas fa-sun' : 'fas fa-moon'"></i>
               <span>{{ currentSurfaceModeLabel }}</span>
             </button>
-            <button
-              type="button"
-              class="theme-rail-trigger fx-rail-trigger"
-              :class="{ 'is-muted': !isDashboardFxRunningAllowed }"
-              :aria-pressed="isDashboardFxRunningAllowed"
-              :title="dashboardFxToggleTitle"
-              @click.stop="toggleDashboardFx"
-            >
-              <i :class="isDashboardFxRunningAllowed ? 'fas fa-bolt' : 'fas fa-battery-half'"></i>
-              <span>{{ dashboardFxToggleLabel }}</span>
-            </button>
           </div>
-
-
           <div class="dashboard-hero-main">
-
-
             <div class="dashboard-hero-copy">
-
-
               <div class="hero-eyebrow-row">
-
-
                 <span class="hero-eyebrow">{{ heroEyebrow }}</span>
-
-
               </div>
-
-
               <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
-
 
               <div class="hero-meta-row">
                 <span
@@ -78,7 +43,7 @@
               </div>
 
               <p class="dashboard-subtext">
-                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current milestones, and the next best actions.
+                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current tasks, and the next best actions.
               </p>
 
               <p class="dashboard-hero-message">
@@ -286,14 +251,14 @@
 
 
                 <div class="progress-detail-row">
-                  <span>Next milestone</span>
-                  <strong>{{ progressSnapshot.nextMilestone }}</strong>
+                  <span>Next task</span>
+                  <strong>{{ progressSnapshot.nextTask }}</strong>
                 </div>
 
 
                 <div class="progress-detail-row">
                   <span>Due</span>
-                  <strong>{{ formatDateAU(progressSnapshot.nextMilestoneDate) || 'TBC' }}</strong>
+                  <strong>{{ formatDateAU(progressSnapshot.nextTaskDate) || 'TBC' }}</strong>
                 </div>
 
 
@@ -347,7 +312,7 @@
 
                 <div class="event-actions">
                   <RouterLink to="/events" class="primary-chip">
-                    {{ isAdmin ? 'Manage event' : isTeacher ? 'Open session' : 'View event' }}
+                    {{ isAdmin ? 'Manage event' : isMentor ? 'Open session' : 'View event' }}
                   </RouterLink>
                 </div>
               </div>
@@ -550,7 +515,7 @@ import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/util
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
-import { safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
+import { apiErrorFromResponse } from '@/utils/apiError'
 import { useThemeStore } from '@/stores/theme'
 import { getAccentClass } from '@/utils/ui'
 
@@ -558,7 +523,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const {
   isAdmin,
-  isTeacher,
+  isMentor,
+  isSupervisor,
   displayName,
   displayTrack,
   organizationLabel,
@@ -567,7 +533,6 @@ const {
   user
 } = storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const DASHBOARD_FX_ENABLED_KEY = 'dashboard-fx-enabled'
 const DASHBOARD_ENDPOINTS = {
   groupsPreview: (mine = false) => `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
@@ -598,6 +563,8 @@ const dashboardSummary = ref({
   announcements: announcements.value.length
 })
 
+const isMentoringRole = computed(() => isMentor.value || isSupervisor.value)
+
 const adminWorkflow = ref({
   pendingMatches: 0,
   pendingReassignments: 0,
@@ -611,9 +578,9 @@ const progressSnapshot = ref({
   completionRate: 0,
   completedTasks: 0,
   totalTasks: 0,
-  currentWeek: 'No milestones yet',
-  nextMilestone: 'TBC',
-  nextMilestoneDate: ''
+  currentWeek: 'No tasks yet',
+  nextTask: 'TBC',
+  nextTaskDate: ''
 })
 const selectedProgressGroupId = ref('')
 
@@ -637,13 +604,7 @@ function toggleSurfaceMode() {
 const dashboardShellRef = ref(null)
 const dashboardFxCanvasRef = ref(null)
 const prefersReducedMotion = ref(false)
-const isDashboardFxEnabled = ref(safeLocalStorageGet(DASHBOARD_FX_ENABLED_KEY, 'true') !== 'false')
-const isDashboardFxRunningAllowed = computed(() => isDashboardFxEnabled.value && !prefersReducedMotion.value)
-const dashboardFxToggleLabel = computed(() => isDashboardFxRunningAllowed.value ? 'FX On' : 'FX Off')
-const dashboardFxToggleTitle = computed(() => {
-  if (prefersReducedMotion.value) return 'Animated background is disabled by system reduced-motion preference'
-  return isDashboardFxEnabled.value ? 'Turn off animated background' : 'Turn on animated background'
-})
+const isDashboardFxRunningAllowed = computed(() => !prefersReducedMotion.value)
 
 let reduceMotionQuery = null
 let dashboardResizeRaf = null
@@ -653,8 +614,7 @@ const dashboardFxState = {
   scene: null,
   camera: null,
   material: null,
-  clock: null,
-  animationId: null
+  clock: null
 }
 
 const nightPalette = {
@@ -770,11 +730,15 @@ const heroMessage = computed(() => {
     return 'Review operational workload, monitor matching, and process critical platform actions from one unified dashboard.'
   }
 
-  if (isTeacher.value) {
+  if (isMentor.value) {
     return 'Track mentoring sessions, group activity, and support materials through a cleaner and more practical workspace.'
   }
 
-  return 'Stay focused on your next event, active group, and current milestones with a dashboard designed for fast decisions.'
+  if (isSupervisor.value) {
+    return 'Review student progress, group activity, and upcoming support moments through a focused supervisor workspace.'
+  }
+
+  return 'Stay focused on your next event, active group, and current tasks with a dashboard designed for fast decisions.'
 })
 
 const heroShowcaseFacts = computed(() => {
@@ -794,7 +758,7 @@ const headerHighlights = computed(() => {
     ]
   }
 
-  if (isTeacher.value) {
+  if (isMentoringRole.value) {
     return [
       { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
       { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
@@ -811,7 +775,8 @@ const headerHighlights = computed(() => {
 
 const heroEyebrow = computed(() => {
   if (isAdmin.value) return 'Platform Operations'
-  if (isTeacher.value) return 'Mentor Workspace'
+  if (isMentor.value) return 'Mentor Workspace'
+  if (isSupervisor.value) return 'Supervisor Workspace'
   return 'Student Workspace'
 })
 
@@ -914,7 +879,7 @@ const summaryWidgets = computed(() => {
     ]
   }
 
-  if (isTeacher.value) {
+  if (isMentoringRole.value) {
     return [
       {
         key: 'groups',
@@ -934,7 +899,7 @@ const summaryWidgets = computed(() => {
       },
       {
         key: 'resources',
-        title: 'Mentor Resources',
+        title: isSupervisor.value ? 'Supervisor Resources' : 'Mentor Resources',
         value: resourcesCount.value,
         subtext: 'Guides, rubrics, and support materials',
         icon: 'fas fa-book-open',
@@ -989,19 +954,21 @@ const summaryWidgets = computed(() => {
 
 const groupsSectionTitle = computed(() => {
   if (isAdmin.value) return `Active Mentoring Groups (${groupsCount.value})`
-  if (isTeacher.value) return `My Mentoring Groups (${groupsCount.value})`
+  if (isMentor.value) return `My Mentoring Groups (${groupsCount.value})`
+  if (isSupervisor.value) return `Supervised Groups (${groupsCount.value})`
   return `My Active Groups (${groupsCount.value})`
 })
 
 const resourcesSectionTitle = computed(() => {
   if (isAdmin.value) return 'Resource Library Snapshot'
-  if (isTeacher.value) return 'Mentor Resources'
+  if (isMentor.value) return 'Mentor Resources'
+  if (isSupervisor.value) return 'Supervisor Resources'
   return 'Learning Resources'
 })
 
 const announcementsSectionTitle = computed(() => {
   if (isAdmin.value) return 'Latest Broadcasts'
-  if (isTeacher.value) return 'Program Updates'
+  if (isMentoringRole.value) return 'Program Updates'
   return 'Recent Announcements'
 })
 
@@ -1010,9 +977,9 @@ function getEmptyProgressSnapshot() {
     completionRate: 0,
     completedTasks: 0,
     totalTasks: 0,
-    currentWeek: 'No milestones yet',
-    nextMilestone: 'TBC',
-    nextMilestoneDate: ''
+    currentWeek: 'No tasks yet',
+    nextTask: 'TBC',
+    nextTaskDate: ''
   }
 }
 
@@ -1247,8 +1214,8 @@ function normalizeProgressSnapshot(payload) {
     completedTasks: Number(payload?.completedTasks ?? payload?.completed_tasks ?? fallback.completedTasks),
     totalTasks: Number(payload?.totalTasks ?? payload?.total_tasks ?? fallback.totalTasks),
     currentWeek: payload?.currentWeek ?? payload?.current_stage ?? fallback.currentWeek,
-    nextMilestone: payload?.nextMilestone ?? payload?.next_milestone?.name ?? fallback.nextMilestone,
-    nextMilestoneDate: payload?.nextMilestoneDate ?? payload?.next_milestone?.due_date ?? fallback.nextMilestoneDate
+    nextTask: payload?.nextTask ?? payload?.next_task?.name ?? fallback.nextTask,
+    nextTaskDate: payload?.nextTaskDate ?? payload?.next_task?.due_date ?? fallback.nextTaskDate
   }
 }
 
@@ -1299,16 +1266,16 @@ async function fetchJson(url, options = {}) {
     return null
   }
 
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
   const text = await response.text()
   let data = null
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     data = null
-  }
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`)
   }
 
   return data
@@ -1738,19 +1705,8 @@ function handleReduceMotionChange(event) {
   }
 }
 
-function toggleDashboardFx() {
-  isDashboardFxEnabled.value = !isDashboardFxEnabled.value
-  safeLocalStorageSet(DASHBOARD_FX_ENABLED_KEY, isDashboardFxEnabled.value ? 'true' : 'false')
-
-  if (isDashboardFxEnabled.value) {
-    nextTick(() => initDashboardFx())
-  } else {
-    disposeDashboardFx()
-  }
-}
-
 function initDashboardFx() {
-  if (!dashboardFxCanvasRef.value || !isDashboardFxEnabled.value || prefersReducedMotion.value || dashboardFxState.renderer) return
+  if (!dashboardFxCanvasRef.value || prefersReducedMotion.value || dashboardFxState.renderer) return
 
   const shell = dashboardShellRef.value
   if (!shell) return
@@ -1787,7 +1743,7 @@ function initDashboardFx() {
   const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), dashboardFxState.material)
   dashboardFxState.scene.add(plane)
 
-  animateDashboardFx()
+  renderDashboardFx()
 }
 
 function resizeDashboardFx() {
@@ -1802,15 +1758,14 @@ function resizeDashboardFx() {
     dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
     dashboardFxState.renderer.setSize(rect.width, rect.height, false)
     dashboardFxState.material.uniforms.uResolution.value.set(rect.width, rect.height)
+    renderDashboardFx()
   })
 }
 
-function animateDashboardFx() {
+function renderDashboardFx() {
   if (!dashboardFxState.renderer || !dashboardFxState.scene || !dashboardFxState.camera || !dashboardFxState.material || !dashboardFxState.clock) {
     return
   }
-
-  dashboardFxState.animationId = requestAnimationFrame(animateDashboardFx)
 
   const elapsed = dashboardFxState.clock.getElapsedTime()
 
@@ -1823,11 +1778,6 @@ function disposeDashboardFx() {
   if (dashboardResizeRaf) {
     cancelAnimationFrame(dashboardResizeRaf)
     dashboardResizeRaf = null
-  }
-
-  if (dashboardFxState.animationId) {
-    cancelAnimationFrame(dashboardFxState.animationId)
-    dashboardFxState.animationId = null
   }
 
   if (dashboardFxState.material) {
@@ -1986,33 +1936,6 @@ onBeforeUnmount(() => {
   visibility: hidden;
 }
 
-.dashboard-backdrop-orb {
-  position: absolute;
-  border-radius: 999px;
-  pointer-events: none;
-  z-index: -3;
-}
-
-.orb-one {
-  width: 520px;
-  height: 520px;
-  top: -60px;
-  right: 1%;
-  background: radial-gradient(circle, rgba(48, 200, 120, 0.28), rgba(40, 180, 100, 0.10) 52%, transparent 74%);
-  filter: blur(56px);
-  animation: orbFloat 18s ease-in-out infinite;
-}
-
-.orb-two {
-  width: 440px;
-  height: 440px;
-  left: -2%;
-  bottom: 60px;
-  background: radial-gradient(circle, rgba(45, 212, 170, 0.24), rgba(16, 185, 110, 0.08) 52%, transparent 74%);
-  filter: blur(56px);
-  animation: orbFloat 22s ease-in-out infinite reverse;
-}
-
 .dashboard-backdrop-grid {
   position: absolute;
   inset: 0;
@@ -2025,12 +1948,6 @@ onBeforeUnmount(() => {
   background-size: 44px 44px;
   mask-image: radial-gradient(ellipse 95% 55% at 50% 0%, black 30%, transparent 78%);
   -webkit-mask-image: radial-gradient(ellipse 95% 55% at 50% 0%, black 30%, transparent 78%);
-}
-
-@keyframes orbFloat {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  33%       { transform: translate3d(-22px, 20px, 0) scale(1.04); }
-  66%       { transform: translate3d(18px, -16px, 0) scale(0.97); }
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -2123,11 +2040,6 @@ onBeforeUnmount(() => {
   transform: translateY(-2px);
   border-color: var(--border-strong);
   background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
-}
-
-.fx-rail-trigger.is-muted {
-  color: var(--text-muted);
-  border-color: color-mix(in srgb, var(--accent-amber) 18%, var(--border-default));
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -3263,14 +3175,6 @@ onBeforeUnmount(() => {
   opacity: 0.12;
 }
 
-.dashboard-page-shell.is-day-mode .orb-one {
-  background: radial-gradient(circle, rgba(190, 154, 88, 0.24), rgba(190, 154, 88, 0.08) 52%, transparent 74%);
-}
-
-.dashboard-page-shell.is-day-mode .orb-two {
-  background: radial-gradient(circle, rgba(92, 138, 128, 0.16), rgba(92, 138, 128, 0.06) 52%, transparent 74%);
-}
-
 .dashboard-page-shell.is-day-mode .hero-meta-chip::before,
 .dashboard-page-shell.is-day-mode .showcase-card::before {
   opacity: 0.42;
@@ -3845,7 +3749,6 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orb-one, .orb-two,
   .progress-ring::before, .progress-ring::after,
   .surface-kicker::before { animation: none !important; }
 
@@ -4383,7 +4286,6 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-fx-canvas,
-.dashboard-backdrop-orb,
 .dashboard-backdrop-grid,
 .progress-ring-aura,
 .progress-ring-orbit,

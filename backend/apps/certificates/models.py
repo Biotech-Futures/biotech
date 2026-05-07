@@ -33,6 +33,7 @@ class MentorCertificate(models.Model):
         db_table = 'mentor_certificate'
         verbose_name = "Mentor Certificate"
         verbose_name_plural = "Mentor Certificates"
+        ordering = ["id"]
         indexes = [
             models.Index(fields=['mentor_profile', 'certificate_type'])
         ]

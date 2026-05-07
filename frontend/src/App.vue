@@ -3,8 +3,6 @@
     <header
       class="header"
       v-if="!isLoginPage"
-      @pointermove="handleHeaderPointerMove"
-      @pointerleave="resetHeaderPointer"
     >
       <div class="header-ribbon-stage" aria-hidden="true">
         <svg
@@ -55,53 +53,6 @@
         </div>
 
         <div class="header-right">
-          <form class="search-shell" @submit.prevent="submitSearch">
-            <div class="search-scope-wrap">
-              <select v-model="searchScope" class="search-scope" aria-label="Search scope">
-                <option value="all">All</option>
-                <option value="groups">Groups</option>
-                <option value="events">Events</option>
-                <option value="announcements">Announcements</option>
-                <option value="resources">Resources</option>
-              </select>
-            </div>
-
-            <div
-              class="search-input-wrap"
-              :class="{ 'is-focused': isSearchFocused, 'has-value': !!searchQuery }"
-            >
-              <i class="fas fa-search search-icon"></i>
-
-              <input
-                ref="searchInputRef"
-                v-model="searchQuery"
-                type="text"
-                class="search-bar"
-                placeholder="Search program content"
-                @focus="isSearchFocused = true"
-                @blur="isSearchFocused = false"
-              />
-
-              <button
-                v-if="searchQuery"
-                type="button"
-                class="search-clear-button"
-                aria-label="Clear search"
-                @click="clearSearch"
-              >
-                <i class="fas fa-times"></i>
-              </button>
-            </div>
-
-            <button
-              class="search-submit-button"
-              type="submit"
-              :disabled="isSearching || !searchQuery.trim()"
-            >
-              <i class="fas" :class="isSearching ? 'fa-spinner fa-spin' : 'fa-arrow-right'"></i>
-            </button>
-          </form>
-
           <div class="header-actions">
             <div class="user-menu">
               <button
@@ -412,18 +363,12 @@ interface CalendarItem {
   title: string
 }
 
-interface SearchPayload {
-  query: string
-  scope: 'all' | 'groups' | 'events' | 'announcements' | 'resources'
-}
-
-const isLoginPage = computed(() => route.path === '/login')
+const isLoginPage = computed(() => ['/login', '/auth/callback', '/auth/reset-password'].includes(route.path))
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
-const searchInputRef = ref<HTMLInputElement | null>(null)
 
 const toggleUserMenu = () => {
   showUserMenu.value = !showUserMenu.value
@@ -433,70 +378,6 @@ const toggleUserMenu = () => {
 const go = (path: string) => {
   showUserMenu.value = false
   router.push(path)
-}
-
-const searchQuery = ref('')
-const searchScope = ref<SearchPayload['scope']>('all')
-const isSearchFocused = ref(false)
-const isSearching = ref(false)
-
-const focusSearch = () => {
-  searchInputRef.value?.focus()
-}
-
-const buildSearchPayload = (): SearchPayload => {
-  return {
-    query: searchQuery.value.trim(),
-    scope: searchScope.value
-  }
-}
-
-const submitSearch = () => {
-  const payload = buildSearchPayload()
-  if (!payload.query) return
-
-  isSearching.value = true
-
-  try {
-    router.push({
-      path: '/resources',
-      query: {
-        q: payload.query,
-        scope: payload.scope
-      }
-    })
-  } finally {
-    isSearching.value = false
-  }
-}
-
-const clearSearch = () => {
-  searchQuery.value = ''
-  focusSearch()
-}
-
-const handleHeaderPointerMove = (event: PointerEvent) => {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) return
-
-  const rect = target.getBoundingClientRect()
-  const x = (event.clientX - rect.left) / rect.width
-  const y = (event.clientY - rect.top) / rect.height
-
-  target.style.setProperty('--header-pointer-x', `${x}`)
-  target.style.setProperty('--header-pointer-y', `${y}`)
-  target.style.setProperty('--header-glow-x', `${event.clientX - rect.left}px`)
-  target.style.setProperty('--header-glow-y', `${event.clientY - rect.top}px`)
-}
-
-const resetHeaderPointer = (event: PointerEvent) => {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) return
-
-  target.style.setProperty('--header-pointer-x', '0.5')
-  target.style.setProperty('--header-pointer-y', '0.5')
-  target.style.setProperty('--header-glow-x', '50%')
-  target.style.setProperty('--header-glow-y', '50%')
 }
 
 const handleSidebarLinkPointerMove = (event: PointerEvent) => {
@@ -902,28 +783,13 @@ select {
 }
 
 .header {
-  --header-pointer-x: 0.5;
-  --header-pointer-y: 0.5;
-  --header-glow-x: 50%;
-  --header-glow-y: 50%;
   position: sticky;
   top: 0;
   z-index: 24;
   overflow: hidden;
   backdrop-filter: blur(20px) saturate(135%);
   -webkit-backdrop-filter: blur(20px) saturate(135%);
-  background:
-    radial-gradient(
-      440px circle at var(--header-glow-x) var(--header-glow-y),
-      rgba(214, 229, 255, 0.12) 0%,
-      rgba(182, 229, 208, 0.08) 18%,
-      transparent 58%
-    ),
-    linear-gradient(
-      180deg,
-      rgba(14, 23, 20, 0.96) 0%,
-      rgba(11, 19, 17, 0.96) 100%
-    );
+  background: linear-gradient(180deg, rgba(14, 23, 20, 0.96) 0%, rgba(11, 19, 17, 0.96) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
     0 18px 44px rgba(7, 13, 12, 0.18),
@@ -978,10 +844,6 @@ select {
   height: 100%;
   width: auto;
   min-width: 48%;
-  transform:
-    translateX(calc((var(--header-pointer-x) - 0.5) * 26px))
-    translateY(calc((var(--header-pointer-y) - 0.5) * 12px));
-  transition: transform 220ms ease;
   overflow: visible;
 }
 
@@ -997,14 +859,12 @@ select {
   opacity: 0.34;
   filter: url(#headerRibbonBlur);
   stroke-dasharray: 320 40 180 54;
-  animation: ribbonDriftA 18s linear infinite;
 }
 
 .ribbon-front {
   stroke-width: 6.5;
   opacity: 0.82;
   stroke-dasharray: 220 32 120 28;
-  animation: ribbonDriftB 14s linear infinite;
 }
 
 .header-content {
@@ -1089,129 +949,6 @@ select {
   font-size: 0.72rem;
   font-weight: 560;
   white-space: nowrap;
-}
-
-.search-shell {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: min(100%, 720px);
-  min-width: 0;
-  padding: 0.48rem;
-  border-radius: 20px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 8px 24px rgba(0, 0, 0, 0.1);
-}
-
-.search-scope-wrap,
-.search-input-wrap {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, rgba(245, 248, 247, 0.96) 0%, rgba(233, 238, 235, 0.92) 100%);
-  border: 1px solid rgba(17, 30, 25, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-
-.search-scope-wrap {
-  flex: 0 0 114px;
-  padding: 0 0.5rem;
-}
-
-.search-scope {
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: #16241f;
-  font-size: 0.82rem;
-  font-weight: 650;
-  outline: none;
-  padding: 0.55rem 0.3rem;
-  cursor: pointer;
-}
-
-.search-input-wrap {
-  flex: 1 1 auto;
-  gap: 0.45rem;
-  padding: 0 0.72rem;
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-}
-
-.search-input-wrap.is-focused {
-  border-color: rgba(126, 157, 197, 0.46);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.86),
-    0 0 0 4px rgba(146, 177, 214, 0.12);
-}
-
-.search-icon {
-  color: #61736c;
-  font-size: 0.82rem;
-  flex-shrink: 0;
-}
-
-.search-bar {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: none;
-  background: transparent;
-  color: #16241f;
-  padding: 0.68rem 0;
-  outline: none;
-  font-size: 0.88rem;
-}
-
-.search-bar::placeholder {
-  color: #7a8a84;
-}
-
-.search-clear-button {
-  border: none;
-  background: transparent;
-  color: #677873;
-  cursor: pointer;
-  padding: 0.18rem;
-  border-radius: 8px;
-  transition: background 180ms ease, color 180ms ease;
-}
-
-.search-clear-button:hover {
-  background: rgba(16, 32, 27, 0.08);
-  color: #1a2d27;
-}
-
-.search-submit-button {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  border: none;
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, #2e4a40 0%, #22362f 100%);
-  color: #ffffff;
-  cursor: pointer;
-  box-shadow:
-    0 10px 22px rgba(10, 19, 16, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: transform 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
-}
-
-.search-submit-button:hover:not(:disabled) {
-  transform: translateY(-1px) scale(1.02);
-  box-shadow:
-    0 14px 28px rgba(10, 19, 16, 0.28),
-    0 0 18px rgba(147, 181, 220, 0.14);
-}
-
-.search-submit-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .header-actions {
@@ -2110,14 +1847,7 @@ select {
 }
 
 .is-night-mode .header {
-  background:
-    radial-gradient(
-      440px circle at var(--header-glow-x) var(--header-glow-y),
-      rgba(100, 220, 140, 0.08) 0%,
-      rgba(80, 200, 160, 0.05) 18%,
-      transparent 58%
-    ),
-    linear-gradient(180deg, rgba(7, 18, 14, 0.97) 0%, rgba(5, 14, 10, 0.97) 100%);
+  background: linear-gradient(180deg, rgba(7, 18, 14, 0.97) 0%, rgba(5, 14, 10, 0.97) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
@@ -2412,14 +2142,7 @@ select {
 }
 
 .is-day-mode .header {
-  background:
-    radial-gradient(
-      440px circle at var(--header-glow-x) var(--header-glow-y),
-      rgba(140, 200, 80, 0.16) 0%,
-      rgba(100, 180, 100, 0.10) 22%,
-      transparent 58%
-    ),
-    linear-gradient(180deg, rgba(216, 234, 196, 0.99) 0%, rgba(202, 220, 178, 0.99) 100%);
+  background: linear-gradient(180deg, rgba(216, 234, 196, 0.99) 0%, rgba(202, 220, 178, 0.99) 100%);
   border-bottom: 1px solid rgba(100, 150, 50, 0.22);
   box-shadow:
     0 12px 32px rgba(60, 110, 20, 0.13),
@@ -2448,15 +2171,6 @@ select {
 
 .is-day-mode .logo-subtext {
   color: #4a6e3a;
-}
-
-.is-day-mode .search-shell {
-  background: linear-gradient(180deg, rgba(196, 220, 158, 0.72) 0%, rgba(180, 206, 140, 0.78) 100%);
-  border-color: rgba(100, 150, 50, 0.22);
-}
-
-.is-day-mode .search-submit-button {
-  background: linear-gradient(180deg, #4a7c3a 0%, #325a28 100%);
 }
 
 .is-day-mode .user-avatar {
@@ -2535,49 +2249,11 @@ select {
   border-color: rgba(100, 150, 50, 0.20);
 }
 
-@keyframes ribbonDriftA {
-  0% {
-    stroke-dashoffset: 0;
-    transform: translateX(0);
-  }
-  50% {
-    stroke-dashoffset: -180;
-    transform: translateX(-10px);
-  }
-  100% {
-    stroke-dashoffset: -360;
-    transform: translateX(0);
-  }
-}
-
-@keyframes ribbonDriftB {
-  0% {
-    stroke-dashoffset: 0;
-    transform: translateX(0);
-  }
-  50% {
-    stroke-dashoffset: 160;
-    transform: translateX(12px);
-  }
-  100% {
-    stroke-dashoffset: 320;
-    transform: translateX(0);
-  }
-}
-
 @media (max-width: 1024px) {
   .header-ribbon-svg {
     left: 24%;
     right: 10%;
     opacity: 0.72;
-  }
-
-  .search-shell {
-    max-width: 560px;
-  }
-
-  .search-input-wrap {
-    max-width: 260px;
   }
 
   .logo-subtext {
@@ -2610,24 +2286,6 @@ select {
     margin-left: 0;
     justify-content: space-between;
     gap: 0.6rem;
-  }
-
-  .search-shell {
-    flex: 1 1 auto;
-    width: 100%;
-    max-width: none;
-    min-width: 0;
-  }
-
-  .search-scope-wrap {
-    flex: 0 0 82px;
-  }
-
-  .search-input-wrap {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-    max-width: none;
   }
 
   .main-layout {

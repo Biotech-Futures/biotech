@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
+import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -22,9 +23,18 @@ interface User {
   year_lvl?: string | null
   school_name?: string | null
   join_perm?: boolean | null
-  ment_bg?: number | null
+  ment_bg?: string | null
   ment_inst?: string | null
   ment_reason?: string | null
+  ment_max_groups?: number | null
+  supervisor_school_name?: string | null
+  supervised_students?: Array<{
+    id: number
+    first_name: string
+    last_name: string
+    email: string
+    relationship_type: string
+  }>
 }
 
 async function parseResponseJson(response: Response): Promise<any> {
@@ -35,11 +45,9 @@ async function parseResponseJson(response: Response): Promise<any> {
   }
 }
 
-function resolveApiError(data: any, fallback: string): string {
-  return data?.detail || data?.error || data?.message || fallback
-}
+type NormalizedRole = 'admin' | 'mentor' | 'supervisor' | 'student'
 
-function resolveNormalizedRole(user: User | null): 'admin' | 'teacher' | 'student' {
+function resolveNormalizedRole(user: User | null): NormalizedRole {
   const rawRole = String(user?.current_role_name || '').toLowerCase()
 
   if (
@@ -50,8 +58,12 @@ function resolveNormalizedRole(user: User | null): 'admin' | 'teacher' | 'studen
     return 'admin'
   }
 
-  if (['teacher', 'mentor', 'supervisor'].includes(rawRole)) {
-    return 'teacher'
+  if (['teacher', 'mentor'].includes(rawRole)) {
+    return 'mentor'
+  }
+
+  if (rawRole === 'supervisor') {
+    return 'supervisor'
   }
 
   return 'student'
@@ -109,7 +121,13 @@ export const useAuthStore = defineStore('auth', {
 
     isAdmin: (state) => resolveNormalizedRole(state.user) === 'admin',
 
-    isTeacher: (state) => resolveNormalizedRole(state.user) === 'teacher',
+    isMentor: (state) => resolveNormalizedRole(state.user) === 'mentor',
+
+    isSupervisor: (state) => resolveNormalizedRole(state.user) === 'supervisor',
+
+    isStudent: (state) => resolveNormalizedRole(state.user) === 'student',
+
+    isTeacher: (state) => ['mentor', 'supervisor'].includes(resolveNormalizedRole(state.user)),
 
     displayName: (state) => {
       const fullName = `${state.user?.first_name || ''} ${state.user?.last_name || ''}`.trim()
@@ -124,7 +142,8 @@ export const useAuthStore = defineStore('auth', {
       const role = resolveNormalizedRole(state.user)
 
       if (role === 'admin') return 'Administrator'
-      if (role === 'teacher') return 'Teacher / Mentor'
+      if (role === 'mentor') return 'Mentor'
+      if (role === 'supervisor') return 'Supervisor'
       return 'Student'
     }
   },
@@ -182,12 +201,21 @@ export const useAuthStore = defineStore('auth', {
       const data = await parseResponseJson(response)
 
       if (!response.ok) {
-        throw new Error(resolveApiError(data, 'Email or password is incorrect.'))
+        throw new ApiError(
+          normalizeApiErrorBody(
+            data,
+            'Email or password is incorrect.',
+            response.headers.get('X-Request-ID') || undefined,
+            response.status
+          ),
+          response.status
+        )
       }
 
-      // Django rotates the CSRF token on login; drop the cached value so the next
-      // unsafe request fetches the rotated one.
+      // Django rotates the CSRF token on login; refresh the cached value before
+      // any immediate unsafe request can build headers from an empty cache.
       resetCsrfToken()
+      await ensureCsrfCookie(API_BASE_URL)
 
       const user = await this.fetchUserData()
       if (!user) {
