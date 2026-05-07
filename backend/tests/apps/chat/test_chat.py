@@ -23,6 +23,7 @@ from apps.chat.models import Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
+from apps.users.models import AdminScope
 
 
 # Create your tests here.
@@ -53,8 +54,13 @@ class ChatFeatureTests(TestCase):
         self.mentor = User.objects.create_user(email="mentor@test.com", password="pw")
         self.supervisor = User.objects.create_user(email="supervisor@test.com", password="pw")
         self.admin = User.objects.create_user(email="admin@test.com", password="pw", is_staff=False)
+        # Track-admin user, scoped to AUS-NSW only.
+        self.track_admin = User.objects.create_user(email="track_admin@test.com", password="pw")
 
         # --- roles ---
+        # Roles still exist for unrelated chat features (read-membership,
+        # role display in payloads, etc.) but are no longer the source of
+        # moderation power.
         self.role_mentor = Roles.objects.create(role_name="mentor")
         self.role_supervisor = Roles.objects.create(role_name="supervisor")
         self.role_admin = Roles.objects.create(role_name="admin")
@@ -76,18 +82,26 @@ class ChatFeatureTests(TestCase):
         RoleAssignmentHistory.objects.create(
             user=self.admin, role=self.role_admin, valid_from=now, valid_to=future
         )
-        
+
         # --- geo / track prerequisites for Groups ---
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
+        self.other_state = CountryStates.objects.create(country=self.country, state_name="VIC")
+        self.other_track = Tracks.objects.create(track_name="AUS-VIC", state=self.other_state)
 
         # --- groups & membership ---
         self.group = Groups.objects.create(group_name="G1", track=self.track)
         GroupMembership.objects.create(user=self.student, group=self.group)
         GroupMembership.objects.create(user=self.mentor, group=self.group)
         GroupMembership.objects.create(user=self.supervisor, group=self.group)
-        # admin has global access; they don't need membership
+        # admin / track_admin have AdminScope-based access; they don't need membership
+
+        # --- admin scopes (operational admin model) ---
+        # Global admin: can moderate anywhere.
+        AdminScope.objects.create(user=self.admin, is_global=True)
+        # Track admin: limited to the AUS-NSW track.
+        AdminScope.objects.create(user=self.track_admin, track=self.track, is_global=False)
         
         # --- resources ---
         self.res1 = Resources.objects.create(
@@ -108,6 +122,7 @@ class ChatFeatureTests(TestCase):
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
+        self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
 
 
     # --------- helpers ---------
@@ -118,6 +133,10 @@ class ChatFeatureTests(TestCase):
     def _detail_url(self, mid, group_id=None):
         gid = group_id or self.group.id
         return reverse("group-messages-detail", kwargs={"group_pk": gid, "pk": mid})
+
+    def _destroy_url(self, mid):
+        # Flat delete route: only message_id is required.
+        return reverse("message-destroy", kwargs={"pk": mid})
 
     # --------- tests ---------
 
@@ -163,8 +182,7 @@ class ChatFeatureTests(TestCase):
 
     def test_delete_allowed_for_sender_within_10_minutes(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete")
-        url = self._detail_url(msg.id)
-        resp = self.client_student.delete(url)
+        resp = self.client_student.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 204)
         msg.refresh_from_db()
         self.assertIsNotNone(msg.deleted_at)
@@ -176,8 +194,7 @@ class ChatFeatureTests(TestCase):
             message_text="too old to delete",
             sent_at=timezone.now() - timedelta(minutes=11),
         )
-        url = self._detail_url(msg.id)
-        resp = self.client_student.delete(url)
+        resp = self.client_student.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
     def test_delete_forbidden_for_non_sender_regular_user(self):
@@ -192,54 +209,89 @@ class ChatFeatureTests(TestCase):
         client_other_student.force_authenticate(user=other_student)
 
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="not yours")
-        url = self._detail_url(msg.id)
-        resp = client_other_student.delete(url)
+        resp = client_other_student.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_allowed_for_mentor_in_own_group(self):
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 2")
-        url = self._detail_url(msg.id)
-        resp = self.client_mentor.delete(url)
+    def test_delete_forbidden_for_mentor(self):
+        # Mentors no longer have moderation rights — even in their own group.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="mentor try")
+        resp = self.client_mentor.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_forbidden_for_supervisor(self):
+        # Supervisors no longer have moderation rights — even in their own group.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="supervisor try")
+        resp = self.client_supervisor.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_allowed_for_global_admin_anywhere(self):
+        # Global admins (AdminScope.is_global=True) can delete in any track.
+        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="global admin")
+
+        resp = self.client_admin.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 204)
         msg.refresh_from_db()
         self.assertIsNotNone(msg.deleted_at)
 
-    def test_delete_forbidden_for_mentor_in_other_group(self):
-        # make another group where mentor is NOT a member
-        group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
+    def test_delete_allowed_for_track_admin_within_their_track(self):
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="track admin in")
 
-        resp = self.client_mentor.delete(url)
+        resp = self.client_track_admin.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 204)
+        msg.refresh_from_db()
+        self.assertIsNotNone(msg.deleted_at)
+
+    def test_delete_forbidden_for_track_admin_outside_their_track(self):
+        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="track admin out")
+
+        resp = self.client_track_admin.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_allowed_for_supervisor_in_own_group(self):
-        msg2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": self.group.id, "pk": msg2.id})
+    def test_delete_forbidden_for_admin_role_without_admin_scope(self):
+        # An "admin" role assignment alone (no AdminScope row) is not
+        # sufficient to delete other users' messages.
+        u = get_user_model().objects.create_user(email="role_admin_only@test.com", password="pw")
+        RoleAssignmentHistory.objects.create(
+            user=u, role=self.role_admin,
+            valid_from=timezone.now(), valid_to=timezone.now().replace(year=2099),
+        )
+        client = APIClient(); client.force_authenticate(user=u)
 
-        resp = self.client_supervisor.delete(url)
-        self.assertEqual(resp.status_code, 204)
-        msg2.refresh_from_db()
-        self.assertIsNotNone(msg2.deleted_at)
-
-    def test_delete_forbidden_for_supervisor_in_other_group(self):
-        # make another group where supervisor is NOT a member
-        group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
-
-        resp = self.client_supervisor.delete(url)
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="role admin only")
+        resp = client.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_allowed_for_admin_globally(self):
-        group3 = Groups.objects.create(group_name="G3", track=self.track)
-        msg3 = Messages.objects.create(group=group3, sender_user=self.student, message_text="to delete 4")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group3.id, "pk": msg3.id})
+    def test_delete_forbidden_for_staff_without_admin_scope(self):
+        # is_staff/is_superuser flags alone do NOT grant chat moderation.
+        # An explicit AdminScope row is required.
+        u = get_user_model().objects.create_user(
+            email="staff_only@test.com", password="pw", is_staff=True
+        )
+        client = APIClient(); client.force_authenticate(user=u)
 
-        resp = self.client_admin.delete(url)
-        self.assertEqual(resp.status_code, 204)
-        msg3.refresh_from_db()
-        self.assertIsNotNone(msg3.deleted_at)
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="staff only")
+        resp = client.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_forbidden_for_superuser_without_admin_scope(self):
+        u = get_user_model().objects.create_user(
+            email="superuser_only@test.com", password="pw",
+            is_staff=True, is_superuser=True,
+        )
+        client = APIClient(); client.force_authenticate(user=u)
+
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="superuser only")
+        resp = client.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_nested_delete_route_is_no_longer_exposed(self):
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="legacy route")
+        legacy_url = f"/chat/groups/{self.group.id}/messages/{msg.id}/"
+
+        resp = self.client_admin.delete(legacy_url)
+        self.assertEqual(resp.status_code, 405)
 
     def test_soft_deleted_messages_are_excluded_from_list(self):
         m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep")
@@ -332,9 +384,10 @@ class ChatFeatureTests(TestCase):
         )
 
         api = APIClient()
-        api.force_authenticate(self.mentor)
+        # Global admin has unconditional moderation rights under the new contract.
+        api.force_authenticate(self.admin)
 
-        resp = api.delete(f"/chat/groups/{self.group.id}/messages/{msg.id}/")
+        resp = api.delete(f"/chat/messages/{msg.id}/")
         self.assertEqual(resp.status_code, 204, resp.content)
 
         fake_layer.group_send.assert_called_once()

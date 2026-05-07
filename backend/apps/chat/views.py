@@ -6,7 +6,7 @@
 
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, generics, permissions
 from rest_framework.response import Response
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -19,10 +19,12 @@ from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
+    # Delete is now served by the flat MessageDestroyView at
+    # /chat/messages/{id}/ — see urls.py. The nested route only handles
+    # list / retrieve / create / partial_update.
+    http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_permissions(self):
-        if self.action == "destroy":
-            return [CanModerateMessage()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
@@ -129,14 +131,28 @@ class MessageViewSet(viewsets.ModelViewSet):
         )
         return Response(MessageSerializer(instance).data)
 
-    # DELETE /chat/groups/{gid}/messages/{id}/
+
+class MessageDestroyView(generics.DestroyAPIView):
+    """
+    DELETE /chat/messages/{message_id}/
+
+    Flat (non-nested) route for message deletion. Authorization depends only
+    on the message instance — sender within the 10-minute window, or admin /
+    mentor / supervisor as scoped by ``CanModerateMessage`` — so the URL does
+    not need ``group_id``. The message itself carries ``group_id``, which is
+    used to fan out the WebSocket ``message.deleted`` event.
+    """
+
+    queryset = (
+        Messages.objects.filter(deleted_at__isnull=True)
+        .select_related("group", "group__track")
+    )
+    permission_classes = [permissions.IsAuthenticated, CanModerateMessage]
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Phase 2 change: was instance.deleted_flag = True → instance.save()
-        # Now calls soft_delete() which sets deleted_at = timezone.now()
         instance.soft_delete()
 
-        # Broadcast delete event to WebSocket group
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             f"group_{instance.group_id}",
