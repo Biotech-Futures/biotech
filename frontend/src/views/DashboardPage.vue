@@ -6,20 +6,11 @@
     :class="[isDayMode ? 'is-day-mode' : 'is-night-mode', { 'is-fx-disabled': !isDashboardFxRunningAllowed }]"
     :style="dashboardThemeStyle"
   >
-
-
     <div class="dashboard-page-inner">
       <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
-
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
-
-
       <section class="dashboard-hero-shell">
-
-
         <div class="dashboard-hero-card interactive-surface">
-
-
           <div class="dashboard-theme-rail">
             <button
               type="button"
