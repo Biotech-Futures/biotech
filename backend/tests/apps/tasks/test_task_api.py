@@ -507,3 +507,126 @@ class IndividualToggleNonStudentAssigneeTests(_World, APITestCase):
         self.client.force_authenticate(user=self.student_x)
         r = self.client.post(_toggle_url(self.mentor_assigned.id), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+
+# ---------------------------------------------------------------------------
+# New filters (status / completed / due_date_*) + search + ordering + bulk
+# toggle. Covers shape, not the visibility rules retested above.
+# ---------------------------------------------------------------------------
+
+
+class TaskListNewFiltersTests(_World, APITestCase):
+    def setUp(self):
+        self._build()
+        now = timezone.now()
+        self.todo = Task.objects.create(
+            name="todo task", task_type=TaskType.GROUP, group=self.group_a,
+            status="todo", completed=False,
+            due_date=now + timezone.timedelta(days=7),
+            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+        self.done = Task.objects.create(
+            name="done task", task_type=TaskType.GROUP, group=self.group_a,
+            status="done", completed=True,
+            due_date=now - timezone.timedelta(days=1),
+            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+        self.client.force_authenticate(user=self.global_admin)
+
+    def test_filter_status(self):
+        r = self.client.get(LIST_URL + "?status=done")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertEqual(ids, {self.done.id})
+
+    def test_filter_completed(self):
+        r = self.client.get(LIST_URL + "?completed=true")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertEqual(ids, {self.done.id})
+
+    def test_filter_due_date_before_returns_overdue(self):
+        # Use a "Z" suffix so `+` URL-decoding doesn't mangle the offset.
+        cutoff = timezone.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+        r = self.client.get(LIST_URL + f"?due_date_before={cutoff}")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertIn(self.done.id, ids)
+        self.assertNotIn(self.todo.id, ids)
+
+    def test_search_matches_name(self):
+        r = self.client.get(LIST_URL + "?search=done")
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertEqual(ids, {self.done.id})
+
+    def test_ordering_by_due_date(self):
+        r = self.client.get(LIST_URL + "?ordering=due_date")
+        ids = [row["id"] for row in r.data["results"] if row["id"] in {self.todo.id, self.done.id}]
+        self.assertEqual(ids, [self.done.id, self.todo.id])
+
+
+class TaskBulkToggleTests(_World, APITestCase):
+    def setUp(self):
+        self._build()
+        # Two group tasks under group_a (mentor_a is mentor) and one
+        # individual task assigned to student_x.
+        self.t1 = Task.objects.create(
+            name="bt1", task_type=TaskType.GROUP, group=self.group_a, completed=False,
+            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+        self.t2 = Task.objects.create(
+            name="bt2", task_type=TaskType.GROUP, group=self.group_a, completed=False,
+            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+        self.t_indiv = Task.objects.create(
+            name="bt-indiv", task_type=TaskType.INDIVIDUAL, assigned_user=self.student_x,
+            completed=False, created_by=self.global_admin,
+            creator_role=CreatorRole.GLOBAL_ADMIN,
+        )
+
+    def _url(self):
+        return "/api/v1/tasks/bulk/check/"
+
+    def test_admin_bulk_set_completed_true(self):
+        self.client.force_authenticate(user=self.global_admin)
+        r = self.client.post(
+            self._url(),
+            {"task_ids": [self.t1.id, self.t2.id], "completed": True},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(len(r.data["updated"]), 2)
+        self.t1.refresh_from_db(); self.t2.refresh_from_db()
+        self.assertTrue(self.t1.completed and self.t2.completed)
+
+    def test_bulk_flips_when_no_completed_provided(self):
+        self.client.force_authenticate(user=self.global_admin)
+        r = self.client.post(self._url(), {"task_ids": [self.t1.id]}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.t1.refresh_from_db()
+        self.assertTrue(self.t1.completed)
+
+    def test_unknown_ids_go_to_not_found(self):
+        self.client.force_authenticate(user=self.global_admin)
+        r = self.client.post(
+            self._url(),
+            {"task_ids": [self.t1.id, 999999]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn(999999, r.data["not_found"])
+
+    def test_forbidden_ids_listed_separately(self):
+        # student_x cannot toggle a group task (only the assigned indiv).
+        self.client.force_authenticate(user=self.student_x)
+        r = self.client.post(
+            self._url(),
+            {"task_ids": [self.t1.id, self.t_indiv.id]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn(self.t1.id, r.data["forbidden"])
+        self.assertEqual([row["id"] for row in r.data["updated"]], [self.t_indiv.id])
+
+    def test_empty_task_ids_rejected(self):
+        self.client.force_authenticate(user=self.global_admin)
+        r = self.client.post(self._url(), {"task_ids": []}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
