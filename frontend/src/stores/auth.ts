@@ -23,9 +23,18 @@ interface User {
   year_lvl?: string | null
   school_name?: string | null
   join_perm?: boolean | null
-  ment_bg?: number | null
+  ment_bg?: string | null
   ment_inst?: string | null
   ment_reason?: string | null
+  ment_max_groups?: number | null
+  supervisor_school_name?: string | null
+  supervised_students?: Array<{
+    id: number
+    first_name: string
+    last_name: string
+    email: string
+    relationship_type: string
+  }>
 }
 
 async function parseResponseJson(response: Response): Promise<any> {

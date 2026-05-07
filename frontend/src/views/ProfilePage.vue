@@ -59,6 +59,10 @@
         <div v-if="user.mentor.hasDetails" class="profile-section">
           <h3 class="profile-section-title">Mentor Details</h3>
           <div class="profile-field">
+            <span class="profile-field-label">Background:</span>
+            <span class="profile-field-value">{{ user.mentor.background }}</span>
+          </div>
+          <div class="profile-field">
             <span class="profile-field-label">Institution:</span>
             <span class="profile-field-value">{{ user.mentor.institution }}</span>
           </div>
@@ -69,6 +73,26 @@
           <div class="profile-field">
             <span class="profile-field-label">Max Groups:</span>
             <span class="profile-field-value">{{ user.mentor.maxGroups }}</span>
+          </div>
+        </div>
+
+        <div v-if="user.supervisor.hasDetails" class="profile-section">
+          <h3 class="profile-section-title">Supervisor Details</h3>
+          <div class="profile-field">
+            <span class="profile-field-label">School:</span>
+            <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Supervised Students:</span>
+            <span class="profile-field-value">{{ user.supervisor.studentSummary }}</span>
+          </div>
+          <div
+            v-for="student in user.supervisor.students"
+            :key="student.id"
+            class="profile-field"
+          >
+            <span class="profile-field-label">{{ student.relationship }}:</span>
+            <span class="profile-field-value">{{ student.name }} ({{ student.email }})</span>
           </div>
         </div>
       </div>
@@ -96,14 +120,36 @@ const valueOrFallback = (value, fallback = 'Not provided') => {
   return text || fallback
 }
 
+const normaliseRole = (value) => {
+  const role = String(value || '').trim().toLowerCase()
+  if (role.includes('admin')) return 'admin'
+  if (role.includes('mentor') || role === 'teacher') return 'mentor'
+  if (role.includes('supervisor')) return 'supervisor'
+  if (role.includes('student')) return 'student'
+  return 'member'
+}
+
 const user = computed(() => {
   const source = auth.user
   const fullName = `${source?.first_name || ''} ${source?.last_name || ''}`.trim() || source?.email || 'User'
   const roleName = String(source?.current_role_name || auth.roleLabel || 'Member').trim()
+  const roleKey = normaliseRole(roleName)
   const trackId = Number(source?.track)
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
-  const hasStudentDetails = [source?.school_name, source?.year_lvl, guardianName].some(Boolean) || source?.join_perm != null
-  const hasMentorDetails = [source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
+  const supervisedStudents = Array.isArray(source?.supervised_students)
+    ? source.supervised_students.map((student) => {
+      const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || student?.email || 'Student'
+      return {
+        id: student?.id || student?.email || name,
+        name,
+        email: valueOrFallback(student?.email),
+        relationship: capitalise(student?.relationship_type || 'student')
+      }
+    })
+    : []
+  const hasStudentDetails = roleKey === 'student' && ([source?.school_name, source?.year_lvl, guardianName].some(Boolean) || source?.join_perm != null)
+  const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
+  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
   return {
     name: fullName,
@@ -120,9 +166,18 @@ const user = computed(() => {
     },
     mentor: {
       hasDetails: hasMentorDetails,
+      background: valueOrFallback(source?.ment_bg),
       institution: valueOrFallback(source?.ment_inst),
       reason: valueOrFallback(source?.ment_reason),
       maxGroups: valueOrFallback(source?.ment_max_groups)
+    },
+    supervisor: {
+      hasDetails: hasSupervisorDetails,
+      schoolName: valueOrFallback(source?.supervisor_school_name),
+      studentSummary: supervisedStudents.length === 1
+        ? '1 student'
+        : `${supervisedStudents.length} students`,
+      students: supervisedStudents
     }
   }
 })
