@@ -1,50 +1,76 @@
-# Phase 2 update: updated views to use new message lifecycle fields.
-# Changes: deleted_flag=False → deleted_at__isnull=True in queryset filters,
-# destroy() now calls soft_delete() instead of setting deleted_flag,
-# added partial_update() for editing messages which sets edited_at automatically,
-# updated WebSocket broadcast payloads to use new field names.
+# Chat HTTP surface:
+#   GET    /chat/groups/{gid}/messages/         list (nested — group-scoped)
+#   POST   /chat/groups/{gid}/messages/         send (nested — creates into group)
+#   PATCH  /chat/messages/{id}/                 edit (flat — operates on one message)
+#   DELETE /chat/messages/{id}/                 soft-delete (flat — same)
+#
+# All write paths broadcast a ``chat.message`` envelope to the matching
+# Channels group so connected WebSocket consumers see message.created /
+# message.edited / message.deleted in real time.
 
 from django.db.models import Q
-from django.utils import timezone
-from rest_framework import viewsets, status, generics, permissions
+from rest_framework import (
+    viewsets,
+    status,
+    generics,
+    mixins,
+    permissions,
+)
 from rest_framework.response import Response
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from .models import Messages
 from .serializers import MessageSerializer, MessageUpdateSerializer
-from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
+from .management.permissions import (
+    IsGroupMemberOrAdmin,
+    CanModerateMessage,
+    CanEditMessage,
+)
+
+
+def _broadcast(group_id: int, payload: dict) -> None:
+    """
+    Single fan-out helper so every write path uses the same envelope shape
+    and the same group naming convention. Keeping this in one place avoids
+    drift between create / edit / delete payloads.
+    """
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"group_{group_id}",
+        {"type": "chat.message", "payload": payload},
+    )
 
 
 class MessageViewSet(viewsets.ModelViewSet):
+    """
+    Nested router for the *collection* operations on a group:
+        GET  /chat/groups/{gid}/messages/   — list with cursor pagination
+        POST /chat/groups/{gid}/messages/   — send a new message
+
+    Per-message operations (PATCH, DELETE) live on flat URLs — see
+    ``MessageDetailView`` in this module — so the URL shape itself signals
+    "collection vs. single-message" intent.
+    """
+
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
-    # Delete is now served by the flat MessageDestroyView at
-    # /chat/messages/{id}/ — see urls.py. The nested route only handles
-    # list / retrieve / create / partial_update.
-    http_method_names = ["get", "post", "patch", "head", "options"]
-
-    def get_permissions(self):
-        return [IsGroupMemberOrAdmin()]
-
-    def get_serializer_class(self):
-        if self.action == "partial_update":
-            return MessageUpdateSerializer
-        return MessageSerializer
+    # PATCH and DELETE are served by the flat MessageDetailView (see urls.py).
+    # We strip them here so legacy nested calls return 405 instead of silently
+    # routing to a different code path.
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
             .prefetch_related("resources__resource")
         )
 
-    # GET /chat/groups/{gid}/messages/
+    # GET /chat/groups/{gid}/messages/?after=<id>&limit=<n>
     def list(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: ordering uses sent_at instead of sent_datetime
         qs = self.get_queryset().order_by("-sent_at", "-id")
 
         after = request.query_params.get("after")
@@ -70,7 +96,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         return Response(
             {"items": data, "next_after": next_after},
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
     # POST /chat/groups/{gid}/messages/
@@ -78,25 +104,20 @@ class MessageViewSet(viewsets.ModelViewSet):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
 
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{gid}",
+        _broadcast(
+            gid,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.created",
-                    "group_id": gid,
-                    "message": {
-                        "id": msg.id,
-                        "sender_id": msg.sender_user_id,
-                        "text": msg.message_text,
-                        "message_type": msg.message_type,
-                        # Phase 2 change: was sent_datetime, now sent_at
-                        "sent_at": msg.sent_at.isoformat(),
-                        "resource_ids": list(
-                            msg.resources.values_list("resource_id", flat=True)
-                        ),
-                    },
+                "event": "message.created",
+                "group_id": gid,
+                "message": {
+                    "id": msg.id,
+                    "sender_id": msg.sender_user_id,
+                    "text": msg.message_text,
+                    "message_type": msg.message_type,
+                    "sent_at": msg.sent_at.isoformat(),
+                    "resource_ids": list(
+                        msg.resources.values_list("resource_id", flat=True)
+                    ),
                 },
             },
         )
@@ -106,63 +127,86 @@ class MessageViewSet(viewsets.ModelViewSet):
         resp.status_code = status.HTTP_201_CREATED
         return resp
 
-    # Phase 2 addition: PATCH /chat/groups/{gid}/messages/{id}/
-    # Allows editing a message — automatically sets edited_at via MessageUpdateSerializer
+
+class MessageDetailView(
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    generics.GenericAPIView,
+):
+    """
+    Flat per-message endpoint:
+
+        PATCH  /chat/messages/{id}/   — sender-only, time-boxed edit
+        DELETE /chat/messages/{id}/   — soft delete (sender within window
+                                        OR chat-mod scope)
+
+    The two verbs are deliberately the only ones exposed:
+
+      - GET / POST live on the nested collection URL (``MessageViewSet``);
+        retrieving a single message in isolation is not part of the chat
+        contract — clients always read messages as a paginated list.
+      - PUT is omitted because edits only ever change ``message_text``,
+        and partial-update is the right semantic.
+
+    Each verb has its own permission contract — see ``get_permissions``.
+    """
+
+    queryset = (
+        Messages.objects.filter(deleted_at__isnull=True)
+        .select_related("group", "group__track", "sender_user")
+    )
+    http_method_names = ["patch", "delete", "head", "options"]
+
+    def get_serializer_class(self):
+        # DELETE doesn't read or write a serializer body, but DRF still calls
+        # this when building the schema, so return a non-None default.
+        if self.request.method == "PATCH":
+            return MessageUpdateSerializer
+        return MessageSerializer
+
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [permissions.IsAuthenticated(), CanModerateMessage()]
+        return [permissions.IsAuthenticated(), CanEditMessage()]
+
+    # ---- PATCH (edit) -------------------------------------------------------
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # Broadcast edit event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        _broadcast(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.edited",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                    "message_text": instance.message_text,
-                    "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
-                },
+                "event": "message.edited",
+                "group_id": instance.group_id,
+                "message_id": instance.id,
+                "message_text": instance.message_text,
+                "edited_at": (
+                    instance.edited_at.isoformat() if instance.edited_at else None
+                ),
             },
         )
         return Response(MessageSerializer(instance).data)
 
-
-class MessageDestroyView(generics.DestroyAPIView):
-    """
-    DELETE /chat/messages/{message_id}/
-
-    Flat (non-nested) route for message deletion. Authorization depends only
-    on the message instance — sender within the 10-minute window, or admin /
-    mentor / supervisor as scoped by ``CanModerateMessage`` — so the URL does
-    not need ``group_id``. The message itself carries ``group_id``, which is
-    used to fan out the WebSocket ``message.deleted`` event.
-    """
-
-    queryset = (
-        Messages.objects.filter(deleted_at__isnull=True)
-        .select_related("group", "group__track")
-    )
-    permission_classes = [permissions.IsAuthenticated, CanModerateMessage]
+    # ---- DELETE (soft delete) ----------------------------------------------
+    def delete(self, request, *args, **kwargs):
+        return self.destroy(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.soft_delete()
 
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
+        _broadcast(
+            instance.group_id,
             {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.deleted",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                },
+                "event": "message.deleted",
+                "group_id": instance.group_id,
+                "message_id": instance.id,
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)

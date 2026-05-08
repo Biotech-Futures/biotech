@@ -138,7 +138,79 @@ class ChatFeatureTests(TestCase):
         # Flat delete route: only message_id is required.
         return reverse("message-destroy", kwargs={"pk": mid})
 
+    def _update_url(self, mid):
+        # Flat edit route — same shape as delete; see views.MessageDetailView.
+        return reverse("message-update", kwargs={"pk": mid})
+
     # --------- tests ---------
+
+    def test_post_message_rejects_empty_body(self):
+        # Neither text nor resources → 400, no row written.
+        before = Messages.objects.count()
+        resp = self.client_student.post(
+            self._list_url(), {"message_text": "   ", "resources": []}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(Messages.objects.count(), before)
+
+    def test_post_message_rejects_oversized_text(self):
+        # 4000 chars is the hard cap; 4001 must be rejected.
+        oversized = "a" * 4001
+        resp = self.client_student.post(
+            self._list_url(), {"message_text": oversized, "resources": []}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_post_message_ignores_client_supplied_message_type(self):
+        # message_type is server-controlled; clients cannot mint "system" rows.
+        resp = self.client_student.post(
+            self._list_url(),
+            {"message_text": "looks normal", "message_type": "system", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        msg = Messages.objects.get(pk=resp.data["id"])
+        self.assertEqual(msg.message_type, "text")
+
+    def test_post_message_ignores_client_supplied_sender_user(self):
+        # Even if a client tries to forge sender_user in the payload, the view
+        # forces sender_user=request.user.
+        resp = self.client_student.post(
+            self._list_url(),
+            {
+                "message_text": "spoof attempt",
+                "sender_user": self.admin.id,
+                "resources": [],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        msg = Messages.objects.get(pk=resp.data["id"])
+        self.assertEqual(msg.sender_user_id, self.student.id)
+
+    def test_edit_rejects_empty_message_text(self):
+        # An empty PATCH must not silently wipe an existing message.
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="keep me"
+        )
+        resp = self.client_student.patch(
+            self._update_url(msg.id), {"message_text": "   "}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        msg.refresh_from_db()
+        self.assertEqual(msg.message_text, "keep me")
+        self.assertIsNone(msg.edited_at)
+
+    def test_edit_rejects_oversized_message_text(self):
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="short"
+        )
+        resp = self.client_student.patch(
+            self._update_url(msg.id),
+            {"message_text": "a" * 4001},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
 
     def test_post_message_as_group_member(self):
         url = self._list_url()
@@ -291,6 +363,109 @@ class ChatFeatureTests(TestCase):
         legacy_url = f"/chat/groups/{self.group.id}/messages/{msg.id}/"
 
         resp = self.client_admin.delete(legacy_url)
+        self.assertEqual(resp.status_code, 405)
+
+    def test_delete_flat_route_rejects_non_integer_pk(self):
+        # The flat URL is path("messages/<int:pk>/", ...), so a non-integer pk
+        # fails URL resolution before the view or auth runs.
+        resp = self.client_admin.delete("/chat/messages/abc/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_allowed_for_sender_who_is_also_admin_within_window(self):
+        # Precedence: an admin who is *also* the sender still hits the
+        # sender-within-window branch first. (Both branches would allow,
+        # but locking this in prevents future refactors from accidentally
+        # making admin self-delete depend on AdminScope.)
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.admin, message_text="admin self"
+        )
+        resp = self.client_admin.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 204)
+        msg.refresh_from_db()
+        self.assertIsNotNone(msg.deleted_at)
+
+    # ----------------- edit (PATCH) RBAC -----------------
+
+    def test_edit_allowed_for_sender_within_window(self):
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="hello"
+        )
+        resp = self.client_student.patch(
+            self._update_url(msg.id), {"message_text": "edited"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        msg.refresh_from_db()
+        self.assertEqual(msg.message_text, "edited")
+        self.assertIsNotNone(msg.edited_at)
+
+    def test_edit_forbidden_for_sender_after_window(self):
+        msg = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="too old",
+            sent_at=timezone.now() - timedelta(minutes=11),
+        )
+        resp = self.client_student.patch(
+            self._update_url(msg.id), {"message_text": "late"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 403)
+        msg.refresh_from_db()
+        self.assertEqual(msg.message_text, "too old")
+        self.assertIsNone(msg.edited_at)
+
+    def test_edit_forbidden_for_non_sender_group_member(self):
+        # Mentor is in the group but is not the sender.
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="not yours"
+        )
+        resp = self.client_mentor.patch(
+            self._update_url(msg.id), {"message_text": "hijack"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 403)
+        msg.refresh_from_db()
+        self.assertEqual(msg.message_text, "not yours")
+
+    def test_edit_forbidden_for_global_admin_on_other_users_message(self):
+        # Admins delete; admins do NOT silently rewrite.
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="protected"
+        )
+        resp = self.client_admin.patch(
+            self._update_url(msg.id), {"message_text": "rewritten"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 403)
+        msg.refresh_from_db()
+        self.assertEqual(msg.message_text, "protected")
+        self.assertIsNone(msg.edited_at)
+
+    def test_edit_forbidden_for_track_admin_on_other_users_message(self):
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="protected2"
+        )
+        resp = self.client_track_admin.patch(
+            self._update_url(msg.id), {"message_text": "rewritten"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 403)
+        msg.refresh_from_db()
+        self.assertEqual(msg.message_text, "protected2")
+
+    def test_edit_forbidden_for_unauthenticated(self):
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="anon"
+        )
+        anon = APIClient()
+        resp = anon.patch(self._update_url(msg.id), {"message_text": "hax"}, format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    def test_nested_patch_route_is_no_longer_exposed(self):
+        # The nested URL only serves the collection operations now; PATCH on
+        # the per-message nested URL must return 405 so clients migrate to
+        # the flat /chat/messages/<id>/ shape.
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="legacy patch"
+        )
+        legacy_url = f"/chat/groups/{self.group.id}/messages/{msg.id}/"
+        resp = self.client_student.patch(legacy_url, {"message_text": "x"}, format="json")
         self.assertEqual(resp.status_code, 405)
 
     def test_soft_deleted_messages_are_excluded_from_list(self):
@@ -446,11 +621,9 @@ class ChatProfanitySanitisationTests(TestCase):
     def _list_url(self):
         return reverse("group-messages-list", kwargs={"group_pk": self.group.id})
 
-    def _detail_url(self, mid):
-        return reverse(
-            "group-messages-detail",
-            kwargs={"group_pk": self.group.id, "pk": mid},
-        )
+    def _update_url(self, mid):
+        # Edit lives on the flat per-message URL (see views.MessageDetailView).
+        return reverse("message-update", kwargs={"pk": mid})
 
     @override_settings(
         CHAT_SANITIZER_BLACKLIST=["shit*", "fuck*"],
@@ -494,7 +667,7 @@ class ChatProfanitySanitisationTests(TestCase):
             group=self.group, sender_user=self.student, message_text="clean"
         )
         resp = self.client_student.patch(
-            self._detail_url(msg.id),
+            self._update_url(msg.id),
             {"message_text": "ugh shithole"},
             format="json",
         )

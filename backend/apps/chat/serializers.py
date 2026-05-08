@@ -1,17 +1,32 @@
-# Phase 2 update: updated serializers to reflect new Messages model fields.
-# Added is_deleted, is_edited as read-only fields.
-# Added MessageUpdateSerializer for edit operations that sets edited_at automatically.
-# Added MessageStatusSerializer for read/delivery tracking.
+# Serializers for chat write paths.
+#
+# - MessageResourceSerializer / MessageStatusSerializer: nested DTOs.
+# - MessageSerializer: read shape + create (POST /chat/groups/<gid>/messages/).
+#   Sender, group, message lifecycle fields, and message_type are all
+#   read-only — they're set server-side or are not user-editable.
+# - MessageUpdateSerializer: edit shape (PATCH /chat/messages/<id>/).
+#   Only message_text is mutable. Empty edits are rejected.
 
+from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
+
+from apps.resources.models import Resources
+
 from .models import Messages, MessageResource, MessageStatus
 from .utils import sanitize_text
-from apps.resources.models import Resources
+
+
+# Maximum allowed length for any message body. Messages.message_text is a
+# TextField (unbounded at the DB layer); without this cap a single client
+# could push arbitrarily large payloads through the chat pipe.
+MESSAGE_TEXT_MAX_LENGTH = 4000
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):
     resource_id = serializers.PrimaryKeyRelatedField(
-        queryset=Resources.objects.all(),
+        # Don't surface soft-deleted rows for attachment.
+        queryset=Resources.objects.filter(deleted_at__isnull=True),
         source="resource",
         write_only=True,
     )
@@ -38,6 +53,14 @@ class MessageSerializer(serializers.ModelSerializer):
     )
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    message_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MESSAGE_TEXT_MAX_LENGTH,
+        # Trim leading/trailing whitespace so an "all-spaces" body is treated
+        # as empty by the resource-or-text validation below.
+        trim_whitespace=True,
+    )
 
     class Meta:
         model = Messages
@@ -56,46 +79,73 @@ class MessageSerializer(serializers.ModelSerializer):
             "resources",
         ]
         read_only_fields = [
-            "id", "group", "sender_user",
-            "sent_at", "edited_at", "deleted_at",
+            "id",
+            "group",
+            "sender_user",
+            # message_type is server-controlled (e.g. "system" messages must
+            # not be writable through the public API). Defaults to "text".
+            "message_type",
+            "sent_at",
+            "edited_at",
+            "deleted_at",
         ]
 
-    def create(self, validated_data):
-        resources_data = validated_data.pop("resources", [])
-        message = Messages.objects.create(**validated_data)
-        for r in resources_data:
-            MessageResource.objects.create(
-                message=message, resource=r["resource"]
-            )
-        return message
-
     def validate(self, attrs):
-        msg = attrs.get("message_text", "").strip()
-        resources_data = self.initial_data.get("resources", [])
-        if not msg and not resources_data:
+        # Use ``attrs`` (post-`to_internal_value`) rather than ``self.initial_data``
+        # so the validation sees the cleaned representation.
+        text = (attrs.get("message_text") or "").strip()
+        resources = attrs.get("resources", [])
+        if not text and not resources:
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
-        # Sanitise BEFORE serializer.save() so the moderated text is what
-        # gets persisted. Doing this here keeps the rule decoupled from
-        # the view and ensures every write path (REST POST, future bulk
-        # imports, admin tools) goes through the same filter.
         if "message_text" in attrs:
             attrs["message_text"] = sanitize_text(attrs["message_text"])
         return attrs
 
+    def create(self, validated_data):
+        resources_data = validated_data.pop("resources", [])
+        # Atomic: a half-created message with a partial resource set is
+        # worse than a clean failure.
+        with transaction.atomic():
+            message = Messages.objects.create(**validated_data)
+            MessageResource.objects.bulk_create(
+                [
+                    MessageResource(message=message, resource=r["resource"])
+                    for r in resources_data
+                ]
+            )
+        return message
+
 
 class MessageUpdateSerializer(serializers.ModelSerializer):
+    """
+    Body for PATCH /chat/messages/<id>/. Authorization is enforced by
+    ``apps.chat.management.permissions.CanEditMessage`` on
+    ``MessageDetailView`` (sender-only, within ``SELF_ACTION_WINDOW``).
+    This serializer only validates and persists ``message_text`` + ``edited_at``.
+    """
+
+    message_text = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        max_length=MESSAGE_TEXT_MAX_LENGTH,
+        trim_whitespace=True,
+    )
+
     class Meta:
         model = Messages
         fields = ["message_text"]
 
     def validate_message_text(self, value):
+        # ``allow_blank=False`` + ``trim_whitespace=True`` already rejects an
+        # empty / whitespace-only edit; sanitise the surviving text here.
         return sanitize_text(value)
 
     def update(self, instance, validated_data):
-        from django.utils import timezone
-        instance.message_text = validated_data.get("message_text", instance.message_text)
+        instance.message_text = validated_data.get(
+            "message_text", instance.message_text
+        )
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance

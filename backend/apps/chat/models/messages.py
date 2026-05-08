@@ -1,6 +1,13 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+# Sender-only "self-service" window for both edit and delete by the sender.
+# Defined once here so all permission classes consume the same definition.
+SELF_ACTION_WINDOW = timedelta(minutes=10)
+
 
 class MessageType(models.TextChoices):
     TEXT = "text", "Text"
@@ -60,6 +67,19 @@ class Messages(models.Model):
     def soft_delete(self):
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted_at"])
+
+    def is_within_self_action_window(self) -> bool:
+        return timezone.now() <= self.sent_at + SELF_ACTION_WINDOW
+
+    def can_be_self_edited_by(self, user) -> bool:
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return self.sender_user_id == user.id and self.is_within_self_action_window()
+
+    def can_be_self_deleted_by(self, user) -> bool:
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        return self.sender_user_id == user.id and self.is_within_self_action_window()
 
     def __str__(self):
         preview = self.message_text[:40] if self.message_text else f"[{self.message_type}]"
