@@ -1,10 +1,12 @@
 from pathlib import PurePosixPath
 
 from drf_spectacular.utils import extend_schema_field
+from django.conf import settings
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
 from apps.common.filenames import sanitize_upload_filename
+from apps.common.upload_validation import validate_uploaded_file
 from apps.users.models import User
 
 from .models import RoleAssignmentHistory, ResourceAudience, Resources, ResourceType, Roles
@@ -229,6 +231,15 @@ class ResourcesSerializer(serializers.ModelSerializer):
         if value is not None and len(value) == 0:
             raise serializers.ValidationError("At least one role must be specified for visibility.")
         return value
+
+    def validate_uploaded_file(self, value):
+        return validate_uploaded_file(
+            value,
+            max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+            allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
+            allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
+            field_label="Resource file",
+        )
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

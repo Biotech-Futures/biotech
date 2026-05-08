@@ -104,11 +104,16 @@ class ResourceFileTransferTests(TestCase):
             if storage_key and self.storage.exists(storage_key):
                 self.storage.delete(storage_key)
 
-    def _build_upload(self, filename="Program Guide.pdf", content=b"program guide payload"):
+    def _build_upload(
+        self,
+        filename="Program Guide.pdf",
+        content=b"program guide payload",
+        content_type="application/pdf",
+    ):
         return SimpleUploadedFile(
             filename,
             content,
-            content_type="application/pdf",
+            content_type=content_type,
         )
 
     def _resource_payload(self, *, name, visibility_scope, uploaded_file=None, **overrides):
@@ -260,6 +265,55 @@ class ResourceFileTransferTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(RESOURCE_FILE_MAX_UPLOAD_SIZE=4)
+    def test_resource_upload_rejects_files_above_max_size(self):
+        response, _ = self._post_resource(
+            self.global_admin,
+            name="Large Guide",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+            uploaded_file=self._build_upload(content=b"12345"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("maximum allowed size", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_resource_upload_rejects_disallowed_extension(self):
+        response, _ = self._post_resource(
+            self.global_admin,
+            name="Executable Guide",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+            uploaded_file=self._build_upload(
+                filename="malware.exe",
+                content_type="application/octet-stream",
+            ),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("allowed file extension", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_resource_upload_rejects_disallowed_mime_type(self):
+        response, _ = self._post_resource(
+            self.global_admin,
+            name="Wrong Mime Guide",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+            uploaded_file=self._build_upload(
+                filename="guide.pdf",
+                content_type="application/octet-stream",
+            ),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("allowed content type", str(response.data["fields"]["uploaded_file"][0]))
 
     def test_allowed_user_can_download_visible_resource(self):
         _, resource = self._create_resource(

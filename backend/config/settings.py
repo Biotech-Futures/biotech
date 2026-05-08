@@ -70,6 +70,63 @@ DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
+RESOURCE_FILE_MAX_UPLOAD_SIZE = config(
+    "RESOURCE_FILE_MAX_UPLOAD_SIZE",
+    default=25 * 1024 * 1024,
+    cast=int,
+)
+CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
+    "CHAT_ATTACHMENT_MAX_UPLOAD_SIZE",
+    default=10 * 1024 * 1024,
+    cast=int,
+)
+RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
+    str(value).strip().lower().lstrip(".")
+    for value in config(
+        "RESOURCE_FILE_ALLOWED_EXTENSIONS",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        cast=Csv(),
+    )
+    if str(value).strip()
+)
+RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
+    str(value).strip().lower()
+    for value in config(
+        "RESOURCE_FILE_ALLOWED_MIME_TYPES",
+        default=(
+            "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
+            "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+            "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        ),
+        cast=Csv(),
+    )
+    if str(value).strip()
+)
+CHAT_ATTACHMENT_ALLOWED_EXTENSIONS = tuple(
+    str(value).strip().lower().lstrip(".")
+    for value in config(
+        "CHAT_ATTACHMENT_ALLOWED_EXTENSIONS",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        cast=Csv(),
+    )
+    if str(value).strip()
+)
+CHAT_ATTACHMENT_ALLOWED_MIME_TYPES = tuple(
+    str(value).strip().lower()
+    for value in config(
+        "CHAT_ATTACHMENT_ALLOWED_MIME_TYPES",
+        default=(
+            "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
+            "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
+            "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        ),
+        cast=Csv(),
+    )
+    if str(value).strip()
+)
+
 AUTH_USER_MODEL = 'users.User'
 
 # REST Framework with Django Session Authentication

@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework.reverse import reverse
 
 from apps.common.filenames import sanitize_upload_filename
+from apps.common.upload_validation import validate_uploaded_file
 from apps.resources.models import Resources
 
 from .models import MessageAttachment, MessageResource, MessageStatus, Messages, MessageType
@@ -167,6 +168,15 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
 
     def validate_message_text(self, value):
         return sanitize_text((value or "").strip())
+
+    def validate_uploaded_file(self, value):
+        return validate_uploaded_file(
+            value,
+            max_size=settings.CHAT_ATTACHMENT_MAX_UPLOAD_SIZE,
+            allowed_extensions=settings.CHAT_ATTACHMENT_ALLOWED_EXTENSIONS,
+            allowed_mime_types=settings.CHAT_ATTACHMENT_ALLOWED_MIME_TYPES,
+            field_label="Chat attachment",
+        )
 
     def create(self, validated_data):
         uploaded_file = validated_data.pop("uploaded_file")

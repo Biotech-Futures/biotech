@@ -600,12 +600,21 @@ class ChatAttachmentRBACTests(TestCase):
         self.assertNotIn("text", payload)
         self.assertNotIn("resource_ids", payload)
 
-    def _upload_attachment(self, client, group, *, message_text="See attached", filename="group-plan.pdf", payload=b"group plan bytes"):
+    def _upload_attachment(
+        self,
+        client,
+        group,
+        *,
+        message_text="See attached",
+        filename="group-plan.pdf",
+        payload=b"group plan bytes",
+        content_type="application/pdf",
+    ):
         response = client.post(
             self._upload_url(group),
             {
                 "message_text": message_text,
-                "uploaded_file": SimpleUploadedFile(filename, payload, content_type="application/pdf"),
+                "uploaded_file": SimpleUploadedFile(filename, payload, content_type=content_type),
             },
             format="multipart",
         )
@@ -644,6 +653,45 @@ class ChatAttachmentRBACTests(TestCase):
 
         blocked_response, _, _ = self._upload_attachment(self.client_track_admin, self.secondary_group)
         self.assertEqual(blocked_response.status_code, 403)
+
+    @override_settings(CHAT_ATTACHMENT_MAX_UPLOAD_SIZE=4)
+    def test_chat_attachment_upload_rejects_files_above_max_size(self):
+        response, _, _ = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            payload=b"12345",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("maximum allowed size", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_chat_attachment_upload_rejects_disallowed_extension(self):
+        response, _, _ = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            filename="payload.exe",
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("allowed file extension", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_chat_attachment_upload_rejects_disallowed_mime_type(self):
+        response, _, _ = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            filename="payload.pdf",
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("allowed content type", str(response.data["fields"]["uploaded_file"][0]))
 
     def test_mentor_can_upload_download_only_in_their_group(self):
         text_response = self.client_mentor.post(
