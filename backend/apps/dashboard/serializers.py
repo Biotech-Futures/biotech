@@ -19,8 +19,8 @@ class ProgressSnapshotSerializer(serializers.Serializer):
     completedTasks = serializers.IntegerField()
     totalTasks = serializers.IntegerField()
     currentWeek = serializers.CharField(allow_null=True)
-    nextMilestone = serializers.CharField(allow_null=True)
-    nextMilestoneDate = serializers.DateTimeField(allow_null=True)
+    nextTask = serializers.CharField(allow_null=True)
+    nextTaskDate = serializers.DateTimeField(allow_null=True)
 
 
 class DashboardNextEventSerializer(serializers.Serializer):

@@ -1,0 +1,1 @@
+get the admin endpoints from the backend/apps/admin

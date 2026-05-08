@@ -38,9 +38,6 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-# Dev callback
-MAGIC_LINK_REDIRECT_URL = "http://localhost:5173/#/auth/callback"
-
 # Channels dev config
 CHANNEL_LAYERS = {
     "default": {

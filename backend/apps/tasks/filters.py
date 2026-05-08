@@ -1,55 +1,38 @@
 import django_filters
-from rest_framework.exceptions import ValidationError
 
-from .models import Milestone, Tasks
-
-_TRUE_VALUES = frozenset(('true', '1', 'yes'))
-_FALSE_VALUES = frozenset(('false', '0', 'no'))
+from .models import Task
 
 
-class FlexibleDeletedFilter(django_filters.Filter):
-    """Maps ?deleted= to a deleted_at__isnull lookup.
-
-    Accepts true/1/yes and false/0/no (case-insensitive).
-    Raises ValidationError (HTTP 400) for unrecognised values.
-    """
-
+class DeletedFilter(django_filters.BooleanFilter):
+    # `?deleted=true` shows soft-deleted rows; `?deleted=false` shows active.
+    # That's the inverse of the natural `deleted_at__isnull`, hence the override.
     def filter(self, qs, value):
-        if value in (None, ''):
+        if value is None:
             return qs
-        normalised = value.strip().lower()
-        if normalised in _TRUE_VALUES:
-            return qs.filter(deleted_at__isnull=False)
-        if normalised in _FALSE_VALUES:
-            return qs.filter(deleted_at__isnull=True)
-        raise ValidationError('Invalid deleted value. Expected true or false.')
+        return qs.filter(deleted_at__isnull=not value)
 
 
 class TaskFilter(django_filters.FilterSet):
-    """FilterSet for GET /tasks/api/v1/tasks/.
-
-    ?deleted=   — accepts true/false variants via FlexibleDeletedFilter.
-    ?group_id=  — filters via task → milestone → group FK chain.
-    ?milestone= — filters by milestone id.
-    """
-    deleted = FlexibleDeletedFilter(field_name='deleted_at')
-    group_id = django_filters.NumberFilter(field_name='milestone__group_id')
-    milestone = django_filters.NumberFilter(field_name='milestone')
-
-    class Meta:
-        model = Tasks
-        fields = ['deleted', 'group_id', 'milestone']
-
-
-class MilestoneFilter(django_filters.FilterSet):
-    """FilterSet for GET /tasks/api/v1/milestones/.
-
-    ?deleted=  — accepts true/false variants via FlexibleDeletedFilter.
-    ?group_id= — filters by group id.
-    """
-    deleted = FlexibleDeletedFilter(field_name='deleted_at')
-    group_id = django_filters.NumberFilter(field_name='group_id')
+    deleted = DeletedFilter(field_name="deleted_at")
+    task_type = django_filters.ChoiceFilter(choices=Task._meta.get_field("task_type").choices)
+    status = django_filters.ChoiceFilter(choices=Task._meta.get_field("status").choices)
+    completed = django_filters.BooleanFilter(field_name="completed")
+    group_id = django_filters.NumberFilter(field_name="group_id")
+    assigned_user = django_filters.NumberFilter(field_name="assigned_user_id")
+    parent_id = django_filters.NumberFilter(field_name="parent_id")
+    due_date_after = django_filters.IsoDateTimeFilter(field_name="due_date", lookup_expr="gte")
+    due_date_before = django_filters.IsoDateTimeFilter(field_name="due_date", lookup_expr="lte")
 
     class Meta:
-        model = Milestone
-        fields = ['deleted', 'group_id']
+        model = Task
+        fields = [
+            "deleted",
+            "task_type",
+            "status",
+            "completed",
+            "group_id",
+            "assigned_user",
+            "parent_id",
+            "due_date_after",
+            "due_date_before",
+        ]

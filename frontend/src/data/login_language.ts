@@ -46,7 +46,7 @@ export const LOGIN_MESSAGES = {
     aboutTitle: 'Welcome to the BIOTech Futures Mentoring Portal',
     aboutP1: 'This platform helps students, mentors, supervisors, and administrators stay connected throughout the mentoring program.',
     aboutLi1: 'Access group communication and shared resources',
-    aboutLi2: 'Track milestones, updates, and mentoring progress',
+    aboutLi2: 'Track tasks, updates, and mentoring progress',
     aboutLi3: 'Support role-based workflows across the program',
     aboutP2: 'Use one secure portal for communication, resources, events, and progress tracking.',
     errorEnterEmail: 'Please enter your email address.',
@@ -92,7 +92,7 @@ export const LOGIN_MESSAGES = {
     capabilityResourcesTitle: 'Resource library',
     capabilityResourcesSubtitle: 'Shared learning materials',
     capabilityProgressTitle: 'Progress tracking',
-    capabilityProgressSubtitle: 'Milestones and outcomes',
+    capabilityProgressSubtitle: 'Tasks and outcomes',
     capabilityEventsTitle: 'Event updates',
     capabilityEventsSubtitle: 'Sessions and notifications',
     capabilityMatchingTitle: 'Mentor matching',
@@ -489,7 +489,7 @@ export const LOGIN_ROLE_PREVIEW_CONTENT = {
       points: [
         'Browse learning resources and event updates',
         'Join group communication and share project progress',
-        'View tasks, milestones, and deliverable requirements'
+        'View tasks and deliverable requirements'
       ]
     },
     mentor: {
@@ -498,7 +498,7 @@ export const LOGIN_ROLE_PREVIEW_CONTENT = {
       points: [
         'Review team progress and staged outcomes',
         'Communicate with students in the group space',
-        'Provide advice, feedback, and milestone support'
+        'Provide advice, feedback, and task support'
       ]
     },
     supervisor: {

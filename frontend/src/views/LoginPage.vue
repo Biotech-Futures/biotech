@@ -4,7 +4,7 @@
    * @file LoginPage.vue
    *
    * @description LoginPage.vue is the unified entry page for the BIOTech Futures mentoring platform.
-   It combines role-guided access selection, passwordless email-to-OTP authentication, multilingual support,
+   It combines password and email-to-OTP authentication, multilingual support,
    and branded platform presentation in one structured login experience.
    *
    * @author Shiqi Fang
@@ -17,19 +17,19 @@
    * Team: CS17-1 Frontend Team
    *
    * Component Type: Frontend Page Component
-   * File Role: Unified role-guided login entry page
+   * File Role: Unified login entry page
    *
    * Purpose: Provide a structured and user-friendly entry point for students, mentors, supervisors,
    and administrators to sign in with email OTP while understanding the platform context before entering the system.
    *
-   * Scope: Covers the left hero showcase, role selection and preview, language switching, email submission,
+   * Scope: Covers the left information pane, language switching, email submission,
    OTP verification, resend flow, and post-login navigation.
    *
    * Responsibilities:
-   * - Display platform branding, role-guided access selection, and overview information
+   * - Display platform branding and overview information
    * - Support multilingual login experience with LTR and RTL layout handling
    * - Handle the full passwordless email-to-OTP authentication flow
-   * - Provide reusable role-aware login copy for different access identities
+   * - Provide reusable login copy for different authentication modes
    * - Keep authentication feedback, loading state, and OTP interaction consistent
    *
    * Dependencies:
@@ -51,13 +51,8 @@
    -----------------------------------------------------------------------------------------------------------------------------
    -->
 
-
-
   <!-- Page shell and two-column layout. -->
-  <div
-    class="login-shell"
-    :dir="currentDir"
-  >
+  <div class="login-shell" :dir="currentDir">
     <div class="shell-aurora" aria-hidden="true">
       <span class="shell-aurora-orb shell-aurora-orb--one"></span>
       <span class="shell-aurora-orb shell-aurora-orb--two"></span>
@@ -77,17 +72,15 @@
         <div class="legacy-custom-content">
           <h2 class="legacy-info-title">About the BIOTech Futures Challenge</h2>
           <p>
-            The BIOTech Futures Challenge empowers students to tackle real-world problems
-            through innovation, mentorship, and interdisciplinary collaboration.
+            The BIOTech Futures Challenge empowers students to tackle real-world problems through
+            innovation, mentorship, and interdisciplinary collaboration.
           </p>
           <ul class="legacy-info-list">
             <li>Learn from mentors across academia &amp; industry</li>
             <li>Develop practical solutions and prototypes</li>
             <li>Present at showcase events and win awards</li>
           </ul>
-          <p>
-            Explore key dates, eligibility, submission guidelines, and more on our website.
-          </p>
+          <p>Explore key dates, eligibility, submission guidelines, and more on our website.</p>
         </div>
 
         <div class="legacy-links">
@@ -105,7 +98,6 @@
 
     <!-- Right auth pane: badges, language, email step, OTP step. -->
     <section class="auth-pane">
-      <!-- Chinese ink ripple canvas — sits behind all auth content. -->
       <div class="auth-shell">
         <!-- Top bar with trust badges and language switcher. -->
         <div class="auth-topbar">
@@ -199,7 +191,6 @@
 
                   <!-- Field shell highlights focus and error state at container level. -->
                   <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
-
                     <input
                       id="login-email"
                       ref="emailInputRef"
@@ -237,12 +228,18 @@
                       :required="loginMode === 'password'"
                     />
                   </div>
+
+                  <div class="forgot-password-row">
+                    <a href="/#/auth/reset-password" class="forgot-password-link">
+                      Forgot password?
+                    </a>
+                  </div>
                 </div>
 
                 <button
                   type="submit"
                   class="primary-button"
-                  :disabled="sendingCode"
+                  :disabled="sendingCode || loginOnCooldown"
                 >
                   <span v-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
                   <span v-else>{{ loginActionLabel }}</span>
@@ -289,7 +286,14 @@
 
               <!-- OTP box. -->
               <!-- Each box binds to one digit, while input, keyboard, focus, and paste are centrally handled in script helpers. -->
-              <div class="otp-box" :class="{ 'has-error': otpErrorActive, 'is-complete': isOtpComplete && !otpErrorActive, shaking: otpShake }">
+              <div
+                class="otp-box"
+                :class="{
+                  'has-error': otpErrorActive,
+                  'is-complete': isOtpComplete && !otpErrorActive,
+                  shaking: otpShake,
+                }"
+              >
                 <input
                   v-for="(digit, index) in otpDigits"
                   :key="index"
@@ -332,7 +336,9 @@
                     :disabled="resendingCode || resendCountdown > 0"
                     @click="resendCode"
                   >
-                    {{ resendCountdown > 0 ? `${t('resendIn')} ${resendCountdown}s` : t('resendCode') }}
+                    {{
+                      resendCountdown > 0 ? `${t('resendIn')} ${resendCountdown}s` : t('resendCode')
+                    }}
                   </button>
                 </div>
               </div>
@@ -369,20 +375,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import * as THREE from 'three'
-import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
+import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { isValidEmail, maskEmail } from '@/utils/string'
-import {
-  LOGIN_LANGUAGE_KEY,
-  safeLocalStorageGet,
-  safeLocalStorageSet
-} from '@/utils/storage'
+import { LOGIN_LANGUAGE_KEY, safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
 
 import logo from '@/assets/btf-logo.png'
-import {
-  LOGIN_LANGUAGE_OPTIONS,
-  LOGIN_MESSAGES
-} from '@/data/login_language'
+import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
 
 /*
   Page-level instances.
@@ -416,6 +415,7 @@ const sendingCode = ref(false)
 const verifyingCode = ref(false)
 const resendingCode = ref(false)
 const resendCountdown = ref(0)
+const loginCooldownSeconds = ref(0)
 
 /*
   OTP interaction state.
@@ -429,293 +429,54 @@ const otpErrorActive = ref(false)
   UI presentation state.
 */
 const locale = ref('en')
-const prefersReducedMotion = ref(false)
 
 /*
   DOM refs.
 */
 const emailInputRef = ref(null)
 const passwordInputRef = ref(null)
-const inkCanvasRef = ref(null)
 
 /*
   Runtime timer handles.
-  运行时定时器句柄。
 */
 let resendTimer = null
+let loginCooldownTimer = null
 let otpErrorTimer = null
 let otpAutoSubmitTimer = null
-let reduceMotionQuery = null
-
-/*
-  Three.js ink effect state (non-reactive — managed entirely outside Vue reactivity).
-  水墨效果 Three.js 状态（不参与 Vue 响应式系统）。
-*/
-const INK_MAX_DROPS = 12
-const INK_DROP_INTERVAL_MS = 80   // ~12 Hz — sparse trail, not a dense smear
-const INK_LIFESPAN = 1.8          // seconds each drop lives
-
-const INK_VERT = /* glsl */`
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  gl_Position = vec4(position.xy, 0.0, 1.0);
-}
-`
-
-/*
-  INK_FRAG — Chinese ink-wash (水墨) fragment shader.
-
-  Techniques used:
-  1. Quintic-interpolated Perlin gradient noise  — eliminates banding present in value noise.
-  2. 5-octave FBM with per-octave rotation       — prevents axis-alignment grid artifacts.
-  3. Two-level domain warping (Inigo Quilez)      — computed ONCE per pixel, shared by all
-     drops; simulates how paper fibres guide ink in complex, non-circular paths.
-  4. Very slow time drift on the warp base        — ink "breathes" gently even after the mouse
-     stops moving.
-  5. Gaussian (exp(-d²/2σ²)) ink blob             — far softer than smoothstep; mirrors how
-     pigment concentration follows a Fick-diffusion bell curve.
-  6. Backrun / edge-darkening ring                — real ink and watercolour deposit pigment
-     at the drying front (the most distinctive feature of traditional brush work).
-  7. Fast outer wave + trailing secondary ring    — represent the initial kinetic impact and
-     capillary recoil of the drop hitting wet paper.
-  8. Paper-grain texture (value-noise FBM)        — uneven fibre absorption breaks uniformity.
-  9. Micro brush-stroke texture overlay           — adds fine directional variation inside
-     dense ink regions.
-  10. Two-tone ink colour blend                   — dense regions near-black (墨); diluted
-      wash lighter blue-grey, as traditional 水墨 painting uses.
-*/
-const INK_FRAG = /* glsl */`
-precision highp float;
-varying vec2 vUv;
-
-uniform float uTime;
-uniform float uAspect;
-uniform int   uDropCount;
-uniform vec3  uDrops[${INK_MAX_DROPS}]; // .xy = UV position (unscaled), .z = birth time
-
-// ── Gradient noise helpers ────────────────────────────────────────────────────
-vec2 hash22(vec2 p) {
-  p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-  return fract(sin(p) * 43758.5453) * 2.0 - 1.0;
-}
-
-// Quintic-interpolated Perlin noise (smooth, no banding)
-float gnoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0); // quintic fade
-  float a = dot(hash22(i),            f            );
-  float b = dot(hash22(i+vec2(1,0)),  f-vec2(1,0)  );
-  float c = dot(hash22(i+vec2(0,1)),  f-vec2(0,1)  );
-  float d = dot(hash22(i+vec2(1,1)),  f-vec2(1,1)  );
-  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
-}
-
-// 5-octave FBM — rotated each octave to break axis symmetry
-float fbm(vec2 p) {
-  float v = 0.0, a = 0.5;
-  mat2 m = mat2(0.80, 0.60, -0.60, 0.80); // 36.87° rotation
-  for (int i = 0; i < 5; i++) {
-    v += a * gnoise(p);
-    p  = m * p * 2.1;
-    a *= 0.48;
-  }
-  return v;
-}
-
-// ── Value noise — fast, used only for paper grain ─────────────────────────────
-float vnoise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  float a = fract(sin(dot(i,            vec2(127.1,311.7))) * 43758.5);
-  float b = fract(sin(dot(i+vec2(1,0),  vec2(127.1,311.7))) * 43758.5);
-  float c = fract(sin(dot(i+vec2(0,1),  vec2(127.1,311.7))) * 43758.5);
-  float d = fract(sin(dot(i+vec2(1,1),  vec2(127.1,311.7))) * 43758.5);
-  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
-}
-
-float paperFbm(vec2 p) {
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.1; a *= 0.5; }
-  return v;
-}
-
-void main() {
-  vec2 uv  = vUv;
-  vec2 asp = vec2(uv.x * uAspect, uv.y);
-
-  // ── Global domain warp (computed once — shared by all drops) ─────────────────
-  // Represents the paper fibre structure that bends ink paths.
-  // uTime * 0.013 gives an imperceptibly slow "breathing" drift.
-  vec2 wc = uv * 4.3 + uTime * 0.013;
-  vec2 q  = vec2(fbm(wc),               fbm(wc + vec2(5.2, 1.3)));
-  vec2 gw = vec2(fbm(wc + 3.2*q + vec2(1.7, 9.2)),
-                 fbm(wc + 3.2*q + vec2(8.3, 2.8)));  // two-level warp
-
-  float totalInk = 0.0;
-
-  for (int i = 0; i < ${INK_MAX_DROPS}; i++) {
-    if (i >= uDropCount) break;
-
-    float age = uTime - uDrops[i].z;
-    if (age < 0.0 || age > ${INK_LIFESPAN.toFixed(1)}) continue;
-
-    vec2  dpos = vec2(uDrops[i].x * uAspect, uDrops[i].y);
-    float t    = clamp(age / ${INK_LIFESPAN.toFixed(1)}, 0.0, 1.0);
-
-    // Per-drop rotation offset — makes each drop's boundary slightly different
-    float seed = fract(uDrops[i].z * 7.53);
-    vec2  perDrop = vec2(cos(seed * 6.2832), sin(seed * 6.2832)) * 0.010;
-
-    // Warp grows gently — subtle organic boundary, never jagged
-    float ws = 0.032 * (0.2 + pow(age, 0.50) * 0.60);
-    float d  = distance(asp + gw * ws + perDrop, dpos);
-
-    // ── Spread radius (Fick diffusion: r ∝ √age) ─────────────────────────────
-    float r = 0.003 + pow(age, 0.50) * 0.026;
-
-    // ── Layer 1 — moisture halo: paper absorbs water before visible ink ───────
-    // Extremely soft, barely-there pale wash at the outermost edge
-    float haloSig = r * 3.0;
-    float halo    = exp(-(d*d) / (2.0*haloSig*haloSig)) * 0.09;
-
-    // ── Layer 2 — diffusion fringe: diluted ink wash spreading outward ────────
-    float fringeSig = r * 1.4;
-    float fringe    = exp(-(d*d) / (2.0*fringeSig*fringeSig)) * 0.18;
-
-    // ── Layer 3 — dense core: concentrated pigment at impact point ───────────
-    float coreSig = r * 0.45;
-    float core    = exp(-(d*d) / (2.0*coreSig*coreSig)) * 0.28;
-
-    // ── Backrun ring: dark halo at drying front — characteristic of real brush ink
-    float backrun = exp(-pow((d - r) / max(r * 0.20, 0.0005), 2.0));
-    backrun *= (1.0 - smoothstep(0.0, 0.35, t)) * 0.22; // disappears as ink dries
-
-    // ── Whisper wave: barely perceptible kinetic ring, like ink touching water ─
-    float wR   = age * 0.082;
-    float wW   = 0.008 * max(0.10, 1.0 - t * 0.88);
-    float wave = exp(-pow((d - wR) / max(wW, 0.0005), 2.0));
-    wave *= max(0.0, 1.0 - t * 1.6) * 0.14;
-
-    // ── Natural drying: exponential decay — fast onset, long graceful tail ────
-    float fade = exp(-3.8 * t);
-
-    totalInk += (halo + fringe + core + backrun + wave) * fade;
-  }
-
-  // ── Dual-scale paper grain: coarse fibre bundles + fine individual fibres ────
-  float coarseGrain = paperFbm(uv * 7.0  + vec2(2.7, 6.1));
-  float fineGrain   = paperFbm(uv * 28.0 + vec2(9.1, 3.4));
-  float grain       = coarseGrain * 0.60 + fineGrain * 0.40;
-  totalInk *= mix(0.68, 1.0, grain); // fibres cause ±16% uneven absorption
-
-  // ── Ultra-fine gnoise — adds imperceptible depth to ink without noise
-  float micro = gnoise(uv * 65.0 + vec2(1.2, 4.7)) * 0.5 + 0.5;
-  totalInk   += micro * totalInk * 0.055;
-
-  totalInk = clamp(totalInk, 0.0, 0.52);
-
-  // ── 墨 Ink colour with warm/cool tonal variation ──────────────────────────────
-  // Real sumi-e ink shifts between indigo-black (cool, well-ground ink stick)
-  // and warm brown-black (older or more diluted ink). The variation is subtle
-  // but prevents the effect from looking like a flat opacity mask.
-  float warmth  = fbm(asp * 5.2 + vec2(7.3, 2.1)) * 0.5 + 0.5; // slow spatial variation
-  vec3 inkCool  = vec3(0.050, 0.060, 0.090); // indigo-black
-  vec3 inkWarm  = vec3(0.072, 0.063, 0.078); // warm brown-black
-  vec3 inkDense = mix(inkCool, inkWarm, warmth * 0.38);
-  vec3 inkWash  = vec3(0.15,  0.17,  0.23 ); // very pale blue-grey diluted wash
-  vec3 inkColor = mix(inkWash, inkDense, smoothstep(0.07, 0.55, totalInk));
-
-  gl_FragColor  = vec4(inkColor, totalInk);
-}
-`
-
-let inkRenderer  = null
-let inkScene     = null
-let inkCamera    = null
-let inkMaterial  = null
-let inkClock     = null
-let inkAnimId    = null
-let inkDrops     = []           // { x, y, birthTime }[]
-let inkLastDropT = 0            // timestamp of last drop (Date.now)
 
 /*
   Translation accessor.
-  统一翻译读取函数。
 */
 const t = (key) => messages[locale.value]?.[key] || messages.en?.[key] || key
 
 /*
   Basic derived values.
-  基础衍生值。
 */
 const currentDir = computed(() => (locale.value === 'ar' ? 'rtl' : 'ltr'))
-const currentStepIndex = computed(() => (currentStep.value === 'email' ? 1 : 2))
 const maskedEmail = computed(() => maskEmail(email.value))
 const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.test(digit)))
-const otpProgressPercent = computed(() => {
-  const filledCount = otpDigits.value.filter((digit) => /^\d$/.test(digit)).length
-  return `${(filledCount / otpDigits.value.length) * 100}%`
-})
 const authHeading = computed(() => t('signIn'))
 
 const authSubtitle = computed(() => t('welcomeSubtitle'))
 
 const isPasswordLoginMode = computed(() => loginMode.value === 'password')
-const activeLoginModeLabel = computed(() => isPasswordLoginMode.value ? t('passwordSignIn') : t('emailCodeSignIn'))
-const credentialStepLabel = computed(() => isPasswordLoginMode.value ? t('passwordStep') : t('otpStep'))
-const loginActionLabel = computed(() => isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode'))
-const emailStepHelper = computed(() => isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'))
-
-/*
-  Hero showcase metrics.
-*/
-const resetPointerVariables = (element) => {
-  if (!element) {
-    return
-  }
-
-  element.style.setProperty('--pointer-x', '50%')
-  element.style.setProperty('--pointer-y', '50%')
-  element.style.setProperty('--rotate-x', '0deg')
-  element.style.setProperty('--rotate-y', '0deg')
-  element.style.setProperty('--glow-opacity', '0')
-}
-
-//
-const updatePointerVariables = (element, clientX, clientY) => {
-  if (!element) {
-    return
-  }
-
-  // 获取矩形信息对象，包含：rect.left这个元素离浏览器左边多远，
-  // rect.top离顶部多远,rect.width宽多少,rect.height高多少
-  const rect = element.getBoundingClientRect()
-  const x = clientX - rect.left
-  const y = clientY - rect.top
-
-  element.style.setProperty('--pointer-x', `${x}px`)
-  element.style.setProperty('--pointer-y', `${y}px`)
-
-  if (prefersReducedMotion.value) {
-    element.style.setProperty('--rotate-x', '0deg')
-    element.style.setProperty('--rotate-y', '0deg')
-    element.style.setProperty('--glow-opacity', '0')
-    return
-  }
-
-  const rotateX = ((0.5 - y / rect.height) * 9).toFixed(2)
-  const rotateY = (((x / rect.width) - 0.5) * 9).toFixed(2)
-  const glowOpacity = (0.14 + Math.abs(Number(rotateX)) * 0.018 + Math.abs(Number(rotateY)) * 0.018).toFixed(2)
-
-  element.style.setProperty('--rotate-x', `${rotateX}deg`)
-  element.style.setProperty('--rotate-y', `${rotateY}deg`)
-  element.style.setProperty('--glow-opacity', glowOpacity)
-}
+const activeLoginModeLabel = computed(() =>
+  isPasswordLoginMode.value ? t('passwordSignIn') : t('emailCodeSignIn'),
+)
+const credentialStepLabel = computed(() =>
+  isPasswordLoginMode.value ? t('passwordStep') : t('otpStep'),
+)
+const loginOnCooldown = computed(() => loginCooldownSeconds.value > 0)
+const loginActionLabel = computed(() => {
+  if (loginOnCooldown.value) return `${t('resendIn')} ${loginCooldownSeconds.value}s`
+  return isPasswordLoginMode.value ? t('signIn') : t('sendVerificationCode')
+})
+const emailStepHelper = computed(() =>
+  isPasswordLoginMode.value ? t('passwordHelper') : t('emailHelper'),
+)
 
 /*
   Message helpers.
-  消息状态辅助函数。
 */
 const clearMessages = () => {
   error.value = ''
@@ -724,7 +485,6 @@ const clearMessages = () => {
 
 /*
   Timer cleanup helpers.
-  定时器清理辅助函数。
 */
 const clearOtpAnimationTimers = () => {
   if (otpErrorTimer) {
@@ -740,9 +500,15 @@ const clearOtpAutoSubmitTimer = () => {
   }
 }
 
+const clearLoginCooldownTimer = () => {
+  if (loginCooldownTimer) {
+    clearInterval(loginCooldownTimer)
+    loginCooldownTimer = null
+  }
+}
+
 /*
-  Hero pane interaction helpers.
-  左侧展示区交互辅助函数。
+  Login mode interaction helpers.
 */
 const setLoginMode = async (mode) => {
   if (!['password', 'code'].includes(mode) || loginMode.value === mode) {
@@ -768,7 +534,6 @@ const setLoginMode = async (mode) => {
 
 /*
   Language switching and persistence.
-  语言切换与本地持久化。
 */
 const switchLanguage = (lang) => {
   locale.value = lang
@@ -776,13 +541,8 @@ const switchLanguage = (lang) => {
   safeLocalStorageSet(LOGIN_LANGUAGE_KEY, lang)
 }
 
-const handleReduceMotionChange = (event) => {
-  prefersReducedMotion.value = event.matches
-}
-
 /*
   OTP ref collection.
-  OTP 输入框 ref 收集。
 */
 const setOtpRef = (element, index) => {
   if (element) {
@@ -792,7 +552,6 @@ const setOtpRef = (element, index) => {
 
 /*
   OTP state reset.
-  OTP 输入状态重置。
 */
 const resetOtpState = async () => {
   clearOtpAutoSubmitTimer()
@@ -805,10 +564,12 @@ const resetOtpState = async () => {
 
 /*
   Fill OTP digits from pasted or merged input text.
-  将粘贴文本或多字符输入拆分填入 OTP。
 */
 const fillOtpFromText = async (value, startIndex = 0) => {
-  const digits = value.replace(/\D/g, '').slice(0, 6 - startIndex).split('')
+  const digits = value
+    .replace(/\D/g, '')
+    .slice(0, 6 - startIndex)
+    .split('')
 
   if (!digits.length) {
     return
@@ -928,17 +689,28 @@ const handleOTPEnter = async () => {
 
 /*
   Request helpers.
-  请求辅助函数。
 */
 const buildCallbackUrl = () => `${window.location.origin}/#/auth/callback`
 
-const parseErrorMessage = async (response, fallbackText) => {
-  try {
-    const data = await response.json()
-    return data.error || data.message || fallbackText
-  } catch {
-    return fallbackText
-  }
+const startLoginCooldown = (seconds = 300) => {
+  loginCooldownSeconds.value = seconds
+  clearLoginCooldownTimer()
+
+  loginCooldownTimer = setInterval(() => {
+    if (loginCooldownSeconds.value <= 1) {
+      loginCooldownSeconds.value = 0
+      clearLoginCooldownTimer()
+      return
+    }
+
+    loginCooldownSeconds.value -= 1
+  }, 1000)
+}
+
+const parseApiError = async (response, fallbackText) => {
+  const apiError = await apiErrorFromResponse(response, fallbackText)
+  logApiError('login', apiError)
+  return apiError
 }
 
 /*
@@ -957,11 +729,11 @@ const postJson = async (path, payload) => {
     return await fetch(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers: buildSessionHeaders({
-        includeCSRF: true
+        includeCSRF: true,
       }),
       credentials: 'include',
       body: JSON.stringify(payload),
-      signal: controller.signal
+      signal: controller.signal,
     })
   } finally {
     clearTimeout(timeoutId)
@@ -1049,7 +821,7 @@ const handleLogin = async () => {
     return
   }
 
-  if (sendingCode.value) {
+  if (sendingCode.value || loginOnCooldown.value) {
     return
   }
 
@@ -1077,12 +849,14 @@ const handleLogin = async () => {
 
     const response = await postJson('/services/send-login-code/', {
       email: normalizedEmail,
-      redirect_url: buildCallbackUrl()
+      redirect_url: buildCallbackUrl(),
     })
 
     if (!response.ok) {
       statusMessage.value = ''
-      error.value = await parseErrorMessage(response, t('errorSendLink'))
+      const apiError = await parseApiError(response, t('errorSendLink'))
+      if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      error.value = apiError.message
       return
     }
 
@@ -1091,9 +865,11 @@ const handleLogin = async () => {
     await resetOtpState()
     startResendCountdown()
   } catch (requestError) {
-    console.error('Login error:', requestError)
+    logApiError('login', requestError)
     statusMessage.value = ''
-    error.value = requestError instanceof Error ? requestError.message : t('errorNetworkLogin')
+    const apiError = apiErrorFromUnknown(requestError, t('errorNetworkLogin'))
+    if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+    error.value = apiError.message
   } finally {
     sendingCode.value = false
   }
@@ -1125,15 +901,20 @@ const verifyOTP = async () => {
   try {
     const response = await postJson('/services/verify-login-code/', {
       email: email.value,
-      code
+      code,
     })
 
     if (!response.ok) {
       statusMessage.value = ''
-      error.value = await parseErrorMessage(response, t('errorInvalidCode'))
+      const apiError = await parseApiError(response, t('errorInvalidCode'))
+      if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      error.value = apiError.message
       await triggerOtpErrorFeedback()
       return
     }
+
+    resetCsrfToken()
+    await ensureCsrfCookie(API_BASE_URL)
 
     await auth.fetchUserData()
 
@@ -1149,9 +930,9 @@ const verifyOTP = async () => {
       window.location.href = '/#/dashboard'
     }
   } catch (requestError) {
-    console.error('OTP verification error:', requestError)
+    logApiError('verify-login-code', requestError)
     statusMessage.value = ''
-    error.value = t('errorNetworkOtp')
+    error.value = apiErrorFromUnknown(requestError, t('errorNetworkOtp')).message
   } finally {
     verifyingCode.value = false
   }
@@ -1176,21 +957,23 @@ const resendCode = async () => {
 
   try {
     const response = await postJson('/services/send-login-code/', {
-    email: email.value,
-    redirect_url: buildCallbackUrl()
-  })
+      email: email.value,
+      redirect_url: buildCallbackUrl(),
+    })
 
-  if (!response.ok) {
-    error.value = await parseErrorMessage(response, t('errorResendFail'))
-    return
-  }
+    if (!response.ok) {
+      const apiError = await parseApiError(response, t('errorResendFail'))
+      if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
+      error.value = apiError.message
+      return
+    }
 
-  statusMessage.value = t('resendSuccess')
-  await resetOtpState()
-  startResendCountdown()
+    statusMessage.value = t('resendSuccess')
+    await resetOtpState()
+    startResendCountdown()
   } catch (requestError) {
-    console.error('Resend code error:', requestError)
-    error.value = t('errorNetworkOtp')
+    logApiError('resend-login-code', requestError)
+    error.value = apiErrorFromUnknown(requestError, t('errorNetworkOtp')).message
   } finally {
     resendingCode.value = false
   }
@@ -1206,7 +989,7 @@ watch(
     document.documentElement.lang = nextLocale
     document.documentElement.dir = direction
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 /*
@@ -1222,22 +1005,19 @@ watch(currentStep, async (step) => {
   }
 })
 
-watch(
-  [isOtpComplete, currentStep],
-  ([complete, step]) => {
-    clearOtpAutoSubmitTimer()
+watch([isOtpComplete, currentStep], ([complete, step]) => {
+  clearOtpAutoSubmitTimer()
 
-    if (step !== 'otp' || !complete || verifyingCode.value || otpErrorActive.value) {
-      return
-    }
-
-    otpAutoSubmitTimer = setTimeout(() => {
-      if (isOtpComplete.value && currentStep.value === 'otp' && !verifyingCode.value) {
-        verifyOTP()
-      }
-    }, 160)
+  if (step !== 'otp' || !complete || verifyingCode.value || otpErrorActive.value) {
+    return
   }
-)
+
+  otpAutoSubmitTimer = setTimeout(() => {
+    if (isOtpComplete.value && currentStep.value === 'otp' && !verifyingCode.value) {
+      verifyOTP()
+    }
+  }, 160)
+})
 
 /*
   Restore saved language.
@@ -1248,122 +1028,12 @@ if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage
 }
 
 /*
-  Ink effect: init, resize, drop creation, mouse handlers, dispose.
-*/
-function initInkEffect() {
-  if (!inkCanvasRef.value || prefersReducedMotion.value) return
-
-  const pane = inkCanvasRef.value.parentElement
-  const { width, height } = pane.getBoundingClientRect()
-
-  inkRenderer = new THREE.WebGLRenderer({
-    canvas: inkCanvasRef.value,
-    alpha: true,
-    antialias: false,
-    powerPreference: 'low-power'
-  })
-  inkRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
-  inkRenderer.setClearColor(0x000000, 0)
-  inkRenderer.setSize(width, height)
-
-  inkScene  = new THREE.Scene()
-  inkCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
-  inkCamera.position.z = 1
-
-  // Build initial drops uniform array (all inactive)
-  const dropVecs = Array.from({ length: INK_MAX_DROPS }, () => new THREE.Vector3(0, 0, -9999))
-
-  inkMaterial = new THREE.ShaderMaterial({
-    vertexShader: INK_VERT,
-    fragmentShader: INK_FRAG,
-    uniforms: {
-      uTime:      { value: 0 },
-      uAspect:    { value: width / height },
-      uDropCount: { value: 0 },
-      uDrops:     { value: dropVecs }
-    },
-    transparent: true,
-    depthWrite:  false,
-    depthTest:   false
-  })
-
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), inkMaterial)
-  inkScene.add(quad)
-
-  inkClock = new THREE.Clock()
-  inkDrops = []
-
-  animateInk()
-}
-
-function resizeInkCanvas() {
-  if (!inkRenderer || !inkCanvasRef.value) return
-  const { width, height } = inkCanvasRef.value.parentElement.getBoundingClientRect()
-  inkRenderer.setSize(width, height)
-  if (inkMaterial) inkMaterial.uniforms.uAspect.value = width / height
-}
-
-function syncInkDropUniforms() {
-  if (!inkMaterial) return
-  for (let i = 0; i < INK_MAX_DROPS; i++) {
-    if (i < inkDrops.length) {
-      inkMaterial.uniforms.uDrops.value[i].set(inkDrops[i].x, inkDrops[i].y, inkDrops[i].birthTime)
-    } else {
-      inkMaterial.uniforms.uDrops.value[i].set(0, 0, -9999)
-    }
-  }
-  inkMaterial.uniforms.uDropCount.value = inkDrops.length
-}
-
-function addInkDrop(uvX, uvY) {
-  if (!inkMaterial || !inkClock) return
-  const birthTime = inkClock.getElapsedTime()
-  if (inkDrops.length >= INK_MAX_DROPS) inkDrops.shift()
-  inkDrops.push({ x: uvX, y: uvY, birthTime })
-  syncInkDropUniforms()
-}
-
-function animateInk() {
-  if (!inkRenderer) return
-  inkAnimId = requestAnimationFrame(animateInk)
-
-  const elapsed = inkClock.getElapsedTime()
-  inkMaterial.uniforms.uTime.value = elapsed
-
-  // Prune expired drops so the uniform array stays clean
-  const before = inkDrops.length
-  inkDrops = inkDrops.filter((d) => elapsed - d.birthTime < INK_LIFESPAN + 0.2)
-  if (inkDrops.length !== before) syncInkDropUniforms()
-
-  inkRenderer.render(inkScene, inkCamera)
-}
-
-function disposeInkEffect() {
-  if (inkAnimId) { cancelAnimationFrame(inkAnimId); inkAnimId = null }
-  if (inkRenderer) { inkRenderer.dispose(); inkRenderer = null }
-  inkScene    = null
-  inkCamera   = null
-  inkMaterial = null
-  inkClock    = null
-  inkDrops    = []
-}
-
-/*
   Lifecycle: initial focus.
 */
 onMounted(async () => {
   ensureCsrfCookie(API_BASE_URL).catch((error) => {
     console.error('Initial CSRF warm-up failed:', error)
   })
-
-  reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-  prefersReducedMotion.value = reduceMotionQuery.matches
-
-  if (reduceMotionQuery.addEventListener) {
-    reduceMotionQuery.addEventListener('change', handleReduceMotionChange)
-  } else if (reduceMotionQuery.addListener) {
-    reduceMotionQuery.addListener(handleReduceMotionChange)
-  }
 
   await nextTick()
   emailInputRef.value?.focus()
@@ -1375,20 +1045,11 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearOtpAnimationTimers()
   clearOtpAutoSubmitTimer()
+  clearLoginCooldownTimer()
 
   if (resendTimer) {
     clearInterval(resendTimer)
     resendTimer = null
-  }
-
-  if (reduceMotionQuery) {
-    if (reduceMotionQuery.removeEventListener) {
-      reduceMotionQuery.removeEventListener('change', handleReduceMotionChange)
-    } else if (reduceMotionQuery.removeListener) {
-      reduceMotionQuery.removeListener(handleReduceMotionChange)
-    }
-
-    reduceMotionQuery = null
   }
 })
 </script>
@@ -1424,19 +1085,26 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
   min-height: 100vh;
+  min-height: 100dvh;
   background:
     radial-gradient(circle at top left, rgba(48, 173, 138, 0.16), transparent 24%),
     radial-gradient(circle at bottom right, rgba(23, 93, 79, 0.08), transparent 28%),
     linear-gradient(180deg, #eef7f2 0%, #e7f3ec 40%, #dcece2 100%);
 }
 
+.login-shell,
+.login-shell * {
+  box-sizing: border-box;
+}
+
 /*
-  Module 2: hero pane, background stage, and visual effects.
+  Module 2: left information pane.
 */
 .hero-pane {
   position: relative;
   overflow: hidden;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .legacy-left-pane {
@@ -1522,7 +1190,10 @@ onBeforeUnmount(() => {
   background-color: var(--white, #ffffff);
   font-weight: 700;
   text-decoration: none;
-  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .legacy-website-button:hover,
@@ -1532,91 +1203,10 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-.hero-stage {
-  position: absolute;
-  inset: 0;
-}
-
-.hero-scene {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  transition: opacity 0.45s ease;
-}
-
-.hero-scene.active {
-  opacity: 1;
-}
-
-.hero-slide-image,
-.hero-green-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.hero-slide-image {
-  object-fit: cover;
-  opacity: 0;
-  animation: heroSlideshow 18s infinite;
-  filter: saturate(1.02) contrast(1.01);
-}
-
-.hero-green-image {
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: cover;
-  filter: saturate(0.95) contrast(1.02) brightness(0.94);
-}
-
-.hero-overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 14% 18%, rgba(115, 232, 193, 0.10), transparent 18%),
-    radial-gradient(circle at 86% 16%, rgba(72, 179, 148, 0.12), transparent 24%),
-    radial-gradient(circle at 50% 88%, rgba(72, 179, 148, 0.06), transparent 28%),
-    linear-gradient(135deg, rgba(3, 15, 13, 0.16) 0%, rgba(4, 18, 15, 0.30) 48%, rgba(4, 12, 11, 0.46) 100%);
-}
-
-.hero-noise {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
-  background-size: 24px 24px;
-  mask-image: radial-gradient(circle at center, black 34%, transparent 100%);
-}
-
 /*
   Module 3: hero foreground layout, brand block, and cards.
 */
-.hero-content {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 28px;
-  min-height: 100vh;
-  padding: clamp(28px, 4vw, 52px);
-  color: rgba(255, 255, 255, 0.96);
-}
 
-.hero-brand-row {
-  width: min(100%, 860px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 0;
-  text-align: center;
-}
-
-.brand-mark,
 .auth-logo {
   display: inline-flex;
   align-items: center;
@@ -1625,73 +1215,19 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.brand-mark {
-  width: 68px;
-  height: 68px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: 0 20px 35px rgba(3, 11, 10, 0.28);
-  backdrop-filter: blur(14px);
-}
-
-.brand-mark img,
 .auth-logo img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.eyebrow,
-.section-kicker,
-.auth-kicker,
-.role-detail-kicker {
+.auth-kicker {
   font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
-.eyebrow {
-  color: rgba(208, 255, 235, 0.82);
-}
-
-.hero-title {
-  margin: 0;
-  font-size: clamp(2rem, 3.2vw, 2.8rem);
-  line-height: 1.05;
-  letter-spacing: -0.03em;
-  color: #d8fff0;
-}
-
-
-.hero-grid {
-  width: min(100%, 520px);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 20px;
-  align-items: stretch;
-}
-
-.hero-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  border-radius: 30px;
-  padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.07));
-  box-shadow: var(--shadow-hero);
-  backdrop-filter: blur(18px);
-}
-
-.hero-card::before,
 .auth-card::before {
   content: '';
   position: absolute;
@@ -1700,46 +1236,11 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.hero-card--primary {
-  min-height: 468px;
-}
-
-.hero-card--secondary {
-  min-height: 468px;
-  background: linear-gradient(180deg, rgba(6, 22, 19, 0.42), rgba(7, 18, 16, 0.28));
-}
-
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.section-head--compact {
-  margin-bottom: 20px;
-}
-
-.section-kicker {
-  display: inline-block;
-  margin-bottom: 8px;
-  color: rgba(205, 255, 232, 0.7);
-}
-
-.section-title,
-.role-detail-title,
 .auth-title {
   margin: 0;
   letter-spacing: -0.02em;
 }
 
-.section-title {
-  font-size: 1.2rem;
-  color: #ffffff;
-}
-
-.selection-pill,
 .meta-chip,
 .top-badge {
   display: inline-flex;
@@ -1753,46 +1254,10 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.selection-pill {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-}
-
 /*
-  Module 4: role selector and role detail presentation.
+  Module 4: shared interaction states.
 */
-.role-selector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 18px;
-}
 
-.role-pill {
-  --role-color: rgba(255, 255, 255, 0.92);
-  --role-surface: rgba(255, 255, 255, 0.08);
-  --role-border: rgba(255, 255, 255, 0.12);
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 0 10px;
-  border: 1px solid var(--role-border);
-  border-radius: 999px;
-  background: var(--role-surface);
-  color: var(--role-color);
-  font-size: 0.8rem;
-  font-weight: 700;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
-}
-
-.role-pill:hover,
-.role-pill:focus-visible,
-.mode-button:hover,
-.mode-button:focus-visible,
-.hero-link:hover,
-.hero-link:focus-visible,
 .language-option:hover,
 .language-option:focus-visible,
 .primary-button:hover,
@@ -1804,9 +1269,6 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-.role-pill:focus-visible,
-.mode-button:focus-visible,
-.hero-link:focus-visible,
 .language-option:focus-visible,
 .field-input:focus-visible,
 .primary-button:focus-visible,
@@ -1817,375 +1279,21 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-focus);
 }
 
-.role-pill-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08);
-}
-
-.role-pill {
-  position: relative;
-  overflow: hidden;
-}
-
-.role-pill.selected {
-  transform: translateY(-2px) scale(1.03);
-  border-color: currentColor;
-  background: rgba(255, 255, 255, 0.16);
-  box-shadow:
-    0 0 0 1px currentColor inset,
-    0 16px 32px rgba(5, 14, 12, 0.28),
-    0 0 18px rgba(255, 255, 255, 0.12);
-}
-
-.role-pill.active:not(.selected) {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.role-pill.selected::before {
-  opacity: 1;
-}
-
-.role-pill.selected .role-pill-dot {
-  transform: scale(1.2);
-  box-shadow:
-    0 0 0 7px rgba(255, 255, 255, 0.10),
-    0 0 12px currentColor;
-}
-
-.role-pill-dot {
-  transition: transform 0.22s ease, box-shadow 0.22s ease;
-}
-
-.role-detail-card {
-  position: relative;
-  overflow: hidden;
-  flex: 1;
-  min-height: 250px;
-  padding: 20px;
-  border-radius: 26px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
-}
-
-.role-detail-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 10px;
-}
-
-.role-detail-badge {
-  width: 16px;
-  height: 42px;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.86;
-}
-
-.role-detail-kicker {
-  margin: 0 0 4px;
-  color: rgba(215, 255, 237, 0.66);
-}
-
-.role-detail-title {
-  font-size: 1.1rem;
-  color: #fff;
-}
-
-.role-detail-summary,
-.role-detail-list {
-  margin: 0;
-  color: rgba(238, 247, 242, 0.86);
-  line-height: 1.72;
-}
-
-.role-detail-list {
-  padding-left: 1.2rem;
-}
-
-.role-detail-list {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-}
-
 /*
-  Module 5: hero overview stats and footer actions.
+  Module 5: shared clickable controls.
 */
-.hero-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-}
 
-.stat-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.stat-value {
-  font-size: 1rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #fff;
-}
-
-.stat-label {
-  font-size: 0.7rem;
-  color: rgba(222, 245, 235, 0.74);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.hero-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 20px;
-}
-
-.mode-switch {
-  display: inline-flex;
-  gap: 8px;
-  padding: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.mode-button,
-.hero-link,
 .language-option,
 .primary-button,
 .secondary-button,
 .text-link {
   cursor: pointer;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease, color 0.22s ease;
-}
-
-.mode-button {
-  min-height: 38px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgba(233, 247, 240, 0.76);
-  font-weight: 700;
-}
-
-.mode-button.active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.hero-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 999px;
-  color: #fff;
-  text-decoration: none;
-  font-weight: 700;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-}
-
-
-.overview-capabilities {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  flex: 1;
-}
-
-.capability-card {
-  display: grid;
-  gap: 6px;
-  padding: 14px 15px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  min-height: 82px;
-}
-
-.capability-title {
-  font-size: 0.95rem;
-  font-weight: 800;
-  color: #ffffff;
-  line-height: 1.25;
-}
-
-.capability-subtitle {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: rgba(230, 244, 237, 0.76);
-}
-
-.stat-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
-  transition: all 0.35s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
-}
-
-.stat-card:hover::after {
-  opacity: 1;
-}
-
-
-.capability-card {
-  position: relative;
-  display: grid;
-  gap: 6px;
-  padding: 14px 15px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  min-height: 82px;
-  overflow: hidden;
-  transition: all 0.35s ease;
-}
-
-.capability-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg,
-    transparent,
-    rgba(115, 232, 193, 0.12),
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.35s ease;
-}
-
-.capability-card::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: linear-gradient(120deg,
-    rgba(115, 232, 193, 0.4),
-    rgba(72, 179, 148, 0.2),
-    transparent
-  );
-  opacity: 0;
-  z-index: -1;
-  transition: opacity 0.35s ease;
-}
-
-.capability-card:hover {
-  transform: translateY(-6px) scale(1.02);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 24px 50px rgba(5, 18, 15, 0.35);
-}
-
-.capability-card:hover::before {
-  opacity: 1;
-}
-
-.capability-card:hover::after {
-  opacity: 1;
-}
-
-
-.mode-switch {
-  position: relative;
-  display: inline-flex;
-  gap: 6px;
-  padding: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
-}
-
-.mode-button {
-  position: relative;
-  min-height: 36px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgba(233, 247, 240, 0.7);
-  font-weight: 700;
-  transition: all 0.3s ease;
-}
-
-.mode-button.active {
-  color: #fff;
-  background: linear-gradient(135deg, rgba(47,164,134,0.6), rgba(115,232,193,0.4));
-  box-shadow: 0 10px 20px rgba(47,164,134,0.3);
-}
-
-.mode-button:hover {
-  color: #fff;
-  background: rgba(255,255,255,0.12);
-}
-
-
-.hero-link {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 18px;
-  border-radius: 999px;
-  color: #fff;
-  text-decoration: none;
-  font-weight: 700;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-  transition: all 0.35s ease;
-}
-
-.hero-link::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg,
-    transparent,
-    rgba(115,232,193,0.2),
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.35s ease;
-}
-
-.hero-link:hover {
-  transform: translateY(-2px);
-  border-color: rgba(115,232,193,0.6);
-  box-shadow: 0 18px 40px rgba(0,0,0,0.35);
-}
-
-.hero-link:hover::before {
-  opacity: 1;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    background 0.22s ease,
+    border-color 0.22s ease,
+    color 0.22s ease;
 }
 
 /*
@@ -2196,7 +1304,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: clamp(22px, 4vw, 40px);
+  min-height: 100dvh;
+  padding: clamp(14px, 3vw, 28px);
 }
 
 .auth-shell {
@@ -2205,7 +1314,7 @@ onBeforeUnmount(() => {
   width: min(100%, 560px);
   display: grid;
   justify-items: center;
-  gap: 18px;
+  gap: 10px;
 }
 
 .auth-topbar {
@@ -2214,7 +1323,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 8px;
 }
 
 .top-badges {
@@ -2239,7 +1348,7 @@ onBeforeUnmount(() => {
 }
 
 .language-option {
-  min-height: 34px;
+  min-height: 30px;
   padding: 0 11px;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -2259,8 +1368,8 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   width: min(100%, 520px);
-  border-radius: 32px;
-  padding: 28px;
+  border-radius: 26px;
+  padding: 20px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 248, 0.94));
   border: 1px solid rgba(255, 255, 255, 0.78);
   box-shadow: var(--shadow-card);
@@ -2274,7 +1383,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0 auto auto 0;
   width: 100%;
-  height: 200px;
+  height: 160px;
   background: radial-gradient(circle at top left, rgba(47, 164, 134, 0.16), transparent 58%);
   pointer-events: none;
 }
@@ -2288,7 +1397,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 26px;
+  margin-bottom: 14px;
 }
 
 .progress-item {
@@ -2310,8 +1419,8 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   font-size: 0.9rem;
   font-weight: 800;
@@ -2332,7 +1441,7 @@ onBeforeUnmount(() => {
 .progress-line {
   flex: 1;
   height: 2px;
-  margin: 0 14px;
+  margin: 0 10px;
   border-radius: 999px;
   background: rgba(16, 33, 29, 0.08);
 }
@@ -2348,13 +1457,13 @@ onBeforeUnmount(() => {
   max-width: 440px;
   margin: 0 auto;
   display: grid;
-  gap: 22px;
+  gap: 14px;
 }
 
 .auth-header {
   display: grid;
   justify-items: center;
-  gap: 14px;
+  gap: 8px;
   text-align: center;
 }
 
@@ -2366,19 +1475,19 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .auth-logo {
-  width: 62px;
-  height: 62px;
+  width: 52px;
+  height: 52px;
   background: linear-gradient(180deg, rgba(39, 132, 109, 0.12), rgba(39, 132, 109, 0.04));
   border: 1px solid rgba(39, 132, 109, 0.1);
 }
 
 .auth-logo--small {
-  width: 54px;
-  height: 54px;
+  width: 46px;
+  height: 46px;
 }
 
 .auth-logo-copy {
@@ -2386,8 +1495,7 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-.auth-kicker,
-.role-detail-kicker {
+.auth-kicker {
   color: var(--emerald-700);
 }
 
@@ -2399,14 +1507,14 @@ onBeforeUnmount(() => {
 .auth-subtitle {
   margin: 0;
   color: var(--stone-700);
-  line-height: 1.7;
+  line-height: 1.45;
 }
 
 .meta-row {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .meta-row--stack {
@@ -2431,7 +1539,7 @@ onBeforeUnmount(() => {
 .auth-form {
   width: 100%;
   display: grid;
-  gap: 18px;
+  gap: 10px;
 }
 
 .login-mode-switch {
@@ -2445,7 +1553,7 @@ onBeforeUnmount(() => {
 }
 
 .login-mode-button {
-  min-height: 42px;
+  min-height: 38px;
   border: 0;
   border-radius: 14px;
   background: transparent;
@@ -2453,7 +1561,10 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
   font-weight: 800;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .login-mode-button.active {
@@ -2469,7 +1580,7 @@ onBeforeUnmount(() => {
 
 .field-block {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .password-field-slot {
@@ -2482,6 +1593,24 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+.forgot-password-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.forgot-password-link {
+  color: var(--emerald-700);
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.forgot-password-link:hover,
+.forgot-password-link:focus-visible {
+  text-decoration: underline;
+}
+
 .field-label {
   font-size: 0.92rem;
   font-weight: 700;
@@ -2492,13 +1621,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 58px;
+  min-height: 50px;
   padding: 0 16px;
   border-radius: 18px;
   border: 1px solid var(--border-soft);
   background: rgba(255, 255, 255, 0.88);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
 }
 
 .field-shell:focus-within {
@@ -2510,7 +1642,6 @@ onBeforeUnmount(() => {
 .field-shell.is-error {
   border-color: rgba(210, 75, 75, 0.34);
 }
-
 
 .field-input {
   width: 100%;
@@ -2526,7 +1657,7 @@ onBeforeUnmount(() => {
 
 .field-help {
   color: var(--stone-500);
-  line-height: 1.6;
+  line-height: 1.35;
 }
 
 .primary-button,
@@ -2535,7 +1666,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 54px;
+  min-height: 48px;
   padding: 0 18px;
   border-radius: 18px;
   font-size: 0.98rem;
@@ -2601,7 +1732,7 @@ onBeforeUnmount(() => {
 
 .otp-input {
   min-width: 0;
-  height: 62px;
+  height: 54px;
   border-radius: 18px;
   border: 1px solid rgba(16, 33, 29, 0.1);
   background: rgba(255, 255, 255, 0.92);
@@ -2610,7 +1741,10 @@ onBeforeUnmount(() => {
   font-weight: 800;
   color: var(--stone-900);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .otp-input:focus {
@@ -2627,7 +1761,7 @@ onBeforeUnmount(() => {
 .otp-box.is-complete .otp-input {
   border-color: rgba(39, 132, 109, 0.22);
   box-shadow:
-    0 10px 22px rgba(31, 93, 79, 0.10),
+    0 10px 22px rgba(31, 93, 79, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.44);
 }
 
@@ -2686,35 +1820,14 @@ onBeforeUnmount(() => {
 /*
   Module 10: role theme utilities and transition effects.
 */
-.role-theme--student {
-  color: #6fc6ff;
-}
-
-.role-theme--mentor {
-  color: #75d9b7;
-}
-
-.role-theme--supervisor {
-  color: #ffd37b;
-}
-
-.role-theme--teacher {
-  color: #ffd37b;
-}
-
-.role-theme--admin {
-  color: #c5b0ff;
-}
-
-.role-theme--default {
-  color: #9fddd0;
-}
 
 .content-fade-enter-active,
 .content-fade-leave-active,
 .message-slide-enter-active,
 .message-slide-leave-active {
-  transition: opacity 0.24s ease, transform 0.24s ease;
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease;
 }
 
 .content-fade-enter-from,
@@ -2723,24 +1836,6 @@ onBeforeUnmount(() => {
 .message-slide-leave-to {
   opacity: 0;
   transform: translateY(6px);
-}
-
-@keyframes heroSlideshow {
-  0% {
-    opacity: 0;
-  }
-  6% {
-    opacity: 1;
-  }
-  24% {
-    opacity: 1;
-  }
-  30% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 0;
-  }
 }
 
 @keyframes spin {
@@ -2782,45 +1877,36 @@ onBeforeUnmount(() => {
     border-bottom: 1px solid var(--border-light, rgba(16, 33, 29, 0.1));
   }
 
-  .hero-content {
-    min-height: auto;
-  }
-
-  .hero-grid {
-    grid-template-columns: 1fr;
-  }
-
   .auth-pane {
     min-height: auto;
     padding-top: 0;
   }
 }
 
+@media (min-width: 1201px) {
+  .login-shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .hero-pane,
+  .auth-pane {
+    min-height: 0;
+    height: 100%;
+  }
+}
+
 @media (max-width: 760px) {
-  .hero-content,
   .legacy-left-pane,
   .auth-pane {
     padding: 20px;
   }
 
-  .overview-capabilities {
-  grid-template-columns: 1fr;
-  }
-
-  .overview-flow-track {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero-brand-row,
   .auth-topbar,
-  .meta-row--stack,
-  .hero-footer {
+  .meta-row--stack {
     flex-direction: column;
     align-items: center;
-  }
-
-  .hero-stats {
-    grid-template-columns: 1fr;
   }
 
   .auth-card {
@@ -2837,16 +1923,12 @@ onBeforeUnmount(() => {
   Module 12: reduced-motion accessibility support.
 */
 @media (prefers-reduced-motion: reduce) {
-  .hero-slide-image,
   .button-spinner,
   .otp-box.shaking,
   .content-fade-enter-active,
   .content-fade-leave-active,
   .message-slide-enter-active,
   .message-slide-leave-active,
-  .role-pill,
-  .mode-button,
-  .hero-link,
   .language-option,
   .primary-button,
   .secondary-button,
@@ -2856,7 +1938,6 @@ onBeforeUnmount(() => {
     transition: none !important;
   }
 }
-
 
 /*
   Module 13: immersive motion polish and premium interaction upgrades.
@@ -2877,7 +1958,9 @@ onBeforeUnmount(() => {
   z-index: 0;
   border-radius: 50%;
   filter: blur(48px);
-  transition: transform 0.22s ease, opacity 0.22s ease;
+  transition:
+    transform 0.22s ease,
+    opacity 0.22s ease;
 }
 
 .login-shell::before {
@@ -2899,111 +1982,24 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 
-.hero-stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(115deg, rgba(255, 255, 255, 0.06), transparent 30%),
-    linear-gradient(0deg, rgba(255, 255, 255, 0.03), transparent 42%);
-  pointer-events: none;
-}
-
-
-.interactive-surface {
-  --pointer-x: 50%;
-  --pointer-y: 50%;
-  transform-style: preserve-3d;
-  transition: transform 0.26s ease, box-shadow 0.26s ease, border-color 0.26s ease, background 0.26s ease;
-}
-
-.interactive-surface::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(
-      240px circle at var(--pointer-x) var(--pointer-y),
-      rgba(255, 255, 255, 0.20),
-      rgba(255, 255, 255, 0.10) 18%,
-      transparent 56%
-    );
-  opacity: 0;
-  transition: opacity 0.22s ease;
-}
-
-.interactive-surface:hover {
-  transform: translateY(-4px);
-}
-
-.interactive-surface:hover::after {
-  opacity: 1;
-}
-
-.hero-card--primary,
-.hero-card--secondary,
 .auth-card {
   backdrop-filter: blur(24px);
 }
 
-.hero-card--primary:hover,
-.hero-card--secondary:hover {
-  border-color: rgba(214, 255, 239, 0.24);
-  box-shadow:
-    0 34px 84px rgba(3, 12, 10, 0.46),
-    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
-}
-
-.hero-brand-row,
-.hero-grid,
 .auth-shell {
   position: relative;
   z-index: 1;
 }
 
-.selection-pill,
 .meta-chip,
 .top-badge,
 .language-option,
-.mode-button,
-.hero-link,
 .primary-button,
 .secondary-button,
 .text-link,
 .otp-input,
-.field-shell,
-.stat-card,
-.capability-card {
+.field-shell {
   will-change: transform;
-}
-
-.role-pill {
-  backdrop-filter: blur(10px);
-}
-
-.role-pill:hover,
-.role-pill:focus-visible {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.14);
-  box-shadow: 0 18px 38px rgba(4, 14, 12, 0.22);
-}
-
-.role-detail-card {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04)),
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.14), transparent 36%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.stat-card,
-.capability-card {
-  backdrop-filter: blur(12px);
-}
-
-.capability-card:hover {
-  border-color: rgba(115, 232, 193, 0.22);
 }
 
 .auth-card {
@@ -3030,8 +2026,7 @@ onBeforeUnmount(() => {
 
 .language-option::before,
 .primary-button::before,
-.secondary-button::before,
-.hero-link::after {
+.secondary-button::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -3043,8 +2038,7 @@ onBeforeUnmount(() => {
 
 .language-option:hover::before,
 .primary-button:hover::before,
-.secondary-button:hover::before,
-.hero-link:hover::after {
+.secondary-button:hover::before {
   opacity: 1;
 }
 
@@ -3074,7 +2068,9 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, transparent, rgba(47, 164, 134, 0.4), transparent);
   opacity: 0;
   transform: translateY(4px);
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
 }
 
 .field-shell:focus-within::after {
@@ -3093,7 +2089,7 @@ onBeforeUnmount(() => {
     linear-gradient(135deg, rgba(18, 96, 80, 1), rgba(47, 164, 134, 0.96)),
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.14), transparent 28%);
   box-shadow:
-    0 18px 36px rgba(31, 93, 79, 0.20),
+    0 18px 36px rgba(31, 93, 79, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
@@ -3128,7 +2124,6 @@ onBeforeUnmount(() => {
     var(--shadow-focus);
 }
 
-
 .status-message,
 .error-message {
   position: relative;
@@ -3155,7 +2150,8 @@ onBeforeUnmount(() => {
 }
 
 @keyframes ambientFloatA {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate3d(0, 0, 0);
   }
   50% {
@@ -3164,21 +2160,14 @@ onBeforeUnmount(() => {
 }
 
 @keyframes ambientFloatB {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate3d(0, 0, 0);
   }
   50% {
     transform: translate3d(-18px, 16px, 0);
   }
 }
-
-@media (max-width: 1120px) {
-  .interactive-surface:hover {
-    transform: none;
-  }
-}
-
-
 
 .shell-aurora {
   position: fixed;
@@ -3202,7 +2191,12 @@ onBeforeUnmount(() => {
   left: -3%;
   width: 320px;
   height: 320px;
-  background: radial-gradient(circle, rgba(126, 255, 223, 0.32), rgba(74, 209, 176, 0.08) 58%, transparent 76%);
+  background: radial-gradient(
+    circle,
+    rgba(126, 255, 223, 0.32),
+    rgba(74, 209, 176, 0.08) 58%,
+    transparent 76%
+  );
   animation: ambientFloatA 16s ease-in-out infinite;
 }
 
@@ -3211,7 +2205,12 @@ onBeforeUnmount(() => {
   top: 12%;
   width: 260px;
   height: 260px;
-  background: radial-gradient(circle, rgba(193, 224, 255, 0.22), rgba(116, 184, 255, 0.06) 54%, transparent 76%);
+  background: radial-gradient(
+    circle,
+    rgba(193, 224, 255, 0.22),
+    rgba(116, 184, 255, 0.06) 54%,
+    transparent 76%
+  );
   animation: ambientFloatB 19s ease-in-out infinite;
 }
 
@@ -3220,7 +2219,12 @@ onBeforeUnmount(() => {
   bottom: 2%;
   width: 360px;
   height: 360px;
-  background: radial-gradient(circle, rgba(124, 255, 217, 0.18), rgba(32, 124, 103, 0.06) 52%, transparent 78%);
+  background: radial-gradient(
+    circle,
+    rgba(124, 255, 217, 0.18),
+    rgba(32, 124, 103, 0.06) 52%,
+    transparent 78%
+  );
   animation: ambientFloatA 22s ease-in-out infinite reverse;
 }
 
@@ -3241,123 +2245,10 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
-.hero-card,
 .auth-card,
-.role-detail-card,
 .field-shell,
-.language-switcher,
-.mode-switch {
+.language-switcher {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.hero-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.16), transparent 34%);
-  opacity: 0.58;
-}
-
-.interactive-surface {
-  --pointer-x: 50%;
-  --pointer-y: 50%;
-  --rotate-x: 0deg;
-  --rotate-y: 0deg;
-  --glow-opacity: 0;
-  transform-style: preserve-3d;
-  transform: perspective(1400px) rotateX(var(--rotate-x)) rotateY(var(--rotate-y)) translate3d(0, 0, 0);
-  transition:
-    transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-color 280ms ease,
-    background 280ms ease;
-}
-
-.interactive-surface::after {
-  opacity: var(--glow-opacity, 0);
-  background:
-    radial-gradient(
-      240px circle at var(--pointer-x) var(--pointer-y),
-      rgba(255, 255, 255, 0.24),
-      rgba(255, 255, 255, 0.10) 18%,
-      transparent 58%
-    );
-}
-
-.interactive-surface:hover {
-  transform: perspective(1400px) rotateX(var(--rotate-x)) rotateY(var(--rotate-y)) translate3d(0, -8px, 0);
-}
-
-.interactive-surface:hover::after {
-  opacity: calc(var(--glow-opacity, 0) + 0.12);
-}
-
-.role-selector {
-  align-items: center;
-}
-
-.role-pill {
-  min-height: 42px;
-  padding: 0 14px;
-  letter-spacing: 0.01em;
-}
-
-.role-pill::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.18), transparent 74%);
-  opacity: 0;
-  transition: opacity 0.24s ease;
-}
-
-.role-pill:hover::after,
-.role-pill:focus-visible::after,
-.role-pill.active::after,
-.role-pill.selected::after {
-  opacity: 1;
-}
-
-.role-pill:active {
-  transform: translateY(0) scale(0.99);
-}
-
-.role-detail-card {
-  position: relative;
-  isolation: isolate;
-}
-
-.role-detail-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 88% 16%, rgba(255, 255, 255, 0.18), transparent 24%),
-    radial-gradient(circle at 18% 100%, rgba(117, 217, 183, 0.12), transparent 32%);
-  opacity: 0.9;
-}
-
-.role-detail-header,
-.role-detail-summary,
-.role-detail-list {
-  position: relative;
-  z-index: 1;
-}
-
-.hero-stats,
-.overview-capabilities {
-  position: relative;
-  z-index: 1;
-}
-
-.stat-card,
-.capability-card {
-  border-color: rgba(255, 255, 255, 0.10);
 }
 
 .auth-topbar {
@@ -3383,16 +2274,6 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
-.mode-switch {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    0 10px 24px rgba(4, 15, 13, 0.12);
-}
-
-.mode-button {
-  min-width: 86px;
-}
-
 .auth-card {
   isolation: isolate;
 }
@@ -3412,8 +2293,10 @@ onBeforeUnmount(() => {
   pointer-events: none;
   background-image:
     radial-gradient(rgba(16, 33, 29, 0.035) 0.8px, transparent 0.8px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.10), transparent 24%);
-  background-size: 18px 18px, auto;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 24%);
+  background-size:
+    18px 18px,
+    auto;
   opacity: 0.46;
 }
 
@@ -3424,7 +2307,9 @@ onBeforeUnmount(() => {
 }
 
 .progress-item {
-  transition: transform 0.24s ease, color 0.24s ease;
+  transition:
+    transform 0.24s ease,
+    color 0.24s ease;
 }
 
 .progress-item.current {
@@ -3433,37 +2318,8 @@ onBeforeUnmount(() => {
 
 .field-shell {
   gap: 12px;
-  min-height: 62px;
+  min-height: 50px;
   padding: 0 18px 0 16px;
-}
-
-.field-leading-icon {
-  position: relative;
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, rgba(31, 93, 79, 0.88), rgba(103, 228, 193, 0.92));
-  box-shadow:
-    0 0 0 6px rgba(47, 164, 134, 0.10),
-    0 10px 18px rgba(31, 93, 79, 0.16);
-  transition: transform 0.22s ease, box-shadow 0.22s ease;
-}
-
-.field-leading-icon::after {
-  content: '';
-  position: absolute;
-  inset: -7px;
-  border-radius: inherit;
-  border: 1px solid rgba(47, 164, 134, 0.16);
-  opacity: 0.9;
-}
-
-.field-shell:focus-within .field-leading-icon {
-  transform: scale(1.08);
-  box-shadow:
-    0 0 0 8px rgba(47, 164, 134, 0.12),
-    0 12px 24px rgba(31, 93, 79, 0.20);
 }
 
 .field-input {
@@ -3472,36 +2328,14 @@ onBeforeUnmount(() => {
 
 .primary-button,
 .secondary-button {
-  min-height: 56px;
-  border-radius: 20px;
+  min-height: 48px;
+  border-radius: 18px;
 }
 
 .primary-button:active,
 .secondary-button:active,
-.hero-link:active,
-.language-option:active,
-.mode-button:active {
+.language-option:active {
   transform: translateY(0) scale(0.99);
-}
-
-.otp-progress-rail {
-  position: relative;
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(16, 33, 29, 0.06);
-  box-shadow: inset 0 1px 2px rgba(16, 33, 29, 0.06);
-}
-
-.otp-progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background:
-    linear-gradient(90deg, rgba(31, 93, 79, 0.94), rgba(103, 228, 193, 0.92)),
-    linear-gradient(120deg, rgba(255, 255, 255, 0.16), transparent 72%);
-  box-shadow: 0 10px 18px rgba(31, 93, 79, 0.18);
-  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.24s ease;
 }
 
 .otp-input {
@@ -3509,16 +2343,10 @@ onBeforeUnmount(() => {
 }
 
 .otp-input-filled {
-  border-color: rgba(39, 132, 109, 0.20);
+  border-color: rgba(39, 132, 109, 0.2);
   box-shadow:
     0 10px 22px rgba(31, 93, 79, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.50);
-}
-
-.otp-box.is-complete .otp-progress-fill {
-  box-shadow:
-    0 14px 24px rgba(31, 93, 79, 0.18),
-    0 0 0 1px rgba(255, 255, 255, 0.20) inset;
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .status-message,
@@ -3567,21 +2395,14 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .login-shell::before,
   .login-shell::after,
-  .interactive-surface,
-  .interactive-surface::after,
   .language-option::before,
   .primary-button::before,
   .secondary-button::before,
-  .hero-link::after,
   .shell-aurora-orb,
-  .auth-card-glow,
-  .field-leading-icon,
-  .role-detail-glow {
+  .auth-card-glow {
     animation: none !important;
     transition: none !important;
     transform: none !important;
   }
-
 }
-
 </style>

@@ -12,8 +12,10 @@ from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
     AreasOfInterest, UserInterest, AdminProfile
 )
+from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Groups, GroupMembership
+from apps.admin.scope_utils import get_admin_track_ids
 
 
 # ============================================================================
@@ -285,8 +287,8 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                role: Optional[str] = None, track: Optional[str] = None,
                active: Optional[bool] = None, in_group: Optional[str] = None,
-               sort_by: str = "createdAt",
-               sort_order: str = "desc") -> Dict[str, Any]:
+               sort_by: str = "createdAt", sort_order: str = "desc",
+               requesting_user=None) -> Dict[str, Any]:
     """
     Query users with pagination and filters.
     """
@@ -318,6 +320,10 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         filters &= Q(groupmembership__left_at__isnull=True)
     elif in_group == "no":
         filters &= ~Q(groupmembership__left_at__isnull=True)
+
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        filters &= (Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     # Get total count
     total = User.objects.filter(filters).values('id').distinct().count()
@@ -461,11 +467,15 @@ def query_user_by_id(user_id: int) -> Dict[str, Any]:
     return {"msg": "User retrieved successfully", "data": user}
 
 
-def query_tracks() -> Dict[str, Any]:
+def query_tracks(requesting_user=None) -> Dict[str, Any]:
     """
     Get all available tracks for filtering and assignment.
     """
-    tracks_list = Tracks.objects.all().values('id', 'track_name').order_by('track_name')
+    qs = Tracks.objects.all()
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        qs = qs.filter(id__in=track_ids)
+    tracks_list = qs.values('id', 'track_name').order_by('track_name')
     items = [
         {"id": track["id"], "trackName": track["track_name"]}
         for track in tracks_list
@@ -824,16 +834,31 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Handle admin auth account creation
+        # Create AdminProfile and AdminScope for admin users
         if role == "admin":
             try:
-                # TODO: Integrate with admin auth service if needed
-                pass
+                normalized_tracks = [
+                    t.strip() for t in (input_data.get("adminTracks") or []) if t.strip()
+                ]
+                AdminProfile.objects.update_or_create(
+                    admin_id=new_user_id,
+                    defaults={"tracks": normalized_tracks},
+                )
+                for track_name in normalized_tracks:
+                    try:
+                        track_obj = Tracks.objects.get(track_name=track_name)
+                        AdminScope.objects.get_or_create(
+                            user_id=new_user_id,
+                            track=track_obj,
+                            defaults={"is_global": False},
+                        )
+                    except Tracks.DoesNotExist:
+                        pass
             except Exception as e:
                 rollback_created_user(new_user_id)
                 results.append({
                     "input": input_data,
-                    "msg": f"Unable to create admin auth account: {str(e)}",
+                    "msg": f"Unable to create admin profile: {str(e)}",
                     "data": None
                 })
                 continue
@@ -892,14 +917,19 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
         return {"msg": "User not found", "data": None}
     
     now = timezone.now()
-    next_role = input_data.get("role") or (
+    current_role_assignment = (
         RoleAssignmentHistory.objects.filter(
             user_id=user_id, valid_to__isnull=True
-        ).select_related('role').first().role.role_name
-        if RoleAssignmentHistory.objects.filter(
-            user_id=user_id, valid_to__isnull=True
-        ).exists() else "student"
+        )
+        .select_related('role')
+        .first()
     )
+    current_role = (
+        current_role_assignment.role.role_name
+        if current_role_assignment and current_role_assignment.role
+        else None
+    )
+    next_role = input_data.get("role") or current_role or "student"
     
     # Check email change
     if "email" in input_data:
@@ -986,7 +1016,7 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                 user.save()
             
             # Handle role change
-            if "role" in input_data and input_data["role"] != next_role:
+            if "role" in input_data and input_data["role"] != current_role:
                 role_id = resolve_role_id(input_data["role"])
                 
                 # Invalidate current role
@@ -1002,6 +1032,9 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                     valid_from=now,
                     valid_to=None
                 )
+                user.is_staff = input_data["role"] == "admin"
+                user.is_superuser = input_data["role"] == "admin"
+                user.save(update_fields=["is_staff", "is_superuser"])
             
             # Update role-specific profiles
             if next_role == "student":
@@ -1056,6 +1089,17 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
             admin_id=user_id,
             defaults={"tracks": normalized_tracks},
         )
+        AdminScope.objects.filter(user_id=user_id, is_global=False).delete()
+        for track_name in normalized_tracks:
+            try:
+                track_obj = Tracks.objects.get(track_name=track_name)
+                AdminScope.objects.get_or_create(
+                    user_id=user_id,
+                    track=track_obj,
+                    defaults={"is_global": False},
+                )
+            except Tracks.DoesNotExist:
+                pass
     
     # Fetch updated user
     updated_user = fetch_user_by_id(user_id)

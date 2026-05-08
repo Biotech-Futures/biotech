@@ -18,6 +18,7 @@ DEBUG = config("DEBUG", default="true", cast=env_bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
 INSTALLED_APPS = [
+    'daphne',
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -31,7 +32,6 @@ INSTALLED_APPS = [
     'apps.resources',
     'apps.announcements',
     'apps.audit',
-    'apps.integrations',
     'apps.dashboard',
     'apps.events',
     'apps.user_sessions',
@@ -155,6 +155,9 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+SUPPORT_EMAIL = config("SUPPORT_EMAIL", default="biotech.futures@sydney.edu.au")
 
 CHANNEL_LAYERS = {
     "default": {
@@ -223,10 +226,30 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=Csv()
 )
 
-MAGIC_LINK_REDIRECT_URL = config("MAGIC_LINK_REDIRECT_URL", default="http://localhost:5173/#/auth/callback")
-LOGIN_REDIRECT_URL = config("LOGIN_REDIRECT_URL", default="http://localhost:5173/auth/callback")
+FRONTEND_BASE_URL = config(
+    "FRONTEND_BASE_URL", default="http://localhost:5173"
+).rstrip("/")
+
+ADMIN_FRONTEND_BASE_URL = config(
+    "ADMIN_FRONTEND_BASE_URL", default="https://mentoringadmin.biotechfutures.org"
+).rstrip("/")
+
+# Magic link still uses hash routing while the others use path routing —
+# unify in a follow-up once the SPA serves /auth/callback without a hash.
+MAGIC_LINK_REDIRECT_URL             = f"{FRONTEND_BASE_URL}/#/auth/callback"
+ADMIN_MAGIC_LINK_REDIRECT_URL       = f"{ADMIN_FRONTEND_BASE_URL}/auth/callback"
+PASSWORD_RESET_REDIRECT_URL         = f"{FRONTEND_BASE_URL}/auth/reset-password"
+ADMIN_PASSWORD_RESET_REDIRECT_URL   = f"{ADMIN_FRONTEND_BASE_URL}/auth/reset-password"
+
+# Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
+# when no ?next= is present. Keep it on a Django-side URL so an engineer who
+# types /admin/login/ directly lands on the admin dashboard, not the SPA.
+LOGIN_REDIRECT_URL = "/admin/"
+
+PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
+    "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
+)
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
-MAILTRAP_TOKEN = config("MAILTRAP_TOKEN", default="")
 
 # --- Chat sanitiser ----------------------------------------------------------
 # Sanitisation policy is sourced from environment variables so moderation

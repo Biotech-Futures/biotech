@@ -1,8 +1,9 @@
-from django.db.models import Max, Min
+from django.db.models import Max
 from django.utils import timezone
 
 from apps.groups.models import GroupMembership, Groups
-from .models import Tasks, Milestone
+
+from .models import Task
 
 
 def calculate_completion_rate(completed_tasks: int, total_tasks: int) -> int:
@@ -30,13 +31,12 @@ def get_allowed_group_ids(user):
 
 
 def build_progress_snapshot(group_id=None, allowed_group_ids=None):
-
-    task_qs = Tasks.objects.filter(deleted_at__isnull=True)
+    task_qs = Task.objects.get_dashboard_tasks()
 
     if group_id is not None:
-        task_qs = task_qs.filter(milestone__group_id=group_id)
+        task_qs = task_qs.filter(group_id=group_id)
     elif allowed_group_ids is not None:
-        task_qs = task_qs.filter(milestone__group_id__in=allowed_group_ids)
+        task_qs = task_qs.filter(group_id__in=allowed_group_ids)
 
     totals = task_qs.get_task_totals()
     total_tasks = totals["total_tasks"] or 0
@@ -45,28 +45,28 @@ def build_progress_snapshot(group_id=None, allowed_group_ids=None):
     completion_rate = calculate_completion_rate(completed_tasks, total_tasks)
 
     current_week = None
-    next_milestone_name = None
-    next_milestone_date = None
+    next_task_name = None
+    next_task_date = None
 
     if group_id is not None:
         group = Groups.objects.filter(pk=group_id).first()
         if group:
             current_week = get_current_week_label(group.created_at)
 
-        next_milestone = (
-            Milestone.objects
-            .filter(group_id=group_id, completed=False, deleted_at__isnull=True)
-            .annotate(earliest_task_due=Min("tasks__due_date"))
-            .order_by("earliest_task_due")
+        next_top_level = (
+            Task.objects.active()
+            .filter(group_id=group_id, parent__isnull=True, completed=False)
+            .order_by("due_date")
             .first()
         )
 
-        if next_milestone:
-            next_milestone_name = next_milestone.milestone_name
-            next_milestone_date = (
-                Tasks.objects
-                .filter(milestone=next_milestone, deleted_at__isnull=True)
+        if next_top_level:
+            next_task_name = next_top_level.name
+            next_task_date = (
+                Task.objects.active()
+                .filter(parent_id=next_top_level.id)
                 .aggregate(max_due=Max("due_date"))["max_due"]
+                or next_top_level.due_date
             )
 
     return {
@@ -74,6 +74,6 @@ def build_progress_snapshot(group_id=None, allowed_group_ids=None):
         "completedTasks": completed_tasks,
         "totalTasks": total_tasks,
         "currentWeek": current_week,
-        "nextMilestone": next_milestone_name,
-        "nextMilestoneDate": next_milestone_date,
+        "nextTask": next_task_name,
+        "nextTaskDate": next_task_date,
     }

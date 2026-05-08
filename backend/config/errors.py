@@ -164,3 +164,28 @@ class ResourcePermissionDenied(APIException):
         super().__init__()
         if reason:
             self.extra = {"reason": reason}
+
+
+# --- password reset ---------------------------------------------------------
+
+class InvalidOrExpiredResetToken(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Invalid or expired password reset link."
+    default_code = "invalid_or_expired_reset_token"
+
+
+class PasswordResetRateLimited(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = "Too many password reset attempts. Try again later."
+    default_code = "password_reset_rate_limited"
+
+
+class WeakPassword(APIException):
+    """Surfaces failures from AUTH_PASSWORD_VALIDATORS as field errors."""
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Password does not meet security requirements."
+    default_code = "weak_password"
+
+    def __init__(self, validation_errors):
+        super().__init__()
+        self.extra = {"fields": {"new_password": list(validation_errors)}}

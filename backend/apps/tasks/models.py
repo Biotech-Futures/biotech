@@ -1,99 +1,12 @@
 from django.conf import settings
-from django.db import models
-from django.utils import timezone
-from django.db.models import Q
+from django.db import models, transaction
 from django.db.models import Count, Q
+from django.utils import timezone
 
 
-class TaskQuerySet(models.QuerySet):
-    def get_dashboard_tasks(self):
-        return (
-            self.filter(deleted_at__isnull=True)
-            .select_related("milestone", "milestone__group")
-            .prefetch_related("assignments")
-            .values(
-                "milestone__id",
-                "milestone__milestone_name",
-                "milestone__group__id",
-            )
-            .annotate(
-                total_tasks=Count("id"),
-                completed_tasks=Count("id", filter=Q(completed=True)),
-            )
-        )
-
-    def get_task_totals(self):
-        return self.filter(deleted_at__isnull=True).aggregate(
-            total_tasks=Count("id"),
-            completed_tasks=Count("id", filter=Q(completed=True)),
-        )
-
-
-class TaskManager(models.Manager):
-    def get_queryset(self):
-        return TaskQuerySet(self.model, using=self._db)
-
-    def get_dashboard_tasks(self):
-        return self.get_queryset().get_dashboard_tasks()
-
-    def get_task_totals(self):
-        return self.get_queryset().get_task_totals()
-
-
-class Milestone(models.Model):
-    group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE)
-    milestone_name = models.CharField(max_length=255)
-    completed = models.BooleanField(default=False)
-    deleted_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = 'milestone'
-        verbose_name = "Milestone"
-        indexes = [
-            models.Index(fields=['group']),
-            models.Index(fields=['completed']),
-            models.Index(fields=['deleted_at']),
-        ]
-
-    def __str__(self):
-        return f"Milestone: {self.milestone_name} (Group: {self.group})"
-
-
-class TaskAssignees(models.Model):
-    task = models.ForeignKey('Tasks', on_delete=models.CASCADE, related_name="assignments")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_assignees")
-    assigned_datetime = models.DateTimeField(default=timezone.now)
-    deleted_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = 'task_assignees'
-        verbose_name = "Task Assignees"
-
-        indexes = [
-            models.Index(fields=['task']),
-            models.Index(fields=['user']),
-            models.Index(fields=['assigned_datetime']),
-            models.Index(
-                name='ta_active_by_task',
-                fields=['task'],
-                condition=Q(deleted_at__isnull=True)
-            ),
-            models.Index(
-                name='ta_active_by_user',
-                fields=['user'],
-                condition=Q(deleted_at__isnull=True)
-            ),
-        ]
-
-        constraints = [
-            models.UniqueConstraint(
-                fields=(['task', 'user']),
-                name="unique_task_user"
-            )
-        ]
-
-    def __str__(self):
-        return f"TaskAssignee: {self.user} assigned to {self.task} at {self.assigned_datetime}"
+class TaskType(models.TextChoices):
+    GROUP = "group", "Group"
+    INDIVIDUAL = "individual", "Individual"
 
 
 class TaskStatus(models.TextChoices):
@@ -103,26 +16,120 @@ class TaskStatus(models.TextChoices):
     BLOCKED = "blocked", "Blocked"
 
 
-class Tasks(models.Model):
+class CreatorRole(models.TextChoices):
+    GLOBAL_ADMIN = "global_admin", "Global Administrator"
+    TRACK_ADMIN = "track_admin", "Track Administrator"
+    MENTOR = "mentor", "Mentor"
+    SUPERVISOR = "supervisor", "Supervisor"
+    STUDENT = "student", "Student"
+
+
+class TaskQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(deleted_at__isnull=True)
+
+    def get_dashboard_tasks(self):
+        return (
+            self.active()
+            .select_related("group", "assigned_user", "parent", "created_by")
+        )
+
+    def get_task_totals(self):
+        return self.aggregate(
+            total_tasks=Count("id"),
+            completed_tasks=Count("id", filter=Q(completed=True)),
+        )
+
+
+class TaskManager(models.Manager.from_queryset(TaskQuerySet)):
+    pass
+
+
+class Task(models.Model):
     objects = TaskManager()
 
-    task_name = models.CharField(max_length=255)
-    due_date = models.DateTimeField()
-    deleted_at = models.DateTimeField(null=True, blank=True)
-    completed = models.BooleanField(default=False)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    due_date = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=TaskStatus.choices, default=TaskStatus.TODO)
-    milestone = models.ForeignKey('Milestone', null=True, blank=True, on_delete=models.SET_NULL)
-    task_description = models.CharField(max_length=255, blank=True, null=True)
+    completed = models.BooleanField(default=False)
+
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        related_name="children",
+        null=True,
+        blank=True,
+    )
+
+    task_type = models.CharField(max_length=20, choices=TaskType.choices)
+    group = models.ForeignKey(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="group_tasks",
+        null=True,
+        blank=True,
+    )
+    assigned_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="assigned_tasks",
+        null=True,
+        blank=True,
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="created_tasks",
+        null=True,
+    )
+    creator_role = models.CharField(max_length=20, choices=CreatorRole.choices)
+
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'tasks'
-        verbose_name = "Tasks"
-        ordering = ["-due_date"]
+        db_table = "task"
+        verbose_name = "Task"
+        ordering = ["id"]
         indexes = [
-            models.Index(fields=['due_date']),
-            models.Index(fields=['milestone']),
-            models.Index(fields=['deleted_at']),
+            models.Index(fields=["group", "deleted_at"]),
+            models.Index(fields=["assigned_user", "deleted_at"]),
+            models.Index(fields=["parent"]),
+            models.Index(fields=["created_by"]),
+            models.Index(fields=["creator_role"]),
+            models.Index(fields=["task_type", "deleted_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (Q(task_type="group") & Q(group__isnull=False) & Q(assigned_user__isnull=True))
+                    | (Q(task_type="individual") & Q(assigned_user__isnull=False) & Q(group__isnull=True))
+                ),
+                name="task_type_target_consistency",
+            ),
         ]
 
     def __str__(self):
-        return f"Task: {self.task_name} (Due: {self.due_date})"
+        return f"Task<{self.task_type}>: {self.name}"
+
+    @transaction.atomic
+    def soft_delete(self):
+        # Iterative BFS over children — recursion would risk hitting the
+        # interpreter limit on deep task trees.
+        now = timezone.now()
+        ids_to_mark = [self.id]
+        frontier = [self.id]
+        while frontier:
+            children = list(
+                Task.objects.filter(parent_id__in=frontier, deleted_at__isnull=True)
+                .values_list("id", flat=True)
+            )
+            if not children:
+                break
+            ids_to_mark.extend(children)
+            frontier = children
+        Task.objects.filter(id__in=ids_to_mark, deleted_at__isnull=True).update(deleted_at=now)
+        self.deleted_at = now

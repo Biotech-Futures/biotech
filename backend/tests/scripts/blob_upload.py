@@ -1,5 +1,7 @@
+import tempfile
+from pathlib import Path
+
 from azure.storage.blob import BlobServiceClient
-import os
 
 '''
 For testing blob uploads. If upload successful but URL is not authorised, it will return "PublicAccessNotPermitted"
@@ -12,16 +14,19 @@ connection_string = f"DefaultEndpointsProtocol=https;AccountName={account_name};
 blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 container_client = blob_service_client.get_container_client(container_name)
 
-test_filename = "azure_test_upload.txt"
-with open(test_filename, "w") as f:
-    f.write("This is a test file uploaded from Django.")
+blob_name = "azure_test_upload.txt"
 
-with open(test_filename, "rb") as data:
-    blob_client = container_client.get_blob_client(test_filename)
-    blob_client.upload_blob(data, overwrite=True)
+# Stage the payload in the OS temp dir so the artifact never lands in the repo,
+# even if the script aborts before cleanup.
+with tempfile.TemporaryDirectory() as tmpdir:
+    local_path = Path(tmpdir) / blob_name
+    local_path.write_text("This is a test file uploaded from Django.")
 
-print(f"Uploaded '{test_filename}' successfully")
+    with local_path.open("rb") as data:
+        blob_client = container_client.get_blob_client(blob_name)
+        blob_client.upload_blob(data, overwrite=True)
 
-blob_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{test_filename}"
+print(f"Uploaded '{blob_name}' successfully")
+
+blob_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}"
 print(f"📂 Accessible at: {blob_url}")
-os.remove(test_filename)

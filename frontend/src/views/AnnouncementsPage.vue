@@ -62,6 +62,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { buildSessionHeaders } from '@/utils/csrf'
+import { apiErrorFromResponse } from '@/utils/apiError'
 
 interface AnnouncementAudience {
   role_name?: string | null
@@ -212,7 +213,7 @@ async function loadAnnouncements() {
     })
 
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`)
+      throw await apiErrorFromResponse(response)
     }
 
     const data = await response.json() as AnnouncementApiItem[] | AnnouncementListResponse

@@ -98,3 +98,88 @@ class LoginToken(models.Model):
             pass
 
         return None
+
+
+class PasswordResetToken(models.Model):
+    """High-entropy single-use token issued via email for self-service password reset."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='password_reset_tokens',
+    )
+    # secrets.token_urlsafe(32) -> 43-char base64url string; 64 leaves room
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+    requested_ip = models.GenericIPAddressField(null=True, blank=True)
+    requested_user_agent = models.CharField(max_length=512, blank=True, default="")
+
+    class Meta:
+        db_table = 'password_reset_tokens'
+        verbose_name = "Password Reset Token"
+        verbose_name_plural = "Password Reset Tokens"
+        indexes = [
+            models.Index(fields=['user', 'used']),
+            models.Index(fields=['expires_at']),
+            models.Index(fields=['created_at']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"PasswordReset({self.user.email}, {'used' if self.used else 'active'})"
+
+    @property
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    @property
+    def is_valid(self):
+        return not self.used and not self.is_expired
+
+    def mark_as_used(self):
+        self.used = True
+        self.used_at = timezone.now()
+        self.save(update_fields=['used', 'used_at'])
+
+    @classmethod
+    def generate_token(cls):
+        return secrets.token_urlsafe(32)
+
+    @classmethod
+    def create_for_user(cls, user, *, expiry_minutes=30, ip=None, user_agent=""):
+        """Issue a new token; invalidate any prior unused token for the same user."""
+        # one active token per user
+        cls.objects.filter(user=user, used=False).update(used=True, used_at=timezone.now())
+        return cls.objects.create(
+            user=user,
+            token=cls.generate_token(),
+            expires_at=timezone.now() + timedelta(minutes=expiry_minutes),
+            requested_ip=ip,
+            requested_user_agent=(user_agent or "")[:512],
+        )
+
+    @classmethod
+    def consume(cls, token):
+        """Atomic lookup + mark-used. Returns row on success, None otherwise."""
+        from django.db import transaction
+        with transaction.atomic():
+            # SELECT FOR UPDATE prevents two concurrent confirms reusing the same token
+            row = (cls.objects
+                   .select_for_update()
+                   .filter(token=token, used=False, expires_at__gt=timezone.now())
+                   .first())
+            if row is None:
+                return None
+            row.mark_as_used()
+            return row
+
+    @classmethod
+    def cleanup_expired(cls):
+        """Periodic janitor — drop expired rows."""
+        expired = cls.objects.filter(expires_at__lt=timezone.now())
+        count = expired.count()
+        expired.delete()
+        return count
