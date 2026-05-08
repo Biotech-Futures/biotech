@@ -13,12 +13,16 @@ from apps.common.storage import get_resource_storage
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
 from apps.resources.models import ResourceAudience, ResourceType, Resources, RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope
+from tests.apps._helpers import StorageCleanupMixin
 
 
 User = get_user_model()
 
 
-class ResourceFileTransferTests(TestCase):
+class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
+    storage_attr = "storage"
+    storage_keys_attr = "created_storage_keys"
+
     def setUp(self):
         self.client = APIClient()
         self.country = Countries.objects.create(country_name="Australia")
@@ -98,11 +102,6 @@ class ResourceFileTransferTests(TestCase):
         )
         self.created_storage_keys = []
         self.storage = get_resource_storage()
-
-    def tearDown(self):
-        for storage_key in self.created_storage_keys:
-            if storage_key and self.storage.exists(storage_key):
-                self.storage.delete(storage_key)
 
     def _build_upload(
         self,
@@ -360,8 +359,8 @@ class ResourceFileTransferTests(TestCase):
         )
 
         self.client.force_authenticate(user=self.student)
-        with patch("apps.resources.views.resolve_managed_storage_url") as resolve_storage_url:
-            with patch("apps.resources.views.open_managed_resource_file") as open_storage_file:
+        with patch("apps.resources.views.RESOURCE_FILE_SERVICE.resolve_url") as resolve_storage_url:
+            with patch("apps.resources.views.RESOURCE_FILE_SERVICE.open") as open_storage_file:
                 response = self.client.get(reverse("resource-files-download", kwargs={"pk": resource.id}))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -397,3 +396,24 @@ class ResourceFileTransferTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('filename="redacted.pdf"', response["Content-Disposition"])
+
+    def test_external_http_resource_download_is_blocked(self):
+        resource = Resources.objects.create(
+            name="Legacy External Guide",
+            description="External file with insecure URL",
+            uploaded_by=self.global_admin,
+            kind=Resources.ResourceKind.FILE,
+            storage_key="http://example.test/guide.pdf",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        access_response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+        download_response = self.client.get(reverse("resource-files-download", kwargs={"pk": resource.id}))
+
+        self.assertEqual(access_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(access_response.data["access_mode"], "unavailable")
+        self.assertIsNone(access_response.data["external_url"])
+        self.assertEqual(download_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(download_response.data["detail"], "This resource has an invalid external URL.")

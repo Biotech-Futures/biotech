@@ -26,6 +26,7 @@ from rest_framework import mixins, pagination, permissions, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
+from urllib.parse import urlparse
 from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience
 from .serializers import (
     RoleSerializer,
@@ -37,12 +38,18 @@ from .serializers import (
     ResourceTypeSerializer,
 )
 from django.db.models import Q
-from django.utils.dateparse import parse_date
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 from datetime import datetime
 from django.core.exceptions import ValidationError
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from config.errors import (
+    RoleNotFound,
+    UserAndRoleIdRequired,
+    UserHasActiveRoles,
+    UserNotFound,
+)
 from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
@@ -56,9 +63,8 @@ from .rbac import (
 from .models import ResourceType
 from .permissions import IsResourceAdmin
 from .services.storage import (
+    RESOURCE_FILE_SERVICE,
     is_external_storage_key,
-    open_managed_resource_file,
-    resolve_managed_storage_url,
 )
 
 
@@ -163,77 +169,57 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
         force = request.data.get('force', False)
 
         if not user_id or not role_id:
-            return Response(
-                {"error": "user_id and role_id are required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise UserAndRoleIdRequired()
+
+        User = get_user_model()
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist as exc:
+            raise UserNotFound() from exc
 
         try:
-            User = get_user_model()
-            user = User.objects.get(id=user_id)
             role = Roles.objects.get(id=role_id)
+        except Roles.DoesNotExist as exc:
+            raise RoleNotFound() from exc
 
-            if start_date:
-                from django.utils.dateparse import parse_datetime
-                start_date = parse_datetime(start_date)
+        if start_date:
+            start_date = parse_datetime(start_date)
 
-            if not force:
-                active_roles = RoleAssignmentHistory.objects.filter(
-                    user=user,
-                    valid_to__isnull=True
-                ).exclude(role=role)
+        if not force:
+            active_roles = RoleAssignmentHistory.objects.filter(
+                user=user,
+                valid_to__isnull=True
+            ).exclude(role=role)
 
-                if active_roles.exists() and not revoke_others:
-                    active_role_names = [ar.role.role_name for ar in active_roles]
-                    return Response(
-                        {
-                            "error": "User already has active roles",
-                            "existing_roles": active_role_names,
-                            "suggestion": "Set 'revoke_others': true to revoke existing roles, or 'force': true to allow multiple roles"
-                        },
-                        status=status.HTTP_409_CONFLICT
-                    )
+            if active_roles.exists() and not revoke_others:
+                raise UserHasActiveRoles(
+                    [assignment.role.role_name for assignment in active_roles]
+                )
 
-            result = grant_role(user, role, start=start_date, revoke_others=revoke_others, force=force)
+        result = grant_role(user, role, start=start_date, revoke_others=revoke_others, force=force)
 
-            response_data = {
-                "message": result.get('message', f"Role '{role.role_name}' granted to user '{user.email}'"),
-                "action_taken": result.get('action_taken'),
-                "details": {
-                    "user_id": user.id,
-                    "role_id": role.id,
-                    "start_time": start_date or timezone.now(),
-                    "user_groups": list(user.groups.values_list('name', flat=True)),
-                    "granted_role": result['granted_role'],
-                    "revoked_roles": result['revoked_roles'],
-                    "had_existing_roles": result['had_existing'],
-                    "duplicate_role": result.get('duplicate_role', False)
-                }
+        response_data = {
+            "message": result.get('message', f"Role '{role.role_name}' granted to user '{user.email}'"),
+            "action_taken": result.get('action_taken'),
+            "details": {
+                "user_id": user.id,
+                "role_id": role.id,
+                "start_time": start_date or timezone.now(),
+                "user_groups": list(user.groups.values_list('name', flat=True)),
+                "granted_role": result['granted_role'],
+                "revoked_roles": result['revoked_roles'],
+                "had_existing_roles": result['had_existing'],
+                "duplicate_role": result.get('duplicate_role', False)
             }
+        }
 
-            if result['revoked_roles']:
-                response_data["warning"] = f"Revoked existing roles: {', '.join(result['revoked_roles'])}"
+        if result['revoked_roles']:
+            response_data["warning"] = f"Revoked existing roles: {', '.join(result['revoked_roles'])}"
 
-            if result.get('duplicate_role') and not force:
-                response_data["info"] = "User already had this role - extended the duration instead of creating duplicate"
+        if result.get('duplicate_role') and not force:
+            response_data["info"] = "User already had this role - extended the duration instead of creating duplicate"
 
-            return Response(response_data, status=status.HTTP_200_OK)
-
-        except User.DoesNotExist:
-            return Response(
-                {"error": "User not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Roles.DoesNotExist:
-            return Response(
-                {"error": "Role not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated, IsResourceAdmin])
     def revoke_role(self, request):
@@ -242,50 +228,36 @@ class RoleAssignmentHistoryViewSet(mixins.UpdateModelMixin,
         end_date = request.data.get('end')
 
         if not user_id or not role_id:
-            return Response(
-                {"error": "user_id and role_id are required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise UserAndRoleIdRequired()
+
+        User = get_user_model()
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist as exc:
+            raise UserNotFound() from exc
 
         try:
-            User = get_user_model()
-            user = User.objects.get(id=user_id)
             role = Roles.objects.get(id=role_id)
+        except Roles.DoesNotExist as exc:
+            raise RoleNotFound() from exc
 
-            if end_date:
-                from django.utils.dateparse import parse_datetime
-                end_date = parse_datetime(end_date)
+        if end_date:
+            end_date = parse_datetime(end_date)
 
-            revoke_role(user, role, end=end_date)
+        revoke_role(user, role, end=end_date)
 
-            return Response(
-                {
-                    "message": f"Role '{role.role_name}' revoked from user '{user.email}'",
-                    "details": {
-                        "user_id": user.id,
-                        "role_id": role.id,
-                        "end_time": end_date or timezone.now(),
-                        "user_groups": list(user.groups.values_list('name', flat=True))
-                    }
-                },
-                status=status.HTTP_200_OK
-            )
-
-        except User.DoesNotExist:
-            return Response(
-                {"error": "User not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Roles.DoesNotExist:
-            return Response(
-                {"error": "Role not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        return Response(
+            {
+                "message": f"Role '{role.role_name}' revoked from user '{user.email}'",
+                "details": {
+                    "user_id": user.id,
+                    "role_id": role.id,
+                    "end_time": end_date or timezone.now(),
+                    "user_groups": list(user.groups.values_list('name', flat=True))
+                }
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 class ResourcesPagination(pagination.PageNumberPagination):
@@ -467,10 +439,14 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # Resource access is explicit so the frontend can stop guessing whether a resource is
         # directly downloadable, opens as an external page, or is not yet wired to storage.
         storage_key = (resource.storage_key or "").strip()
-        external_url = storage_key if is_external_storage_key(storage_key) else None
+        external_url = self._validated_external_resource_url(storage_key)
+        invalid_external_url = bool(storage_key) and is_external_storage_key(storage_key) and external_url is None
         if not storage_key:
             access_mode = "unavailable"
             detail = "This resource does not have a configured storage target yet."
+        elif invalid_external_url:
+            access_mode = "unavailable"
+            detail = "This resource has an invalid external URL."
         elif external_url and resource.kind == Resources.ResourceKind.PAGE:
             access_mode = "external_page"
             detail = None
@@ -497,6 +473,15 @@ class ResourcesViewSet(mixins.ListModelMixin,
             "detail": detail,
         }
 
+    def _validated_external_resource_url(self, storage_key: str | None):
+        value = (storage_key or "").strip()
+        if not is_external_storage_key(value):
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or not parsed.netloc:
+            return None
+        return value
+
     @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
     def access(self, request, pk=None):
         resource = self.get_object()
@@ -516,16 +501,16 @@ class ResourcesViewSet(mixins.ListModelMixin,
         external_url = payload["external_url"]
         if external_url and payload["access_mode"] in {"external_file", "external_page"}:
             return HttpResponseRedirect(external_url)
-
-        storage_key = (resource.storage_key or "").strip()
-        if not storage_key:
+        if payload["access_mode"] == "unavailable":
             return Response(
                 {"detail": payload["detail"]},
                 status=status.HTTP_409_CONFLICT,
             )
+
+        storage_key = (resource.storage_key or "").strip()
         return serve_managed_file(
-            resolve_url=resolve_managed_storage_url,
-            open_file=open_managed_resource_file,
+            resolve_url=RESOURCE_FILE_SERVICE.resolve_url,
+            open_file=RESOURCE_FILE_SERVICE.open,
             storage_key=storage_key,
             filename=payload["file_name"] or resource.name,
             mime_type=resource.file_mime_type,

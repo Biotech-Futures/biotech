@@ -67,10 +67,11 @@ class MessageAttachmentSerializer(serializers.ModelSerializer):
 
     def get_download_url(self, obj):
         request = self.context.get("request")
+        group_pk = self.context.get("group_pk") or obj.message.group_id
         path = reverse(
             "group-messages-attachment-download",
             kwargs={
-                "group_pk": obj.message.group_id,
+                "group_pk": group_pk,
                 "pk": obj.message_id,
                 "attachment_pk": obj.id,
             },

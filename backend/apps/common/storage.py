@@ -237,3 +237,11 @@ def get_resource_storage() -> ManagedContainerStorage:
 @lru_cache(maxsize=2)
 def get_chat_storage() -> ManagedContainerStorage:
     return ManagedContainerStorage("chat", ChatAzureStorage)
+
+
+def reset_managed_storage_caches() -> None:
+    # Developer note: prod never flips USE_AZURE_BLOB_STORAGE at runtime, but tests
+    # do. Exposing an explicit cache reset keeps override_settings-based storage
+    # tests from getting a stale backend instance.
+    get_resource_storage.cache_clear()
+    get_chat_storage.cache_clear()

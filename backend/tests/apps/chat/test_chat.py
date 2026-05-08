@@ -26,6 +26,7 @@ from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
 from apps.common.storage import get_chat_storage
 from apps.users.models import AdminScope
+from tests.apps._helpers import StorageCleanupMixin, assert_public_message_shape
 
 
 # Create your tests here.
@@ -38,7 +39,7 @@ CHANNEL_TEST_SETTINGS = {
 
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-class ChatFeatureTests(TestCase):
+class ChatFeatureTests(StorageCleanupMixin, TestCase):
     """
     Integration tests for chat:
       - POST /chat/groups/{id}/messages/
@@ -47,6 +48,8 @@ class ChatFeatureTests(TestCase):
       - WebSocket broadcasts (message.created / message.deleted)
       - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
     """
+    storage_attr = "chat_storage"
+    storage_keys_attr = "created_chat_storage_keys"
 
     def setUp(self):
         User = get_user_model()
@@ -114,11 +117,6 @@ class ChatFeatureTests(TestCase):
         self.chat_storage = get_chat_storage()
         self.created_chat_storage_keys = []
 
-    def tearDown(self):
-        for storage_key in self.created_chat_storage_keys:
-            if storage_key and self.chat_storage.exists(storage_key):
-                self.chat_storage.delete(storage_key)
-
 
     # --------- helpers ---------
     def _list_url(self, group_id=None):
@@ -128,24 +126,6 @@ class ChatFeatureTests(TestCase):
     def _detail_url(self, mid, group_id=None):
         gid = group_id or self.group.id
         return reverse("group-messages-detail", kwargs={"group_pk": gid, "pk": mid})
-
-    def _assert_public_message_shape(self, payload):
-        self.assertIn("id", payload)
-        self.assertIn("sender_name", payload)
-        self.assertIn("message_text", payload)
-        self.assertIn("message_type", payload)
-        self.assertIn("sent_at", payload)
-        self.assertIn("edited_at", payload)
-        self.assertIn("is_edited", payload)
-        self.assertIn("attachments", payload)
-        self.assertIn("resources", payload)
-        self.assertNotIn("group", payload)
-        self.assertNotIn("sender_user", payload)
-        self.assertNotIn("deleted_at", payload)
-        self.assertNotIn("is_deleted", payload)
-        self.assertNotIn("sender_id", payload)
-        self.assertNotIn("text", payload)
-        self.assertNotIn("resource_ids", payload)
 
     # --------- tests ---------
 
@@ -157,7 +137,7 @@ class ChatFeatureTests(TestCase):
         }
         resp = self.client_student.post(url, payload, format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
-        self._assert_public_message_shape(resp.data)
+        assert_public_message_shape(self, resp.data)
 
         msg_id = resp.data["id"]
         msg = Messages.objects.get(pk=msg_id)
@@ -178,7 +158,7 @@ class ChatFeatureTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content)
         items = resp.data["items"]
         self.assertEqual(len(items), 2)
-        self._assert_public_message_shape(items[0])
+        assert_public_message_shape(self, items[0])
         # order should be m3, m2
         returned_ids = [it["id"] for it in items]
         self.assertEqual(returned_ids, [m3.id, m2.id])
@@ -374,7 +354,7 @@ class ChatFeatureTests(TestCase):
 
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(len(callbacks), 1)
-        self._assert_public_message_shape(response.data)
+        assert_public_message_shape(self, response.data)
         self.assertEqual(response.data["message_type"], "attachment")
         message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
         self.created_chat_storage_keys.append(message.attachments.get().storage_key)
@@ -423,7 +403,7 @@ class ChatFeatureTests(TestCase):
 
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(len(callbacks), 1)
-        self._assert_public_message_shape(response.data)
+        assert_public_message_shape(self, response.data)
         fake_layer.group_send.assert_not_called()
 
         message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
@@ -451,7 +431,7 @@ class ChatFeatureTests(TestCase):
             format="multipart",
         )
         self.assertEqual(response.status_code, 201, response.content)
-        self._assert_public_message_shape(response.data)
+        assert_public_message_shape(self, response.data)
         self.assertEqual(response.data["message_type"], "attachment")
         self.assertEqual(response.data["message_text"], "See attached")
         self.assertEqual(len(response.data["attachments"]), 1)
@@ -511,7 +491,10 @@ class ChatFeatureTests(TestCase):
         self.assertEqual(download_response.status_code, 403)
 
 
-class ChatAttachmentRBACTests(TestCase):
+class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
+    storage_attr = "chat_storage"
+    storage_keys_attr = "created_chat_storage_keys"
+
     def setUp(self):
         User = get_user_model()
         self.client = APIClient()
@@ -564,11 +547,6 @@ class ChatAttachmentRBACTests(TestCase):
         self.chat_storage = get_chat_storage()
         self.created_chat_storage_keys = []
 
-    def tearDown(self):
-        for storage_key in self.created_chat_storage_keys:
-            if storage_key and self.chat_storage.exists(storage_key):
-                self.chat_storage.delete(storage_key)
-
     def _upload_url(self, group):
         return reverse("group-messages-upload", kwargs={"group_pk": group.id})
 
@@ -581,24 +559,6 @@ class ChatAttachmentRBACTests(TestCase):
                 "attachment_pk": attachment.id,
             },
         )
-
-    def _assert_public_message_shape(self, payload):
-        self.assertIn("id", payload)
-        self.assertIn("sender_name", payload)
-        self.assertIn("message_text", payload)
-        self.assertIn("message_type", payload)
-        self.assertIn("sent_at", payload)
-        self.assertIn("edited_at", payload)
-        self.assertIn("is_edited", payload)
-        self.assertIn("attachments", payload)
-        self.assertIn("resources", payload)
-        self.assertNotIn("group", payload)
-        self.assertNotIn("sender_user", payload)
-        self.assertNotIn("deleted_at", payload)
-        self.assertNotIn("is_deleted", payload)
-        self.assertNotIn("sender_id", payload)
-        self.assertNotIn("text", payload)
-        self.assertNotIn("resource_ids", payload)
 
     def _upload_attachment(
         self,
@@ -701,9 +661,9 @@ class ChatAttachmentRBACTests(TestCase):
         )
         upload_response, message, attachment = self._upload_attachment(self.client_mentor, self.primary_group)
         self.assertEqual(text_response.status_code, 201)
-        self._assert_public_message_shape(text_response.data)
+        assert_public_message_shape(self, text_response.data)
         self.assertEqual(upload_response.status_code, 201)
-        self._assert_public_message_shape(upload_response.data)
+        assert_public_message_shape(self, upload_response.data)
         self.assertEqual(set(upload_response.data.keys()), set(text_response.data.keys()))
         self.assertIn("download_url", upload_response.data["attachments"][0])
 
@@ -720,7 +680,7 @@ class ChatAttachmentRBACTests(TestCase):
     def test_supervisor_can_upload_download_only_in_their_group(self):
         upload_response, message, attachment = self._upload_attachment(self.client_supervisor, self.primary_group)
         self.assertEqual(upload_response.status_code, 201)
-        self._assert_public_message_shape(upload_response.data)
+        assert_public_message_shape(self, upload_response.data)
         self.assertIn("download_url", upload_response.data["attachments"][0])
 
         download_response = self.client_supervisor.get(self._download_url(self.primary_group, message, attachment))
@@ -736,7 +696,7 @@ class ChatAttachmentRBACTests(TestCase):
     def test_student_can_upload_download_only_in_their_group(self):
         upload_response, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
         self.assertEqual(upload_response.status_code, 201)
-        self._assert_public_message_shape(upload_response.data)
+        assert_public_message_shape(self, upload_response.data)
         self.assertIn("download_url", upload_response.data["attachments"][0])
 
         download_response = self.client_student.get(self._download_url(self.primary_group, message, attachment))
@@ -794,8 +754,8 @@ class ChatAttachmentRBACTests(TestCase):
     def test_signed_blob_url_is_not_generated_before_permission_passes(self):
         _, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
 
-        with patch("apps.chat.views.resolve_managed_chat_file_url") as resolve_storage_url:
-            with patch("apps.chat.views.open_managed_chat_file") as open_storage_file:
+        with patch("apps.chat.views.CHAT_FILE_SERVICE.resolve_url") as resolve_storage_url:
+            with patch("apps.chat.views.CHAT_FILE_SERVICE.open") as open_storage_file:
                 response = self.client_outsider.get(self._download_url(self.primary_group, message, attachment))
 
         self.assertEqual(response.status_code, 403)

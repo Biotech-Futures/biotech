@@ -6,7 +6,13 @@ from django.test import SimpleTestCase, override_settings
 from unittest.mock import patch
 
 from apps.chat.utils import reset_pattern_cache
-from apps.common.storage import ManagedFileService, ResourceAzureStorage, serve_managed_file
+from apps.common.storage import (
+    ManagedFileService,
+    ResourceAzureStorage,
+    get_chat_storage,
+    reset_managed_storage_caches,
+    serve_managed_file,
+)
 
 
 class _FakeManagedStorage:
@@ -41,10 +47,12 @@ class _FakeManagedStorage:
 class ManagedFileServiceTests(SimpleTestCase):
     def setUp(self):
         reset_pattern_cache()
+        reset_managed_storage_caches()
         self.storage = _FakeManagedStorage()
         self.service = ManagedFileService(lambda: self.storage)
 
     def tearDown(self):
+        reset_managed_storage_caches()
         reset_pattern_cache()
 
     def test_save_uploaded_file_returns_sanitized_metadata(self):
@@ -99,6 +107,17 @@ class ManagedFileServiceTests(SimpleTestCase):
         with patch("apps.common.storage._REAL_AZURE_STORAGE", None):
             with self.assertRaises(ImproperlyConfigured):
                 ResourceAzureStorage()
+
+    def test_reset_managed_storage_caches_rebuilds_cached_storage_instances(self):
+        first = get_chat_storage()
+        second = get_chat_storage()
+
+        self.assertIs(first, second)
+
+        reset_managed_storage_caches()
+        rebuilt = get_chat_storage()
+
+        self.assertIsNot(first, rebuilt)
 
     def test_serve_managed_file_redirects_streams_and_reports_open_failures(self):
         redirect_response = serve_managed_file(

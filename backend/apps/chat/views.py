@@ -14,7 +14,6 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.common.filenames import sanitize_upload_filename
 from apps.common.storage import serve_managed_file
 from .management.permissions import CanModerateMessage, IsGroupMemberOrAdmin
 from .rbac import can_access_chat_group
@@ -25,7 +24,7 @@ from .serializers import (
     MessageSerializer,
     MessageUpdateSerializer,
 )
-from .services.storage import open_managed_chat_file, resolve_managed_chat_file_url
+from .services.storage import CHAT_FILE_SERVICE
 from apps.groups.models import Groups
 
 
@@ -61,13 +60,18 @@ class MessageViewSet(viewsets.ModelViewSet):
         gid = self.kwargs.get("group_pk")
         return self._message_queryset().filter(group_id=gid)
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["group_pk"] = self.kwargs.get("group_pk")
+        return context
+
     def _serialize_public_message(self, message):
         message = self._message_queryset().get(pk=message.pk)
-        return MessagePublicSerializer(message, context={"request": self.request}).data
+        return MessagePublicSerializer(message, context=self.get_serializer_context()).data
 
     def _serialize_broadcast_message(self, message):
         message = self._message_queryset().get(pk=message.pk)
-        data = MessagePublicSerializer(message, context={"request": self.request}).data
+        data = MessagePublicSerializer(message, context=self.get_serializer_context()).data
         # Keep legacy aliases in websocket payloads so the existing frontend and tests
         # continue to understand message.created without a protocol migration.
         data["sender_id"] = message.sender_user_id
@@ -119,7 +123,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = MessagePublicSerializer(items, many=True, context={"request": request}).data
+        data = MessagePublicSerializer(items, many=True, context=self.get_serializer_context()).data
         next_after = items[0].id if items else None
 
         return Response(
@@ -226,10 +230,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
 
         return serve_managed_file(
-            resolve_url=resolve_managed_chat_file_url,
-            open_file=open_managed_chat_file,
+            resolve_url=CHAT_FILE_SERVICE.resolve_url,
+            open_file=CHAT_FILE_SERVICE.open,
             storage_key=attachment.storage_key,
-            filename=sanitize_upload_filename(attachment.attachment_filename),
+            filename=attachment.attachment_filename,
             mime_type=attachment.attachment_mime_type,
             size=attachment.attachment_size,
             as_attachment=True,

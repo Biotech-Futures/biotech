@@ -11,8 +11,9 @@ from apps.users.models import User
 
 from .models import RoleAssignmentHistory, ResourceAudience, Resources, ResourceType, Roles
 from .services.storage import (
-    delete_managed_resource_file,
+    RESOURCE_FILE_SERVICE,
     is_external_storage_key,
+    is_managed_storage_key,
     save_uploaded_resource_file,
 )
 from datetime import date, datetime, time
@@ -136,11 +137,49 @@ class ResourceAudienceWriteSerializer(serializers.Serializer):
         return attrs
 
 
-class ResourcesSerializer(serializers.ModelSerializer):
-    uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+class _ResourcePublicFieldsMixin(serializers.Serializer):
     uploader_name = serializers.SerializerMethodField()
-    resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
     type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
+    file_name = serializers.SerializerMethodField()
+    access_url = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+    storage_status = serializers.SerializerMethodField()
+
+    def get_uploader_name(self, obj):
+        if obj.uploaded_by_id is None:
+            return None
+        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
+
+    def get_file_name(self, obj):
+        if obj.storage_key:
+            return sanitize_upload_filename(PurePosixPath(obj.storage_key).name)
+        return obj.name
+
+    def _build_route_url(self, obj, route_name):
+        request = self.context.get("request")
+        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
+
+    def get_access_url(self, obj):
+        if obj.storage_key:
+            return self._build_route_url(obj, "resource-files-access")
+        return None
+
+    def get_download_url(self, obj):
+        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
+            return self._build_route_url(obj, "resource-files-download")
+        return None
+
+    def get_storage_status(self, obj):
+        if not obj.storage_key:
+            return "unavailable"
+        if str(obj.storage_key).startswith(("http://", "https://")):
+            return "external_url"
+        return "managed_key"
+
+
+class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerializer):
+    uploader = ResourceUserSerializer(source='uploaded_by', read_only=True)
+    resource_type_detail = ResourceTypeSerializer(source='type', read_only=True)
     type_id = serializers.PrimaryKeyRelatedField(
         queryset=ResourceType.objects.all(),
         source='type',
@@ -158,10 +197,6 @@ class ResourcesSerializer(serializers.ModelSerializer):
         help_text="Backward-compatible alias for type_id"
     )
     visible_roles = serializers.SerializerMethodField()
-    file_name = serializers.SerializerMethodField()
-    access_url = serializers.SerializerMethodField()
-    download_url = serializers.SerializerMethodField()
-    storage_status = serializers.SerializerMethodField()
     role_ids = serializers.ListField(
         child=serializers.PrimaryKeyRelatedField(queryset=Roles.objects.all()),
         write_only=True,
@@ -266,37 +301,6 @@ class ResourcesSerializer(serializers.ModelSerializer):
         audiences = ResourceAudience.objects.filter(resource=obj, role__isnull=False).select_related('role')
         return RoleSerializer([aud.role for aud in audiences], many=True).data
 
-    def get_uploader_name(self, obj):
-        if obj.uploaded_by_id is None:
-            return None
-        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
-
-    def get_file_name(self, obj):
-        if obj.storage_key:
-            return sanitize_upload_filename(PurePosixPath(obj.storage_key).name)
-        return obj.name
-
-    def _build_route_url(self, obj, route_name):
-        request = self.context.get("request")
-        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
-
-    def get_access_url(self, obj):
-        if obj.storage_key:
-            return self._build_route_url(obj, "resource-files-access")
-        return None
-
-    def get_download_url(self, obj):
-        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
-            return self._build_route_url(obj, "resource-files-download")
-        return None
-
-    def get_storage_status(self, obj):
-        if not obj.storage_key:
-            return "unavailable"
-        if str(obj.storage_key).startswith(("http://", "https://")):
-            return "external_url"
-        return "managed_key"
-
     def _replace_audiences(self, resource, *, role_ids=None, audience_rules=None):
         if role_ids is None and audience_rules is None:
             return
@@ -342,56 +346,24 @@ class ResourcesSerializer(serializers.ModelSerializer):
         resource = super().update(instance, validated_data)
         self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
 
-        if uploaded_file is not None and old_storage_key != resource.storage_key:
-            delete_managed_resource_file(old_storage_key)
+        if (
+            uploaded_file is not None
+            and old_storage_key != resource.storage_key
+            and is_managed_storage_key(old_storage_key)
+        ):
+            RESOURCE_FILE_SERVICE.delete(old_storage_key)
         elif (
             "storage_key" in validated_data
             and old_storage_key != incoming_storage_key
-            and not is_external_storage_key(old_storage_key)
+            and is_managed_storage_key(old_storage_key)
         ):
-            delete_managed_resource_file(old_storage_key)
+            RESOURCE_FILE_SERVICE.delete(old_storage_key)
 
         return resource
 
 
-class _BaseResourcePublicSerializer(serializers.ModelSerializer):
-    uploader_name = serializers.SerializerMethodField()
-    type_name = serializers.CharField(source='type.type_name', read_only=True, allow_null=True)
-    file_name = serializers.SerializerMethodField()
-    access_url = serializers.SerializerMethodField()
-    download_url = serializers.SerializerMethodField()
-    storage_status = serializers.SerializerMethodField()
-
-    def get_uploader_name(self, obj):
-        if obj.uploaded_by_id is None:
-            return None
-        return obj.uploaded_by.get_full_name().strip() or obj.uploaded_by.email
-
-    def get_file_name(self, obj):
-        if obj.storage_key:
-            return sanitize_upload_filename(PurePosixPath(obj.storage_key).name)
-        return obj.name
-
-    def _build_route_url(self, obj, route_name):
-        request = self.context.get("request")
-        return reverse(route_name, kwargs={"pk": obj.pk}, request=request)
-
-    def get_access_url(self, obj):
-        if obj.storage_key:
-            return self._build_route_url(obj, "resource-files-access")
-        return None
-
-    def get_download_url(self, obj):
-        if obj.kind == Resources.ResourceKind.FILE and obj.storage_key:
-            return self._build_route_url(obj, "resource-files-download")
-        return None
-
-    def get_storage_status(self, obj):
-        if not obj.storage_key:
-            return "unavailable"
-        if str(obj.storage_key).startswith(("http://", "https://")):
-            return "external_url"
-        return "managed_key"
+class _BaseResourcePublicSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerializer):
+    pass
 
 
 class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
