@@ -917,14 +917,19 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
         return {"msg": "User not found", "data": None}
     
     now = timezone.now()
-    next_role = input_data.get("role") or (
+    current_role_assignment = (
         RoleAssignmentHistory.objects.filter(
             user_id=user_id, valid_to__isnull=True
-        ).select_related('role').first().role.role_name
-        if RoleAssignmentHistory.objects.filter(
-            user_id=user_id, valid_to__isnull=True
-        ).exists() else "student"
+        )
+        .select_related('role')
+        .first()
     )
+    current_role = (
+        current_role_assignment.role.role_name
+        if current_role_assignment and current_role_assignment.role
+        else None
+    )
+    next_role = input_data.get("role") or current_role or "student"
     
     # Check email change
     if "email" in input_data:
@@ -1011,7 +1016,7 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                 user.save()
             
             # Handle role change
-            if "role" in input_data and input_data["role"] != next_role:
+            if "role" in input_data and input_data["role"] != current_role:
                 role_id = resolve_role_id(input_data["role"])
                 
                 # Invalidate current role
@@ -1027,6 +1032,9 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                     valid_from=now,
                     valid_to=None
                 )
+                user.is_staff = input_data["role"] == "admin"
+                user.is_superuser = input_data["role"] == "admin"
+                user.save(update_fields=["is_staff", "is_superuser"])
             
             # Update role-specific profiles
             if next_role == "student":

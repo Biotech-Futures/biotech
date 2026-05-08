@@ -5,6 +5,7 @@ export type Event = {
   startDatetime: string;
   endsDatetime: string;
   location: string | null;
+  location_link: string | null;
   deletedFlag: boolean;
   deletedDatetime: string | null;
   "eventImage(img)": string | null;

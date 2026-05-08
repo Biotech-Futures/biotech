@@ -4,6 +4,7 @@ from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRe
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile, StudentProfile
@@ -18,6 +19,58 @@ from apps.admin.algorithms.student import (
 
 
 DEFAULT_GROUP_MAX_SIZE = 5
+
+
+def _read_assignment_value(item: Dict[str, Any], camel_key: str, snake_key: str) -> Any:
+    if camel_key in item:
+        return item[camel_key]
+    return item.get(snake_key)
+
+
+def _normalize_confirm_assignments(raw_assignments: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_assignments, list):
+        raise ValidationError({"assignments": "Expected a list of assignment objects."})
+
+    normalized = []
+    errors = {}
+    for index, item in enumerate(raw_assignments):
+        if not isinstance(item, dict):
+            errors[index] = "Expected an assignment object."
+            continue
+
+        raw_student_id = _read_assignment_value(item, "studentId", "student_id")
+        raw_group_id = _read_assignment_value(item, "groupId", "group_id")
+        try:
+            student_id = int(raw_student_id)
+        except (TypeError, ValueError):
+            errors[index] = {"studentId": "Expected an integer student ID."}
+            continue
+
+        if student_id <= 0:
+            errors[index] = {"studentId": "Expected a positive student ID."}
+            continue
+
+        if isinstance(raw_group_id, str) and raw_group_id.startswith("new-"):
+            group_id = raw_group_id
+        else:
+            try:
+                group_id = int(raw_group_id)
+            except (TypeError, ValueError):
+                errors[index] = {
+                    "groupId": "Expected an integer group ID or new-* synthetic group ID."
+                }
+                continue
+
+            if group_id <= 0:
+                errors[index] = {"groupId": "Expected a positive group ID."}
+                continue
+
+        normalized.append({"student_id": student_id, "group_id": group_id})
+
+    if errors:
+        raise ValidationError({"assignments": errors})
+
+    return normalized
 
 
 class MatchRecommendationGroup:
@@ -626,6 +679,8 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
     
     if not assignments:
         return {'assigned_count': 0}
+    
+    assignments = _normalize_confirm_assignments(assignments)
     
     # Deduplicate by student
     unique_by_student = {}

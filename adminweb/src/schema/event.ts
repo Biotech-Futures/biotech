@@ -8,12 +8,14 @@ export const createEventSchema = z
     eventName: z.string().trim().min(1, "Event name is required").max(255),
     description: z.string().trim().max(255).optional().nullable(),
     location: z.string().trim().max(255).optional().nullable(),
+    locationLink: z.string().trim().max(500).optional().nullable(),
     isVirtual: z.boolean().optional().default(false),
     startAt: dateTimeInput,
     endsAt: dateTimeInput,
     targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
     targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
     targetTrackIds: z.array(z.number().int().positive()).optional().default([]),
+    
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
     message: "End time must be after start time",
@@ -26,6 +28,7 @@ export const updateEventSchema = z
     eventName: z.string().trim().min(1).max(255).optional(),
     description: z.string().trim().max(255).optional().nullable(),
     location: z.string().trim().max(255).optional().nullable(),
+    locationLink: z.string().trim().max(500).optional().nullable(),
     isVirtual: z.boolean().optional(),
     startAt: dateTimeInput.optional(),
     endsAt: dateTimeInput.optional(),

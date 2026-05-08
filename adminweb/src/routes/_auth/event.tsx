@@ -72,7 +72,6 @@ const RSVP_STATUS_LABELS: Record<
   declined: { label: "Declined", variant: "outline" },
 };
 
-// ── Shared EventForm component used by both Create and Edit ──────────────────
 interface EventFormProps {
   formId: string;
   control: any;
@@ -112,7 +111,6 @@ function EventForm({
 }: EventFormProps) {
   return (
     <form id={formId} className="grid gap-5 px-4 pb-4" onSubmit={onSubmit}>
-      {/* Host — read only */}
       <div className="space-y-1.5">
         <Label>Host</Label>
         <Input
@@ -123,7 +121,6 @@ function EventForm({
         />
       </div>
 
-      {/* Event Name */}
       <div className="space-y-1.5">
         <Label>Event Name</Label>
         <Input placeholder="Event name" {...register("eventName")} />
@@ -132,13 +129,11 @@ function EventForm({
         )}
       </div>
 
-      {/* Description */}
       <div className="space-y-1.5">
         <Label>Description</Label>
         <Input placeholder="Optional" {...register("description")} />
       </div>
 
-      {/* Virtual toggle — placed BEFORE location/link so toggling reorders */}
       <Controller
         control={control}
         name="isVirtual"
@@ -161,7 +156,6 @@ function EventForm({
         )}
       />
 
-      {/* Location — only shown for in-person */}
       {!isVirtual && (
         <div className="space-y-1.5">
           <Label>Location</Label>
@@ -172,7 +166,14 @@ function EventForm({
         </div>
       )}
 
-      {/* Start datetime */}
+      <div className="space-y-1.5">
+        <Label>{isVirtual ? "Meeting Link" : "Google Map Link"}</Label>
+        <Input
+          placeholder={isVirtual ? "https://zoom.us/..." : "https://maps.google.com/..."}
+          {...register("locationLink")}
+        />
+      </div>
+
       <Controller
         control={control}
         name="startAt"
@@ -189,7 +190,6 @@ function EventForm({
         )}
       />
 
-      {/* End datetime */}
       <Controller
         control={control}
         name="endsAt"
@@ -206,7 +206,6 @@ function EventForm({
         )}
       />
 
-      {/* Target Groups */}
       {groups.length > 0 && (
         <div className="space-y-2">
           <Label>Target Groups</Label>
@@ -228,7 +227,6 @@ function EventForm({
         </div>
       )}
 
-      {/* Target Roles */}
       {roles.length > 0 && (
         <div className="space-y-2">
           <Label>Target Roles</Label>
@@ -250,7 +248,6 @@ function EventForm({
         </div>
       )}
 
-      {/* Target Tracks */}
       {tracks.length > 0 && (
         <div className="space-y-2">
           <Label>Target Tracks</Label>
@@ -292,12 +289,11 @@ function DateTimeLocalInput({
   const openPicker = () => {
     const input = inputRef.current;
     if (!input) return;
-
     input.focus();
     try {
       input.showPicker?.();
     } catch {
-      // Some browsers only allow the native picker from direct user actions.
+      // ignore
     }
   };
 
@@ -321,7 +317,6 @@ function DateTimeLocalInput({
   );
 }
 
-// ── Main page ────────────────────────────────────────────────────────────────
 function EventPage() {
   const [page, setPage] = useState(1);
   const [upcoming, setUpcoming] = useState(true);
@@ -336,18 +331,13 @@ function EventPage() {
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
   const { data: tracksData } = useQueryTracks();
-  const { data: eventTargetsData } = useQueryEventTargets(
-    editingEvent?.id ?? null,
-  );
-  const { data: viewTargetsData } = useQueryEventTargets(
-    viewingEvent?.id ?? null,
-  );
+  const { data: eventTargetsData } = useQueryEventTargets(editingEvent?.id ?? null);
+  const { data: viewTargetsData } = useQueryEventTargets(viewingEvent?.id ?? null);
 
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
-  const { data: rsvpData, isPending: isRsvpLoading } =
-    useQueryEventRsvps(rsvpEventId);
+  const { data: rsvpData, isPending: isRsvpLoading } = useQueryEventRsvps(rsvpEventId);
 
   const allUsers = usersData?.data.items ?? [];
   const usersById = useMemo(
@@ -363,9 +353,8 @@ function EventPage() {
   const currentUserId = currentUserRecord ? Number(currentUserRecord.id) : null;
   const currentHostName = currentUserId
     ? formatHostName(currentUserId, usersById)
-    : "—";
+    : "---";
 
-  // ── Create form ──────────────────────────────────────────────────────────
   const {
     control,
     handleSubmit,
@@ -380,6 +369,7 @@ function EventPage() {
       eventName: "",
       description: null,
       location: null,
+      locationLink: null,
       isVirtual: false,
       startAt: "",
       endsAt: "",
@@ -401,7 +391,6 @@ function EventPage() {
     }
   }, [currentUserId, reset]);
 
-  // ── Edit form ────────────────────────────────────────────────────────────
   const {
     control: editControl,
     handleSubmit: handleEditSubmit,
@@ -431,6 +420,7 @@ function EventPage() {
         eventName: editingEvent.eventName,
         description: editingEvent.description,
         location: editingEvent.location,
+        locationLink: editingEvent.location_link,
         isVirtual: editingEvent.isVirtual,
         startAt: toDatetimeLocal(editingEvent.startDatetime),
         endsAt: toDatetimeLocal(editingEvent.endsDatetime),
@@ -448,7 +438,6 @@ function EventPage() {
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
 
-  // Toggle helpers
   const toggleId = (
     ids: number[],
     id: number,
@@ -467,6 +456,7 @@ function EventPage() {
             eventName: "",
             description: null,
             location: null,
+            locationLink: null,
             isVirtual: false,
             startAt: "",
             endsAt: "",
@@ -494,7 +484,7 @@ function EventPage() {
 
   const handleDelete = (event: Event) => {
     const shouldDelete = window.confirm(
-      `Delete event ${event.eventName}? All RSVPs will also be deleted.`,
+      "Delete event " + event.eventName + "? All RSVPs will also be deleted.",
     );
     if (!shouldDelete) return;
     deleteEvent(event.id, {
@@ -506,7 +496,6 @@ function EventPage() {
 
   return (
     <div className="p-4 space-y-4">
-      {/* Filters */}
       <div className="flex flex-wrap gap-3 p-4 items-end justify-between">
         <Button
           type="button"
@@ -521,7 +510,6 @@ function EventPage() {
         </Button>
       </div>
 
-      {/* Events Table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -553,7 +541,20 @@ function EventPage() {
                       : "Unassigned"}
                   </TableCell>
                   <TableCell>
-                    {event.location || "—"}
+                    {event.location
+                      ? event.location
+                      : event.location_link
+                        ? (
+                          <a
+                            href={event.location_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 underline"
+                          >
+                            Link
+                          </a>
+                        )
+                        : "---"}
                   </TableCell>
                   <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
                   <TableCell>{formatDateTime(event.endsDatetime)}</TableCell>
@@ -623,7 +624,6 @@ function EventPage() {
         </Table>
       </div>
 
-      {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Page {page} of {totalPages}
@@ -649,7 +649,7 @@ function EventPage() {
           </Button>
         </div>
       </div>
-      {/* ── View Event Drawer ── */}
+
       <Drawer
         direction="right"
         open={!!viewingEvent}
@@ -666,71 +666,68 @@ function EventPage() {
           </DrawerHeader>
           <div className="grid gap-5 px-4 pb-4">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Host
-              </Label>
+              <Label className="text-xs text-muted-foreground uppercase">Host</Label>
               <p className="text-sm">
                 {viewingEvent?.hostUserId
                   ? formatHostName(viewingEvent.hostUserId, usersById)
-                  : "—"}
+                  : "---"}
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Description
-              </Label>
-              <p className="text-sm">{viewingEvent?.description || "—"}</p>
+              <Label className="text-xs text-muted-foreground uppercase">Description</Label>
+              <p className="text-sm">{viewingEvent?.description || "---"}</p>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">
-                Event Type
-              </Label>
+              <Label className="text-xs text-muted-foreground uppercase">Event Type</Label>
               <p className="text-sm">
                 {viewingEvent?.isVirtual ? "Virtual" : "In-person"}
               </p>
             </div>
             {!viewingEvent?.isVirtual && (
               <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground uppercase">Location</Label>
+                <p className="text-sm">{viewingEvent?.location || "---"}</p>
+              </div>
+            )}
+            {viewingEvent?.location_link && (
+              <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground uppercase">
-                  Location
+                  {viewingEvent.isVirtual ? "Meeting Link" : "Google Map Link"}
                 </Label>
-                <p className="text-sm">{viewingEvent?.location || "—"}</p>
+                <p className="text-sm">
+                  <a
+                    href={viewingEvent.location_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 underline"
+                  >
+                    {viewingEvent.location_link}
+                  </a>
+                </p>
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Start
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Start</Label>
                 <p className="text-sm">
-                  {viewingEvent
-                    ? formatDateTime(viewingEvent.startDatetime)
-                    : "—"}
+                  {viewingEvent ? formatDateTime(viewingEvent.startDatetime) : "---"}
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  End
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">End</Label>
                 <p className="text-sm">
-                  {viewingEvent
-                    ? formatDateTime(viewingEvent.endsDatetime)
-                    : "—"}
+                  {viewingEvent ? formatDateTime(viewingEvent.endsDatetime) : "---"}
                 </p>
               </div>
             </div>
             {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Target Groups
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Target Groups</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {viewTargetsData!.data!.groupIds.map((id) => {
                     const g = groups.find((x) => x.id === id);
                     return g ? (
-                      <Badge key={id} variant="secondary">
-                        {g.groupName}
-                      </Badge>
+                      <Badge key={id} variant="secondary">{g.groupName}</Badge>
                     ) : null;
                   })}
                 </div>
@@ -738,16 +735,12 @@ function EventPage() {
             )}
             {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Target Roles
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Target Roles</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {viewTargetsData!.data!.roleIds.map((id) => {
                     const r = roles.find((x) => x.id === id);
                     return r ? (
-                      <Badge key={id} variant="secondary">
-                        {r.roleName}
-                      </Badge>
+                      <Badge key={id} variant="secondary">{r.roleName}</Badge>
                     ) : null;
                   })}
                 </div>
@@ -755,16 +748,12 @@ function EventPage() {
             )}
             {(viewTargetsData?.data?.trackIds?.length ?? 0) > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  Target Tracks
-                </Label>
+                <Label className="text-xs text-muted-foreground uppercase">Target Tracks</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {viewTargetsData!.data!.trackIds.map((id) => {
                     const t = tracks.find((x) => x.id === id);
                     return t ? (
-                      <Badge key={id} variant="secondary">
-                        {t.trackName}
-                      </Badge>
+                      <Badge key={id} variant="secondary">{t.trackName}</Badge>
                     ) : null;
                   })}
                 </div>
@@ -772,18 +761,13 @@ function EventPage() {
             )}
           </div>
           <DrawerFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setViewingEvent(null)}
-            >
+            <Button type="button" variant="outline" onClick={() => setViewingEvent(null)}>
               Close
             </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
 
-      {/* ── Create Event Drawer ── */}
       <Drawer
         direction="right"
         open={createEventOpen}
@@ -795,6 +779,7 @@ function EventPage() {
               eventName: "",
               description: null,
               location: null,
+              locationLink: null,
               isVirtual: false,
               startAt: "",
               endsAt: "",
@@ -812,7 +797,6 @@ function EventPage() {
               Add an event to the BIOTech Futures program calendar.
             </DrawerDescription>
           </DrawerHeader>
-
           <EventForm
             formId="create-event-form"
             control={control}
@@ -837,28 +821,18 @@ function EventPage() {
             }
             onSubmit={handleSubmit(onSubmit)}
           />
-
           <DrawerFooter>
-            <Button
-              form="create-event-form"
-              type="submit"
-              disabled={isCreating}
-            >
+            <Button form="create-event-form" type="submit" disabled={isCreating}>
               <CalendarIcon className="size-4" />
               {isCreating ? "Creating..." : "Create Event"}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCreateEventOpen(false)}
-            >
+            <Button type="button" variant="outline" onClick={() => setCreateEventOpen(false)}>
               Cancel
             </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
 
-      {/* ── RSVP View Drawer ── */}
       <Drawer
         direction="right"
         open={rsvpEventId !== null}
@@ -869,14 +843,13 @@ function EventPage() {
         <DrawerContent className="overflow-y-auto sm:max-w-3xl">
           <DrawerHeader>
             <DrawerTitle>
-              RSVP List {rsvpEvent ? `- ${rsvpEvent.eventName}` : ``}
+              RSVP List {rsvpEvent ? "- " + rsvpEvent.eventName : ""}
             </DrawerTitle>
             <DrawerDescription>
               Event #{rsvpEventId} has {rsvps.length} RSVP
               {rsvps.length === 1 ? "" : "s"}.
             </DrawerDescription>
           </DrawerHeader>
-
           <div className="space-y-4 px-4 pb-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -896,18 +869,14 @@ function EventPage() {
                   <TableBody>
                     {isRsvpLoading ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center">
-                          Loading...
-                        </TableCell>
+                        <TableCell colSpan={4} className="text-center">Loading...</TableCell>
                       </TableRow>
                     ) : rsvps.length > 0 ? (
                       rsvps.map((rsvp) => {
                         const student = allUsers.find(
                           (u) => Number(u.id) === rsvp.userId,
                         );
-                        const statusInfo = RSVP_STATUS_LABELS[
-                          rsvp.rsvpStatus
-                        ] ?? {
+                        const statusInfo = RSVP_STATUS_LABELS[rsvp.rsvpStatus] ?? {
                           label: rsvp.rsvpStatus,
                           variant: "outline" as const,
                         };
@@ -916,8 +885,8 @@ function EventPage() {
                             <TableCell>{rsvp.id}</TableCell>
                             <TableCell>
                               {student
-                                ? `${student.name} (${student.email})`
-                                : `User #${rsvp.userId}`}
+                                ? student.name + " (" + student.email + ")"
+                                : "User #" + rsvp.userId}
                             </TableCell>
                             <TableCell>
                               <Badge variant={statusInfo.variant}>
@@ -927,16 +896,14 @@ function EventPage() {
                             <TableCell>
                               {rsvp.respondedAt
                                 ? formatDateTime(rsvp.respondedAt)
-                                : "—"}
+                                : "---"}
                             </TableCell>
                           </TableRow>
                         );
                       })
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center">
-                          No RSVPs yet.
-                        </TableCell>
+                        <TableCell colSpan={4} className="text-center">No RSVPs yet.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -944,20 +911,14 @@ function EventPage() {
               </div>
             </div>
           </div>
-
           <DrawerFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setRsvpEventId(null)}
-            >
+            <Button type="button" variant="outline" onClick={() => setRsvpEventId(null)}>
               Close
             </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
 
-      {/* ── Edit Event Drawer ── */}
       <Drawer
         direction="right"
         open={!!editingEvent}
@@ -970,7 +931,6 @@ function EventPage() {
             <DrawerTitle>Edit Event #{editingEvent?.id}</DrawerTitle>
             <DrawerDescription>Update the event details.</DrawerDescription>
           </DrawerHeader>
-
           <EventForm
             formId="edit-event-form"
             control={editControl}
@@ -989,30 +949,21 @@ function EventPage() {
             watchedRoleIds={editRoleIds}
             watchedTrackIds={editTrackIds}
             onToggleGroup={(id) =>
-              toggleId(editGroupIds, id, (v) =>
-                setEditValue("targetGroupIds", v),
-              )
+              toggleId(editGroupIds, id, (v) => setEditValue("targetGroupIds", v))
             }
             onToggleRole={(id) =>
               toggleId(editRoleIds, id, (v) => setEditValue("targetRoleIds", v))
             }
             onToggleTrack={(id) =>
-              toggleId(editTrackIds, id, (v) =>
-                setEditValue("targetTrackIds", v),
-              )
+              toggleId(editTrackIds, id, (v) => setEditValue("targetTrackIds", v))
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
           />
-
           <DrawerFooter>
             <Button form="edit-event-form" type="submit" disabled={isUpdating}>
               {isUpdating ? "Saving..." : "Save Changes"}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEditingEvent(null)}
-            >
+            <Button type="button" variant="outline" onClick={() => setEditingEvent(null)}>
               Cancel
             </Button>
           </DrawerFooter>
@@ -1040,5 +991,5 @@ function formatHostName(
 function toDatetimeLocal(value: string) {
   const date = new Date(value);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
 }

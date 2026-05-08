@@ -14,6 +14,7 @@ import {
   Link2Icon,
   FileTextIcon,
   MegaphoneIcon,
+  CheckSquareIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -61,6 +62,11 @@ const NAV_ITEMS = [
     title: "Announcement",
     url: "/announcement",
     icon: <MegaphoneIcon />,
+  },
+  {
+    title: "Task",
+    url: "/task",
+    icon: <CheckSquareIcon />,
   },
 ];
 

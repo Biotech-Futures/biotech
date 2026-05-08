@@ -230,10 +230,16 @@ FRONTEND_BASE_URL = config(
     "FRONTEND_BASE_URL", default="http://localhost:5173"
 ).rstrip("/")
 
+ADMIN_FRONTEND_BASE_URL = config(
+    "ADMIN_FRONTEND_BASE_URL", default="https://mentoringadmin.biotechfutures.org"
+).rstrip("/")
+
 # Magic link still uses hash routing while the others use path routing —
 # unify in a follow-up once the SPA serves /auth/callback without a hash.
-MAGIC_LINK_REDIRECT_URL     = f"{FRONTEND_BASE_URL}/#/auth/callback"
-PASSWORD_RESET_REDIRECT_URL = f"{FRONTEND_BASE_URL}/auth/reset-password"
+MAGIC_LINK_REDIRECT_URL             = f"{FRONTEND_BASE_URL}/#/auth/callback"
+ADMIN_MAGIC_LINK_REDIRECT_URL       = f"{ADMIN_FRONTEND_BASE_URL}/auth/callback"
+PASSWORD_RESET_REDIRECT_URL         = f"{FRONTEND_BASE_URL}/auth/reset-password"
+ADMIN_PASSWORD_RESET_REDIRECT_URL   = f"{ADMIN_FRONTEND_BASE_URL}/auth/reset-password"
 
 # Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
 # when no ?next= is present. Keep it on a Django-side URL so an engineer who
