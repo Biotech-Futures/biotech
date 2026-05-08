@@ -13,16 +13,19 @@ from django.utils import timezone
 from apps.common.filenames import sanitize_upload_filename
 
 try:
-    from storages.backends.azure_storage import AzureStorage
+    from storages.backends.azure_storage import AzureStorage as _REAL_AZURE_STORAGE
 except ImportError:  # pragma: no cover - only raised when deps are missing.
-    AzureStorage = None
+    _REAL_AZURE_STORAGE = None
+    AzureStorage = type("AzureStorage", (), {})
+else:
+    AzureStorage = _REAL_AZURE_STORAGE
 
 
 class _BaseAzureContainerStorage(AzureStorage):
     container_setting_name = ""
 
     def __init__(self, *args, **kwargs):
-        if AzureStorage is None:  # pragma: no cover - protected by dependency install.
+        if _REAL_AZURE_STORAGE is None:  # pragma: no cover - protected by dependency install.
             raise ImproperlyConfigured(
                 "django-storages must be installed to use Azure Blob managed storage."
             )
@@ -69,7 +72,9 @@ class ManagedContainerStorage:
 
     @property
     def is_remote(self) -> bool:
-        return bool(AzureStorage is not None and isinstance(self._storage, AzureStorage))
+        return bool(
+            _REAL_AZURE_STORAGE is not None and isinstance(self._storage, _REAL_AZURE_STORAGE)
+        )
 
     def save(self, name, content):
         return self._storage.save(name, content)

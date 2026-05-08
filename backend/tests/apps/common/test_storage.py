@@ -1,8 +1,10 @@
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
+from unittest.mock import patch
 
 from apps.chat.utils import reset_pattern_cache
-from apps.common.storage import ManagedFileService
+from apps.common.storage import ManagedFileService, ResourceAzureStorage
 
 
 class _FakeManagedStorage:
@@ -90,3 +92,8 @@ class ManagedFileServiceTests(SimpleTestCase):
             self.storage.deleted_names,
             ["2026/05/08/example/report.pdf"],
         )
+
+    def test_resource_azure_storage_raises_if_django_storages_is_unavailable(self):
+        with patch("apps.common.storage._REAL_AZURE_STORAGE", None):
+            with self.assertRaises(ImproperlyConfigured):
+                ResourceAzureStorage()
