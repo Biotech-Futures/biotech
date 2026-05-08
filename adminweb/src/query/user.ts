@@ -170,7 +170,7 @@ export function useBulkCreateUsers() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: { users: CreateUserPayload[] }) => {
+    mutationFn: async (payload: CreateUserPayload[]) => {
       const res = await myFetch.post<
         MutationResponse<{ created: UserAccount[]; skipped: string[] }>
       >("/user/bulk", payload);
