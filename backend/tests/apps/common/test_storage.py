@@ -1,10 +1,12 @@
+from io import BytesIO
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 from unittest.mock import patch
 
 from apps.chat.utils import reset_pattern_cache
-from apps.common.storage import ManagedFileService, ResourceAzureStorage
+from apps.common.storage import ManagedFileService, ResourceAzureStorage, serve_managed_file
 
 
 class _FakeManagedStorage:
@@ -97,3 +99,41 @@ class ManagedFileServiceTests(SimpleTestCase):
         with patch("apps.common.storage._REAL_AZURE_STORAGE", None):
             with self.assertRaises(ImproperlyConfigured):
                 ResourceAzureStorage()
+
+    def test_serve_managed_file_redirects_streams_and_reports_open_failures(self):
+        redirect_response = serve_managed_file(
+            resolve_url=lambda *args, **kwargs: "https://blob.example.test/report.pdf?sig=abc",
+            open_file=lambda storage_key: BytesIO(b"unused"),
+            storage_key="2026/05/08/example/report.pdf",
+            filename="report.pdf",
+            mime_type="application/pdf",
+            size=7,
+            as_attachment=True,
+        )
+        self.assertEqual(redirect_response.status_code, 302)
+
+        streamed_response = serve_managed_file(
+            resolve_url=lambda *args, **kwargs: "/media/resources/report.pdf",
+            open_file=lambda storage_key: BytesIO(b"payload"),
+            storage_key="2026/05/08/example/report.pdf",
+            filename="report.pdf",
+            mime_type="application/pdf",
+            size=7,
+            as_attachment=True,
+        )
+        self.assertEqual(streamed_response.status_code, 200)
+        self.assertEqual(streamed_response["Content-Type"], "application/pdf")
+        self.assertEqual(streamed_response["Content-Length"], "7")
+
+        failed_response = serve_managed_file(
+            resolve_url=lambda *args, **kwargs: None,
+            open_file=lambda storage_key: (_ for _ in ()).throw(FileNotFoundError("missing")),
+            storage_key="2026/05/08/example/report.pdf",
+            filename="report.pdf",
+            mime_type="application/pdf",
+            size=7,
+            as_attachment=True,
+            on_open_failure_detail="missing",
+        )
+        self.assertEqual(failed_response.status_code, 404)
+        self.assertJSONEqual(failed_response.content, {"detail": "missing"})

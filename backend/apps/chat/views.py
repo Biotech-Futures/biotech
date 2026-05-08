@@ -4,12 +4,9 @@
 # added partial_update() for editing messages which sets edited_at automatically,
 # updated WebSocket broadcast payloads to use new field names.
 
-from urllib.parse import urlparse
-
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
-from django.http import FileResponse, HttpResponseRedirect
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -18,6 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.filenames import sanitize_upload_filename
+from apps.common.storage import serve_managed_file
 from .management.permissions import CanModerateMessage, IsGroupMemberOrAdmin
 from .rbac import can_access_chat_group
 from .models import MessageAttachment, Messages
@@ -227,28 +225,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not can_access_chat_group(request.user, group):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
 
-        safe_filename = sanitize_upload_filename(attachment.attachment_filename)
-        managed_url = resolve_managed_chat_file_url(
-            attachment.storage_key,
-            filename=safe_filename,
-            content_type=attachment.attachment_mime_type,
+        return serve_managed_file(
+            resolve_url=resolve_managed_chat_file_url,
+            open_file=open_managed_chat_file,
+            storage_key=attachment.storage_key,
+            filename=sanitize_upload_filename(attachment.attachment_filename),
+            mime_type=attachment.attachment_mime_type,
+            size=attachment.attachment_size,
             as_attachment=True,
+            on_open_failure_detail="The attachment could not be opened for download.",
         )
-        # Prefer redirecting to a signed Blob URL in production; local/test storage falls
-        # back to Django streaming below.
-        if managed_url:
-            parsed_url = urlparse(managed_url)
-            if parsed_url.scheme and parsed_url.netloc:
-                return HttpResponseRedirect(managed_url)
-
-        try:
-            file_handle = open_managed_chat_file(attachment.storage_key)
-        except Exception:
-            return Response({"detail": "The attachment could not be opened for download."}, status=status.HTTP_404_NOT_FOUND)
-
-        response = FileResponse(file_handle, as_attachment=True, filename=safe_filename)
-        if attachment.attachment_mime_type:
-            response["Content-Type"] = attachment.attachment_mime_type
-        if attachment.attachment_size is not None:
-            response["Content-Length"] = str(attachment.attachment_size)
-        return response

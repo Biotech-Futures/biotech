@@ -3,11 +3,13 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.storage import FileSystemStorage
+from django.http import FileResponse, HttpResponseRedirect, JsonResponse
 from django.utils import timezone
 
 from apps.common.filenames import sanitize_upload_filename
@@ -179,6 +181,52 @@ class ManagedFileService:
 
     def open(self, storage_key: str, mode: str = "rb"):
         return self._storage().open(storage_key, mode)
+
+
+def serve_managed_file(
+    *,
+    resolve_url: Callable[..., str | None],
+    open_file: Callable[[str], object],
+    storage_key: str,
+    filename: str,
+    mime_type: str | None,
+    size: int | None,
+    as_attachment: bool,
+    on_open_failure_status: int = 404,
+    on_open_failure_detail: str = "The stored file could not be opened for download.",
+):
+    safe_filename = sanitize_upload_filename(filename)
+    managed_url = resolve_url(
+        storage_key,
+        filename=safe_filename,
+        content_type=mime_type,
+        as_attachment=as_attachment,
+    )
+    # Remote Azure storage returns a signed URL, while local/test storage
+    # falls back to app-streamed bytes through Django.
+    if managed_url:
+        parsed_url = urlparse(managed_url)
+        if parsed_url.scheme and parsed_url.netloc:
+            return HttpResponseRedirect(managed_url)
+
+    try:
+        file_handle = open_file(storage_key)
+    except Exception:
+        return JsonResponse(
+            {"detail": on_open_failure_detail},
+            status=on_open_failure_status,
+        )
+
+    response = FileResponse(
+        file_handle,
+        as_attachment=as_attachment,
+        filename=safe_filename,
+    )
+    if mime_type:
+        response["Content-Type"] = mime_type
+    if size is not None:
+        response["Content-Length"] = str(size)
+    return response
 
 
 @lru_cache(maxsize=2)

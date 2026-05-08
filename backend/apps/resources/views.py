@@ -22,8 +22,6 @@
 #             return [IsAdminUser()]
 #         return [IsAuthenticated()]
 
-from urllib.parse import urlparse
-
 from rest_framework import mixins, pagination, permissions, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -48,7 +46,8 @@ from rest_framework.response import Response
 from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
-from django.http import FileResponse, HttpResponseRedirect
+from django.http import HttpResponseRedirect
+from apps.common.storage import serve_managed_file
 from .rbac import (
     can_access_resource_file,
     can_manage_resource_file,
@@ -524,38 +523,16 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 {"detail": payload["detail"]},
                 status=status.HTTP_409_CONFLICT,
             )
-
-        managed_url = resolve_managed_storage_url(
-            storage_key,
+        return serve_managed_file(
+            resolve_url=resolve_managed_storage_url,
+            open_file=open_managed_resource_file,
+            storage_key=storage_key,
             filename=payload["file_name"] or resource.name,
-            content_type=resource.file_mime_type,
+            mime_type=resource.file_mime_type,
+            size=resource.file_size,
             as_attachment=resource.kind == Resources.ResourceKind.FILE,
+            on_open_failure_detail="The stored file could not be opened for download.",
         )
-        # Signed Blob redirects avoid proxying large resource files through Django when
-        # Azure storage is enabled, but local/test storage still streams from the app.
-        if managed_url:
-            parsed_url = urlparse(managed_url)
-            if parsed_url.scheme and parsed_url.netloc:
-                return HttpResponseRedirect(managed_url)
-
-        try:
-            file_handle = open_managed_resource_file(storage_key)
-        except Exception:
-            return Response(
-                {"detail": "The stored file could not be opened for download."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        response = FileResponse(
-            file_handle,
-            as_attachment=resource.kind == Resources.ResourceKind.FILE,
-            filename=payload["file_name"] or resource.name,
-        )
-        if resource.file_mime_type:
-            response["Content-Type"] = resource.file_mime_type
-        if resource.file_size is not None:
-            response["Content-Length"] = str(resource.file_size)
-        return response
 
     def _requested_track_for_write(self, instance=None):
         track_id = self.request.data.get("track")
