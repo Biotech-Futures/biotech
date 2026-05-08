@@ -150,7 +150,7 @@ def _resolve_recipient_emails(
         if not role_ids:
             return []
         
-        now = timezone.now().isoformat()
+        now = timezone.now()
         users = User.objects.filter(
             is_active=True,
         ).filter(
@@ -210,46 +210,36 @@ def _sync_audience(
 # ─── queries ─────────────────────────────────────────────────────────────────
 
 def _fetch_announcement(announcement_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetch a complete announcement with audiences.
-    
-    Args:
-        announcement_id: Announcement ID
-        
-    Returns:
-        Dictionary with announcement data or None
-    """
     try:
         announcement = Announcement.objects.select_related(
             "track"
         ).get(id=announcement_id)
     except Announcement.DoesNotExist:
         return None
-    
-    # Get audiences
-    audiences = list(
+
+    audience_rows = list(
         AnnouncementAudience.objects
         .filter(announcement_id=announcement_id)
         .select_related("role")
         .values(
             "id",
-            "role_id",
-            "track_id",
-            role_name=F("role__role_name"),
+            roleId=F("role_id"),
+            trackId=F("track_id"),
+            roleName=F("role__role_name"),
         )
     )
-    
+
     return {
         "id": announcement.id,
         "title": announcement.title,
         "body": announcement.body,
-        "visibility_scope": announcement.visibility_scope,
-        "published_at": announcement.published_at.isoformat() if announcement.published_at else None,
-        "archived_at": announcement.archived_at.isoformat() if announcement.archived_at else None,
-        "author_user_id": announcement.author_user_id,
-        "track_id": announcement.track_id,
-        "track_name": announcement.track.track_name if announcement.track else None,
-        "audiences": audiences,
+        "visibilityScope": announcement.visibility_scope,
+        "publishedAt": announcement.published_at.isoformat() if announcement.published_at else None,
+        "archivedAt": announcement.archived_at.isoformat() if announcement.archived_at else None,
+        "authorUserId": announcement.author_user_id,
+        "trackId": announcement.track_id,
+        "trackName": announcement.track.track_name if announcement.track else None,
+        "audiences": audience_rows,
     }
 
 
@@ -291,50 +281,50 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
     total = queryset.count()
     
     # Fetch items
-    items = list(
+    raw_items = list(
         queryset
         .order_by("-published_at")
         .values(
             "id",
             "title",
-            "visibility_scope",
-            "published_at",
-            "archived_at",
-            "author_user_id",
-            "track_id",
-            track_name=F("track__track_name"),
+            visibilityScope=F("visibility_scope"),
+            publishedAt=F("published_at"),
+            archivedAt=F("archived_at"),
+            authorUserId=F("author_user_id"),
+            trackId=F("track_id"),
+            trackName=F("track__track_name"),
         )[offset:offset + limit]
     )
-    
-    # Get all announcement IDs for bulk fetch of audiences
-    all_ids = [item["id"] for item in items]
-    
+
+    all_ids = [item["id"] for item in raw_items]
+
     if all_ids:
         audience_rows = list(
             AnnouncementAudience.objects
             .filter(announcement_id__in=all_ids)
             .select_related("role")
             .values(
-                "announcement_id",
-                "role_id",
-                "track_id",
-                role_name=F("role__role_name"),
+                "id",
+                announcementId=F("announcement_id"),
+                roleId=F("role_id"),
+                trackId=F("track_id"),
+                roleName=F("role__role_name"),
             )
         )
     else:
         audience_rows = []
-    
-    # Group audiences by announcement
+
     audiences_by_announcement: Dict[int, List[Dict]] = {}
     for audience in audience_rows:
-        ann_id = audience["announcement_id"]
+        ann_id = audience["announcementId"]
         if ann_id not in audiences_by_announcement:
             audiences_by_announcement[ann_id] = []
         audiences_by_announcement[ann_id].append(audience)
-    
-    # Attach audiences to items
-    for item in items:
+
+    items = []
+    for item in raw_items:
         item["audiences"] = audiences_by_announcement.get(item["id"], [])
+        items.append(item)
     
     has_more = offset + len(items) < total
     
@@ -345,7 +335,7 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
             "total": total,
             "page": page,
             "limit": limit,
-            "has_more": has_more,
+            "hasMore": has_more,
         },
     }
 
@@ -439,15 +429,15 @@ def update_announcement(
         announcement.body = input_data["body"]
     if "visibility_scope" in input_data and input_data["visibility_scope"] is not None:
         announcement.visibility_scope = input_data["visibility_scope"]
-    if "track_id" in input_data and input_data["track_id"] is not None:
+    if "track_id" in input_data:
         announcement.track_id = input_data["track_id"]
     
     if any(k in input_data for k in ["title", "body", "visibility_scope", "track_id"]):
         announcement.save()
     
     # Sync audience if relevant fields changed
-    next_scope = input_data.get("visibility_scope", existing.get("visibility_scope"))
-    next_track_id = input_data.get("track_id", existing.get("track_id"))
+    next_scope = input_data.get("visibility_scope", existing.get("visibilityScope"))
+    next_track_id = input_data.get("track_id", existing.get("trackId"))
     
     if any(k in input_data for k in ["visibility_scope", "track_id", "role_ids"]):
         _sync_audience(
@@ -478,7 +468,7 @@ def archive_announcement(announcement_id: int) -> AnnouncementResponseDict:
     existing = _fetch_announcement(announcement_id)
     if not existing:
         return {"msg": "Announcement not found", "data": None}
-    if existing.get("archived_at"):
+    if existing.get("archivedAt"):
         return {"msg": "Announcement already archived", "data": existing}
     
     try:
@@ -508,7 +498,7 @@ def send_announcement_email(announcement_id: int) -> Dict[str, Any]:
     
     # Note: Original is async, but send_mail is synchronous in Django
     # If you need async, use Celery or similar
-    emails = _resolve_recipient_emails(announcement_id, row.get("visibility_scope", "public"))
+    emails = _resolve_recipient_emails(announcement_id, row.get("visibilityScope", "global"))
     
     if not emails:
         return {"msg": "No recipients found", "sent": 0}
