@@ -66,7 +66,14 @@ AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+# Keep Django's global default storage aligned with the deployment backend so any
+# future/default_storage callers outside the managed chat/resource path do not
+# silently fall back to local disk in Azure environments.
+DEFAULT_FILE_STORAGE = (
+    "storages.backends.azure_storage.AzureStorage"
+    if USE_AZURE_BLOB_STORAGE
+    else "django.core.files.storage.FileSystemStorage"
+)
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
