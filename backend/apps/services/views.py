@@ -189,6 +189,7 @@ class MagicLoginView(APIView):
                 'localhost',
                 '127.0.0.1',
                 'biotechfutures.org',
+                'mentoring.biotechfutures.org',
                 'mentoringadmin.biotechfutures.org',
             ]
             if parsed_url.hostname in allowed_domains:
