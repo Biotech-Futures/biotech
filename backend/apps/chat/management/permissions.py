@@ -1,58 +1,63 @@
+from datetime import timedelta
+
 from rest_framework.permissions import BasePermission
-from apps.groups.models import GroupMembership
-from apps.users.utils.roles import get_active_assignment
 
-ROLE_ADMIN = "admin"
-ROLE_SUPERVISOR = "supervisor"
-ROLE_MENTOR = "mentor"
+from apps.groups.models import GroupMembership, Groups
+from apps.users.utils.admin_scope import can_admin_track
 
-
-def _has_active_role_name(user, allowed_names):
-    rah = get_active_assignment(user)
-    return bool(rah and rah.role and rah.role.role_name in allowed_names)
+SELF_ACTION_WINDOW = timedelta(minutes=10)
 
 
 class IsGroupMemberOrAdmin(BasePermission):
+    """Read / post: caller is an active member of the target group, or
+    has admin scope for the group's track (global ``AdminScope`` or a
+    track-scoped row), as defined by ``can_admin_track``.
     """
-    For GET/POST: allow if user is admin, or a member of the group.
-    (Mentors are covered by membership since they belong to specific groups.)
-    """
+
     def has_permission(self, request, view):
         u = request.user
         if not u or not u.is_authenticated:
             return False
-        if u.is_staff or _has_active_role_name(u, {ROLE_ADMIN}):
-            return True
         gid = view.kwargs.get("group_pk")
-        return GroupMembership.objects.filter(
-            user=u,
-            group_id=gid,
-            left_at__isnull=True,
-        ).exists()
+        if gid is None:
+            return False
+        if GroupMembership.objects.filter(
+            user=u, group_id=gid, left_at__isnull=True
+        ).exists():
+            return True
+        track_id = (
+            Groups.objects.filter(pk=gid).values_list("track_id", flat=True).first()
+        )
+        return can_admin_track(u, track_id)
 
 
 class CanModerateMessage(BasePermission):
+    """Delete a chat message.
+
+    Allowed iff the caller is the sender within ``SELF_ACTION_WINDOW``,
+    or has admin scope for the message's group's track via
+    ``can_admin_track`` (global or track-scoped ``AdminScope``).
     """
-    For DELETE:
-      - admin: moderate everywhere
-      - supervisor: moderate everywhere
-      - mentor: only in groups they belong to
-    """
+
     def has_object_permission(self, request, view, obj):
         u = request.user
         if not u or not u.is_authenticated:
             return False
-
-        # Admin → global access
-        if _has_active_role_name(u, {ROLE_ADMIN}):
+        if obj.can_be_self_actioned_by(u):
             return True
+        return can_admin_track(u, obj.group.track_id)
 
-        # Mentor / Supervisor → only if member of THIS group
-        if _has_active_role_name(u, {ROLE_MENTOR, ROLE_SUPERVISOR}):
-            return GroupMembership.objects.filter(
-                user=u,
-                group=obj.group,
-                left_at__isnull=True,
-            ).exists()
 
-        return False
+class CanEditMessage(BasePermission):
+    """Edit a chat message. Same rule as ``CanModerateMessage`` —
+    sender within the self-action window, or admin scope for the
+    message's track.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        u = request.user
+        if not u or not u.is_authenticated:
+            return False
+        if obj.can_be_self_actioned_by(u):
+            return True
+        return can_admin_track(u, obj.group.track_id)
