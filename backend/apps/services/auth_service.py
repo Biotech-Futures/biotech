@@ -236,14 +236,14 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
         "First_Name": user.first_name,
         "CHANGED_AT": timezone.now(),
         "REQUEST_IP": ip or "unknown",
-        "SUPPORT_EMAIL": settings.SUPPORT_EMAIL,
+        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
     }
     try:
         html_content = render_to_string("emails/password_changed.html", ctx)
         text_content = (
             f"Hi {user.first_name or 'there'},\n\n"
             f"Your BIOTech Futures password was just changed.\n"
-            f"If this wasn't you, contact {settings.SUPPORT_EMAIL} immediately."
+            f"If this wasn't you, contact {settings.DEFAULT_FROM_EMAIL} immediately."
         )
         msg = EmailMultiAlternatives(
             subject="BIOTech Futures: Your password was changed",
