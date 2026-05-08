@@ -1,8 +1,7 @@
-import contextlib
 import unittest
+from unittest.mock import patch, AsyncMock, MagicMock
 from django.test import TestCase, override_settings
 from django.test import Client
-import asyncio
 from datetime import timedelta
 
 from django.urls import reverse
@@ -24,6 +23,7 @@ from apps.chat.models import Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
+from apps.users.models import AdminScope
 
 
 # Create your tests here.
@@ -54,8 +54,13 @@ class ChatFeatureTests(TestCase):
         self.mentor = User.objects.create_user(email="mentor@test.com", password="pw")
         self.supervisor = User.objects.create_user(email="supervisor@test.com", password="pw")
         self.admin = User.objects.create_user(email="admin@test.com", password="pw", is_staff=False)
+        # Track-admin user, scoped to AUS-NSW only.
+        self.track_admin = User.objects.create_user(email="track_admin@test.com", password="pw")
 
         # --- roles ---
+        # Roles still exist for unrelated chat features (read-membership,
+        # role display in payloads, etc.) but are no longer the source of
+        # moderation power.
         self.role_mentor = Roles.objects.create(role_name="mentor")
         self.role_supervisor = Roles.objects.create(role_name="supervisor")
         self.role_admin = Roles.objects.create(role_name="admin")
@@ -77,31 +82,39 @@ class ChatFeatureTests(TestCase):
         RoleAssignmentHistory.objects.create(
             user=self.admin, role=self.role_admin, valid_from=now, valid_to=future
         )
-        
+
         # --- geo / track prerequisites for Groups ---
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
+        self.other_state = CountryStates.objects.create(country=self.country, state_name="VIC")
+        self.other_track = Tracks.objects.create(track_name="AUS-VIC", state=self.other_state)
 
         # --- groups & membership ---
         self.group = Groups.objects.create(group_name="G1", track=self.track)
         GroupMembership.objects.create(user=self.student, group=self.group)
         GroupMembership.objects.create(user=self.mentor, group=self.group)
         GroupMembership.objects.create(user=self.supervisor, group=self.group)
-        # admin has global access; they don't need membership
+        # admin / track_admin have AdminScope-based access; they don't need membership
+
+        # --- admin scopes (operational admin model) ---
+        # Global admin: can moderate anywhere.
+        AdminScope.objects.create(user=self.admin, is_global=True)
+        # Track admin: limited to the AUS-NSW track.
+        AdminScope.objects.create(user=self.track_admin, track=self.track, is_global=False)
         
         # --- resources ---
         self.res1 = Resources.objects.create(
-            resource_name="R1",
-            resource_description="d1",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(minutes=1),
+            name="R1",
+            description="d1",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(minutes=1),
         )
         self.res2 = Resources.objects.create(
-            resource_name="R2",
-            resource_description="d2",
-            uploader_user_id=self.admin,
-            upload_datetime=timezone.now() - timedelta(minutes=1),
+            name="R2",
+            description="d2",
+            uploaded_by=self.admin,
+            uploaded_at=timezone.now() - timedelta(minutes=1),
         )
 
         # API clients
@@ -109,6 +122,7 @@ class ChatFeatureTests(TestCase):
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
+        self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
 
 
     # --------- helpers ---------
@@ -119,6 +133,10 @@ class ChatFeatureTests(TestCase):
     def _detail_url(self, mid, group_id=None):
         gid = group_id or self.group.id
         return reverse("group-messages-detail", kwargs={"group_pk": gid, "pk": mid})
+
+    def _destroy_url(self, mid):
+        # Flat delete route: only message_id is required.
+        return reverse("message-destroy", kwargs={"pk": mid})
 
     # --------- tests ---------
 
@@ -162,56 +180,118 @@ class ChatFeatureTests(TestCase):
         ids2 = [it["id"] for it in resp2.data["items"]]
         self.assertEqual(ids2, [m3.id])
 
-    def test_delete_forbidden_for_student(self):
+    def test_delete_allowed_for_sender_within_10_minutes(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete")
-        url = self._detail_url(msg.id)
-        resp = self.client_student.delete(url)
-        self.assertEqual(resp.status_code, 403)
-
-    def test_delete_allowed_for_mentor_in_own_group(self):
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 2")
-        url = self._detail_url(msg.id)
-        resp = self.client_mentor.delete(url)
+        resp = self.client_student.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 204)
         msg.refresh_from_db()
         self.assertIsNotNone(msg.deleted_at)
 
-    def test_delete_forbidden_for_mentor_in_other_group(self):
-        # make another group where mentor is NOT a member
-        group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
-
-        resp = self.client_mentor.delete(url)
+    def test_delete_forbidden_for_sender_after_10_minutes(self):
+        msg = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="too old to delete",
+            sent_at=timezone.now() - timedelta(minutes=11),
+        )
+        resp = self.client_student.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_allowed_for_supervisor_in_own_group(self):
-        msg2 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": self.group.id, "pk": msg2.id})
+    def test_delete_forbidden_for_non_sender_regular_user(self):
+        other_student = get_user_model().objects.create_user(email="student2@test.com", password="pw")
+        now = timezone.now()
+        future = now.replace(year=2099)
+        RoleAssignmentHistory.objects.create(
+            user=other_student, role=self.role_student, valid_from=now, valid_to=future
+        )
+        GroupMembership.objects.create(user=other_student, group=self.group)
+        client_other_student = APIClient()
+        client_other_student.force_authenticate(user=other_student)
 
-        resp = self.client_supervisor.delete(url)
-        self.assertEqual(resp.status_code, 204)
-        msg2.refresh_from_db()
-        self.assertIsNotNone(msg2.deleted_at)
-
-    def test_delete_forbidden_for_supervisor_in_other_group(self):
-        # make another group where supervisor is NOT a member
-        group2 = Groups.objects.create(group_name="G2", track=self.track)
-        msg2 = Messages.objects.create(group=group2, sender_user=self.admin, message_text="to delete 3")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group2.id, "pk": msg2.id})
-
-        resp = self.client_supervisor.delete(url)
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="not yours")
+        resp = client_other_student.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_allowed_for_admin_globally(self):
-        group3 = Groups.objects.create(group_name="G3", track=self.track)
-        msg3 = Messages.objects.create(group=group3, sender_user=self.student, message_text="to delete 4")
-        url = reverse("group-messages-detail", kwargs={"group_pk": group3.id, "pk": msg3.id})
+    def test_delete_forbidden_for_mentor(self):
+        # Mentors no longer have moderation rights — even in their own group.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="mentor try")
+        resp = self.client_mentor.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
 
-        resp = self.client_admin.delete(url)
+    def test_delete_forbidden_for_supervisor(self):
+        # Supervisors no longer have moderation rights — even in their own group.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="supervisor try")
+        resp = self.client_supervisor.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_allowed_for_global_admin_anywhere(self):
+        # Global admins (AdminScope.is_global=True) can delete in any track.
+        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="global admin")
+
+        resp = self.client_admin.delete(self._destroy_url(msg.id))
         self.assertEqual(resp.status_code, 204)
-        msg3.refresh_from_db()
-        self.assertIsNotNone(msg3.deleted_at)
+        msg.refresh_from_db()
+        self.assertIsNotNone(msg.deleted_at)
+
+    def test_delete_allowed_for_track_admin_within_their_track(self):
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="track admin in")
+
+        resp = self.client_track_admin.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 204)
+        msg.refresh_from_db()
+        self.assertIsNotNone(msg.deleted_at)
+
+    def test_delete_forbidden_for_track_admin_outside_their_track(self):
+        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="track admin out")
+
+        resp = self.client_track_admin.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_forbidden_for_admin_role_without_admin_scope(self):
+        # An "admin" role assignment alone (no AdminScope row) is not
+        # sufficient to delete other users' messages.
+        u = get_user_model().objects.create_user(email="role_admin_only@test.com", password="pw")
+        RoleAssignmentHistory.objects.create(
+            user=u, role=self.role_admin,
+            valid_from=timezone.now(), valid_to=timezone.now().replace(year=2099),
+        )
+        client = APIClient(); client.force_authenticate(user=u)
+
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="role admin only")
+        resp = client.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_forbidden_for_staff_without_admin_scope(self):
+        # is_staff/is_superuser flags alone do NOT grant chat moderation.
+        # An explicit AdminScope row is required.
+        u = get_user_model().objects.create_user(
+            email="staff_only@test.com", password="pw", is_staff=True
+        )
+        client = APIClient(); client.force_authenticate(user=u)
+
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="staff only")
+        resp = client.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_forbidden_for_superuser_without_admin_scope(self):
+        u = get_user_model().objects.create_user(
+            email="superuser_only@test.com", password="pw",
+            is_staff=True, is_superuser=True,
+        )
+        client = APIClient(); client.force_authenticate(user=u)
+
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="superuser only")
+        resp = client.delete(self._destroy_url(msg.id))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_nested_delete_route_is_no_longer_exposed(self):
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="legacy route")
+        legacy_url = f"/chat/groups/{self.group.id}/messages/{msg.id}/"
+
+        resp = self.client_admin.delete(legacy_url)
+        self.assertEqual(resp.status_code, 405)
 
     def test_soft_deleted_messages_are_excluded_from_list(self):
         m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep")
@@ -254,63 +334,70 @@ class ChatFeatureTests(TestCase):
         self.assertTrue(connected, "WebSocket failed to connect")
         return communicator
 
-    def test_ws_broadcast_on_create(self):
-        # Open WS as student (group member)
-        comm = self._ws_connect_with_session(self.student)
+    # These tests verify the REST handler's *publish* path — that POST/DELETE
+    # call ``channel_layer.group_send`` with the correct envelope. They do not
+    # drive a real WebSocket consumer.
+    #
+    # End-to-end WS round-trip from a Django TestCase is structurally broken
+    # with InMemoryChannelLayer: the consumer registers its asyncio.Queue on
+    # the test's outer event loop, but the REST view publishes via
+    # ``async_to_sync(channel_layer.group_send)`` which runs on asgiref's
+    # separate executor loop. asyncio.Queue.put cannot cross loops, so the
+    # message never arrives and the communicator times out with
+    # CancelledError. The consumer's receive-side (auth, membership, accept)
+    # is already covered by ``_ws_connect_with_session`` succeeding elsewhere.
+
+    @patch("apps.chat.views.get_channel_layer")
+    def test_ws_broadcast_on_create(self, mock_get_channel_layer):
+        fake_layer = MagicMock()
+        fake_layer.group_send = AsyncMock()
+        mock_get_channel_layer.return_value = fake_layer
 
         api = APIClient()
         api.force_authenticate(self.student)
-        
-        try:
-            # Create a message via REST (as student)
-            resp = api.post(
-                f"/chat/groups/{self.group.id}/messages/",
-                {"message_text": "hi from test", "resources": []},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, 201, resp.content)
 
-            async_to_sync(asyncio.sleep)(0.05)
+        resp = api.post(
+            f"/chat/groups/{self.group.id}/messages/",
+            {"message_text": "hi from test", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
 
-            # Expect a broadcast
-            event = async_to_sync(comm.receive_json_from)(timeout=5)
-            self.assertEqual(event["payload"]["event"], "message.created")
-            self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message"]["text"], "hi from test")
-            self.assertEqual(event["payload"]["message"]["sender_id"], self.student.id)
-        finally:
-            # Prevent CancelledError bubbling if a prior await timed out/cancelled
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                async_to_sync(asyncio.sleep)(0.05)
-                async_to_sync(comm.disconnect)()
+        fake_layer.group_send.assert_called_once()
+        group_name, envelope = fake_layer.group_send.call_args.args
+        self.assertEqual(group_name, f"group_{self.group.id}")
+        self.assertEqual(envelope["type"], "chat.message")
+        payload = envelope["payload"]
+        self.assertEqual(payload["event"], "message.created")
+        self.assertEqual(payload["group_id"], self.group.id)
+        self.assertEqual(payload["message"]["text"], "hi from test")
+        self.assertEqual(payload["message"]["sender_id"], self.student.id)
 
+    @patch("apps.chat.views.get_channel_layer")
+    def test_ws_broadcast_on_delete(self, mock_get_channel_layer):
+        fake_layer = MagicMock()
+        fake_layer.group_send = AsyncMock()
+        mock_get_channel_layer.return_value = fake_layer
 
-    def test_ws_broadcast_on_delete(self):
-        # create a message to delete
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to remove")
-
-        # Open WS as mentor (has moderation in this group)
-        comm = self._ws_connect_with_session(self.mentor)
+        msg = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="to remove"
+        )
 
         api = APIClient()
-        api.force_authenticate(self.mentor)
+        # Global admin has unconditional moderation rights under the new contract.
+        api.force_authenticate(self.admin)
 
-        try:
-            # Delete via REST (mentor)
-            resp = api.delete(f"/chat/groups/{self.group.id}/messages/{msg.id}/")
-            self.assertEqual(resp.status_code, 204, resp.content)
+        resp = api.delete(f"/chat/messages/{msg.id}/")
+        self.assertEqual(resp.status_code, 204, resp.content)
 
-            async_to_sync(asyncio.sleep)(0.05)
-
-            # Expect broadcast
-            event = async_to_sync(comm.receive_json_from)(timeout=5)
-            self.assertEqual(event["payload"]["event"], "message.deleted")
-            self.assertEqual(event["payload"]["group_id"], self.group.id)
-            self.assertEqual(event["payload"]["message_id"], msg.id)
-        finally:
-            with contextlib.suppress(Exception, asyncio.CancelledError):
-                async_to_sync(asyncio.sleep)(0.05)
-                async_to_sync(comm.disconnect)()
+        fake_layer.group_send.assert_called_once()
+        group_name, envelope = fake_layer.group_send.call_args.args
+        self.assertEqual(group_name, f"group_{self.group.id}")
+        self.assertEqual(envelope["type"], "chat.message")
+        payload = envelope["payload"]
+        self.assertEqual(payload["event"], "message.deleted")
+        self.assertEqual(payload["group_id"], self.group.id)
+        self.assertEqual(payload["message_id"], msg.id)
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
@@ -473,158 +560,193 @@ class ChatProfanitySanitisationTests(TestCase):
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
 class ChatQuotedReplyTests(TestCase):
-    """Tests for the ``reply_to`` quoted-reply feature.
+    """Integration + unit tests for the quoted-reply feature.
 
-    Kept in its own class with a lean ``setUp`` so that schema drift in
-    other unrelated models (e.g. Resources) cannot break the quoted-reply
-    contract. Mirrors the structural choice made by
-    ``ChatProfanitySanitisationTests``.
+    Covers the four invariants the feature has to uphold:
+
+    * Happy path: write-only ``reply_to_id`` accepted, read-side
+      ``reply_to`` embedded as ``{id, text, user_id, deleted}``.
+    * Recursion bound: the embedded parent never itself contains a
+      ``reply_to`` field, no matter how deep the underlying chain.
+    * Same-group invariant: a reply cannot point at a parent in a
+      different group \u2014 enforced by ``ReplyToIdField.get_queryset``.
+    * Soft-delete invariant: a soft-deleted parent cannot be referenced
+      on creation, and any *existing* reply that already references one
+      surfaces ``text: null, deleted: true`` instead of leaking the
+      moderated content.
+    * Fail-closed: when the serializer is used outside a view context
+      (no ``group_pk``), every ``reply_to_id`` is rejected.
     """
 
     def setUp(self):
         User = get_user_model()
 
-        self.student = User.objects.create_user(email="reply-student@test.com", password="pw")
-        self.mentor = User.objects.create_user(email="reply-mentor@test.com", password="pw")
-        self.outsider = User.objects.create_user(email="reply-outsider@test.com", password="pw")
-
-        self.role_student = Roles.objects.create(role_name="basic_student")
-        self.role_mentor = Roles.objects.create(role_name="mentor")
+        self.student = User.objects.create_user(email="qr_student@test.com", password="pw")
+        self.role_student = Roles.objects.create(role_name="basic_student_qr")
 
         now = timezone.now()
         future = now.replace(year=2099)
         RoleAssignmentHistory.objects.create(
             user=self.student, role=self.role_student, valid_from=now, valid_to=future,
         )
-        RoleAssignmentHistory.objects.create(
-            user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=future,
-        )
 
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
+        self.track = Tracks.objects.create(track_name="AUS-NSW-QR", state=self.state)
 
-        self.group = Groups.objects.create(group_name="G-reply", track=self.track)
+        self.group = Groups.objects.create(group_name="QR-G1", track=self.track)
+        self.other_group = Groups.objects.create(group_name="QR-G2", track=self.track)
         GroupMembership.objects.create(user=self.student, group=self.group)
-        GroupMembership.objects.create(user=self.mentor, group=self.group)
+        GroupMembership.objects.create(user=self.student, group=self.other_group)
 
-        self.client_student = APIClient()
-        self.client_student.force_authenticate(user=self.student)
-        self.client_mentor = APIClient()
-        self.client_mentor.force_authenticate(user=self.mentor)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.student)
 
-    def _list_url(self, group_id=None):
-        gid = group_id or self.group.id
-        return reverse("group-messages-list", kwargs={"group_pk": gid})
-
-    def test_reply_to_nesting_serialization(self):
-        """Quoted-reply API contract.
-
-        Verifies two things at once:
-
-        1. **Shape**: GET responses for a child message embed a structured
-           ``reply_to`` dict with exactly ``id`` / ``text`` / ``user_id``
-           — the lightweight parent projection promised by the API.
-        2. **Recursion depth is bounded**: even when replies form a
-           chain (A <- B <- C), the embedded ``reply_to`` for C only
-           expands to B and never recursively expands B.reply_to. This
-           guards against unbounded payloads / cycles.
-        """
-        # A <- B (reply) <- C (reply-of-reply)
-        parent = Messages.objects.create(
-            group=self.group,
-            sender_user=self.student,
-            message_text="Are we still on?",
-        )
-        reply = Messages.objects.create(
-            group=self.group,
-            sender_user=self.mentor,
-            message_text="Sure!",
-            reply_to=parent,
-        )
-        grand = Messages.objects.create(
-            group=self.group,
-            sender_user=self.student,
-            message_text="great, see you then",
-            reply_to=reply,
+    def _list_url(self, group=None):
+        return reverse(
+            "group-messages-list",
+            kwargs={"group_pk": (group or self.group).id},
         )
 
-        resp = self.client_student.get(self._list_url())
-        self.assertEqual(resp.status_code, 200, resp.content)
-        by_id = {it["id"]: it for it in resp.data["items"]}
-
-        # --- shape check on the canonical example -----------------------
-        # Top of chain has no quoted parent.
-        self.assertIn(parent.id, by_id)
-        self.assertIsNone(by_id[parent.id]["reply_to"])
-
-        # Child carries the lightweight parent context.
-        reply_payload = by_id[reply.id]["reply_to"]
-        self.assertIsInstance(reply_payload, dict)
-        self.assertEqual(
-            set(reply_payload.keys()), {"id", "text", "user_id"},
-            "reply_to must expose exactly id/text/user_id",
-        )
-        self.assertEqual(reply_payload["id"], parent.id)
-        self.assertEqual(reply_payload["text"], "Are we still on?")
-        self.assertEqual(reply_payload["user_id"], self.student.id)
-
-        # --- recursion-depth bound -------------------------------------
-        # `grand` quotes `reply`, and `reply` itself quotes `parent`. The
-        # API must NOT expand that second hop: the nested dict for
-        # grand.reply_to describes only `reply` and crucially does not
-        # contain its own `reply_to` key.
-        grand_payload = by_id[grand.id]["reply_to"]
-        self.assertEqual(grand_payload["id"], reply.id)
-        self.assertEqual(grand_payload["text"], "Sure!")
-        self.assertEqual(grand_payload["user_id"], self.mentor.id)
-        self.assertNotIn(
-            "reply_to", grand_payload,
-            "Nested reply_to must not recursively expand its own parent.",
-        )
+    # --- happy path ---------------------------------------------------
 
     def test_post_quoted_reply_via_api(self):
-        """POST accepts ``reply_to_id`` and the response surfaces the
-        nested parent dict, mirroring the canonical example payload."""
         parent = Messages.objects.create(
-            group=self.group,
-            sender_user=self.student,
-            message_text="Are we still on?",
+            group=self.group, sender_user=self.student, message_text="parent text",
         )
-        resp = self.client_mentor.post(
+        resp = self.client.post(
             self._list_url(),
-            {"message_text": "Sure!", "reply_to_id": parent.id},
+            {"message_text": "child text", "reply_to_id": parent.id},
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
-        self.assertEqual(resp.data["reply_to"], {
-            "id": parent.id,
-            "text": "Are we still on?",
-            "user_id": self.student.id,
-        })
+        self.assertEqual(resp.data["reply_to"]["id"], parent.id)
+        self.assertEqual(resp.data["reply_to"]["text"], "parent text")
+        self.assertEqual(resp.data["reply_to"]["user_id"], self.student.id)
+        self.assertFalse(resp.data["reply_to"]["deleted"])
 
-        msg = Messages.objects.get(pk=resp.data["id"])
-        self.assertEqual(msg.reply_to_id, parent.id)
+    # --- recursion-depth structural guard -----------------------------
+
+    def test_reply_to_nesting_serialization(self):
+        """The embedded parent dict must never contain its own
+        ``reply_to`` key, even when the parent is itself a quoted reply.
+        That is the structural recursion guard for the API."""
+        from apps.chat.serializers import MessageSerializer
+
+        grandparent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="g",
+        )
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="p",
+            reply_to=grandparent,
+        )
+        child = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="c",
+            reply_to=parent,
+        )
+
+        data = MessageSerializer(child).data
+        self.assertEqual(data["reply_to"]["id"], parent.id)
+        self.assertEqual(data["reply_to"]["text"], "p")
+        # The recursion guard: the embedded parent has *no* nested
+        # reply_to field of its own, so the response is flat at exactly
+        # one level no matter how deep the chain runs.
+        self.assertNotIn("reply_to", data["reply_to"])
+
+    # --- same-group invariant ----------------------------------------
 
     def test_reply_to_id_rejected_across_groups(self):
-        """A reply may not point at a parent in a different group; the
-        embedded reply_to dict would otherwise leak content across
-        group boundaries."""
-        other_group = Groups.objects.create(group_name="G-other", track=self.track)
-        # outsider is not a member of any group in this test, but the FK
-        # validation triggers before permission/visibility checks.
-        foreign_parent = Messages.objects.create(
-            group=other_group, sender_user=self.mentor, message_text="not yours",
+        """A reply in group B cannot point at a parent in group A.
+
+        With the field-level queryset filter, the cross-group PK simply
+        is not in the queryset and DRF rejects with the standard
+        ``"Invalid pk \\"X\\" - object does not exist."`` envelope.
+        That is also a small security improvement \u2014 it does not
+        leak the existence of messages in other groups.
+        """
+        parent_in_group_a = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="a",
         )
-        resp = self.client_student.post(
-            self._list_url(),
-            {"message_text": "trying to quote", "reply_to_id": foreign_parent.id},
+        resp = self.client.post(
+            self._list_url(self.other_group),
+            {"message_text": "leak attempt", "reply_to_id": parent_in_group_a.id},
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.content)
-        # The project wraps DRF validation errors in a custom envelope
-        # (config.exception_handler) of shape
-        # {error, request_id, code, fields: {<field>: [...]}}. Tolerate
-        # both that shape and a plain DRF response.
-        field_errors = resp.data.get("fields") or resp.data
-        self.assertIn("reply_to_id", field_errors)
+        # The custom exception handler wraps DRF errors as
+        # ``{error, fields, code, request_id}``; tests pin to that shape.
+        self.assertIn("fields", resp.data)
+        self.assertIn("reply_to_id", resp.data["fields"])
+
+    # --- soft-delete invariant: write side ---------------------------
+
+    def test_reply_to_id_rejects_soft_deleted_parent(self):
+        """A reply cannot be created against a soft-deleted parent.
+
+        The field's queryset filters on ``deleted_at__isnull=True`` so
+        soft-deleted PKs vanish from the writable set and DRF rejects
+        with the standard 400.
+        """
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="x",
+        )
+        parent.soft_delete()
+        resp = self.client.post(
+            self._list_url(),
+            {"message_text": "y", "reply_to_id": parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("fields", resp.data)
+        self.assertIn("reply_to_id", resp.data["fields"])
+
+    # --- soft-delete invariant: read side ----------------------------
+
+    def test_reply_to_serializer_handles_soft_deleted_parent(self):
+        """When a parent is soft-deleted *after* its replies were
+        posted, the read payload must surface ``id`` and ``user_id``
+        (so the FE can attribute the placeholder) but null out
+        ``text`` and set ``deleted: true``. Any other behaviour would
+        let moderated content leak through every child that quoted it.
+        """
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="moderated content",
+        )
+        child = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="child",
+            reply_to=parent,
+        )
+        parent.soft_delete()
+
+        resp = self.client.get(self._list_url())
+        self.assertEqual(resp.status_code, 200, resp.content)
+        items = resp.data["items"]
+        child_payload = next(i for i in items if i["id"] == child.id)
+        self.assertEqual(child_payload["reply_to"]["id"], parent.id)
+        self.assertEqual(child_payload["reply_to"]["user_id"], self.student.id)
+        self.assertIsNone(child_payload["reply_to"]["text"])
+        self.assertTrue(child_payload["reply_to"]["deleted"])
+
+    # --- fail-closed: no view context --------------------------------
+
+    def test_reply_to_id_fails_closed_without_view_context(self):
+        """If the serializer is instantiated outside a view (management
+        command, signal handler, future bulk import), it has no way to
+        know which group to scope to. The field's queryset returns
+        ``Messages.objects.none()`` in that case, so any ``reply_to_id``
+        is rejected with the standard 400. Previously the cross-group
+        check was *skipped* in this scenario \u2014 the opposite of
+        what a security-relevant validator should do.
+        """
+        from apps.chat.serializers import MessageSerializer
+
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="p",
+        )
+        # No ``context={"view": ...}`` \u2014 this is the failure mode
+        # we are pinning.
+        ser = MessageSerializer(
+            data={"message_text": "child", "reply_to_id": parent.id},
+        )
+        self.assertFalse(ser.is_valid())
+        self.assertIn("reply_to_id", ser.errors)

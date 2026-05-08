@@ -35,21 +35,90 @@ class ReplyToSerializer(serializers.ModelSerializer):
     """Lightweight, *non-recursive* projection of a parent message used to
     embed quoted-reply context inside a child message's payload.
 
-    The serializer deliberately exposes only ``id``, ``text`` and
-    ``user_id`` and does **not** itself include a ``reply_to`` field.
-    That bounds the response shape at exactly one level of nesting no
-    matter how deep the underlying chain of quoted replies is, which is
-    the structural recursion guard for the API. (See
-    ``test_reply_to_nesting_serialization``.)
+    Field-naming choice
+    -------------------
+    This serializer deliberately uses the short keys ``text`` and
+    ``user_id`` instead of the parent ``MessageSerializer``'s
+    ``message_text`` / ``sender_user_id``. The nested object is rendered
+    inside chat bubbles, where the FE strongly benefits from a compact
+    shape; the full schema remains available on the *child* message
+    itself. This is a deliberate UI-affordance projection, not a missed
+    consistency.
+
+    Soft-deleted parents
+    --------------------
+    If the parent has been moderated away (``deleted_at`` is not null),
+    the embedded payload still surfaces ``id`` and ``user_id`` (so the
+    FE can render an attribution placeholder like
+    ``"\u21b3 deleted message from <user>"``) but **omits the text**:
+    ``text`` is nulled and the explicit boolean ``deleted: true`` is
+    set. This prevents soft-deleted content from leaking through every
+    child message that quoted it.
+
+    Recursion bound
+    ---------------
+    The serializer does **not** itself include a ``reply_to`` field, so
+    the response is flat at exactly one level of nesting no matter how
+    deep the underlying chain of quoted replies is. That is the
+    structural recursion guard for the API (see
+    ``test_reply_to_nesting_serialization``).
     """
 
-    text = serializers.CharField(source="message_text", read_only=True)
+    text = serializers.SerializerMethodField()
     user_id = serializers.IntegerField(source="sender_user_id", read_only=True)
+    deleted = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
-        fields = ["id", "text", "user_id"]
+        fields = ["id", "text", "user_id", "deleted"]
         read_only_fields = fields
+
+    def get_text(self, obj):
+        # Soft-deleted parents do not expose their content. The id +
+        # user_id remain so the FE can still render an attribution
+        # placeholder.
+        if obj.deleted_at is not None:
+            return None
+        return obj.message_text
+
+    def get_deleted(self, obj):
+        return obj.deleted_at is not None
+
+
+class ReplyToIdField(serializers.PrimaryKeyRelatedField):
+    """Write-side companion to :class:`ReplyToSerializer`.
+
+    The queryset is restricted to the **current group's non-deleted
+    messages**. This consolidates two invariants into the canonical
+    DRF place (the field's queryset) so they cannot drift:
+
+    * Cross-group leak: a reply in group A cannot point at a parent in
+      group B \u2014 such a PK is simply not in the queryset, so DRF
+      rejects with the standard ``"Invalid pk \\"X\\" - object does not
+      exist."`` error. The generic message is also a small security
+      win: it does not leak the existence of messages in other groups.
+    * Soft-deleted parents: a reply cannot point at a moderated-away
+      parent on creation. Same standard 400.
+
+    Fail-closed: if the serializer is ever instantiated outside a view
+    (management command, signal handler, future bulk import) the
+    queryset is empty, so any ``reply_to_id`` is rejected. The previous
+    implementation read the group from ``self.context["view"].kwargs``
+    and silently *skipped* the cross-group check when context was
+    missing \u2014 the opposite of what this validator should do.
+    """
+
+    def get_queryset(self):
+        view = self.context.get("view")
+        if view is None:
+            return Messages.objects.none()
+        group_pk = view.kwargs.get("group_pk")
+        if group_pk is None:
+            return Messages.objects.none()
+        return Messages.objects.filter(
+            group_id=group_pk,
+            deleted_at__isnull=True,
+        )
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -61,11 +130,10 @@ class MessageSerializer(serializers.ModelSerializer):
     is_edited = serializers.BooleanField(read_only=True)
 
     # Read: nested lightweight parent context (or null if not a reply).
-    # Write: the companion ``reply_to_id`` field below accepts a PK so the
-    # nested read shape stays unambiguous on the wire.
+    # Write: ``reply_to_id`` accepts a PK constrained to the current
+    # group's non-deleted messages \u2014 see ``ReplyToIdField``.
     reply_to = ReplyToSerializer(read_only=True)
-    reply_to_id = serializers.PrimaryKeyRelatedField(
-        queryset=Messages.objects.all(),
+    reply_to_id = ReplyToIdField(
         source="reply_to",
         write_only=True,
         required=False,
@@ -117,24 +185,24 @@ class MessageSerializer(serializers.ModelSerializer):
         # imports, admin tools) goes through the same filter.
         if "message_text" in attrs:
             attrs["message_text"] = sanitize_text(attrs["message_text"])
-
-        # Enforce that quoted replies stay inside the same group; a reply
-        # in group A pointing at a parent in group B would leak content
-        # across group boundaries via the embedded reply_to dict.
-        parent = attrs.get("reply_to")
-        if parent is not None:
-            group_pk = self.context.get("view").kwargs.get("group_pk") \
-                if self.context.get("view") else None
-            if group_pk is not None and parent.group_id != int(group_pk):
-                raise serializers.ValidationError(
-                    {"reply_to_id": "Parent message must belong to the same group."}
-                )
+        # Cross-group + soft-delete invariants on ``reply_to_id`` are
+        # enforced inside :class:`ReplyToIdField` itself \u2014 see its
+        # ``get_queryset`` \u2014 so this validator does not need to
+        # re-check them. Pushing the check into the field also ensures
+        # any future serializer that reuses ``ReplyToIdField`` inherits
+        # the same protection automatically.
         return attrs
 
 
 class MessageUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Messages
+        # Intentionally excludes ``reply_to_id``: once a quoted reply is
+        # created, its parent context is immutable. Re-pointing a reply
+        # via PATCH would let a moderator re-frame an existing message
+        # against a different parent, which is not a flow we want to
+        # allow. If a "change parent" feature is ever needed, give it a
+        # dedicated endpoint with its own audit trail.
         fields = ["message_text"]
 
     def validate_message_text(self, value):
