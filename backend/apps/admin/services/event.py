@@ -97,6 +97,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "eventImage(img)": event.get("event_image"),
         "isVirtual": event.get("is_virtual", False),
         "hostUserId": event.get("host_user_id"),
+        "locationLink": event.get("location_link"),
     }
 
 
@@ -167,6 +168,7 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "eventImage(img)": event.event_image,
         "isVirtual": event.is_virtual,
         "hostUserId": event.host_user_id,
+        "locationLink": event.location_link,
     }
 
 
@@ -291,6 +293,7 @@ def create_event(data: Dict[str, Any]) -> EventResponseDict:
         host_user_id=host_user_id,
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,
+        location_link=data.get("location_link") or data.get("locationLink") or None,
     )
 
     # Sync targets
@@ -337,9 +340,14 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         updates["description"] = data["description"]
     if "location" in data and data["location"] is not None:
         updates["location"] = data["location"].strip() if data["location"] else None
-    is_virtual = data.get("isVirtual") or data.get("is_virtual")
+    location_link = data.get("location_link") or data.get("locationLink")
+    if location_link is not None:
+        updates["location_link"] = location_link
+    is_virtual = data.get("isVirtual") if "isVirtual" in data else data.get("is_virtual")
     if is_virtual is not None:
         updates["is_virtual"] = is_virtual
+    if is_virtual:
+        updates["location"] = None
     start_at = data.get("startAt") or data.get("start_at")
     if start_at is not None:
         updates["start_datetime"] = datetime.fromisoformat(
@@ -361,6 +369,7 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     # Apply updates
     for key, value in updates.items():
         setattr(event, key, value)
+    print("updates:", updates)
     event.save()
 
     # Sync targets regardless of whether event fields changed

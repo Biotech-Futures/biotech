@@ -6,20 +6,11 @@
     :class="[isDayMode ? 'is-day-mode' : 'is-night-mode', { 'is-fx-disabled': !isDashboardFxRunningAllowed }]"
     :style="dashboardThemeStyle"
   >
-
-
     <div class="dashboard-page-inner">
       <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
-
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
-
-
       <section class="dashboard-hero-shell">
-
-
         <div class="dashboard-hero-card interactive-surface">
-
-
           <div class="dashboard-theme-rail">
             <button
               type="button"
@@ -32,25 +23,12 @@
               <span>{{ currentSurfaceModeLabel }}</span>
             </button>
           </div>
-
-
           <div class="dashboard-hero-main">
-
-
             <div class="dashboard-hero-copy">
-
-
               <div class="hero-eyebrow-row">
-
-
                 <span class="hero-eyebrow">{{ heroEyebrow }}</span>
-
-
               </div>
-
-
               <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
-
 
               <div class="hero-meta-row">
                 <span
@@ -65,7 +43,7 @@
               </div>
 
               <p class="dashboard-subtext">
-                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current milestones, and the next best actions.
+                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current tasks, and the next best actions.
               </p>
 
               <p class="dashboard-hero-message">
@@ -273,14 +251,14 @@
 
 
                 <div class="progress-detail-row">
-                  <span>Next milestone</span>
-                  <strong>{{ progressSnapshot.nextMilestone }}</strong>
+                  <span>Next task</span>
+                  <strong>{{ progressSnapshot.nextTask }}</strong>
                 </div>
 
 
                 <div class="progress-detail-row">
                   <span>Due</span>
-                  <strong>{{ formatDateAU(progressSnapshot.nextMilestoneDate) || 'TBC' }}</strong>
+                  <strong>{{ formatDateAU(progressSnapshot.nextTaskDate) || 'TBC' }}</strong>
                 </div>
 
 
@@ -334,7 +312,7 @@
 
                 <div class="event-actions">
                   <RouterLink to="/events" class="primary-chip">
-                    {{ isAdmin ? 'Manage event' : isTeacher ? 'Open session' : 'View event' }}
+                    {{ isAdmin ? 'Manage event' : isMentor ? 'Open session' : 'View event' }}
                   </RouterLink>
                 </div>
               </div>
@@ -545,7 +523,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const {
   isAdmin,
-  isTeacher,
+  isMentor,
+  isSupervisor,
   displayName,
   displayTrack,
   organizationLabel,
@@ -584,6 +563,8 @@ const dashboardSummary = ref({
   announcements: announcements.value.length
 })
 
+const isMentoringRole = computed(() => isMentor.value || isSupervisor.value)
+
 const adminWorkflow = ref({
   pendingMatches: 0,
   pendingReassignments: 0,
@@ -597,9 +578,9 @@ const progressSnapshot = ref({
   completionRate: 0,
   completedTasks: 0,
   totalTasks: 0,
-  currentWeek: 'No milestones yet',
-  nextMilestone: 'TBC',
-  nextMilestoneDate: ''
+  currentWeek: 'No tasks yet',
+  nextTask: 'TBC',
+  nextTaskDate: ''
 })
 const selectedProgressGroupId = ref('')
 
@@ -749,11 +730,15 @@ const heroMessage = computed(() => {
     return 'Review operational workload, monitor matching, and process critical platform actions from one unified dashboard.'
   }
 
-  if (isTeacher.value) {
+  if (isMentor.value) {
     return 'Track mentoring sessions, group activity, and support materials through a cleaner and more practical workspace.'
   }
 
-  return 'Stay focused on your next event, active group, and current milestones with a dashboard designed for fast decisions.'
+  if (isSupervisor.value) {
+    return 'Review student progress, group activity, and upcoming support moments through a focused supervisor workspace.'
+  }
+
+  return 'Stay focused on your next event, active group, and current tasks with a dashboard designed for fast decisions.'
 })
 
 const heroShowcaseFacts = computed(() => {
@@ -773,7 +758,7 @@ const headerHighlights = computed(() => {
     ]
   }
 
-  if (isTeacher.value) {
+  if (isMentoringRole.value) {
     return [
       { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
       { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
@@ -790,7 +775,8 @@ const headerHighlights = computed(() => {
 
 const heroEyebrow = computed(() => {
   if (isAdmin.value) return 'Platform Operations'
-  if (isTeacher.value) return 'Mentor Workspace'
+  if (isMentor.value) return 'Mentor Workspace'
+  if (isSupervisor.value) return 'Supervisor Workspace'
   return 'Student Workspace'
 })
 
@@ -893,7 +879,7 @@ const summaryWidgets = computed(() => {
     ]
   }
 
-  if (isTeacher.value) {
+  if (isMentoringRole.value) {
     return [
       {
         key: 'groups',
@@ -913,7 +899,7 @@ const summaryWidgets = computed(() => {
       },
       {
         key: 'resources',
-        title: 'Mentor Resources',
+        title: isSupervisor.value ? 'Supervisor Resources' : 'Mentor Resources',
         value: resourcesCount.value,
         subtext: 'Guides, rubrics, and support materials',
         icon: 'fas fa-book-open',
@@ -968,19 +954,21 @@ const summaryWidgets = computed(() => {
 
 const groupsSectionTitle = computed(() => {
   if (isAdmin.value) return `Active Mentoring Groups (${groupsCount.value})`
-  if (isTeacher.value) return `My Mentoring Groups (${groupsCount.value})`
+  if (isMentor.value) return `My Mentoring Groups (${groupsCount.value})`
+  if (isSupervisor.value) return `Supervised Groups (${groupsCount.value})`
   return `My Active Groups (${groupsCount.value})`
 })
 
 const resourcesSectionTitle = computed(() => {
   if (isAdmin.value) return 'Resource Library Snapshot'
-  if (isTeacher.value) return 'Mentor Resources'
+  if (isMentor.value) return 'Mentor Resources'
+  if (isSupervisor.value) return 'Supervisor Resources'
   return 'Learning Resources'
 })
 
 const announcementsSectionTitle = computed(() => {
   if (isAdmin.value) return 'Latest Broadcasts'
-  if (isTeacher.value) return 'Program Updates'
+  if (isMentoringRole.value) return 'Program Updates'
   return 'Recent Announcements'
 })
 
@@ -989,9 +977,9 @@ function getEmptyProgressSnapshot() {
     completionRate: 0,
     completedTasks: 0,
     totalTasks: 0,
-    currentWeek: 'No milestones yet',
-    nextMilestone: 'TBC',
-    nextMilestoneDate: ''
+    currentWeek: 'No tasks yet',
+    nextTask: 'TBC',
+    nextTaskDate: ''
   }
 }
 
@@ -1226,8 +1214,8 @@ function normalizeProgressSnapshot(payload) {
     completedTasks: Number(payload?.completedTasks ?? payload?.completed_tasks ?? fallback.completedTasks),
     totalTasks: Number(payload?.totalTasks ?? payload?.total_tasks ?? fallback.totalTasks),
     currentWeek: payload?.currentWeek ?? payload?.current_stage ?? fallback.currentWeek,
-    nextMilestone: payload?.nextMilestone ?? payload?.next_milestone?.name ?? fallback.nextMilestone,
-    nextMilestoneDate: payload?.nextMilestoneDate ?? payload?.next_milestone?.due_date ?? fallback.nextMilestoneDate
+    nextTask: payload?.nextTask ?? payload?.next_task?.name ?? fallback.nextTask,
+    nextTaskDate: payload?.nextTaskDate ?? payload?.next_task?.due_date ?? fallback.nextTaskDate
   }
 }
 

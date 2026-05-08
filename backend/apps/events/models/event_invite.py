@@ -3,10 +3,13 @@ from django.db import models
 
 
 class EventRsvp(models.Model):
+    # RSVP statuses use the meeting-standard wording (Outlook / Google
+    # Calendar / iCalendar PARTSTAT) so the API matches what every
+    # other surface in the product already calls these states.
     class RsvpStatus(models.TextChoices):
         PENDING = "pending", "Pending"
-        GOING = "going", "Going"
-        MAYBE = "maybe", "Maybe"
+        ACCEPTED = "accepted", "Accepted"
+        TENTATIVE = "tentative", "Tentative"
         DECLINED = "declined", "Declined"
 
     event = models.ForeignKey("Events", on_delete=models.CASCADE, related_name="rsvps")
@@ -24,9 +27,11 @@ class EventRsvp(models.Model):
         verbose_name_plural = "Event RSVPs"
         constraints = [
             models.UniqueConstraint(fields=["event", "user"], name="unique_event_rsvp_user"),
+            # responded_at is only meaningful once the user has actually
+            # responded (anything other than PENDING).
             models.CheckConstraint(
                 condition=models.Q(responded_at__isnull=True)
-                | models.Q(rsvp_status__in=["going", "maybe", "declined"]),
+                | models.Q(rsvp_status__in=["accepted", "tentative", "declined"]),
                 name="event_rsvp_response_state_valid",
             ),
         ]

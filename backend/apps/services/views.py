@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from . import auth_service
 from apps.users.models import User
+from apps.users.utils.admin_scope import is_operational_admin
 from apps.user_sessions.models import UserSession
 from config.errors import (
     AccountInactive,
@@ -175,11 +176,22 @@ class MagicLoginView(APIView):
 
         login(request, user)
 
+        # Admins land on the admin portal; everyone else on the user app.
+        if is_operational_admin(user):
+            frontend_callback = settings.ADMIN_MAGIC_LINK_REDIRECT_URL
+        else:
+            frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
+
         redirect_url_param = request.GET.get("redirect_url")
-        frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
         if redirect_url_param:
             parsed_url = urlparse(redirect_url_param)
-            allowed_domains = ['localhost', '127.0.0.1', 'biotechfutures.org']
+            allowed_domains = [
+                'localhost',
+                '127.0.0.1',
+                'biotechfutures.org',
+                'mentoring.biotechfutures.org',
+                'mentoringadmin.biotechfutures.org',
+            ]
             if parsed_url.hostname in allowed_domains:
                 frontend_callback = redirect_url_param
 

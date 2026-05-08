@@ -324,8 +324,8 @@ function UserManagementPage() {
 
   const handleImportUsers = async (rows: CsvUserRow[]) => {
     try {
-      const response = await bulkCreateUsers.mutateAsync({
-        users: rows.map((row) => ({
+      const response = await bulkCreateUsers.mutateAsync(
+        rows.map((row) => ({
           firstName: row.firstName,
           lastName: row.lastName,
           email: row.email,
@@ -354,7 +354,7 @@ function UserManagementPage() {
             row.role === "student" ? row.joinPermissionReceived : undefined,
           active: row.active,
         })),
-      });
+      );
 
       const createdCount = response.data?.created?.length ?? 0;
       const skippedCount = response.data?.skipped?.length ?? 0;
