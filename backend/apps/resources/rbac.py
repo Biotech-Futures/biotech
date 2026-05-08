@@ -2,42 +2,17 @@ from __future__ import annotations
 
 from django.apps import apps
 from django.db.models import Q
-from django.utils import timezone
+from apps.common.rbac import (
+    active_role_ids,
+    group_participant_qs,
+    is_global_admin,
+    track_admin_track_ids,
+)
 
-from apps.users.utils.admin_scope import get_admin_track_ids
 
-
-GLOBAL_ADMIN_ROLE_NAMES = {"admin", "global_admin"}
 RESOURCE_PUBLIC_SCOPE = "public"
 RESOURCE_TRACK_SCOPE = "track"
 RESOURCE_GROUP_SCOPE = "group"
-
-
-def _active_role_assignments(user):
-    RoleAssignmentHistory = apps.get_model("resources", "RoleAssignmentHistory")
-    now = timezone.now()
-    return RoleAssignmentHistory.objects.filter(
-        user=user,
-        valid_from__lte=now,
-    ).filter(
-        Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-    ).select_related("role")
-
-
-def _active_role_ids(user) -> set[int]:
-    return {
-        role_id
-        for role_id in _active_role_assignments(user).values_list("role_id", flat=True)
-        if role_id is not None
-    }
-
-
-def _active_role_names(user) -> set[str]:
-    return {
-        str(name).strip().lower()
-        for name in _active_role_assignments(user).values_list("role__role_name", flat=True)
-        if name
-    }
 
 
 def _track_id_from_value(track) -> int | None:
@@ -53,21 +28,10 @@ def _track_id_from_value(track) -> int | None:
     return int(value)
 
 
-def _group_participant_qs(user, group_id=None):
-    GroupMembership = apps.get_model("groups", "GroupMembership")
-    queryset = GroupMembership.objects.filter(
-        user=user,
-        left_at__isnull=True,
-    )
-    if group_id is not None:
-        queryset = queryset.filter(group_id=group_id)
-    return queryset
-
-
 def _is_group_participant(user, group) -> bool:
     if not group:
         return False
-    return _group_participant_qs(user, group_id=getattr(group, "id", group)).exists()
+    return group_participant_qs(user, group_id=getattr(group, "id", group)).exists()
 
 
 def _resource_audiences(resource):
@@ -101,19 +65,9 @@ def _resource_track_ids(resource) -> set[int]:
     return track_ids
 
 
-def _track_admin_track_ids(user) -> set[int]:
-    if not user or not user.is_authenticated or is_global_admin(user):
-        return set()
-
-    track_ids = get_admin_track_ids(user)
-    if track_ids in (None, []):
-        return set()
-    return {int(track_id) for track_id in track_ids if track_id is not None}
-
-
 def _resource_list_access_q(user):
-    role_ids = _active_role_ids(user)
-    member_group_ids = _group_participant_qs(user).values_list("group_id", flat=True)
+    role_ids = active_role_ids(user)
+    member_group_ids = group_participant_qs(user).values_list("group_id", flat=True)
 
     access_q = Q(visibility_scope=RESOURCE_PUBLIC_SCOPE)
 
@@ -134,24 +88,11 @@ def _resource_list_access_q(user):
     return access_q
 
 
-def is_global_admin(user) -> bool:
-    if not user or not user.is_authenticated:
-        return False
-    if user.is_staff or getattr(user, "is_superuser", False):
-        return True
-
-    AdminScope = apps.get_model("users", "AdminScope")
-    if AdminScope.objects.filter(user=user, is_global=True).exists():
-        return True
-
-    return bool(_active_role_names(user) & GLOBAL_ADMIN_ROLE_NAMES)
-
-
 def is_track_admin_for_track(user, track) -> bool:
     track_id = _track_id_from_value(track)
     if track_id is None:
         return False
-    return track_id in _track_admin_track_ids(user)
+    return track_id in track_admin_track_ids(user)
 
 
 def can_manage_resource_file(user, resource=None, track=None) -> bool:
@@ -169,7 +110,7 @@ def can_manage_resource_file(user, resource=None, track=None) -> bool:
     if not candidate_track_ids:
         return False
 
-    allowed_track_ids = _track_admin_track_ids(user)
+    allowed_track_ids = track_admin_track_ids(user)
     return bool(allowed_track_ids) and candidate_track_ids.issubset(allowed_track_ids)
 
 
@@ -181,7 +122,7 @@ def can_access_resource_file(user, resource) -> bool:
     if is_global_admin(user):
         return True
 
-    admin_track_ids = _track_admin_track_ids(user)
+    admin_track_ids = track_admin_track_ids(user)
     if admin_track_ids:
         return bool(_resource_track_ids(resource) & admin_track_ids)
 
@@ -203,7 +144,7 @@ def can_access_resource_file(user, resource) -> bool:
     ):
         return True
 
-    user_role_ids = _active_role_ids(user)
+    user_role_ids = active_role_ids(user)
     user_track_id = int(user.track_id) if user.track_id else None
     for audience in _resource_audiences(resource):
         role_ok = audience.role_id is None or audience.role_id in user_role_ids
@@ -222,7 +163,7 @@ def filter_resources_for_user(queryset, user, *, for_management: bool = False):
 
     # Developer note: resource RBAC stays intentionally small and file-focused here
     # instead of introducing a generic policy engine for unrelated modules.
-    admin_track_ids = _track_admin_track_ids(user)
+    admin_track_ids = track_admin_track_ids(user)
     if admin_track_ids:
         admin_q = (
             Q(track_id__in=admin_track_ids)
