@@ -343,7 +343,7 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     location_link = data.get("location_link") or data.get("locationLink")
     if location_link is not None:
         updates["location_link"] = location_link
-    is_virtual = data.get("isVirtual") or data.get("is_virtual")
+    is_virtual = data.get("isVirtual") if "isVirtual" in data else data.get("is_virtual")
     if is_virtual is not None:
         updates["is_virtual"] = is_virtual
     if is_virtual:
@@ -369,6 +369,7 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     # Apply updates
     for key, value in updates.items():
         setattr(event, key, value)
+    print("updates:", updates)
     event.save()
 
     # Sync targets regardless of whether event fields changed
