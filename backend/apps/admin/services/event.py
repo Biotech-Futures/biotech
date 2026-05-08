@@ -340,12 +340,14 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         updates["description"] = data["description"]
     if "location" in data and data["location"] is not None:
         updates["location"] = data["location"].strip() if data["location"] else None
-        location_link = data.get("location_link") or data.get("locationLink")
+    location_link = data.get("location_link") or data.get("locationLink")
     if location_link is not None:
         updates["location_link"] = location_link
-        is_virtual = data.get("isVirtual") or data.get("is_virtual")
+    is_virtual = data.get("isVirtual") or data.get("is_virtual")
     if is_virtual is not None:
         updates["is_virtual"] = is_virtual
+    if is_virtual:
+        updates["location"] = None
     start_at = data.get("startAt") or data.get("start_at")
     if start_at is not None:
         updates["start_datetime"] = datetime.fromisoformat(
