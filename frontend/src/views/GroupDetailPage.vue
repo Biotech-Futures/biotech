@@ -216,15 +216,15 @@
                   <input
                     type="checkbox"
                     :checked="isTaskSelected(row.task.id)"
-                    :disabled="row.task.deletedAt"
+                    :disabled="row.task.deletedAt || !canToggleTask(row.task)"
                     @change="setTaskSelectedFromEvent(row.task.id, $event)"
                   />
                 </label>
                 <button
                   type="button"
                   :class="['task-checkbox', { checked: row.task.completed }]"
-                  :disabled="isUpdatingTask(row.task.id) || row.task.deletedAt || (auth.isStudent && row.task.taskType === 'group')"
-                  :title="auth.isStudent && row.task.taskType === 'group' ? 'Students can view group task status only' : 'Toggle task status'"
+                  :disabled="isUpdatingTask(row.task.id) || row.task.deletedAt || !canToggleTask(row.task)"
+                  :title="canToggleTask(row.task) ? 'Toggle task status' : 'You can view this task status only'"
                   @click="toggleTask(row.task)"
                 />
                 <div class="task-body">
@@ -242,7 +242,7 @@
                   <button
                     type="button"
                     class="btn btn-outline btn-sm add-subtask-btn"
-                    :disabled="isLoadingTasks || row.task.deletedAt"
+                    :disabled="isLoadingTasks || row.task.deletedAt || !canCreateTaskType(row.task.taskType, row.task)"
                     title="Add a sub-task"
                     @click="openCreateTaskDialog(row.task.taskType, row.task)"
                   >
@@ -332,8 +332,13 @@
               <label class="task-form-field">
                 <span>Type</span>
                 <select v-model="taskForm.taskType" :disabled="taskDialogMode === 'edit'">
-                  <option value="group">Group</option>
-                  <option value="individual">Individual</option>
+                  <option
+                    v-for="option in allowedTaskTypeOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
                 </select>
               </label>
 
@@ -986,6 +991,32 @@ const groupMemberUserIds = computed(() => new Set(
     .filter(Number.isFinite)
 ))
 
+const studentMemberUserIds = computed(() => new Set(
+  groupMemberships.value
+    .filter(item => !item.leftAt && String(item.role || '').toLowerCase().includes('student'))
+    .map(item => Number(item.userId))
+    .filter(Number.isFinite)
+))
+
+const supervisedStudentIds = computed(() => new Set(
+  (auth.user?.supervised_students || [])
+    .map(student => Number(student?.id))
+    .filter(Number.isFinite)
+))
+
+const currentUserId = computed(() => Number(auth.user?.id || 0))
+
+const isCurrentGroupMentor = computed(() => groupMemberships.value.some(item => (
+  !item.leftAt &&
+  Number(item.userId) === currentUserId.value &&
+  String(item.role || '').toLowerCase().includes('mentor')
+)))
+
+const supervisesAnyCurrentGroupStudent = computed(() => {
+  if (!auth.isSupervisor) return false
+  return Array.from(studentMemberUserIds.value).some(userId => supervisedStudentIds.value.has(userId))
+})
+
 const isTaskRelevantToCurrentGroup = (task) => {
   const currentGroupId = getBackendGroupId()
   if (!currentGroupId) return false
@@ -1054,8 +1085,12 @@ const taskSections = computed(() => {
 })
 
 const selectedTaskIdList = computed(() => Array.from(selectedTaskIds.value).map(Number).filter(Number.isFinite))
-const canCreateGroupTasks = computed(() => auth.isAdmin || auth.isMentor || auth.isSupervisor)
-const canCreateIndividualTasks = computed(() => auth.isAdmin || auth.isStudent || auth.isMentor || auth.isSupervisor)
+const canCreateGroupTasks = computed(() => auth.isAdmin || (auth.isMentor && isCurrentGroupMentor.value) || supervisesAnyCurrentGroupStudent.value)
+const canCreateIndividualTasks = computed(() => auth.isAdmin || auth.isStudent || (auth.isMentor && isCurrentGroupMentor.value) || supervisesAnyCurrentGroupStudent.value)
+const allowedTaskTypeOptions = computed(() => [
+  canCreateGroupTasks.value ? { value: 'group', label: 'Group' } : null,
+  canCreateIndividualTasks.value ? { value: 'individual', label: 'Individual' } : null
+].filter(Boolean))
 
 const isUpdatingTask = (taskId) => updatingTaskIds.value.has(Number(taskId))
 const isDeletingTask = (taskId) => deletingTaskIds.value.has(Number(taskId))
@@ -1096,17 +1131,84 @@ const clearTaskSelection = () => {
 }
 
 const syncSelectedTasks = () => {
-  const visibleIds = new Set(tasks.value.filter(task => !task.deletedAt).map(task => Number(task.id)))
+  const visibleIds = new Set(tasks.value.filter(task => !task.deletedAt && canToggleTask(task)).map(task => Number(task.id)))
   selectedTaskIds.value = new Set(
     selectedTaskIdList.value.filter(id => visibleIds.has(id))
   )
 }
 
+const isGroupTaskInCurrentGroup = (task) => String(task?.group || '') === String(getBackendGroupId() || '')
+const isCurrentGroupStudent = (userId) => studentMemberUserIds.value.has(Number(userId))
+const isSupervisorOf = (userId) => supervisedStudentIds.value.has(Number(userId))
+const isAssigneeSelf = (task) => Number(task?.assignedUser) === currentUserId.value
+
+const isMentorOfTaskGroup = (task) => {
+  if (!auth.isMentor || !isCurrentGroupMentor.value) return false
+  if (task?.taskType === 'group') return isGroupTaskInCurrentGroup(task)
+  return isCurrentGroupStudent(task?.assignedUser)
+}
+
+const isSupervisorInTaskGroup = (task) => {
+  if (!auth.isSupervisor) return false
+  if (task?.taskType === 'group') return isGroupTaskInCurrentGroup(task) && supervisesAnyCurrentGroupStudent.value
+  return isSupervisorOf(task?.assignedUser)
+}
+
 const canManageTask = (task) => {
   if (!task || task.deletedAt) return false
-  if (auth.isAdmin || auth.isMentor || auth.isSupervisor) return true
+  if (auth.isAdmin) return true
   const creatorId = Number(task.createdBy?.id)
-  return Number.isFinite(creatorId) && creatorId === Number(auth.user?.id)
+  if (Number.isFinite(creatorId) && creatorId === currentUserId.value) return true
+
+  if (task.creatorRole !== 'student') return false
+  if (task.taskType === 'group') return isMentorOfTaskGroup(task)
+  if (task.taskType === 'individual') return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  return false
+}
+
+const canToggleTask = (task) => {
+  if (!task || task.deletedAt) return false
+  if (auth.isAdmin) return true
+
+  if (task.taskType === 'group') {
+    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  }
+
+  if (isAssigneeSelf(task)) return true
+  if (!isCurrentGroupStudent(task.assignedUser)) return false
+
+  if (['global_admin', 'track_admin', 'student'].includes(task.creatorRole)) {
+    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  }
+  if (task.creatorRole === 'mentor') return isMentorOfTaskGroup(task)
+  if (task.creatorRole === 'supervisor') return isSupervisorInTaskGroup(task)
+  return false
+}
+
+const canCreateTaskType = (taskType, parentTask = null) => {
+  if (taskType === 'group') return canCreateGroupTasks.value
+  if (taskType !== 'individual') return false
+
+  if (!parentTask?.assignedUser) return canCreateIndividualTasks.value
+  const assigneeId = Number(parentTask.assignedUser)
+  if (auth.isAdmin) return true
+  if (auth.isStudent) return assigneeId === currentUserId.value
+  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isSupervisor) return isSupervisorOf(assigneeId)
+  return false
+}
+
+const canCreateTaskFromForm = () => {
+  const taskType = taskForm.value.taskType
+  if (taskType === 'group') return canCreateGroupTasks.value
+
+  const assigneeId = Number(taskForm.value.assignedUser)
+  if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
+  if (auth.isAdmin) return true
+  if (auth.isStudent) return assigneeId === currentUserId.value
+  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isSupervisor) return isSupervisorOf(assigneeId)
+  return false
 }
 
 const upsertTask = (task) => {
@@ -1252,6 +1354,10 @@ const openCreateTaskDialog = (taskType, parentTask = null) => {
     taskError.value = 'A backend numeric group id is required before tasks can be added.'
     return
   }
+  if (!canCreateTaskType(taskType, parentTask)) {
+    taskError.value = 'You do not have permission to create this task type for this group.'
+    return
+  }
 
   taskDialogMode.value = 'create'
   taskDialogTitle.value = parentTask ? 'New sub-task' : taskType === 'group' ? 'New group task' : 'New individual task'
@@ -1322,6 +1428,10 @@ const saveTask = async () => {
   }
   if (taskDialogMode.value === 'create' && taskForm.value.taskType === 'individual' && !Number(taskForm.value.assignedUser)) {
     taskFormError.value = 'Assignee user id is required for individual tasks.'
+    return
+  }
+  if (taskDialogMode.value === 'create' && !canCreateTaskFromForm()) {
+    taskFormError.value = 'You do not have permission to create a task for this target.'
     return
   }
 
