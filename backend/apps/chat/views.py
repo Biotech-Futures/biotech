@@ -11,7 +11,9 @@ from .management.permissions import (
     IsGroupMemberOrAdmin,
 )
 from .models import Messages
+from .og_extractor import extract_urls
 from .serializers import MessageSerializer, MessageUpdateSerializer
+from .tasks import fetch_og_data
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -98,6 +100,34 @@ class MessageViewSet(viewsets.ModelViewSet):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
         _broadcast(gid, "message.created", MessageSerializer(msg).data)
+        self._dispatch_link_previews(msg)
+
+    def _dispatch_link_previews(self, message: Messages) -> None:
+        """Fire-and-forget OG unfurl for every URL in the message body.
+
+        We do NOT block the HTTP response on this — the user gets ``201``
+        immediately and the websocket later carries ``message.preview_ready``
+        per the worker contract documented in ``apps.chat.tasks``.
+
+        The dispatch is wrapped in ``transaction.on_commit`` for two reasons:
+
+        1. If the surrounding DB write is rolled back (e.g. permissions
+           check fails late, signal raises), no orphan task can hit a
+           non-existent message id.
+        2. Eager Celery execution (used in unit tests) would otherwise run
+           inside the request transaction and read its own pre-commit row,
+           which doesn't model production behaviour.
+        """
+        urls = extract_urls(message.message_text)
+        if not urls:
+            return
+        msg_id = message.id
+
+        def _enqueue():
+            for url in urls:
+                fetch_og_data.delay(msg_id, url)
+
+        transaction.on_commit(_enqueue)
 
     def create(self, request, *args, **kwargs):
         resp = super().create(request, *args, **kwargs)

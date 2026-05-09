@@ -119,14 +119,39 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database — local PostgreSQL for development
+# Database — PostgreSQL (local Homebrew / Docker / managed cloud)
+#
+# ``DB_SSLMODE`` is passed to libpq/psycopg. If you **do not** set it in ``.env``,
+# we pick a default from ``DB_HOST`` so local Postgres without TLS does not hit
+# "server does not support SSL, but SSL was required":
+#   - loopback / unix-socket style host → ``disable``
+#   - anything else → ``prefer`` (use TLS when the server offers it; otherwise
+#     plain TCP — works for Docker ``db`` hostnames and still encrypts to Azure)
+# Override explicitly for compliance, e.g. ``DB_SSLMODE=require`` or
+# ``verify-full`` in production.
+def _default_postgres_sslmode(host: str) -> str:
+    h = (host or "").strip().lower()
+    if not h or h in ("127.0.0.1", "localhost", "::1"):
+        return "disable"
+    return "prefer"
+
+
+DB_HOST = config("DB_HOST", default="127.0.0.1").strip()
+_default_sslmode = _default_postgres_sslmode(DB_HOST)
+_raw_sslmode = config("DB_SSLMODE", default=_default_sslmode)
+DB_SSLMODE = (
+    _raw_sslmode.strip().lower()
+    if isinstance(_raw_sslmode, str) and _raw_sslmode.strip()
+    else _default_sslmode
+)
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": config("DB_NAME", default="postgres"),
         "USER": config("DB_USER", default="postgres"),
         "PASSWORD": config("DB_PASSWORD", default=""),
-        "HOST": config("DB_HOST", default="127.0.0.1"),
+        "HOST": DB_HOST,
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
             "sslmode": "require",
@@ -290,3 +315,48 @@ CHAT_SANITIZER_BLACKLIST = config(
 )
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
+
+# --- Celery ------------------------------------------------------------------
+# Background workers (link previews, future fan-out jobs) share Redis with the
+# Channels layer by default. Override ``CELERY_BROKER_URL`` if you want to
+# isolate the broker from the websocket pub/sub traffic. ``ALWAYS_EAGER`` is
+# left off in real environments and flipped on per-test in ``settings_test``.
+CELERY_BROKER_URL = config(
+    "CELERY_BROKER_URL", default=REDIS_URL or "memory://"
+)
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND", default=REDIS_URL or "cache+memory://"
+)
+CELERY_TASK_ALWAYS_EAGER = config(
+    "CELERY_TASK_ALWAYS_EAGER", default="false", cast=env_bool
+)
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+# --- Link previews -----------------------------------------------------------
+# OG metadata cache lives in Redis under ``cache:og:<md5(url)>``. The 24h TTL
+# matches the requirement to dedupe a globally-previewed URL across users.
+LINK_PREVIEW_CACHE_TTL_SECONDS = config(
+    "LINK_PREVIEW_CACHE_TTL_SECONDS", default=60 * 60 * 24, cast=int,
+)
+# Hard cap on outbound HTTP fetch — keeps a slow target site from pinning a
+# Celery worker for too long. Connection timeout is intentionally tighter than
+# the read timeout so unreachable hosts fail fast.
+LINK_PREVIEW_FETCH_CONNECT_TIMEOUT = config(
+    "LINK_PREVIEW_FETCH_CONNECT_TIMEOUT", default=3.0, cast=float,
+)
+LINK_PREVIEW_FETCH_READ_TIMEOUT = config(
+    "LINK_PREVIEW_FETCH_READ_TIMEOUT", default=5.0, cast=float,
+)
+# Cap response body size before parsing. Anything larger almost certainly
+# isn't an HTML page worth unfurling and would blow worker memory.
+LINK_PREVIEW_MAX_BYTES = config(
+    "LINK_PREVIEW_MAX_BYTES", default=512 * 1024, cast=int,
+)
+LINK_PREVIEW_USER_AGENT = config(
+    "LINK_PREVIEW_USER_AGENT",
+    default="BiotechFuturesBot/1.0 (+https://biotechfutures.org)",
+)
