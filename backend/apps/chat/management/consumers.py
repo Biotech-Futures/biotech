@@ -1,16 +1,33 @@
-from channels.generic.websocket import AsyncJsonWebsocketConsumer
-from channels.db import database_sync_to_async
-from apps.groups.models import GroupMembership
-from apps.users.utils.roles import get_active_assignment
-from apps.chat.utils import sanitize_text
+"""WebSocket consumer for group chat.
 
-ROLE_ADMIN = "admin"
+The WebSocket is strictly **server -> client**. Clients do not send
+messages over the socket; every write goes through the REST API
+(``POST /chat/groups/{gid}/messages/``), which then calls
+``channel_layer.group_send`` to fan the resulting event out to every
+subscriber on this consumer.
+
+Wire protocol — every payload received by the client over the socket
+has the same envelope:
+
+    {
+      "event": "message.created" | "message.edited" | "message.deleted",
+      "group_id": <int>,
+      "message": { ...full MessageSerializer payload... }
+    }
+
+For deletes the embedded message has ``is_deleted=true`` and a non-null
+``deleted_at`` so the front end can drive its UI from a single shape.
+"""
+
+from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncJsonWebsocketConsumer
+
+from apps.groups.models import GroupMembership, Groups
+from apps.users.utils.admin_scope import can_admin_track
+
 
 class GroupChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
-        # Defensive parsing: the URL route kwarg may be missing, non-numeric,
-        # or otherwise malformed. We refuse the connection cleanly instead
-        # of letting an unhandled exception take the consumer down.
         url_route = self.scope.get("url_route") or {}
         raw_group_id = (url_route.get("kwargs") or {}).get("group_id")
         try:
@@ -21,20 +38,11 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         self.room_group_name = f"group_{self.group_id}"
 
         user = self.scope["user"]
-
-        # Reject unauthenticated users
         if not user.is_authenticated:
             await self.close(code=4403)
             return
 
-        # Allow admin/supervisor globally
-        if await self._has_admin_access(user):
-            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-            await self.accept()
-            return
-
-        # Otherwise require membership
-        if not await self.is_member(user.id):
+        if not await self._can_read_group(user, self.group_id):
             await self.close(code=4403)
             return
 
@@ -42,57 +50,23 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         await self.accept()
 
     @database_sync_to_async
-    def _has_admin_access(self, user):
-        rah = get_active_assignment(user)
-        return bool(
-            rah and rah.role and rah.role.role_name in {ROLE_ADMIN}
+    def _can_read_group(self, user, group_id):
+        if GroupMembership.objects.filter(
+            user=user, group_id=group_id, left_at__isnull=True
+        ).exists():
+            return True
+        track_id = (
+            Groups.objects.filter(pk=group_id)
+            .values_list("track_id", flat=True)
+            .first()
         )
-
-    @database_sync_to_async
-    def is_member(self, uid):
-        return GroupMembership.objects.filter(
-            user_id=uid,
-            group_id=self.group_id,
-            left_at__isnull=True,
-        ).exists()
-
-
-    async def receive_json(self, content, **kwargs):
-        # Defensive: a malformed client could send a JSON list / string /
-        # number. Reject anything that is not a dict before we try to
-        # call ``.get`` on it.
-        if not isinstance(content, dict):
-            return
-
-        raw_text = content.get("content")
-        # Sanitise transient broadcasts too, so the same moderation policy
-        # applies whether the message hits the DB via the REST endpoint or
-        # is just echoed across the websocket group.
-        text = sanitize_text(raw_text) if isinstance(raw_text, str) else raw_text
-
-        resource_ids = content.get("resource_ids", [])
-        if not isinstance(resource_ids, list):
-            resource_ids = []
-
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "client.message",
-                    "group_id": self.group_id,
-                    "message": {
-                        "text": text,
-                        "resource_ids": resource_ids,
-                        "sender_id": self.scope["user"].id,
-                    },
-                },
-            },
-        )
+        return can_admin_track(user, track_id)
 
     async def chat_message(self, event):
-        # Forward the WHOLE event so tests can assert event["payload"][...]
         await self.send_json(event["payload"])
 
     async def disconnect(self, code):
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        if hasattr(self, "room_group_name"):
+            await self.channel_layer.group_discard(
+                self.room_group_name, self.channel_name
+            )
