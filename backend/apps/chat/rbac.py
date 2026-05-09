@@ -2,15 +2,10 @@ from __future__ import annotations
 
 from django.apps import apps
 from apps.common.rbac import (
-    active_role_names,
     group_participant_qs,
     is_global_admin,
     track_admin_track_ids,
 )
-
-
-MODERATOR_ROLE_NAMES = {"mentor", "supervisor"}
-ATTACHMENT_MESSAGE_TYPE = "attachment"
 
 
 def _group_from_value(group):
@@ -46,6 +41,15 @@ def can_access_chat_group(user, group) -> bool:
 
 
 def can_manage_chat_message(user, message) -> bool:
+    """Authorize edit or delete of an existing chat message.
+
+    Allowed iff the caller has admin scope for the message's group's
+    track (global or track-scoped ``AdminScope``), or is the original
+    sender within the self-action window — delegated to
+    ``Messages.can_be_self_actioned_by`` so the window definition lives
+    in one place. Mentor/supervisor roles do not by themselves grant
+    moderation rights.
+    """
     if not user or not user.is_authenticated or message is None:
         return False
 
@@ -56,16 +60,7 @@ def can_manage_chat_message(user, message) -> bool:
     if is_global_admin(user) or is_track_admin_for_group(user, target_group):
         return True
 
-    if not group_participant_qs(user, target_group.id).exists():
-        return False
-
-    # Developer note: attachment delete rules are narrower than general moderation.
-    # Regular participants can remove only their own attachment messages here, while
-    # mentor/supervisor moderation continues to flow through the existing role path.
-    if (
-        getattr(message, "message_type", None) == ATTACHMENT_MESSAGE_TYPE
-        and getattr(message, "sender_user_id", None) == user.id
-    ):
-        return True
-
-    return bool(active_role_names(user) & MODERATOR_ROLE_NAMES)
+    self_action = getattr(message, "can_be_self_actioned_by", None)
+    if callable(self_action):
+        return bool(self_action(user))
+    return False
