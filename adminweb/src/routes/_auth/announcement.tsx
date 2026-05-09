@@ -168,6 +168,15 @@ function AnnouncementPage() {
                         {item.trackName}
                       </span>
                     )}
+                    {item.visibilityScope === "role_based" &&
+                      item.audiences.length > 0 && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          {item.audiences
+                            .map((a) => a.roleName)
+                            .filter(Boolean)
+                            .join(", ")}
+                        </span>
+                      )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(item.publishedAt).toLocaleDateString()}

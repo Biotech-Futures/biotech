@@ -1,8 +1,3 @@
-# Phase 2 update: updated serializers to reflect new Messages model fields.
-# Added is_deleted, is_edited as read-only fields.
-# Added MessageUpdateSerializer for edit operations that sets edited_at automatically.
-# Added MessageStatusSerializer for read/delivery tracking.
-
 from django.conf import settings
 from rest_framework import serializers
 from rest_framework.reverse import reverse

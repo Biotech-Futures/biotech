@@ -225,18 +225,29 @@ USE_TZ = True
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
-EMAIL_USE_TLS = config("EMAIL_USE_TLS", default="true", cast=env_bool)
+EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
-SUPPORT_EMAIL = config("SUPPORT_EMAIL", default="biotech.futures@sydney.edu.au")
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+REDIS_URL = config("REDIS_URL", default="")
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_URL],
+                "capacity": 1500,
+                "expiry": 60,
+            },
+        }
     }
-}
+else:
+    CHANNEL_LAYERS = {
+        "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
+    }
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

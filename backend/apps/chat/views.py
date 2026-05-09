@@ -1,9 +1,3 @@
-# Phase 2 update: updated views to use new message lifecycle fields.
-# Changes: deleted_flag=False → deleted_at__isnull=True in queryset filters,
-# destroy() now calls soft_delete() instead of setting deleted_flag,
-# added partial_update() for editing messages which sets edited_at automatically,
-# updated WebSocket broadcast payloads to use new field names.
-
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
@@ -15,7 +9,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.storage import serve_managed_file
-from .management.permissions import CanModerateMessage, IsGroupMemberOrAdmin
+from .management.permissions import (
+    CanEditMessage,
+    CanModerateMessage,
+    IsGroupMemberOrAdmin,
+)
 from .rbac import can_access_chat_group
 from .models import MessageAttachment, Messages
 from .serializers import (
@@ -36,6 +34,10 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "destroy":
             return [IsAuthenticated(), CanModerateMessage()]
+        if self.action == "partial_update":
+            # Edit and delete share the same window-bounded RBAC rule, but the
+            # permission classes stay split so view wiring expresses intent.
+            return [IsAuthenticated(), CanEditMessage()]
         if self.action in {"upload", "attachment_download"}:
             return [IsAuthenticated()]
         return [IsGroupMemberOrAdmin()]
@@ -128,7 +130,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         return Response(
             {"items": data, "next_after": next_after},
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
     # POST /chat/groups/{gid}/messages/

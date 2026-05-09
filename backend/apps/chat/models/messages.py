@@ -1,6 +1,12 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+# Window during which a sender can edit or delete their own message.
+SELF_ACTION_WINDOW = timedelta(minutes=10)
+
 
 class MessageType(models.TextChoices):
     TEXT = "text", "Text"
@@ -61,6 +67,16 @@ class Messages(models.Model):
     def soft_delete(self):
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted_at"])
+
+    def can_be_self_actioned_by(self, user) -> bool:
+        """Sender's self-edit / self-delete window check. The 10-minute
+        budget is shared by both edit and moderation paths so that the
+        rule is defined once and stays consistent."""
+        if not user or not getattr(user, "id", None):
+            return False
+        if self.sender_user_id != user.id:
+            return False
+        return timezone.now() <= self.sent_at + SELF_ACTION_WINDOW
 
     def __str__(self):
         preview = self.message_text[:40] if self.message_text else f"[{self.message_type}]"
