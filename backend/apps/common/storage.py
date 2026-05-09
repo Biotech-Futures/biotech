@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
@@ -13,6 +15,9 @@ from django.http import FileResponse, HttpResponseRedirect, JsonResponse
 from django.utils import timezone
 
 from apps.common.filenames import sanitize_upload_filename
+
+
+logger = logging.getLogger(__name__)
 
 try:
     from storages.backends.azure_storage import AzureStorage as _REAL_AZURE_STORAGE
@@ -34,6 +39,12 @@ class _BaseAzureContainerStorage(AzureStorage):
         kwargs.setdefault("azure_container", getattr(settings, self.container_setting_name))
         kwargs.setdefault("expiration_secs", settings.AZURE_URL_EXPIRATION_SECS)
         kwargs.setdefault("custom_domain", settings.AZURE_CUSTOM_DOMAIN or None)
+        # Prefer connection_string when set so ops can rotate access via a single
+        # secret. Otherwise django-storages falls back to AZURE_ACCOUNT_NAME +
+        # AZURE_ACCOUNT_KEY which it reads from settings on its own.
+        connection_string = getattr(settings, "AZURE_CONNECTION_STRING", "") or ""
+        if connection_string:
+            kwargs.setdefault("connection_string", connection_string)
         super().__init__(*args, **kwargs)
 
 
@@ -152,6 +163,31 @@ class ManagedFileService:
             )
         return file_data
 
+    @contextmanager
+    def stored_file(
+        self,
+        uploaded_file,
+        *,
+        content_type_field: str,
+        size_field: str,
+        original_filename_field: str | None = None,
+    ):
+        # Storage writes are not part of the surrounding DB transaction, so any
+        # DB error after the upload would leave a blob with no row pointing at
+        # it. Yield the metadata inside a try/except that deletes the blob if
+        # the caller raises before commit.
+        file_data = self.save_uploaded_file(
+            uploaded_file,
+            content_type_field=content_type_field,
+            size_field=size_field,
+            original_filename_field=original_filename_field,
+        )
+        try:
+            yield file_data
+        except Exception:
+            self.delete(file_data.get("storage_key"))
+            raise
+
     def delete(self, storage_key: str | None) -> None:
         if not storage_key:
             return
@@ -177,6 +213,10 @@ class ManagedFileService:
                 as_attachment=as_attachment,
             )
         except Exception:
+            # Falling through to None lets serve_managed_file try a streamed
+            # read instead of 500-ing, but the misconfiguration shouldn't be
+            # invisible — Azure SAS errors only show up here.
+            logger.exception("Failed to resolve managed storage URL for %s", storage_key)
             return None
 
     def open(self, storage_key: str, mode: str = "rb"):
@@ -224,8 +264,9 @@ def serve_managed_file(
     )
     if mime_type:
         response["Content-Type"] = mime_type
-    if size is not None:
-        response["Content-Length"] = str(size)
+    # FileResponse sets Content-Length from the underlying file's stat when it
+    # can. The recorded `size` is kept in the signature for callers but not
+    # forced here — overriding with a stale value diverges from actual bytes.
     return response
 
 
