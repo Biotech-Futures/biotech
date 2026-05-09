@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from django.apps import apps
 from apps.common.rbac import (
-    active_role_names,
     group_participant_qs,
     is_global_admin,
     track_admin_track_ids,
 )
 
 
-MODERATOR_ROLE_NAMES = {"mentor", "supervisor"}
 ATTACHMENT_MESSAGE_TYPE = "attachment"
 
 
@@ -59,6 +57,9 @@ def can_manage_chat_message(user, message) -> bool:
     if not group_participant_qs(user, target_group.id).exists():
         return False
 
+    if hasattr(message, "can_be_self_actioned_by") and message.can_be_self_actioned_by(user):
+        return True
+
     # Developer note: attachment delete rules are narrower than general moderation.
     # Regular participants can remove only their own attachment messages here, while
     # mentor/supervisor moderation continues to flow through the existing role path.
@@ -68,4 +69,4 @@ def can_manage_chat_message(user, message) -> bool:
     ):
         return True
 
-    return bool(active_role_names(user) & MODERATOR_ROLE_NAMES)
+    return False

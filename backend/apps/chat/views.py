@@ -26,6 +26,28 @@ from .services.storage import CHAT_FILE_SERVICE
 from apps.groups.models import Groups
 
 
+def _send_group_payload(group_id, payload):
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"group_{group_id}",
+        {
+            "type": "chat.message",
+            "payload": payload,
+        },
+    )
+
+
+def _broadcast(group_id, event, message):
+    payload = {
+        "event": event,
+        "group_id": group_id,
+        "message": message,
+    }
+    transaction.on_commit(
+        lambda group_id=group_id, payload=payload: _send_group_payload(group_id, payload)
+    )
+
+
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
@@ -77,19 +99,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         # Keep legacy aliases in websocket payloads so the existing frontend and tests
         # continue to understand message.created without a protocol migration.
         data["sender_id"] = message.sender_user_id
+        data["sender_user"] = message.sender_user_id
         data["text"] = data.get("message_text", "")
         data["resource_ids"] = list(message.resources.values_list("resource_id", flat=True))
         return data
 
     def _broadcast_payload(self, group_id, payload):
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{group_id}",
-            {
-                "type": "chat.message",
-                "payload": payload,
-            },
-        )
+        _send_group_payload(group_id, payload)
 
     def _build_message_created_payload(self, group_id, message):
         return {
@@ -207,6 +223,10 @@ class MessageViewSet(viewsets.ModelViewSet):
                 "event": "message.deleted",
                 "group_id": instance.group_id,
                 "message_id": instance.id,
+                "message": {
+                    "id": instance.id,
+                    "is_deleted": True,
+                },
             },
         )
         return Response(status=status.HTTP_204_NO_CONTENT)

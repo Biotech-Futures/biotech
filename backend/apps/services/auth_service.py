@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 PASSWORD_RESET_BLOCKED_STATUSES = {'invited', 'pending', 'suspended', 'deactivated'}
 
 
+def _uses_admin_portal(user) -> bool:
+    return bool(
+        user
+        and (
+            getattr(user, "is_staff", False)
+            or getattr(user, "is_superuser", False)
+            or is_operational_admin(user)
+        )
+    )
+
+
 def send_login_code(email: str, redirect_url: str = None) -> bool:
     """Send OTP login code to user's email using our custom LoginToken"""
     try:
@@ -37,8 +48,19 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     if redirect_url:
         base_redirect = redirect_url
     else:
-        # edbert: Fallback to settings configuration
-        base_redirect = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/auth/callback')
+        if _uses_admin_portal(user):
+            base_redirect = getattr(
+                settings,
+                "ADMIN_MAGIC_LINK_REDIRECT_URL",
+                "https://mentoringadmin.biotechfutures.org/auth/callback",
+            )
+        else:
+            # edbert: Fallback to settings configuration
+            base_redirect = getattr(
+                settings,
+                'MAGIC_LINK_REDIRECT_URL',
+                'http://localhost:5173/auth/callback',
+            )
 
     # edbert: Build magic link that points to backend magic endpoint with email and code
     backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000')
@@ -144,7 +166,7 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     by comparing responses against the silent 200 returned for unknown emails.
     """
     # Admins reset their password on the admin portal; everyone else on the user app.
-    if is_operational_admin(user):
+    if _uses_admin_portal(user):
         base = getattr(
             settings,
             "ADMIN_PASSWORD_RESET_REDIRECT_URL",
