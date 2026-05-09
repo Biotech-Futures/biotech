@@ -511,7 +511,7 @@ def send_announcement_email(announcement_id: int) -> Dict[str, Any]:
     send_mail(
         subject=f"[BioTech] {row.get('title')}",
         message=f"{row.get('title')}\n\n{excerpt}\n\nView on the platform: {detail_url}",
-        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@biotech.com"),
+        from_email=settings.DEFAULT_FROM_EMAIL,
         recipient_list=emails,
         html_message=_render_announcement_email_html(
             row.get("title", ""),
