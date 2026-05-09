@@ -123,7 +123,11 @@ class UserBulkCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        users = request.data
+        users = (
+            request.data.get("users")
+            if isinstance(request.data, dict)
+            else request.data
+        )
         if not isinstance(users, list):
             return Response(
                 {"msg": "Expected a JSON array of users", "data": None},

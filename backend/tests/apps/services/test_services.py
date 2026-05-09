@@ -493,3 +493,80 @@ class PasswordResetAdminRedirectTest(TestCase):
             "https://mentoringadmin.biotechfutures.org/auth/reset-password?token=",
             ctx["RESET_PASSWORD_LINK"],
         )
+
+
+class ContactEmailTemplateContextTest(TestCase):
+    """Every transactional email passes a single CONTACT_EMAIL var (= DEFAULT_FROM_EMAIL).
+
+    This pins the consolidation: footers and contact mailtos must come from one
+    settings-driven source, not hardcoded in templates or auth_service.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="contact_ctx@example.com",
+            password="testpass123",
+            first_name="Ctx",
+            last_name="User",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+
+    @patch("apps.services.auth_service.render_to_string")
+    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    def test_login_email_passes_contact_email(self, mock_email, mock_render):
+        from apps.services.auth_service import send_login_code
+        from django.conf import settings
+
+        mock_render.return_value = "<html>login</html>"
+        mock_email.return_value = MagicMock()
+
+        self.assertTrue(send_login_code(self.user.email))
+
+        ctx = mock_render.call_args[0][1]
+        self.assertEqual(ctx["CONTACT_EMAIL"], settings.DEFAULT_FROM_EMAIL)
+
+    @patch("apps.services.auth_service.render_to_string")
+    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    def test_password_reset_email_passes_contact_email(self, mock_email, mock_render):
+        from apps.services.auth_service import send_password_reset
+        from django.conf import settings
+
+        mock_render.return_value = "<html>reset</html>"
+        mock_email.return_value = MagicMock()
+
+        send_password_reset(self.user.email, ip="127.0.0.1", user_agent="pytest")
+
+        ctx = mock_render.call_args[0][1]
+        self.assertEqual(ctx["CONTACT_EMAIL"], settings.DEFAULT_FROM_EMAIL)
+
+    @patch("apps.services.auth_service.render_to_string")
+    @patch("apps.services.auth_service.EmailMultiAlternatives")
+    def test_password_changed_email_passes_contact_email(self, mock_email, mock_render):
+        from apps.services.auth_service import _send_password_changed_notification
+        from django.conf import settings
+
+        mock_render.return_value = "<html>changed</html>"
+        mock_email.return_value = MagicMock()
+
+        _send_password_changed_notification(self.user, ip="127.0.0.1")
+
+        ctx = mock_render.call_args[0][1]
+        self.assertEqual(ctx["CONTACT_EMAIL"], settings.DEFAULT_FROM_EMAIL)
+
+    def test_no_hardcoded_biotech_email_in_email_templates(self):
+        """Templates must not hardcode biotech.futures@sydney.edu.au — use {{ CONTACT_EMAIL }}."""
+        import os
+        templates_dir = os.path.join(
+            os.path.dirname(__import__("apps.services", fromlist=["__file__"]).__file__),
+            "templates", "emails",
+        )
+        for name in os.listdir(templates_dir):
+            path = os.path.join(templates_dir, name)
+            if not os.path.isfile(path) or not name.endswith(".html"):
+                continue
+            with open(path, "r", encoding="utf-8") as fh:
+                content = fh.read()
+            self.assertNotIn(
+                "biotech.futures@sydney.edu.au", content,
+                f"{name} hardcodes biotech.futures@sydney.edu.au; switch to {{{{ CONTACT_EMAIL }}}}",
+            )
