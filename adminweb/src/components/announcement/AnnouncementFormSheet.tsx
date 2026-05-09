@@ -7,6 +7,7 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -179,22 +180,25 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
             {scope === "role_based" && (
               <div className="space-y-1.5">
                 <Label>Roles</Label>
-                <div className="flex flex-wrap gap-2">
+                <div className="rounded-md border divide-y max-h-48 overflow-y-auto">
                   {roles?.map((r) => (
-                    <button
+                    <label
                       key={r.id}
-                      type="button"
-                      onClick={() => toggleRole(r.id)}
-                      className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-                        roleIds.includes(r.id)
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background text-foreground hover:bg-accent"
-                      }`}
+                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-accent"
                     >
-                      {r.name}
-                    </button>
+                      <Checkbox
+                        checked={roleIds.includes(r.id)}
+                        onCheckedChange={() => toggleRole(r.id)}
+                      />
+                      <span className="text-sm">{r.name}</span>
+                    </label>
                   ))}
                 </div>
+                {roleIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {roleIds.length} role{roleIds.length > 1 ? "s" : ""} selected
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -1,19 +1,41 @@
-# Phase 2 update: updated views to use new message lifecycle fields.
-# Changes: deleted_flag=False → deleted_at__isnull=True in queryset filters,
-# destroy() now calls soft_delete() instead of setting deleted_flag,
-# added partial_update() for editing messages which sets edited_at automatically,
-# updated WebSocket broadcast payloads to use new field names.
-
-from django.db.models import Q
-from django.utils import timezone
-from rest_framework import viewsets, status
-from rest_framework.response import Response
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.db import transaction
+from django.db.models import Q
+from rest_framework import status, viewsets
+from rest_framework.response import Response
 
+from .management.permissions import (
+    CanEditMessage,
+    CanModerateMessage,
+    IsGroupMemberOrAdmin,
+)
 from .models import Messages
 from .serializers import MessageSerializer, MessageUpdateSerializer
-from .management.permissions import IsGroupMemberOrAdmin, CanModerateMessage
+
+
+def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
+    """Fan a chat event out to every consumer subscribed to ``group_id``.
+
+    Wrapped in ``transaction.on_commit`` so a rolled-back DB write never
+    produces a phantom WebSocket event. Envelope shape is the single
+    contract documented at the top of
+    ``apps/chat/management/consumers.py``.
+    """
+    channel_layer = get_channel_layer()
+    envelope = {
+        "type": "chat.message",
+        "payload": {
+            "event": event,
+            "group_id": group_id,
+            "message": message_payload,
+        },
+    }
+
+    def _send():
+        async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
+
+    transaction.on_commit(_send)
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -23,6 +45,8 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "destroy":
             return [CanModerateMessage()]
+        if self.action == "partial_update":
+            return [CanEditMessage()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
@@ -32,7 +56,6 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: was deleted_flag=False, now uses deleted_at__isnull=True
         return (
             Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
             .select_related("sender_user")
@@ -42,7 +65,6 @@ class MessageViewSet(viewsets.ModelViewSet):
     # GET /chat/groups/{gid}/messages/
     def list(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
-        # Phase 2 change: ordering uses sent_at instead of sent_datetime
         qs = self.get_queryset().order_by("-sent_at", "-id")
 
         after = request.query_params.get("after")
@@ -68,85 +90,37 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         return Response(
             {"items": data, "next_after": next_after},
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
     # POST /chat/groups/{gid}/messages/
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{gid}",
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.created",
-                    "group_id": gid,
-                    "message": {
-                        "id": msg.id,
-                        "sender_id": msg.sender_user_id,
-                        "text": msg.message_text,
-                        "message_type": msg.message_type,
-                        # Phase 2 change: was sent_datetime, now sent_at
-                        "sent_at": msg.sent_at.isoformat(),
-                        "resource_ids": list(
-                            msg.resources.values_list("resource_id", flat=True)
-                        ),
-                    },
-                },
-            },
-        )
+        _broadcast(gid, "message.created", MessageSerializer(msg).data)
 
     def create(self, request, *args, **kwargs):
         resp = super().create(request, *args, **kwargs)
         resp.status_code = status.HTTP_201_CREATED
         return resp
 
-    # Phase 2 addition: PATCH /chat/groups/{gid}/messages/{id}/
-    # Allows editing a message — automatically sets edited_at via MessageUpdateSerializer
+    # PATCH /chat/groups/{gid}/messages/{id}/
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # Broadcast edit event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.edited",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                    "message_text": instance.message_text,
-                    "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
-                },
-            },
+        _broadcast(
+            instance.group_id, "message.edited", MessageSerializer(instance).data
         )
         return Response(MessageSerializer(instance).data)
 
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Phase 2 change: was instance.deleted_flag = True → instance.save()
-        # Now calls soft_delete() which sets deleted_at = timezone.now()
         instance.soft_delete()
-
-        # Broadcast delete event to WebSocket group
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"group_{instance.group_id}",
-            {
-                "type": "chat.message",
-                "payload": {
-                    "event": "message.deleted",
-                    "group_id": instance.group_id,
-                    "message_id": instance.id,
-                },
-            },
+        _broadcast(
+            instance.group_id, "message.deleted", MessageSerializer(instance).data
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
