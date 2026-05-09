@@ -55,6 +55,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
         "OTP_CODE": token,
         "EXPIRY_MINUTES": 10,
         "First_Name": user.first_name,
+        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
     })
 
     # Plaintext fallback
@@ -161,6 +162,7 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
         "RESET_PASSWORD_LINK": reset_link,
         "EXPIRY_MINUTES": expiry_minutes,
         "First_Name": user.first_name,
+        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
     }
     try:
         html_content = render_to_string("emails/password_reset.html", ctx)
