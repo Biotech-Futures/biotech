@@ -1597,3 +1597,156 @@ class EventBulkInviteTests(APITestCase):
         r = self.client.post(self._url(), {"user_ids": []}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
+
+class EventAdminInviteScopeTests(APITestCase):
+    """Admin-side RSVP invite/list endpoints must stay admin-scoped and validated."""
+
+    def setUp(self):
+        from apps.resources.models import RoleAssignmentHistory, Roles
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
+        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
+        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
+        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
+
+        self.global_admin = User.objects.create_user(
+            email="event-admin@test.com",
+            password="pw",
+            is_staff=True,
+        )
+        self.track_admin_a = User.objects.create_user(
+            email="event-track-admin@test.com",
+            password="pw",
+        )
+        AdminScope.objects.create(
+            user=self.track_admin_a,
+            track=self.track_a,
+            is_global=False,
+        )
+
+        self.mentor = User.objects.create_user(email="event-mentor@test.com", password="pw")
+        mentor_role = Roles.objects.create(role_name="mentor")
+        RoleAssignmentHistory.objects.create(
+            user=self.mentor,
+            role=mentor_role,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
+        self.invitee = User.objects.create_user(email="event-invitee@test.com", password="pw")
+        now = timezone.now()
+        self.event_a = Events.objects.create(
+            event_name="Track A RSVP Event",
+            start_datetime=now + timezone.timedelta(days=1),
+            ends_datetime=now + timezone.timedelta(days=1, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=self.event_a, group=self.group_a)
+
+        self.event_b = Events.objects.create(
+            event_name="Track B RSVP Event",
+            start_datetime=now + timezone.timedelta(days=2),
+            ends_datetime=now + timezone.timedelta(days=2, hours=1),
+            location="Online",
+        )
+        EventTargetGroup.objects.create(event=self.event_b, group=self.group_b)
+
+        self.deleted_event = Events.objects.create(
+            event_name="Deleted RSVP Event",
+            start_datetime=now + timezone.timedelta(days=3),
+            ends_datetime=now + timezone.timedelta(days=3, hours=1),
+            location="Online",
+            deleted_at=now,
+        )
+        EventRsvp.objects.create(
+            event=self.deleted_event,
+            user=self.invitee,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+            responded_at=now,
+        )
+
+    def _single_invite_url(self, event_id):
+        return f"/events/v1/{event_id}/rsvp/{self.invitee.id}/"
+
+    def _bulk_invite_url(self, event_id):
+        return f"/events/v1/{event_id}/rsvp/bulk/"
+
+    def _list_url(self, event_id):
+        return f"/events/v1/{event_id}/rsvps/"
+
+    def test_single_invite_rejects_invalid_status(self):
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.post(
+            self._single_invite_url(self.event_a.id),
+            {"rsvp_status": "going"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(
+            EventRsvp.objects.filter(event=self.event_a, user=self.invitee).exists()
+        )
+
+    def test_track_admin_can_invite_within_scope(self):
+        self.client.force_authenticate(user=self.track_admin_a)
+        response = self.client.post(
+            self._single_invite_url(self.event_a.id),
+            {"rsvp_status": EventRsvp.RsvpStatus.PENDING},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertTrue(
+            EventRsvp.objects.filter(
+                event=self.event_a,
+                user=self.invitee,
+                rsvp_status=EventRsvp.RsvpStatus.PENDING,
+            ).exists()
+        )
+
+    def test_track_admin_cannot_invite_outside_scope(self):
+        self.client.force_authenticate(user=self.track_admin_a)
+        response = self.client.post(
+            self._single_invite_url(self.event_b.id),
+            {"rsvp_status": EventRsvp.RsvpStatus.PENDING},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_mentor_cannot_bulk_invite(self):
+        self.client.force_authenticate(user=self.mentor)
+        response = self.client.post(
+            self._bulk_invite_url(self.event_a.id),
+            {"user_ids": [self.invitee.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_mentor_cannot_list_event_rsvps(self):
+        self.client.force_authenticate(user=self.mentor)
+        response = self.client.get(self._list_url(self.event_a.id))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_deleted_event_is_hidden_from_admin_invite_endpoints(self):
+        self.client.force_authenticate(user=self.global_admin)
+        single = self.client.post(
+            self._single_invite_url(self.deleted_event.id),
+            {"rsvp_status": EventRsvp.RsvpStatus.PENDING},
+            format="json",
+        )
+        bulk = self.client.post(
+            self._bulk_invite_url(self.deleted_event.id),
+            {"user_ids": [self.invitee.id]},
+            format="json",
+        )
+        listing = self.client.get(self._list_url(self.deleted_event.id))
+
+        self.assertEqual(single.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(bulk.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(listing.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_my_rsvp_list_hides_deleted_events(self):
+        self.client.force_authenticate(user=self.invitee)
+        response = self.client.get("/events/v1/rsvps/me/")
+        event_ids = [row["event"] for row in response.data["results"]]
+        self.assertNotIn(self.deleted_event.id, event_ids)

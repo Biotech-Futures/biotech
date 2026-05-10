@@ -12,7 +12,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.services import log_audit_event
-from apps.resources.models import RoleAssignmentHistory
 from apps.users.models import User
 from apps.users.utils.admin_scope import (
     get_admin_track_ids,
@@ -20,7 +19,7 @@ from apps.users.utils.admin_scope import (
 )
 
 from .filters import EventFilter
-from .models import EventRsvp, Events
+from .models import EventRsvp, EventTargetGroup, EventTargetTrack, Events
 from .serializers import (
     EventBulkInviteSerializer,
     EventRsvpRequestSerializer,
@@ -49,6 +48,49 @@ class EventManagePermission(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         return is_operational_admin(request.user)
+
+
+class EventRsvpAdminPermission(permissions.BasePermission):
+    message = "Admin access is required."
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        return bool(user and user.is_authenticated and is_operational_admin(user))
+
+
+def _event_scope_track_ids(event):
+    track_ids = set()
+    if getattr(event, "track_id", None) is not None:
+        track_ids.add(event.track_id)
+    track_ids.update(
+        EventTargetTrack.objects.filter(event=event).values_list("track_id", flat=True)
+    )
+    track_ids.update(
+        EventTargetGroup.objects.filter(event=event).values_list("group__track_id", flat=True)
+    )
+    return {track_id for track_id in track_ids if track_id is not None}
+
+
+def _get_rsvp_admin_event_or_404(user, event_id):
+    event = get_object_or_404(
+        Events.objects.filter(deleted_at__isnull=True),
+        pk=event_id,
+    )
+
+    admin_track_ids = get_admin_track_ids(user)
+    if admin_track_ids is None:
+        return event
+
+    event_track_ids = _event_scope_track_ids(event)
+    if not event_track_ids:
+        raise PermissionDenied(
+            "Untargeted events are global-admin only."
+        )
+    if not event_track_ids.issubset(set(admin_track_ids)):
+        raise PermissionDenied(
+            "You may only manage RSVP data for events within your admin scope."
+        )
+    return event
 
 
 class EventPagination(PageNumberPagination):
@@ -258,37 +300,8 @@ class EventRsvpSetView(APIView):
         )
 
 
-class IsNotStudent(permissions.BasePermission):
-    def _get_active_role(self, user):
-        if not user or not user.is_authenticated:
-            return None
-
-        now = timezone.now()
-        active_role = (
-            RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now)
-            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
-            .select_related("role")
-            .first()
-        )
-        if active_role and active_role.role:
-            return active_role.role.role_name
-        return None
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-
-        if request.user.is_staff or request.user.is_superuser:
-            return True
-
-        role_name = self._get_active_role(request.user)
-        if not role_name:
-            return False
-        return role_name.lower() in {"mentor", "supervisor", "administrator"}
-
-
 class EventInviteCreateView(APIView):
-    permission_classes = [IsNotStudent]
+    permission_classes = [EventRsvpAdminPermission]
 
     @extend_schema(
         request=EventRsvpRequestSerializer,
@@ -296,10 +309,12 @@ class EventInviteCreateView(APIView):
     )
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Events, pk=kwargs.get("id"))
+        event = _get_rsvp_admin_event_or_404(request.user, kwargs.get("id"))
         user = get_object_or_404(User, pk=kwargs.get("uid"))
+        payload = EventRsvpRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
 
-        rsvp_status = request.data.get("rsvp_status", EventRsvp.RsvpStatus.PENDING)
+        rsvp_status = payload.validated_data["rsvp_status"]
         responded_at = timezone.now() if rsvp_status != EventRsvp.RsvpStatus.PENDING else None
 
         rsvp, _ = EventRsvp.objects.update_or_create(
@@ -322,11 +337,11 @@ class EventInviteCreateView(APIView):
 
 class EventInviteListHTMLView(generics.ListAPIView):
     serializer_class = EventRsvpSerializer
-    permission_classes = [IsNotStudent]
+    permission_classes = [EventRsvpAdminPermission]
     pagination_class = EventInvitePagination
 
     def get_queryset(self):
-        event = get_object_or_404(Events, pk=self.kwargs.get("id"))
+        event = _get_rsvp_admin_event_or_404(self.request.user, self.kwargs.get("id"))
         return EventRsvp.objects.select_related("event", "user").filter(event=event).order_by("id")
 
 
@@ -336,7 +351,10 @@ class EventInviteListMeHTMLView(generics.ListAPIView):
     pagination_class = EventInvitePagination
 
     def get_queryset(self):
-        return EventRsvp.objects.select_related("event", "user").filter(user=self.request.user).order_by("id")
+        return EventRsvp.objects.select_related("event", "user").filter(
+            user=self.request.user,
+            event__deleted_at__isnull=True,
+        ).order_by("id")
 
 
 class EventBulkInviteView(APIView):
@@ -346,14 +364,14 @@ class EventBulkInviteView(APIView):
     partial-success summary instead of failing the whole call on one bad id.
     """
 
-    permission_classes = [IsNotStudent]
+    permission_classes = [EventRsvpAdminPermission]
 
     @extend_schema(
         request=EventBulkInviteSerializer,
         responses={200: None},
     )
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Events, pk=kwargs.get("id"), deleted_at__isnull=True)
+        event = _get_rsvp_admin_event_or_404(request.user, kwargs.get("id"))
 
         payload = EventBulkInviteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
