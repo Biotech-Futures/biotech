@@ -399,6 +399,9 @@ def send_due_event_rsvp_reminders(*, now=None, hours_ahead=None, window_hours=No
 
     window_start = now + timedelta(hours=hours_ahead)
     window_end = window_start + timedelta(hours=window_hours)
+    # the default 24h→25h window assumes the command runs
+    # hourly. That gives each eligible event one capture window without needing
+    # Celery beat or minute-level scheduling guarantees.
     due_events = [
         event
         for event in Events.objects.filter(
@@ -466,6 +469,9 @@ def _send_event_rsvp_reminders_for_event(event, *, dry_run=False):
 
     event_marked = False
     if not dry_run:
+        # mark the event after the pass even if some emails
+        # failed. That avoids duplicate sends to recipients who already got the
+        # reminder; operators can retry failed addresses manually from logs.
         Events.objects.filter(pk=event.pk).update(
             rsvp_reminder_sent_for_start=event.start_datetime
         )

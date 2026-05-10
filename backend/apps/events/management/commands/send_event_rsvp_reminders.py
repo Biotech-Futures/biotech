@@ -26,6 +26,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # keep the command thin so Azure's scheduler invokes one
+        # stable entrypoint while the selection/send logic stays unit-testable in
+        # apps.events.services.
         summary = send_due_event_rsvp_reminders(
             hours_ahead=options["hours_ahead"],
             window_hours=options["window_hours"],
@@ -38,4 +41,3 @@ class Command(BaseCommand):
                 "dry_run={dry_run}".format(**summary)
             )
         )
-

@@ -72,6 +72,9 @@ def _event_scope_track_ids(event):
 
 
 def _get_rsvp_admin_event_or_404(user, event_id):
+    # admin RSVP endpoints intentionally reuse a dedicated
+    # scope helper instead of EventViewSet.get_object() because the invite/list
+    # surfaces must enforce both soft-delete hiding and track-admin scope.
     event = get_object_or_404(
         Events.objects.filter(deleted_at__isnull=True),
         pk=event_id,
@@ -311,6 +314,8 @@ class EventInviteCreateView(APIView):
     def post(self, request, *args, **kwargs):
         event = _get_rsvp_admin_event_or_404(request.user, kwargs.get("id"))
         user = get_object_or_404(User, pk=kwargs.get("uid"))
+        # validate through the serializer so admin-side upserts
+        # cannot persist arbitrary status strings outside the TextChoices set.
         payload = EventRsvpRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -351,6 +356,9 @@ class EventInviteListMeHTMLView(generics.ListAPIView):
     pagination_class = EventInvitePagination
 
     def get_queryset(self):
+        # hide RSVPs for soft-deleted events from the "my RSVPs"
+        # view so users do not keep seeing invites for events that admins have
+        # withdrawn.
         return EventRsvp.objects.select_related("event", "user").filter(
             user=self.request.user,
             event__deleted_at__isnull=True,

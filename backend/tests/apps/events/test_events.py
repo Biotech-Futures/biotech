@@ -1599,7 +1599,12 @@ class EventBulkInviteTests(APITestCase):
 
 
 class EventAdminInviteScopeTests(APITestCase):
-    """Admin-side RSVP invite/list endpoints must stay admin-scoped and validated."""
+    """Admin-side RSVP invite/list endpoints must stay admin-scoped and validated.
+
+    Developer note: these cases pin the two regressions that matter most in
+    review: non-admin mentor access to admin invite flows, and serializer
+    bypass on the single-user upsert path.
+    """
 
     def setUp(self):
         from apps.resources.models import RoleAssignmentHistory, Roles
