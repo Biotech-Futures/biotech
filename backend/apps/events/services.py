@@ -16,7 +16,13 @@ funnel through the same rule so a user who can SEE an event can RSVP
 to it, and vice-versa.
 """
 
+import logging
+from datetime import timedelta
+
+from django.conf import settings
+from django.core.mail import EmailMultiAlternatives
 from django.db.models import Exists, OuterRef, Q
+from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
@@ -32,6 +38,8 @@ from .models import (
     EventTargetTrack,
     Events,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_accepted_event_ids(user):
@@ -368,3 +376,159 @@ def set_user_rsvp(user, event_id, rsvp_status):
         },
     )
     return event, rsvp, created
+
+
+def send_due_event_rsvp_reminders(*, now=None, hours_ahead=None, window_hours=None, dry_run=False):
+    """Send reminder emails for due events without requiring Celery.
+
+    Developer note: Azure can invoke the management command on an hourly
+    schedule. Keeping the core logic in a plain service makes it testable and
+    avoids introducing a background-worker stack the repo does not otherwise use.
+    """
+    now = now or timezone.now()
+    hours_ahead = (
+        settings.EVENT_RSVP_REMINDER_HOURS_AHEAD
+        if hours_ahead is None
+        else int(hours_ahead)
+    )
+    window_hours = (
+        settings.EVENT_RSVP_REMINDER_WINDOW_HOURS
+        if window_hours is None
+        else int(window_hours)
+    )
+
+    window_start = now + timedelta(hours=hours_ahead)
+    window_end = window_start + timedelta(hours=window_hours)
+    due_events = [
+        event
+        for event in Events.objects.filter(
+            start_datetime__gte=window_start,
+            start_datetime__lt=window_end,
+            deleted_at__isnull=True,
+        ).order_by("start_datetime", "id")
+        if event.rsvp_reminder_sent_for_start != event.start_datetime
+    ]
+
+    summary = {
+        "events_considered": len(due_events),
+        "events_marked": 0,
+        "emails_sent": 0,
+        "emails_failed": 0,
+        "emails_skipped": 0,
+        "dry_run": bool(dry_run),
+    }
+
+    for event in due_events:
+        event_summary = _send_event_rsvp_reminders_for_event(
+            event,
+            dry_run=dry_run,
+        )
+        summary["events_marked"] += 1 if event_summary["event_marked"] else 0
+        summary["emails_sent"] += event_summary["emails_sent"]
+        summary["emails_failed"] += event_summary["emails_failed"]
+        summary["emails_skipped"] += event_summary["emails_skipped"]
+    return summary
+
+
+def _send_event_rsvp_reminders_for_event(event, *, dry_run=False):
+    accepted_rsvps = (
+        EventRsvp.objects.filter(
+            event=event,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+        )
+        .select_related("user")
+        .order_by("id")
+    )
+
+    sent = 0
+    failed = 0
+    skipped = 0
+    for rsvp in accepted_rsvps.iterator(chunk_size=100):
+        user = rsvp.user
+        recipient = getattr(user, "email", "") or ""
+        if not recipient.strip():
+            skipped += 1
+            continue
+
+        if dry_run:
+            sent += 1
+            continue
+
+        try:
+            _send_event_rsvp_reminder_email(user, event)
+            sent += 1
+        except Exception:
+            failed += 1
+            logger.exception(
+                "event_rsvp_reminder.send_failed",
+                extra={"event_id": event.id, "user_id": user.id},
+            )
+
+    event_marked = False
+    if not dry_run:
+        Events.objects.filter(pk=event.pk).update(
+            rsvp_reminder_sent_for_start=event.start_datetime
+        )
+        event_marked = True
+
+    logger.info(
+        "event_rsvp_reminder.completed",
+        extra={
+            "event_id": event.id,
+            "sent": sent,
+            "failed": failed,
+            "skipped": skipped,
+            "dry_run": dry_run,
+        },
+    )
+    return {
+        "event_marked": event_marked,
+        "emails_sent": sent,
+        "emails_failed": failed,
+        "emails_skipped": skipped,
+    }
+
+
+def _send_event_rsvp_reminder_email(user, event):
+    start_local = timezone.localtime(event.start_datetime)
+    ctx = {
+        "First_Name": user.first_name or "there",
+        "EVENT_NAME": event.event_name,
+        "EVENT_DATE": start_local.strftime("%A, %d %B %Y"),
+        "EVENT_TIME": start_local.strftime("%I:%M %p %Z").strip(),
+        "EVENT_LOCATION": _event_location_label(event),
+        "EVENT_DESCRIPTION": event.description or "",
+        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
+    }
+
+    html_content = render_to_string("emails/event_rsvp_reminder.html", ctx)
+    text_content = (
+        f"Hi {ctx['First_Name']},\n\n"
+        f"This is a reminder that {ctx['EVENT_NAME']} starts in about 24 hours.\n"
+        f"Date: {ctx['EVENT_DATE']}\n"
+        f"Time: {ctx['EVENT_TIME']}\n"
+        f"Location: {ctx['EVENT_LOCATION']}\n"
+    )
+    if ctx["EVENT_DESCRIPTION"]:
+        text_content += f"Details: {ctx['EVENT_DESCRIPTION']}\n"
+    text_content += "\nWe look forward to seeing you there.\n\nThe BIOTech Futures Team"
+
+    msg = EmailMultiAlternatives(
+        subject=f"Reminder: {event.event_name} starts tomorrow",
+        body=text_content,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    )
+    msg.attach_alternative(html_content, "text/html")
+    msg.send()
+
+
+def _event_location_label(event):
+    if getattr(event, "is_virtual", False):
+        if event.location_link:
+            return f"Virtual event: {event.location_link}"
+        return "Virtual event"
+
+    if event.location and event.location_link:
+        return f"{event.location} ({event.location_link})"
+    return event.location or "Location to be confirmed"

@@ -28,6 +28,10 @@ class Events(models.Model):
         help_text="Zoom URL when is_virtual=True, Google Maps URL otherwise.",
     )
     is_virtual = models.BooleanField(default=False)
+    # Developer note: store the specific start_datetime the reminder was sent for
+    # so a rescheduled event becomes eligible again without introducing per-user
+    # reminder rows or a Celery dependency.
+    rsvp_reminder_sent_for_start = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = "events"

@@ -230,6 +230,16 @@ EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+EVENT_RSVP_REMINDER_HOURS_AHEAD = config(
+    "EVENT_RSVP_REMINDER_HOURS_AHEAD",
+    default=24,
+    cast=int,
+)
+EVENT_RSVP_REMINDER_WINDOW_HOURS = config(
+    "EVENT_RSVP_REMINDER_WINDOW_HOURS",
+    default=1,
+    cast=int,
+)
 
 REDIS_URL = config("REDIS_URL", default="")
 

@@ -1,0 +1,24 @@
+<html>
+  <body>
+    <p>Hi {{ First_Name }},</p>
+
+    <p>
+      This is a reminder that <strong>{{ EVENT_NAME }}</strong> starts in about
+      24 hours.
+    </p>
+
+    <p>
+      <strong>Date:</strong> {{ EVENT_DATE }}<br />
+      <strong>Time:</strong> {{ EVENT_TIME }}<br />
+      <strong>Location:</strong> {{ EVENT_LOCATION }}
+    </p>
+
+    {% if EVENT_DESCRIPTION %}
+    <p><strong>Details:</strong> {{ EVENT_DESCRIPTION }}</p>
+    {% endif %}
+
+    <p>We look forward to seeing you there.</p>
+
+    <p>The BIOTech Futures Team</p>
+  </body>
+</html>
