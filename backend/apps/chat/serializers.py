@@ -175,16 +175,10 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
         )
 
     def create(self, validated_data):
-        # The view supplies pre-stored attachment metadata via context so the blob
-        # upload spans the surrounding transaction.atomic() block — that way an
-        # error in the view's broadcast step (after this returns) still triggers
-        # blob cleanup on rollback. See MessageViewSet.upload.
+        # View supplies pre-stored attachment metadata via context.
         attachment_data = self.context.get("attachment_data")
         if attachment_data is None:
-            raise RuntimeError(
-                "MessageAttachmentUploadSerializer.create requires 'attachment_data' "
-                "in context (the view manages the storage lifecycle)."
-            )
+            raise RuntimeError("attachment_data missing from serializer context")
         validated_data.pop("uploaded_file", None)
         message = Messages.objects.create(
             **validated_data,

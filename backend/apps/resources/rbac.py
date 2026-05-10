@@ -35,10 +35,7 @@ def _is_group_participant(user, group) -> bool:
 
 
 def _resource_audiences(resource):
-    # Stash the materialized list on the instance so callers that access
-    # audiences multiple times per request (e.g. ``can_access_resource_file``
-    # walks them via ``_resource_track_ids`` and then again directly) don't
-    # re-query the table on each call.
+    # Per-instance memoization; can_access_resource_file walks audiences twice.
     cached = getattr(resource, "_audiences_evaluated", None)
     if cached is not None:
         return cached
@@ -53,8 +50,6 @@ def _resource_audiences(resource):
     try:
         resource._audiences_evaluated = cached
     except Exception:
-        # Non-model objects in tests may forbid attribute assignment; fall back
-        # to returning the freshly evaluated list without caching.
         pass
     return cached
 
@@ -68,14 +63,9 @@ def _resource_track_ids(resource) -> set[int]:
         return cached
 
     track_ids: set[int] = set()
-
     if getattr(resource, "track_id", None):
         track_ids.add(int(resource.track_id))
 
-    # Use the cached related ``group`` if Django has already loaded it via
-    # ``select_related`` to avoid an extra query. Only fall back to a fetch
-    # when neither the cached object nor a separate group_id is missing the
-    # track_id.
     group = getattr(resource, "group", None)
     if group is None and getattr(resource, "group_id", None):
         Groups = apps.get_model("groups", "Groups")

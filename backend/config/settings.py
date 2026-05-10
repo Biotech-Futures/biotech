@@ -66,27 +66,9 @@ AZURE_CUSTOM_DOMAIN = config(
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Auto-enable Azure storage when credentials look configured, so a missing
-# ``USE_AZURE_BLOB_STORAGE`` env var in production never silently downgrades
-# user uploads to the container's ephemeral disk. An explicit value (true or
-# false) still wins.
-_AZURE_LOOKS_CONFIGURED = bool(AZURE_CONNECTION_STRING) or (
-    bool(AZURE_ACCOUNT_NAME) and bool(AZURE_ACCOUNT_KEY)
-)
-USE_AZURE_BLOB_STORAGE = config(
-    "USE_AZURE_BLOB_STORAGE",
-    default="true" if _AZURE_LOOKS_CONFIGURED else "false",
-    cast=env_bool,
-)
-
-# Keep Django's global default storage aligned with the deployment backend so any
-# future/default_storage callers outside the managed chat/resource path do not
-# silently fall back to local disk in Azure environments.
-DEFAULT_FILE_STORAGE = (
-    "storages.backends.azure_storage.AzureStorage"
-    if USE_AZURE_BLOB_STORAGE
-    else "django.core.files.storage.FileSystemStorage"
-)
+# Azure Blob is the only supported file backend.
+USE_AZURE_BLOB_STORAGE = True
+DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
