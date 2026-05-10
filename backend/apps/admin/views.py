@@ -1,5 +1,6 @@
 from django.contrib.auth import update_session_auth_hash
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,10 +27,11 @@ from apps.admin.services.event import (
 )
 from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
-    delete_resource, upload_resource, replace_resource_file, download_resource,
+    delete_resource, replace_resource_file, download_resource,
     assign_role_to_resource, remove_role_from_resource,
     list_resource_roles, list_resource_types, list_resource_tracks,
 )
+from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, send_announcement_email,
@@ -460,13 +462,22 @@ class ResourceUploadView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        uploader = None
-        if hasattr(request, "user") and request.user.is_authenticated:
-            uploader = {"id": str(request.user.id), "email": request.user.email}
-        payload = {**request.data, "uploader": uploader}
-        result = upload_resource(payload)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
-        return Response(result, status=code)
+        try:
+            resource = upload_resource_file(
+                data=request.data,
+                files=request.FILES,
+                user=request.user,
+            )
+        except ValidationError as exc:
+            return Response(
+                {"msg": "Failed to upload resource", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as exc:
+            return Response({"msg": str(exc), "data": None}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = query_resource_by_id(resource.id)
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class ResourceFileReplaceView(APIView):
