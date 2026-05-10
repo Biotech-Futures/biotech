@@ -220,13 +220,6 @@
                     @change="setTaskSelectedFromEvent(row.task.id, $event)"
                   />
                 </label>
-                <button
-                  type="button"
-                  :class="['task-checkbox', { checked: row.task.completed }]"
-                  :disabled="isUpdatingTask(row.task.id) || row.task.deletedAt || !canToggleTask(row.task)"
-                  :title="canToggleTask(row.task) ? 'Toggle task status' : 'You can view this task status only'"
-                  @click="toggleTask(row.task)"
-                />
                 <div class="task-body">
                   <div :class="['task-label', { completed: row.task.completed }]">{{ row.task.name }}</div>
                   <div v-if="row.task.description" class="task-description">{{ row.task.description }}</div>
@@ -239,6 +232,18 @@
                   </div>
                 </div>
                 <div class="task-row-actions">
+                  <button
+                    type="button"
+                    :class="['task-status-toggle', { 'is-complete': row.task.completed }]"
+                    :disabled="isUpdatingTask(row.task.id) || row.task.deletedAt || !canToggleTask(row.task)"
+                    :title="canToggleTask(row.task) ? 'Toggle task status' : 'You can view this task status only'"
+                    :aria-pressed="row.task.completed"
+                    :aria-label="row.task.completed ? `Mark ${row.task.name} open` : `Mark ${row.task.name} done`"
+                    @click="toggleTask(row.task)"
+                  >
+                    <i :class="row.task.completed ? 'fas fa-check-circle' : 'fas fa-circle'"></i>
+                    <span>{{ row.task.completed ? 'Done' : 'Open' }}</span>
+                  </button>
                   <button
                     type="button"
                     class="btn btn-outline btn-sm add-subtask-btn"
@@ -2331,6 +2336,49 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.task-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 32px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: #50616c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.task-status-toggle i {
+  color: var(--air-force-blue);
+  font-size: 0.82rem;
+}
+
+.task-status-toggle:hover:not(:disabled) {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+  color: var(--charcoal);
+}
+
+.task-status-toggle.is-complete {
+  border-color: rgba(77, 116, 94, 0.35);
+  background: rgba(77, 116, 94, 0.1);
+  color: var(--dark-green);
+}
+
+.task-status-toggle.is-complete i {
+  color: var(--dark-green);
+}
+
+.task-status-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .task-item.is-deleted {
   opacity: 0.6;
 }
@@ -3272,11 +3320,6 @@ onBeforeUnmount(() => {
   padding-right: 0;
   padding-bottom: 0.5rem;
   background-color: transparent;
-}
-
-.task-checkbox.checked {
-  background-color: var(--air-force-blue);
-  border-color: var(--air-force-blue);
 }
 
 .add-subtask-btn {
