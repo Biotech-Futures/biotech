@@ -51,7 +51,6 @@ INSTALLED_APPS = [
 ]
 
 # Azure Blob Storage
-USE_AZURE_BLOB_STORAGE = config("USE_AZURE_BLOB_STORAGE", default="false", cast=env_bool)
 AZURE_ACCOUNT_NAME = config("AZURE_ACCOUNT_NAME", default="")
 AZURE_ACCOUNT_KEY = config("AZURE_ACCOUNT_KEY", default="")
 AZURE_CONTAINER = config("AZURE_CONTAINER", default="media")
@@ -66,6 +65,20 @@ AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
+
+# Auto-enable Azure storage when credentials look configured, so a missing
+# ``USE_AZURE_BLOB_STORAGE`` env var in production never silently downgrades
+# user uploads to the container's ephemeral disk. An explicit value (true or
+# false) still wins.
+_AZURE_LOOKS_CONFIGURED = bool(AZURE_CONNECTION_STRING) or (
+    bool(AZURE_ACCOUNT_NAME) and bool(AZURE_ACCOUNT_KEY)
+)
+USE_AZURE_BLOB_STORAGE = config(
+    "USE_AZURE_BLOB_STORAGE",
+    default="true" if _AZURE_LOOKS_CONFIGURED else "false",
+    cast=env_bool,
+)
+
 # Keep Django's global default storage aligned with the deployment backend so any
 # future/default_storage callers outside the managed chat/resource path do not
 # silently fall back to local disk in Azure environments.
