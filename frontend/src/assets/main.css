@@ -751,30 +751,6 @@ h5 { font-size: 1rem; font-weight: 500; }
   padding: 0.5rem;
 }
 
-.task-checkbox {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border-light);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.task-checkbox.checked {
-  background-color: var(--dark-green);
-  border-color: var(--dark-green);
-  position: relative;
-}
-
-.task-checkbox.checked::after {
-  content: '✓';
-  color: var(--white);
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
 .task-label {
   flex: 1;
   color: var(--charcoal);
