@@ -377,6 +377,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
+import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import { LOGIN_LANGUAGE_KEY, safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
 
@@ -839,11 +840,7 @@ const handleLogin = async () => {
         return
       }
 
-      try {
-        await router.replace('/dashboard')
-      } catch {
-        window.location.href = '/#/dashboard'
-      }
+      await redirectAfterLogin(auth, router)
       return
     }
 
@@ -924,11 +921,7 @@ const verifyOTP = async () => {
       return
     }
 
-    try {
-      await router.replace('/dashboard')
-    } catch {
-      window.location.href = '/#/dashboard'
-    }
+    await redirectAfterLogin(auth, router)
   } catch (requestError) {
     logApiError('verify-login-code', requestError)
     statusMessage.value = ''
