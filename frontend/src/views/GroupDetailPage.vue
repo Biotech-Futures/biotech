@@ -2654,34 +2654,30 @@ onBeforeUnmount(() => {
 }
 
 /* Mobile layout */
-@media (max-width: 900px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
+@media (max-width: 1180px) {
   .split {
     grid-template-columns: 1fr;
-    max-height: 80vh;
-    height: 80vh;
+    max-height: none;
+    height: auto;
   }
-  .mobile-tabs { display: flex; }
-  .split .pane { display: none; }
-  .split[data-active="tasks"] .pane--tasks { display: block; }
-  .split[data-active="discussion"] .pane--discussion { display: block; }
+  .mobile-tabs { display: none; }
+  .split .pane {
+    display: flex;
+    height: auto;
+  }
+  .pane--discussion .chat-container {
+    height: min(72vh, 620px);
+    min-height: 420px;
+  }
   .card {
+    height: auto;
     min-height: 220px;
+  }
+  .pane--tasks.card {
+    min-height: 520px;
+  }
+  .pane--discussion {
+    min-height: 520px;
   }
 
   .gif-grid {
@@ -3017,48 +3013,36 @@ onBeforeUnmount(() => {
   color: rgba(214, 232, 223, 0.72) !important;
 }
 
-@media (max-width: 900px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
-
+@media (max-width: 1180px) {
   .split {
     grid-template-columns: 1fr;
-    max-height: 80vh;
-    height: 80vh;
+    max-height: none;
+    height: auto;
   }
 
   .mobile-tabs {
-    display: flex;
-  }
-
-  .split .pane {
     display: none;
   }
 
-  .split[data-active="tasks"] .pane--tasks,
-  .split[data-active="discussion"] .pane--discussion {
-    display: block;
+  .split .pane {
+    display: flex;
+    height: auto;
+  }
+
+  .pane--discussion .chat-container {
+    height: min(72vh, 620px);
+    min-height: 420px;
   }
 
   .card {
+    height: auto;
     min-height: 220px;
+  }
+  .pane--tasks.card {
+    min-height: 520px;
+  }
+  .pane--discussion {
+    min-height: 520px;
   }
 }
 
@@ -3306,6 +3290,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
+
   .task-filter-field {
     min-width: min(100%, 148px);
     flex: 1 1 140px;
