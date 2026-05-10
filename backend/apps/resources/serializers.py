@@ -14,7 +14,7 @@ from .services.storage import (
     RESOURCE_FILE_SERVICE,
     is_external_storage_key,
     is_managed_storage_key,
-    save_uploaded_resource_file,
+    stored_resource_file,
 )
 from datetime import date, datetime, time
 from django.utils import timezone
@@ -324,12 +324,18 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         audience_rules = validated_data.pop("audience_rules", [])
         uploaded_file = validated_data.pop("uploaded_file", None)
 
-        if uploaded_file is not None:
-            validated_data.update(save_uploaded_resource_file(uploaded_file))
-            validated_data["kind"] = Resources.ResourceKind.FILE
+        if uploaded_file is None:
+            resource = super().create(validated_data)
+            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
+            return resource
 
-        resource = super().create(validated_data)
-        self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
+        # stored_resource_file deletes the blob if the DB write below raises, so a
+        # rolled-back create never leaves an orphan blob in the container.
+        with stored_resource_file(uploaded_file) as file_data:
+            validated_data.update(file_data)
+            validated_data["kind"] = Resources.ResourceKind.FILE
+            resource = super().create(validated_data)
+            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
         return resource
 
     def update(self, instance, validated_data):
@@ -339,24 +345,24 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         old_storage_key = instance.storage_key
         incoming_storage_key = validated_data.get("storage_key", instance.storage_key)
 
-        if uploaded_file is not None:
-            validated_data.update(save_uploaded_resource_file(uploaded_file))
+        if uploaded_file is None:
+            resource = super().update(instance, validated_data)
+            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
+            if (
+                "storage_key" in validated_data
+                and old_storage_key != incoming_storage_key
+                and is_managed_storage_key(old_storage_key)
+            ):
+                RESOURCE_FILE_SERVICE.delete(old_storage_key)
+            return resource
+
+        with stored_resource_file(uploaded_file) as file_data:
+            validated_data.update(file_data)
             validated_data["kind"] = Resources.ResourceKind.FILE
+            resource = super().update(instance, validated_data)
+            self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
 
-        resource = super().update(instance, validated_data)
-        self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
-
-        if (
-            uploaded_file is not None
-            and old_storage_key != resource.storage_key
-            and is_managed_storage_key(old_storage_key)
-        ):
-            RESOURCE_FILE_SERVICE.delete(old_storage_key)
-        elif (
-            "storage_key" in validated_data
-            and old_storage_key != incoming_storage_key
-            and is_managed_storage_key(old_storage_key)
-        ):
+        if old_storage_key != resource.storage_key and is_managed_storage_key(old_storage_key):
             RESOURCE_FILE_SERVICE.delete(old_storage_key)
 
         return resource

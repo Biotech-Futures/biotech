@@ -76,3 +76,20 @@ class CommonRBACTests(TestCase):
     def test_track_admin_track_ids_returns_scoped_tracks_only_for_non_global_admin(self):
         self.assertEqual(track_admin_track_ids(self.track_admin), {self.primary_track.id})
         self.assertEqual(track_admin_track_ids(self.global_user), set())
+
+    def test_is_global_admin_ignores_is_staff_and_is_superuser(self):
+        staff_user = User.objects.create_user(email="staff@test.com", password="pw", is_staff=True)
+        super_user = User.objects.create_user(email="super@test.com", password="pw", is_superuser=True)
+        self.assertFalse(is_global_admin(staff_user))
+        self.assertFalse(is_global_admin(super_user))
+        self.assertEqual(track_admin_track_ids(staff_user), set())
+        self.assertEqual(track_admin_track_ids(super_user), set())
+
+    def test_is_global_admin_ignores_role_assignments(self):
+        admin_role = Roles.objects.create(role_name="global_admin")
+        user = User.objects.create_user(email="role-admin@test.com", password="pw")
+        now = timezone.now()
+        RoleAssignmentHistory.objects.create(
+            user=user, role=admin_role, valid_from=now, valid_to=now + timedelta(days=365)
+        )
+        self.assertFalse(is_global_admin(user))

@@ -64,3 +64,15 @@ class SanitizeUploadFilenameTests(SimpleTestCase):
             sanitize_upload_filename("../<>\x00.pdf"),
             "uploaded-file.pdf",
         )
+
+    def test_non_ascii_filenames_are_preserved(self):
+        # Non-Latin scripts (CJK, Cyrillic, etc.) should survive the slug step
+        # so the stored name remains meaningful for the user. Security is
+        # handled by extension/MIME/magic-byte checks, not by stripping the
+        # character set.
+        chinese = sanitize_upload_filename("中文报告.pdf")
+        cyrillic = sanitize_upload_filename("отчёт.pdf")
+        self.assertTrue(chinese.endswith(".pdf"))
+        self.assertNotEqual(chinese, "uploaded-file.pdf")
+        self.assertTrue(cyrillic.endswith(".pdf"))
+        self.assertNotEqual(cyrillic, "uploaded-file.pdf")

@@ -22,7 +22,7 @@ from .serializers import (
     MessageSerializer,
     MessageUpdateSerializer,
 )
-from .services.storage import CHAT_FILE_SERVICE
+from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from apps.groups.models import Groups
 
 
@@ -92,40 +92,47 @@ class MessageViewSet(viewsets.ModelViewSet):
         return context
 
     def _serialize_public_message(self, message):
-        # Re-fetch via the standard queryset to pick up prefetched attachments
-        # and resources so the response payload is consistent regardless of
-        # which write path produced ``message``. Falls through to the raw
-        # instance for broadcasts where the row may already be soft-deleted
-        # (deleted_at is set) and therefore excluded from _message_queryset.
-        try:
-            message = self._message_queryset().get(pk=message.pk)
-        except Messages.DoesNotExist:
-            pass
+        # Re-fetch only when the prefetch cache is missing. The standard
+        # queryset filters out soft-deleted rows, so for soft-deleted messages
+        # we keep the raw instance. ``get_object()``-derived instances already
+        # have attachments+resources prefetched.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = self._message_queryset().get(pk=message.pk)
+            except Messages.DoesNotExist:
+                pass
         return MessagePublicSerializer(message, context=self.get_serializer_context()).data
 
     def _serialize_broadcast_message(self, message):
-        try:
-            message = (
-                Messages.objects.select_related("sender_user")
-                .prefetch_related("attachments", "resources__resource")
-                .get(pk=message.pk)
-            )
-        except Messages.DoesNotExist:
-            pass
-        data = MessageSerializer(message, context=self.get_serializer_context()).data
-        # Augment MessageSerializer with the public attachment shape so
-        # download URLs are present on broadcast payloads (MessageSerializer
-        # serialises attachments via the default model field, which lacks the
-        # download URL).
-        data["attachments"] = MessagePublicSerializer(
-            message, context=self.get_serializer_context()
-        ).data.get("attachments", [])
+        # Re-fetch only when the prefetch cache is empty — get_object()-derived
+        # instances (partial_update, destroy) already have attachments+resources
+        # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
+        # created instances from serializer.save() do need the fetch.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = (
+                    Messages.objects.select_related("sender_user")
+                    .prefetch_related("attachments", "resources__resource")
+                    .get(pk=message.pk)
+                )
+            except Messages.DoesNotExist:
+                pass
+
+        context = self.get_serializer_context()
+        data = MessageSerializer(message, context=context).data
+        # MessageSerializer's nested attachments lack download_url; rebuild from
+        # the public shape that does include it.
+        data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
         # Legacy aliases kept for the existing frontend / tests; preserved
         # alongside MessageSerializer's canonical fields so both new and old
         # clients can read the same payload without a protocol migration.
+        # ``message.resources.all()`` walks the prefetch cache instead of issuing
+        # a fresh query.
         data["sender_id"] = message.sender_user_id
         data["text"] = data.get("message_text", "")
-        data["resource_ids"] = list(message.resources.values_list("resource_id", flat=True))
+        data["resource_ids"] = [r.resource_id for r in message.resources.all()]
         return data
 
     def _get_group(self):
@@ -191,12 +198,19 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        uploaded_file = serializer.validated_data["uploaded_file"]
         gid = group.id
-        with transaction.atomic():
-            message = serializer.save(sender_user=request.user, group_id=gid)
-            # _broadcast itself wraps in transaction.on_commit, so a rollback
-            # of this atomic block discards the WS event automatically.
-            _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
+
+        # stored_chat_file wraps the blob upload so any exception inside the
+        # atomic block — DB write, broadcast, serialization — deletes the blob
+        # before propagating, leaving no orphaned file behind on rollback.
+        with stored_chat_file(uploaded_file) as attachment_data:
+            serializer.context["attachment_data"] = attachment_data
+            with transaction.atomic():
+                message = serializer.save(sender_user=request.user, group_id=gid)
+                # _broadcast itself wraps in transaction.on_commit, so a rollback
+                # of this atomic block discards the WS event automatically.
+                _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/

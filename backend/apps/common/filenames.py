@@ -6,7 +6,7 @@ import unicodedata
 
 from django.utils.text import slugify
 
-from apps.chat.utils import sanitize_text
+from apps.common.text import sanitize_text
 
 
 DEFAULT_UPLOAD_STEM = "uploaded-file"
@@ -78,7 +78,11 @@ def sanitize_upload_filename(original_filename: str | None) -> str:
     # naming follows the same configurable moderation policy as message text.
     sanitized_stem = sanitize_text(stem, replacement=FILENAME_PROFANITY_REPLACEMENT)
     sanitized_stem = sanitized_stem.replace(".", " ")
-    sanitized_stem = slugify(sanitized_stem, allow_unicode=False)
+    # ``allow_unicode=True`` keeps non-Latin filenames readable (e.g. CJK,
+    # Cyrillic) instead of dropping them to ``uploaded-file``. The
+    # extension/MIME/magic-byte defenses handle the security side, so the
+    # slug doesn't need to be ASCII-only.
+    sanitized_stem = slugify(sanitized_stem, allow_unicode=True)
 
     max_stem_length = max(1, MAX_FILENAME_LENGTH - len(extension))
     sanitized_stem = sanitized_stem[:max_stem_length].rstrip("._-")

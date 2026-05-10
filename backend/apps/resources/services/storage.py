@@ -14,10 +14,11 @@ def is_managed_storage_key(storage_key: str | None) -> bool:
     return bool(value) and not is_external_storage_key(value)
 
 
-def save_uploaded_resource_file(uploaded_file) -> dict:
-    # Developer note: resource files keep their own container/backend even though
-    # the low-level save/delete/open/url mechanics are shared in common.storage.
-    return RESOURCE_FILE_SERVICE.save_uploaded_file(
+def stored_resource_file(uploaded_file):
+    # Resource files keep their own container/backend even though the low-level
+    # save/delete/open/url mechanics are shared in common.storage. Returns a context
+    # manager that deletes the blob if the caller raises before commit.
+    return RESOURCE_FILE_SERVICE.stored_file(
         uploaded_file,
         content_type_field="file_mime_type",
         size_field="file_size",
