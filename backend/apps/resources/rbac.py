@@ -35,26 +35,51 @@ def _is_group_participant(user, group) -> bool:
 
 
 def _resource_audiences(resource):
-    ResourceAudience = apps.get_model("resources", "ResourceAudience")
+    # Stash the materialized list on the instance so callers that access
+    # audiences multiple times per request (e.g. ``can_access_resource_file``
+    # walks them via ``_resource_track_ids`` and then again directly) don't
+    # re-query the table on each call.
+    cached = getattr(resource, "_audiences_evaluated", None)
+    if cached is not None:
+        return cached
     prefetched = getattr(resource, "_prefetched_objects_cache", {})
     if "audiences" in prefetched:
-        return prefetched["audiences"]
-    return ResourceAudience.objects.filter(resource=resource).select_related("role", "track")
+        cached = list(prefetched["audiences"])
+    else:
+        ResourceAudience = apps.get_model("resources", "ResourceAudience")
+        cached = list(
+            ResourceAudience.objects.filter(resource=resource).select_related("role", "track")
+        )
+    try:
+        resource._audiences_evaluated = cached
+    except Exception:
+        # Non-model objects in tests may forbid attribute assignment; fall back
+        # to returning the freshly evaluated list without caching.
+        pass
+    return cached
 
 
 def _resource_track_ids(resource) -> set[int]:
-    track_ids: set[int] = set()
     if resource is None:
-        return track_ids
+        return set()
+
+    cached = getattr(resource, "_track_ids_evaluated", None)
+    if cached is not None:
+        return cached
+
+    track_ids: set[int] = set()
 
     if getattr(resource, "track_id", None):
         track_ids.add(int(resource.track_id))
 
+    # Use the cached related ``group`` if Django has already loaded it via
+    # ``select_related`` to avoid an extra query. Only fall back to a fetch
+    # when neither the cached object nor a separate group_id is missing the
+    # track_id.
     group = getattr(resource, "group", None)
     if group is None and getattr(resource, "group_id", None):
         Groups = apps.get_model("groups", "Groups")
         group = Groups.objects.only("id", "track_id").filter(pk=resource.group_id).first()
-
     if group is not None and getattr(group, "track_id", None):
         track_ids.add(int(group.track_id))
 
@@ -62,6 +87,10 @@ def _resource_track_ids(resource) -> set[int]:
         if audience.track_id:
             track_ids.add(int(audience.track_id))
 
+    try:
+        resource._track_ids_evaluated = track_ids
+    except Exception:
+        pass
     return track_ids
 
 

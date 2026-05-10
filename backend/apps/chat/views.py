@@ -22,30 +22,32 @@ from .serializers import (
     MessageSerializer,
     MessageUpdateSerializer,
 )
-from .services.storage import CHAT_FILE_SERVICE
+from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from apps.groups.models import Groups
 
 
-def _send_group_payload(group_id, payload):
+def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
+    """Fan a chat event out to every consumer subscribed to ``group_id``.
+
+    Wrapped in ``transaction.on_commit`` so a rolled-back DB write never
+    produces a phantom WebSocket event. Envelope shape is the single
+    contract documented at the top of
+    ``apps/chat/management/consumers.py``.
+    """
     channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(
-        f"group_{group_id}",
-        {
-            "type": "chat.message",
-            "payload": payload,
+    envelope = {
+        "type": "chat.message",
+        "payload": {
+            "event": event,
+            "group_id": group_id,
+            "message": message_payload,
         },
-    )
-
-
-def _broadcast(group_id, event, message):
-    payload = {
-        "event": event,
-        "group_id": group_id,
-        "message": message,
     }
-    transaction.on_commit(
-        lambda group_id=group_id, payload=payload: _send_group_payload(group_id, payload)
-    )
+
+    def _send():
+        async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
+
+    transaction.on_commit(_send)
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -90,29 +92,49 @@ class MessageViewSet(viewsets.ModelViewSet):
         return context
 
     def _serialize_public_message(self, message):
-        message = self._message_queryset().get(pk=message.pk)
+        # Re-fetch only when the prefetch cache is missing. The standard
+        # queryset filters out soft-deleted rows, so for soft-deleted messages
+        # we keep the raw instance. ``get_object()``-derived instances already
+        # have attachments+resources prefetched.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = self._message_queryset().get(pk=message.pk)
+            except Messages.DoesNotExist:
+                pass
         return MessagePublicSerializer(message, context=self.get_serializer_context()).data
 
     def _serialize_broadcast_message(self, message):
-        message = self._message_queryset().get(pk=message.pk)
-        data = MessagePublicSerializer(message, context=self.get_serializer_context()).data
-        # Keep legacy aliases in websocket payloads so the existing frontend and tests
-        # continue to understand message.created without a protocol migration.
+        # Re-fetch only when the prefetch cache is empty — get_object()-derived
+        # instances (partial_update, destroy) already have attachments+resources
+        # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
+        # created instances from serializer.save() do need the fetch.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = (
+                    Messages.objects.select_related("sender_user")
+                    .prefetch_related("attachments", "resources__resource")
+                    .get(pk=message.pk)
+                )
+            except Messages.DoesNotExist:
+                pass
+
+        context = self.get_serializer_context()
+        data = MessageSerializer(message, context=context).data
+        # MessageSerializer's nested attachments lack download_url; rebuild from
+        # the public shape that does include it.
+        data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
+        # Legacy aliases kept for the existing frontend / tests; preserved
+        # alongside MessageSerializer's canonical fields so both new and old
+        # clients can read the same payload without a protocol migration.
+        # ``message.resources.all()`` walks the prefetch cache instead of issuing
+        # a fresh query.
         data["sender_id"] = message.sender_user_id
         data["sender_user"] = message.sender_user_id
         data["text"] = data.get("message_text", "")
-        data["resource_ids"] = list(message.resources.values_list("resource_id", flat=True))
+        data["resource_ids"] = [r.resource_id for r in message.resources.all()]
         return data
-
-    def _broadcast_payload(self, group_id, payload):
-        _send_group_payload(group_id, payload)
-
-    def _build_message_created_payload(self, group_id, message):
-        return {
-            "event": "message.created",
-            "group_id": group_id,
-            "message": self._serialize_broadcast_message(message),
-        }
 
     def _get_group(self):
         group_pk = self.kwargs.get("group_pk")
@@ -153,8 +175,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-        payload = self._build_message_created_payload(gid, msg)
-        self._broadcast_payload(gid, payload)
+        _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -178,19 +199,19 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        uploaded_file = serializer.validated_data["uploaded_file"]
         gid = group.id
-        with transaction.atomic():
-            message = serializer.save(sender_user=request.user, group_id=gid)
-            payload = self._build_message_created_payload(gid, message)
-            # Developer note: upload writes the message + attachment first, then publishes
-            # on commit so websocket consumers never receive an attachment event for rows
-            # that later roll back.
-            transaction.on_commit(
-                lambda group_id=gid, message_payload=payload: self._broadcast_payload(
-                    group_id,
-                    message_payload,
-                )
-            )
+
+        # stored_chat_file wraps the blob upload so any exception inside the
+        # atomic block — DB write, broadcast, serialization — deletes the blob
+        # before propagating, leaving no orphaned file behind on rollback.
+        with stored_chat_file(uploaded_file) as attachment_data:
+            serializer.context["attachment_data"] = attachment_data
+            with transaction.atomic():
+                message = serializer.save(sender_user=request.user, group_id=gid)
+                # _broadcast itself wraps in transaction.on_commit, so a rollback
+                # of this atomic block discards the WS event automatically.
+                _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
@@ -200,15 +221,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        self._broadcast_payload(
-            instance.group_id,
-            {
-                "event": "message.edited",
-                "group_id": instance.group_id,
-                "message_id": instance.id,
-                "message_text": instance.message_text,
-                "edited_at": instance.edited_at.isoformat() if instance.edited_at else None,
-            },
+        _broadcast(
+            instance.group_id, "message.edited", self._serialize_broadcast_message(instance)
         )
         return Response(self._serialize_public_message(instance))
 
@@ -217,17 +231,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         instance.soft_delete()
 
-        self._broadcast_payload(
-            instance.group_id,
-            {
-                "event": "message.deleted",
-                "group_id": instance.group_id,
-                "message_id": instance.id,
-                "message": {
-                    "id": instance.id,
-                    "is_deleted": True,
-                },
-            },
+        _broadcast(
+            instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

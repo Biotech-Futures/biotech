@@ -7,7 +7,7 @@ from apps.common.upload_validation import validate_uploaded_file
 from apps.resources.models import Resources
 
 from .models import MessageAttachment, MessageResource, MessageStatus, Messages, MessageType
-from .services.storage import save_uploaded_chat_file
+from .services.storage import stored_chat_file
 from .utils import sanitize_text
 
 
@@ -175,10 +175,17 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
         )
 
     def create(self, validated_data):
-        uploaded_file = validated_data.pop("uploaded_file")
-        attachment_data = save_uploaded_chat_file(uploaded_file)
-        # Chat uploads persist the message row first so attachment downloads can stay
-        # scoped to the same message permission checks as text messages.
+        # The view supplies pre-stored attachment metadata via context so the blob
+        # upload spans the surrounding transaction.atomic() block — that way an
+        # error in the view's broadcast step (after this returns) still triggers
+        # blob cleanup on rollback. See MessageViewSet.upload.
+        attachment_data = self.context.get("attachment_data")
+        if attachment_data is None:
+            raise RuntimeError(
+                "MessageAttachmentUploadSerializer.create requires 'attachment_data' "
+                "in context (the view manages the storage lifecycle)."
+            )
+        validated_data.pop("uploaded_file", None)
         message = Messages.objects.create(
             **validated_data,
             message_type=MessageType.ATTACHMENT,

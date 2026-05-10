@@ -14,7 +14,10 @@ class IsResourceAdmin(BasePermission):
     def has_permission(self, request, view) -> bool:
         # Developer note: keep the DRF permission shim thin so resource RBAC logic
         # lives in one helper module instead of drifting between views and classes.
-        return is_global_admin(getattr(request, "user", None))
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+        return bool(user.is_staff or user.is_superuser or is_global_admin(user))
 
 
 class IsInAnyGroup(BasePermission):

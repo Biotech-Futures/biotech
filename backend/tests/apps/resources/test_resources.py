@@ -12,6 +12,7 @@ from django.apps import apps as dj_apps
 
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
 from apps.resources.services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
+from apps.users.models import AdminScope
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 
@@ -212,6 +213,7 @@ class RoleManagementApiTests(TestCase):
         self.user = get_user_model().objects.create_user(password="pw12345", email = "test_email@gmail.com")
         # Admin
         self.admin = get_user_model().objects.create_user(password="pw123456", email = "admin_test_email@gmail.com", is_staff = True)
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
     def test_create_requires_admin(self):
         self.client.force_authenticate(self.user)
@@ -247,6 +249,7 @@ class RoleAssignmentPatchApiTests(TestCase):
         # admin vs non-admin
         self.non_admin = AuthUser.objects.create_user(email="reader@example.com", password="pw")
         self.admin = AuthUser.objects.create_user(email="admin@example.com", password="pw", is_staff=True)
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
         # FK chain for Users
         Countries = dj_apps.get_model('groups', 'Countries')
@@ -423,6 +426,7 @@ class GrantRoleComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -534,6 +538,7 @@ class ResourcesCRUDComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -730,6 +735,7 @@ class PaginationComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         
         # Create multiple resources for pagination testing
         for i in range(25):
@@ -825,6 +831,7 @@ class ResourceRolesComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -1052,6 +1059,7 @@ class CreateRoleAPITests(TestCase):
             password="adminpass123",
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
     def test_create_role_unauthenticated_fails(self):
         """Test that unauthenticated requests are rejected"""
@@ -1202,6 +1210,7 @@ class CreateRoleIntegrationTests(TestCase):
             password="adminpass123",
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
     def test_created_role_can_be_assigned_to_user(self):
         """Test that a newly created role can be assigned to users"""
@@ -1315,6 +1324,7 @@ class ResourceTypeAPITests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -1536,6 +1546,7 @@ class ResourceTypeIntegrationTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
 
         # Get or create all 4 resource types (migration may have already created them)
         self.document_type, _ = ResourceType.objects.get_or_create(

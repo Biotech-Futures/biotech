@@ -9,8 +9,6 @@ from apps.common.rbac import (
 
 
 ATTACHMENT_MESSAGE_TYPE = "attachment"
-
-
 def _group_from_value(group):
     if group is None:
         return None
@@ -44,6 +42,15 @@ def can_access_chat_group(user, group) -> bool:
 
 
 def can_manage_chat_message(user, message) -> bool:
+    """Authorize edit or delete of an existing chat message.
+
+    Allowed iff the caller has admin scope for the message's group's
+    track (global or track-scoped ``AdminScope``), or is the original
+    sender within the self-action window — delegated to
+    ``Messages.can_be_self_actioned_by`` so the window definition lives
+    in one place. Mentor/supervisor roles do not by themselves grant
+    moderation rights.
+    """
     if not user or not user.is_authenticated or message is None:
         return False
 
@@ -68,5 +75,4 @@ def can_manage_chat_message(user, message) -> bool:
         and getattr(message, "sender_user_id", None) == user.id
     ):
         return True
-
     return False
