@@ -538,6 +538,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const supportsGifs = false
 const supportsAttachments = false
 const supportsMessageReactions = false
+const supportsChatClientSocketActions = false
 const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
 const routeGroupId = computed(() => route.params.id ? String(route.params.id) : '')
 const group = ref({
@@ -1567,12 +1568,17 @@ const removeTypingUser = (name) => {
 }
 
 const sendSocketAction = (payload) => {
-  if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return
+  if (!supportsChatClientSocketActions || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return false
   chatSocket.send(JSON.stringify(payload))
+  return true
 }
 
 const stopTypingIndicator = () => {
   clearTimeout(typingStopTimer)
+  if (!supportsChatClientSocketActions) {
+    hasSentTypingStart = false
+    return
+  }
   if (hasSentTypingStart) {
     sendSocketAction({ action: 'client.typing', status: 'stopped' })
     hasSentTypingStart = false
@@ -1587,6 +1593,8 @@ const scheduleTypingStop = () => {
 }
 
 const handleComposerInput = () => {
+  if (!supportsChatClientSocketActions) return
+
   if (!newMessage.value.trim()) {
     stopTypingIndicator()
     return
@@ -1601,6 +1609,7 @@ const handleComposerInput = () => {
 }
 
 const markMessagesAsRead = (messageIds) => {
+  if (!supportsChatClientSocketActions) return
   const ids = (messageIds || []).map(id => Number(id)).filter(id => Number.isFinite(id))
   if (!ids.length) return
   sendSocketAction({ action: 'client.mark_read', message_ids: ids })
@@ -1667,27 +1676,35 @@ const handleSocketPayload = async (payload) => {
   }
 
   const eventName = payload.event
-  if (eventName === 'message.created' && payload.message) {
-    upsertMessage(payload.message)
-    removeTypingUser(payload.user_name || payload.message.sender_name || '')
+  const socketMessage = payload.message && typeof payload.message === 'object' ? payload.message : null
+  const socketMessageId = socketMessage?.id ?? payload.message_id
+
+  if (eventName === 'message.created' && socketMessage) {
+    upsertMessage(socketMessage)
+    removeTypingUser(payload.user_name || socketMessage.sender_name || '')
     await scrollMessagesToBottom()
-    if (Number(payload.message.sender_id) !== Number(auth.user?.id || 0)) {
-      markMessagesAsRead([payload.message.id])
+    if (Number(socketMessage.sender_user || socketMessage.sender_id || 0) !== Number(auth.user?.id || 0)) {
+      markMessagesAsRead([socketMessage.id])
     }
     return
   }
 
   if (eventName === 'message.edited') {
-    applyMessageUpdate(payload.message_id, (message) => ({
-      ...message,
-      text: payload.message_text || message.text,
-      editedAt: payload.edited_at || message.editedAt
-    }))
+    if (socketMessage) {
+      upsertMessage(socketMessage)
+    } else if (socketMessageId) {
+      applyMessageUpdate(socketMessageId, (message) => ({
+        ...message,
+        text: payload.message_text || message.text,
+        editedAt: payload.edited_at || message.editedAt
+      }))
+    }
     return
   }
 
   if (eventName === 'message.deleted') {
-    messages.value = messages.value.filter(message => String(message.id) !== String(payload.message_id))
+    if (!socketMessageId) return
+    messages.value = messages.value.filter(message => String(message.id) !== String(socketMessageId))
   }
 }
 
@@ -2637,34 +2654,30 @@ onBeforeUnmount(() => {
 }
 
 /* Mobile layout */
-@media (max-width: 900px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
+@media (max-width: 1180px) {
   .split {
     grid-template-columns: 1fr;
-    max-height: 80vh;
-    height: 80vh;
+    max-height: none;
+    height: auto;
   }
-  .mobile-tabs { display: flex; }
-  .split .pane { display: none; }
-  .split[data-active="tasks"] .pane--tasks { display: block; }
-  .split[data-active="discussion"] .pane--discussion { display: block; }
+  .mobile-tabs { display: none; }
+  .split .pane {
+    display: flex;
+    height: auto;
+  }
+  .pane--discussion .chat-container {
+    height: min(72vh, 620px);
+    min-height: 420px;
+  }
   .card {
+    height: auto;
     min-height: 220px;
+  }
+  .pane--tasks.card {
+    min-height: 520px;
+  }
+  .pane--discussion {
+    min-height: 520px;
   }
 
   .gif-grid {
@@ -3000,48 +3013,36 @@ onBeforeUnmount(() => {
   color: rgba(214, 232, 223, 0.72) !important;
 }
 
-@media (max-width: 900px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
-
+@media (max-width: 1180px) {
   .split {
     grid-template-columns: 1fr;
-    max-height: 80vh;
-    height: 80vh;
+    max-height: none;
+    height: auto;
   }
 
   .mobile-tabs {
-    display: flex;
-  }
-
-  .split .pane {
     display: none;
   }
 
-  .split[data-active="tasks"] .pane--tasks,
-  .split[data-active="discussion"] .pane--discussion {
-    display: block;
+  .split .pane {
+    display: flex;
+    height: auto;
+  }
+
+  .pane--discussion .chat-container {
+    height: min(72vh, 620px);
+    min-height: 420px;
   }
 
   .card {
+    height: auto;
     min-height: 220px;
+  }
+  .pane--tasks.card {
+    min-height: 520px;
+  }
+  .pane--discussion {
+    min-height: 520px;
   }
 }
 
@@ -3289,6 +3290,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
+
   .task-filter-field {
     min-width: min(100%, 148px);
     flex: 1 1 140px;
