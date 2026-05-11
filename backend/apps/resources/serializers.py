@@ -329,8 +329,7 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
             return resource
 
-        # stored_resource_file deletes the blob if the DB write below raises, so a
-        # rolled-back create never leaves an orphan blob in the container.
+        # Blob delete-on-rollback if DB write raises.
         with stored_resource_file(uploaded_file) as file_data:
             validated_data.update(file_data)
             validated_data["kind"] = Resources.ResourceKind.FILE

@@ -25,5 +25,14 @@ class StorageCleanupMixin:
         storage = getattr(self, self.storage_attr, None)
         for storage_key in getattr(self, self.storage_keys_attr, []):
             if storage_key and storage is not None and storage.exists(storage_key):
-                storage.delete(storage_key)
+                # On Windows, ``FileResponse`` may still hold the file open
+                # when tearDown runs (POSIX lets you unlink an open file;
+                # Windows does not). The cleanup is best-effort — leftover
+                # bytes live under ``backend/media/`` which is gitignored —
+                # so swallow OSError instead of failing an otherwise-passing
+                # test on the lock.
+                try:
+                    storage.delete(storage_key)
+                except OSError:
+                    pass
         super().tearDown()
