@@ -1,308 +1,635 @@
 <template>
-  <div
-    class="content-area group-detail"
-    :data-active="activeTab"
-  >
-    <!-- Header -->
-    <div class="group-hero-card">
-      <div class="gd-head">
-        <div class="gd-head-left">
-          <div class="group-avatars">
-            <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">{{ groupInitials }}</div>
-          </div>
-          <div>
-            <h2 class="gd-title">{{ group.name }}</h2>
-            <p class="gd-subtitle">{{ groupSubtitle }}</p>
-            <div v-if="groupMetaItems.length" class="gd-meta-row">
-              <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+  <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
+    <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
+      <span class="sr-only">Loading group details...</span>
+      <div class="group-hero-card group-loading-hero">
+        <div class="gd-head group-loading-head">
+          <div class="group-loading-avatar skeleton-block"></div>
+          <div class="group-loading-title-stack">
+            <div class="skeleton-block skeleton-title"></div>
+            <div class="skeleton-block skeleton-subtitle"></div>
+            <div class="group-loading-meta">
+              <div class="skeleton-block skeleton-pill"></div>
+              <div class="skeleton-block skeleton-pill skeleton-pill--short"></div>
             </div>
           </div>
+          <div class="skeleton-block skeleton-select"></div>
         </div>
-        <div class="gd-head-actions">
-          <label class="group-switcher" for="group-switcher">
-            <span>Group</span>
-            <select
-              id="group-switcher"
-              :value="backendGroupId"
-              :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
-              @change="switchGroup"
+      </div>
+
+      <div class="group-loading-grid">
+        <section class="card group-loading-panel">
+          <div class="group-loading-panel-header">
+            <div class="skeleton-block skeleton-heading"></div>
+            <div class="skeleton-block skeleton-button"></div>
+          </div>
+          <div class="group-loading-filter-row">
+            <div
+              v-for="item in 5"
+              :key="`task-filter-${item}`"
+              class="skeleton-block skeleton-filter"
+            ></div>
+          </div>
+          <div class="group-loading-list">
+            <div v-for="item in 5" :key="`task-row-${item}`" class="group-loading-row">
+              <div class="skeleton-block skeleton-dot"></div>
+              <div class="group-loading-row-copy">
+                <div class="skeleton-block skeleton-line"></div>
+                <div class="skeleton-block skeleton-line skeleton-line--short"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="group-loading-panel group-loading-chat">
+          <div class="group-loading-panel-header">
+            <div class="skeleton-block skeleton-heading"></div>
+            <div class="skeleton-block skeleton-status"></div>
+          </div>
+          <div class="group-loading-messages">
+            <div
+              v-for="item in 4"
+              :key="`message-${item}`"
+              class="group-loading-message"
+              :class="{ 'group-loading-message--own': item % 2 === 0 }"
             >
-              <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
-              <option
-                v-for="option in availableGroups"
-                :key="option.id"
-                :value="option.id"
-              >
-                {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
-              </option>
-            </select>
-          </label>
-          <span v-if="groupOptionsError" class="group-switcher-error">{{ groupOptionsError }}</span>
-        </div>
+              <div class="skeleton-block skeleton-message-avatar"></div>
+              <div class="group-loading-bubble">
+                <div class="skeleton-block skeleton-line"></div>
+                <div class="skeleton-block skeleton-line skeleton-line--short"></div>
+              </div>
+            </div>
+          </div>
+          <div class="skeleton-block skeleton-composer"></div>
+        </section>
       </div>
     </div>
 
-    <!-- Mobile tabs (hidden on desktop) -->
-    <nav class="mobile-tabs">
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'tasks' }"
-        @click="activeTab = 'tasks'"
-      >
-        Tasks
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'discussion' }"
-        @click="activeTab = 'discussion'"
-      >
-        Discussion
-      </button>
-    </nav>
-
-    <!-- Desktop: two columns; mobile: single column via tabs -->
-    <div class="split" :data-active="activeTab">
-      <!-- Left column: Tasks -->
-      <section class="pane pane--tasks card">
-        <div class="card-header">
-          <h3 class="card-title">Tasks</h3>
-          <div class="task-header-actions">
-            <button
-              v-if="canCreateGroupTasks"
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="!backendGroupId || isLoadingTasks"
-              title="Create a shared group task"
-              @click="createTask('group')"
-            >
-              <i class="fas fa-plus"></i> Group Task
-            </button>
-            <button
-              v-if="canCreateIndividualTasks"
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="!backendGroupId || isLoadingTasks"
-              title="Create an individual task"
-              @click="createTask('individual')"
-            >
-              <i class="fas fa-user-plus"></i> Individual Task
-            </button>
+    <template v-else>
+      <!-- Header -->
+      <div class="group-hero-card">
+        <div class="gd-head">
+          <div class="gd-head-left">
+            <div class="group-avatars">
+              <div class="group-avatar" style="width: 48px; height: 48px; font-size: 1.1rem">
+                {{ groupInitials }}
+              </div>
+            </div>
+            <div>
+              <h2 class="gd-title">{{ group.name }}</h2>
+              <p class="gd-subtitle">{{ groupSubtitle }}</p>
+              <div v-if="groupMetaItems.length" class="gd-meta-row">
+                <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="gd-head-actions">
+            <label class="group-switcher" for="group-switcher">
+              <span>Group</span>
+              <select
+                id="group-switcher"
+                :value="backendGroupId"
+                :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
+                @change="switchGroup"
+              >
+                <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
+                <option v-for="option in availableGroups" :key="option.id" :value="option.id">
+                  {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
+                </option>
+              </select>
+            </label>
+            <span v-if="groupOptionsError" class="group-switcher-error">{{
+              groupOptionsError
+            }}</span>
           </div>
         </div>
-        <div class="card-content tasks-content">
-          <div v-if="taskError" class="chat-alert" style="margin-bottom:1rem;">
-            {{ taskError }}
+      </div>
+
+      <!-- Mobile tabs (hidden on desktop) -->
+      <nav class="mobile-tabs">
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'tasks' }"
+          @click="activeTab = 'tasks'"
+        >
+          Tasks
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'discussion' }"
+          @click="activeTab = 'discussion'"
+        >
+          Discussion
+        </button>
+      </nav>
+
+      <!-- Desktop: two columns; mobile: single column via tabs -->
+      <div class="split" :data-active="activeTab">
+        <!-- Left column: Tasks -->
+        <section class="pane pane--tasks card">
+          <div class="card-header">
+            <h3 class="card-title">Tasks</h3>
+            <div class="task-header-actions">
+              <button
+                v-if="canCreateGroupTasks"
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!backendGroupId || isLoadingTasks"
+                title="Create a shared group task"
+                @click="openCreateTaskDialog('group')"
+              >
+                <i class="fas fa-plus"></i> Group Task
+              </button>
+              <button
+                v-if="canCreateIndividualTasks"
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="!backendGroupId || isLoadingTasks"
+                title="Create an individual task"
+                @click="openCreateTaskDialog('individual')"
+              >
+                <i class="fas fa-user-plus"></i> Individual Task
+              </button>
+            </div>
           </div>
-          <div v-if="isLoadingTasks" class="chat-alert" style="margin-bottom:1rem;">
-            Loading tasks...
+          <div class="card-content tasks-content">
+            <div class="task-filter-bar">
+              <label class="task-filter-field">
+                <span>Search</span>
+                <input
+                  v-model.trim="taskFilters.search"
+                  type="search"
+                  placeholder="Task name"
+                  @keyup.enter="loadTasks"
+                />
+              </label>
+              <label class="task-filter-field">
+                <span>Type</span>
+                <select v-model="taskFilters.taskType">
+                  <option value="">All</option>
+                  <option value="group">Group</option>
+                  <option value="individual">Individual</option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Status</span>
+                <select v-model="taskFilters.status">
+                  <option value="">All</option>
+                  <option
+                    v-for="option in TASK_STATUS_OPTIONS"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Done</span>
+                <select v-model="taskFilters.completed">
+                  <option value="">All</option>
+                  <option value="true">Done</option>
+                  <option value="false">Open</option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Sort</span>
+                <select v-model="taskFilters.ordering">
+                  <option
+                    v-for="option in TASK_ORDERING_OPTIONS"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="task-deleted-toggle">
+                <input v-model="taskFilters.showDeleted" type="checkbox" />
+                Deleted
+              </label>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isLoadingTasks"
+                @click="loadTasks"
+              >
+                Apply
+              </button>
+            </div>
+
+            <div v-if="selectedTaskIds.size" class="task-bulk-bar">
+              <span>{{ selectedTaskIds.size }} selected</span>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="isBulkUpdatingTasks"
+                @click="bulkSetTaskCompletion(true)"
+              >
+                Mark done
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isBulkUpdatingTasks"
+                @click="bulkSetTaskCompletion(false)"
+              >
+                Mark open
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isBulkUpdatingTasks"
+                @click="clearTaskSelection"
+              >
+                Clear
+              </button>
+            </div>
+
+            <div v-if="taskError" class="chat-alert" style="margin-bottom: 1rem">
+              {{ taskError }}
+            </div>
+            <div v-if="isLoadingTasks" class="chat-alert" style="margin-bottom: 1rem">
+              Loading tasks...
+            </div>
+
+            <div v-for="section in taskSections" :key="section.key" class="task-section">
+              <div class="task-section-header">
+                <div class="task-section-title">
+                  <i :class="section.icon"></i>
+                  {{ section.title }}
+                </div>
+                <div class="task-section-status">
+                  {{ section.completed }}/{{ section.total }} Completed
+                </div>
+              </div>
+              <div class="task-list">
+                <div
+                  v-for="row in section.rows"
+                  :key="row.task.id"
+                  class="task-item"
+                  :class="{ 'is-subtask': row.depth > 0, 'is-deleted': row.task.deletedAt }"
+                  :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
+                >
+                  <label class="task-select-control" title="Select task">
+                    <input
+                      type="checkbox"
+                      :checked="isTaskSelected(row.task.id)"
+                      :disabled="row.task.deletedAt || !canToggleTask(row.task)"
+                      @change="setTaskSelectedFromEvent(row.task.id, $event)"
+                    />
+                  </label>
+                  <div class="task-body">
+                    <div :class="['task-label', { completed: row.task.completed }]">
+                      {{ row.task.name }}
+                    </div>
+                    <div v-if="row.task.description" class="task-description">
+                      {{ row.task.description }}
+                    </div>
+                    <div class="task-meta">
+                      <span v-if="row.task.dueDate"
+                        ><i class="fas fa-calendar"></i> {{ formatDate(row.task.dueDate) }}</span
+                      >
+                      <span v-if="row.task.status"
+                        ><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span
+                      >
+                      <span v-if="row.task.assignedUser"
+                        ><i class="fas fa-user"></i> User {{ row.task.assignedUser }}</span
+                      >
+                      <span v-if="row.task.creatorRole"
+                        ><i class="fas fa-id-badge"></i>
+                        {{ formatTaskStatus(row.task.creatorRole) }}</span
+                      >
+                      <span v-if="row.task.deletedAt"><i class="fas fa-trash"></i> Deleted</span>
+                    </div>
+                  </div>
+                  <div class="task-row-actions">
+                    <button
+                      type="button"
+                      :class="['task-status-toggle', { 'is-complete': row.task.completed }]"
+                      :disabled="
+                        isUpdatingTask(row.task.id) ||
+                        row.task.deletedAt ||
+                        !canToggleTask(row.task)
+                      "
+                      :title="
+                        canToggleTask(row.task)
+                          ? 'Toggle task status'
+                          : 'You can view this task status only'
+                      "
+                      :aria-pressed="row.task.completed"
+                      :aria-label="
+                        row.task.completed
+                          ? `Mark ${row.task.name} open`
+                          : `Mark ${row.task.name} done`
+                      "
+                      @click="toggleTask(row.task)"
+                    >
+                      <i :class="row.task.completed ? 'fas fa-check-circle' : 'fas fa-circle'"></i>
+                      <span>{{ row.task.completed ? 'Done' : 'Open' }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm add-subtask-btn"
+                      :disabled="
+                        isLoadingTasks ||
+                        row.task.deletedAt ||
+                        !canCreateTaskType(row.task.taskType, row.task)
+                      "
+                      title="Add a sub-task"
+                      @click="openCreateTaskDialog(row.task.taskType, row.task)"
+                    >
+                      <i class="fas fa-plus"></i>
+                      Sub-task
+                    </button>
+                    <button
+                      v-if="canManageTask(row.task)"
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      :disabled="isLoadingTasks || row.task.deletedAt"
+                      title="Edit task"
+                      @click="openEditTaskDialog(row.task)"
+                    >
+                      <i class="fas fa-pen"></i>
+                      Edit
+                    </button>
+                    <button
+                      v-if="canManageTask(row.task)"
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      :disabled="isDeletingTask(row.task.id) || row.task.deletedAt"
+                      title="Delete task"
+                      @click="removeTask(row.task)"
+                    >
+                      <i class="fas fa-trash"></i>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="!section.rows.length" class="task-empty-state">
+                  No {{ section.title.toLowerCase() }} are available yet.
+                </div>
+              </div>
+            </div>
           </div>
 
           <div
-            v-for="section in taskSections"
-            :key="section.key"
-            class="task-section"
+            v-if="taskDialogOpen"
+            class="task-dialog-backdrop"
+            role="dialog"
+            aria-modal="true"
+            :aria-label="taskDialogTitle"
           >
-            <div class="task-section-header">
-              <div class="task-section-title">
-                <i :class="section.icon"></i>
-                {{ section.title }}
-              </div>
-              <div class="task-section-status">
-                {{ section.completed }}/{{ section.total }} Completed
-              </div>
-            </div>
-            <div class="task-list">
-              <div
-                v-for="row in section.rows"
-                :key="row.task.id"
-                class="task-item"
-                :class="{ 'is-subtask': row.depth > 0 }"
-                :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
-              >
+            <form class="task-dialog" @submit.prevent="saveTask">
+              <div class="task-dialog-header">
+                <h4>{{ taskDialogTitle }}</h4>
                 <button
                   type="button"
-                  :class="['task-checkbox', { checked: row.task.completed }]"
-                  :disabled="isUpdatingTask(row.task.id) || (auth.isStudent && row.task.taskType === 'group')"
-                  :title="auth.isStudent && row.task.taskType === 'group' ? 'Students can view group task status only' : 'Toggle task status'"
-                  @click="toggleTask(row.task)"
-                />
-                <div class="task-body">
-                  <div :class="['task-label', { completed: row.task.completed }]">{{ row.task.name }}</div>
-                  <div v-if="row.task.description" class="task-description">{{ row.task.description }}</div>
-                  <div class="task-meta">
-                    <span v-if="row.task.dueDate"><i class="fas fa-calendar"></i> {{ formatDate(row.task.dueDate) }}</span>
-                    <span v-if="row.task.status"><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span>
-                    <span v-if="row.task.assignedUser"><i class="fas fa-user"></i> User {{ row.task.assignedUser }}</span>
-                    <span v-if="row.task.creatorRole"><i class="fas fa-id-badge"></i> {{ formatTaskStatus(row.task.creatorRole) }}</span>
+                  class="task-dialog-close"
+                  title="Close"
+                  @click="closeTaskDialog"
+                >
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+
+              <div v-if="taskFormError" class="chat-alert">
+                {{ taskFormError }}
+              </div>
+
+              <label class="task-form-field task-form-field--wide">
+                <span>Name</span>
+                <input v-model.trim="taskForm.name" type="text" maxlength="255" required />
+              </label>
+
+              <label class="task-form-field task-form-field--wide">
+                <span>Description</span>
+                <textarea v-model.trim="taskForm.description" rows="3"></textarea>
+              </label>
+
+              <div class="task-form-grid">
+                <label class="task-form-field">
+                  <span>Status</span>
+                  <select v-model="taskForm.status">
+                    <option
+                      v-for="option in TASK_STATUS_OPTIONS"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label class="task-form-field">
+                  <span>Due date</span>
+                  <input v-model="taskForm.dueDate" type="datetime-local" />
+                </label>
+
+                <label class="task-form-field">
+                  <span>Type</span>
+                  <select v-model="taskForm.taskType" :disabled="taskDialogMode === 'edit'">
+                    <option
+                      v-for="option in allowedTaskTypeOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label v-if="taskForm.taskType === 'individual'" class="task-form-field">
+                  <span>Assignee user id</span>
+                  <input
+                    v-model.trim="taskForm.assignedUser"
+                    type="number"
+                    min="1"
+                    :disabled="taskDialogMode === 'edit'"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div class="task-dialog-actions">
+                <button type="button" class="btn btn-outline btn-sm" @click="closeTaskDialog">
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-primary btn-sm" :disabled="isSavingTask">
+                  {{ isSavingTask ? 'Saving...' : 'Save task' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- Right column: Discussion -->
+        <section class="pane pane--discussion">
+          <div class="chat-container">
+            <!-- Discussion header -->
+            <div class="chat-header">
+              <h3 style="margin: 0">Discussion Board</h3>
+              <span class="chat-status">
+                <template v-if="isLoadingMessages">Loading...</template>
+                <template v-else-if="wsConnectionState === 'connected'">Live</template>
+                <template v-else>Offline</template>
+              </span>
+            </div>
+
+            <div v-if="chatError" class="chat-alert">
+              {{ chatError }}
+            </div>
+
+            <div class="chat-messages" ref="msgList">
+              <div
+                v-for="message in messages"
+                :key="message.id"
+                :class="['message', { own: message.isOwn }]"
+              >
+                <div class="message-avatar">{{ getInitials(message.author) }}</div>
+                <div class="message-content">
+                  <div class="message-header">
+                    <span class="message-author">{{ message.author }}</span>
+                    <span class="message-meta">
+                      <span v-if="message.editedAt" class="message-edited">edited</span>
+                      <span class="message-date">{{ formatDate(message.date) }}</span>
+                      <span class="message-time">{{ message.time }}</span>
+                    </span>
+                  </div>
+                  <img
+                    v-if="message.messageType === 'gif' && message.gifUrl"
+                    :src="message.gifUrl"
+                    :alt="message.text || 'GIF message'"
+                    class="message-gif"
+                  />
+                  <div v-else class="message-text">{{ message.text }}</div>
+
+                  <div v-if="message.attachments?.length" class="message-attachments">
+                    <a
+                      v-for="attachment in message.attachments"
+                      :key="attachment.id || attachment.attachment_filename"
+                      href="#"
+                      class="attachment-chip"
+                      @click.prevent
+                    >
+                      <i class="fas fa-paperclip"></i>
+                      {{ getAttachmentLabel(attachment) }}
+                    </a>
+                  </div>
+
+                  <div v-if="message.preview?.title" class="message-preview">
+                    <strong>{{ message.preview.title }}</strong>
+                  </div>
+
+                  <div class="message-reactions">
+                    <button
+                      v-for="emoji in CHAT_REACTION_OPTIONS"
+                      :key="`${message.id}-${emoji}`"
+                      type="button"
+                      class="reaction-btn"
+                      :disabled="!supportsMessageReactions"
+                      :title="
+                        supportsMessageReactions
+                          ? 'Add reaction'
+                          : 'Reactions are not available yet'
+                      "
+                      @click="reactToMessage(message.id, emoji)"
+                    >
+                      <span>{{ emoji }}</span>
+                      <span v-if="message.reactions?.[emoji]" class="reaction-count">{{
+                        message.reactions[emoji]
+                      }}</span>
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm add-subtask-btn"
-                  :disabled="isLoadingTasks"
-                  title="Add a sub-task"
-                  @click="createTask(row.task.taskType, row.task)"
-                >
-                  <i class="fas fa-plus"></i>
-                  Sub-task
-                </button>
-              </div>
-
-              <div v-if="!section.rows.length" class="task-empty-state">
-                No {{ section.title.toLowerCase() }} are available yet.
               </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- Right column: Discussion -->
-      <section class="pane pane--discussion">
-        <div class="chat-container">
-          <!-- Discussion header -->
-          <div class="chat-header">
-            <h3 style="margin:0;">Discussion Board</h3>
-            <span class="chat-status">
-              <template v-if="isLoadingMessages">Loading...</template>
-              <template v-else-if="wsConnectionState === 'connected'">Live</template>
-              <template v-else>Offline</template>
-            </span>
-          </div>
+            <div v-if="typingIndicatorText" class="typing-indicator">
+              {{ typingIndicatorText }}
+            </div>
 
-          <div v-if="chatError" class="chat-alert">
-            {{ chatError }}
-          </div>
-
-          <div class="chat-messages" ref="msgList">
-            <div
-              v-for="message in messages"
-              :key="message.id"
-              :class="['message', { own: message.isOwn }]"
-            >
-              <div class="message-avatar">{{ getInitials(message.author) }}</div>
-              <div class="message-content">
-                <div class="message-header">
-                  <span class="message-author">{{ message.author }}</span>
-                  <span class="message-meta">
-                    <span v-if="message.editedAt" class="message-edited">edited</span>
-                    <span class="message-date">{{ formatDate(message.date) }}</span>
-                    <span class="message-time">{{ message.time }}</span>
-                  </span>
+            <div class="chat-input">
+              <div v-if="supportsGifs && showGifPanel" class="gif-panel">
+                <div class="gif-panel-header">
+                  <input
+                    v-model.trim="gifQuery"
+                    type="text"
+                    class="gif-search-input"
+                    placeholder="Search GIFs"
+                    @keydown.enter.prevent="searchGifs"
+                  />
+                  <button type="button" class="btn btn-outline btn-sm" @click="searchGifs">
+                    Search
+                  </button>
                 </div>
-                <img
-                  v-if="message.messageType === 'gif' && message.gifUrl"
-                  :src="message.gifUrl"
-                  :alt="message.text || 'GIF message'"
-                  class="message-gif"
-                />
-                <div v-else class="message-text">{{ message.text }}</div>
+                <div v-if="gifError" class="gif-status">{{ gifError }}</div>
+                <div class="gif-grid">
+                  <button
+                    v-for="gif in gifResults"
+                    :key="gif.id"
+                    type="button"
+                    class="gif-card"
+                    @click="sendGifMessage(gif)"
+                  >
+                    <img :src="gif.previewUrl || gif.url" :alt="gif.title" />
+                    <span>{{ gif.title }}</span>
+                  </button>
+                </div>
+                <div v-if="isLoadingGifs" class="gif-status">Loading GIFs...</div>
+              </div>
 
-                <div v-if="message.attachments?.length" class="message-attachments">
-                  <a
-                    v-for="attachment in message.attachments"
-                    :key="attachment.id || attachment.attachment_filename"
-                    href="#"
-                    class="attachment-chip"
-                    @click.prevent
+              <div class="chat-input-group">
+                <textarea
+                  ref="composer"
+                  v-model="newMessage"
+                  class="chat-input-field"
+                  placeholder="Type your message..."
+                  rows="2"
+                  @keydown.enter.exact.prevent="sendMessage"
+                  @input="handleComposerInput"
+                ></textarea>
+                <div class="chat-actions">
+                  <button
+                    class="chat-btn"
+                    type="button"
+                    :title="supportsGifs ? 'GIF picker' : 'GIF search is not available yet'"
+                    :disabled="!supportsGifs"
+                    @click="toggleGifPanel"
+                  >
+                    <i class="fas fa-image"></i>
+                  </button>
+                  <button
+                    class="chat-btn"
+                    type="button"
+                    title="Attach file"
+                    :disabled="isUploadingFile || !supportsAttachments"
+                    @click="openFilePicker"
                   >
                     <i class="fas fa-paperclip"></i>
-                    {{ getAttachmentLabel(attachment) }}
-                  </a>
-                </div>
-
-                <div v-if="message.preview?.title" class="message-preview">
-                  <strong>{{ message.preview.title }}</strong>
-                </div>
-
-                <div class="message-reactions">
+                  </button>
+                  <input
+                    ref="fileInputRef"
+                    type="file"
+                    class="hidden-file-input"
+                    @change="uploadAttachment"
+                  />
                   <button
-                    v-for="emoji in CHAT_REACTION_OPTIONS"
-                    :key="`${message.id}-${emoji}`"
-                  type="button"
-                  class="reaction-btn"
-                  :disabled="!supportsMessageReactions"
-                  :title="supportsMessageReactions ? 'Add reaction' : 'Reactions are not available yet'"
-                  @click="reactToMessage(message.id, emoji)"
-                >
-                  <span>{{ emoji }}</span>
-                  <span v-if="message.reactions?.[emoji]" class="reaction-count">{{ message.reactions[emoji] }}</span>
-                </button>
+                    class="chat-btn"
+                    :disabled="isSendingMessage || !newMessage.trim()"
+                    @click="sendMessage"
+                    title="Send"
+                  >
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-
-          <div v-if="typingIndicatorText" class="typing-indicator">
-            {{ typingIndicatorText }}
-          </div>
-
-          <div class="chat-input">
-            <div v-if="supportsGifs && showGifPanel" class="gif-panel">
-              <div class="gif-panel-header">
-                <input
-                  v-model.trim="gifQuery"
-                  type="text"
-                  class="gif-search-input"
-                  placeholder="Search GIFs"
-                  @keydown.enter.prevent="searchGifs"
-                />
-                <button type="button" class="btn btn-outline btn-sm" @click="searchGifs">Search</button>
-              </div>
-              <div v-if="gifError" class="gif-status">{{ gifError }}</div>
-              <div class="gif-grid">
-                <button
-                  v-for="gif in gifResults"
-                  :key="gif.id"
-                  type="button"
-                  class="gif-card"
-                  @click="sendGifMessage(gif)"
-                >
-                  <img :src="gif.previewUrl || gif.url" :alt="gif.title" />
-                  <span>{{ gif.title }}</span>
-                </button>
-              </div>
-              <div v-if="isLoadingGifs" class="gif-status">Loading GIFs...</div>
-            </div>
-
-            <div class="chat-input-group">
-              <textarea
-                ref="composer"
-                v-model="newMessage"
-                class="chat-input-field"
-                placeholder="Type your message..."
-                rows="2"
-                @keydown.enter.exact.prevent="sendMessage"
-                @input="handleComposerInput"
-              ></textarea>
-              <div class="chat-actions">
-                <button
-                  class="chat-btn"
-                  type="button"
-                  :title="supportsGifs ? 'GIF picker' : 'GIF search is not available yet'"
-                  :disabled="!supportsGifs"
-                  @click="toggleGifPanel"
-                >
-                  <i class="fas fa-image"></i>
-                </button>
-                <button
-                  class="chat-btn"
-                  type="button"
-                  title="Attach file"
-                  :disabled="isUploadingFile || !supportsAttachments"
-                  @click="openFilePicker"
-                >
-                  <i class="fas fa-paperclip"></i>
-                </button>
-                <input ref="fileInputRef" type="file" class="hidden-file-input" @change="uploadAttachment" />
-                <button class="chat-btn" :disabled="isSendingMessage || !newMessage.trim()" @click="sendMessage" title="Send">
-                  <i class="fas fa-paper-plane"></i>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -312,6 +639,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import {
+  bulkToggleTasks,
+  createTask as createTaskRequest,
+  deleteTask as deleteTaskRequest,
+  listTasks,
+  toggleTaskCompletion,
+  updateTask as updateTaskRequest,
+} from '@/utils/tasksAPI'
 
 const route = useRoute()
 const router = useRouter()
@@ -320,15 +655,17 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const supportsGifs = false
 const supportsAttachments = false
 const supportsMessageReactions = false
+const supportsChatClientSocketActions = false
 const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
-const routeGroupId = computed(() => route.params.id ? String(route.params.id) : '')
+const routeGroupId = computed(() => (route.params.id ? String(route.params.id) : ''))
 const group = ref({
   id: routeGroupId.value || null,
   name: routeGroupId.value ? `Group ${routeGroupId.value}` : 'Group',
   members: 0,
-  createdAt: ''
+  createdAt: '',
 })
 const groupMemberships = ref([])
+const isLoadingGroupDetail = ref(true)
 const isLoadingMembers = ref(false)
 const membersError = ref('')
 const availableGroups = ref([])
@@ -343,6 +680,47 @@ const tasks = ref([])
 const isLoadingTasks = ref(false)
 const taskError = ref('')
 const updatingTaskIds = ref(new Set())
+const deletingTaskIds = ref(new Set())
+const selectedTaskIds = ref(new Set())
+const isBulkUpdatingTasks = ref(false)
+const taskFilters = ref({
+  taskType: '',
+  status: '',
+  completed: '',
+  search: '',
+  ordering: 'due_date',
+  showDeleted: false,
+})
+const taskDialogOpen = ref(false)
+const taskDialogMode = ref('create')
+const taskDialogTitle = ref('New task')
+const taskFormError = ref('')
+const isSavingTask = ref(false)
+const editingTaskId = ref(null)
+const taskForm = ref({
+  name: '',
+  description: '',
+  dueDate: '',
+  status: 'todo',
+  taskType: 'group',
+  parent: '',
+  group: '',
+  assignedUser: '',
+})
+
+const TASK_STATUS_OPTIONS = [
+  { value: 'todo', label: 'To do' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'done', label: 'Done' },
+  { value: 'blocked', label: 'Blocked' },
+]
+
+const TASK_ORDERING_OPTIONS = [
+  { value: 'due_date', label: 'Due date' },
+  { value: '-due_date', label: 'Due date desc' },
+  { value: '-updated_at', label: 'Recently updated' },
+  { value: 'status', label: 'Status' },
+]
 
 const messages = ref([])
 
@@ -366,7 +744,12 @@ let chatSocket = null
 let typingStopTimer = null
 let hasSentTypingStart = false
 
-const getInitials = (name) => String(name || 'U').split(' ').map(n => n[0]).join('').toUpperCase()
+const getInitials = (name) =>
+  String(name || 'U')
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
 
 const formatDate = (d) => {
   const date = new Date(d)
@@ -381,7 +764,9 @@ const formatTime = (value) => {
 }
 
 const formatTaskStatus = (value) => {
-  const label = String(value || '').replace(/_/g, ' ').trim()
+  const label = String(value || '')
+    .replace(/_/g, ' ')
+    .trim()
   return label ? label.charAt(0).toUpperCase() + label.slice(1) : ''
 }
 
@@ -399,13 +784,17 @@ const groupSubtitle = computed(() => {
 
 const groupMetaItems = computed(() => {
   const mentorIds = groupMemberships.value
-    .filter(item => String(item.role || '').toLowerCase().includes('mentor'))
-    .map(item => item.userId)
+    .filter((item) =>
+      String(item.role || '')
+        .toLowerCase()
+        .includes('mentor'),
+    )
+    .map((item) => item.userId)
     .filter(Boolean)
   const items = []
 
   if (mentorIds.length) {
-    items.push(`Mentor: ${mentorIds.map(id => `User ${id}`).join(', ')}`)
+    items.push(`Mentor: ${mentorIds.map((id) => `User ${id}`).join(', ')}`)
   }
   if (isLoadingMembers.value) {
     items.push('Loading members...')
@@ -425,8 +814,8 @@ const extractCollectionItems = (data) => {
 
 // Chat / GIF endpoints used to be wrapped in dual-URL helpers (``/api/v1/...``
 // primary, ``/...`` fallback) because only the legacy mount existed. The
-// backend now serves chat under both prefixes, so every helper returns a
-// single canonical URL.
+// backend now serves chat under both prefixes via ``config.urls._DUAL_MOUNTS``,
+// so every helper returns a single canonical URL.
 const buildChatMessageCollectionUrl = (groupId, suffix = '') =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`
 
@@ -473,9 +862,9 @@ const requestJson = async (url, options = {}) => {
       isFormData,
       headers: {
         Accept: 'application/json',
-        ...(options.headers || {})
-      }
-    })
+        ...(options.headers || {}),
+      },
+    }),
   })
 
   if (!response.ok) {
@@ -499,8 +888,10 @@ const normalizeGroup = (item) => {
     ...item,
     id: item?.id,
     name: item?.group_name || item?.name || item?.title || group.value?.name || 'Untitled group',
-    members: Number(item?.member_count ?? item?.memberCount ?? item?.members ?? group.value?.members ?? 0),
-    createdAt: item?.created_at || item?.createdAt || ''
+    members: Number(
+      item?.member_count ?? item?.memberCount ?? item?.members ?? group.value?.members ?? 0,
+    ),
+    createdAt: item?.created_at || item?.createdAt || '',
   }
 }
 
@@ -510,14 +901,18 @@ const normalizeMembership = (item) => ({
   userId: item?.user,
   role: item?.membership_role || '',
   joinedAt: item?.joined_at || '',
-  leftAt: item?.left_at || ''
+  leftAt: item?.left_at || '',
 })
 
 const normalizeGroupOption = (item, memberCount = 0) => ({
   id: String(item?.id || ''),
-  name: item?.group_name || item?.name || item?.title || (item?.id ? `Group ${item.id}` : 'Untitled group'),
+  name:
+    item?.group_name ||
+    item?.name ||
+    item?.title ||
+    (item?.id ? `Group ${item.id}` : 'Untitled group'),
   memberCount: Number(memberCount || 0),
-  createdAt: item?.created_at || item?.createdAt || ''
+  createdAt: item?.created_at || item?.createdAt || '',
 })
 
 const ensureAuthUser = async () => {
@@ -537,19 +932,19 @@ const loadGroupOptions = async () => {
   try {
     const [groupsData, membershipsData] = await Promise.all([
       requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
-      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`)
+      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`),
     ])
     const groupItems = extractCollectionItems(groupsData)
     const memberships = extractCollectionItems(membershipsData)
       .map(normalizeMembership)
-      .filter(item => !item.leftAt)
+      .filter((item) => !item.leftAt)
     const currentUserId = Number(auth.user?.id || 0)
     const visibleGroupIds = auth.isAdmin
       ? null
       : new Set(
           memberships
-            .filter(item => currentUserId > 0 && String(item.userId) === String(currentUserId))
-            .map(item => String(item.groupId))
+            .filter((item) => currentUserId > 0 && String(item.userId) === String(currentUserId))
+            .map((item) => String(item.groupId)),
         )
     const memberCounts = new Map()
 
@@ -560,22 +955,25 @@ const loadGroupOptions = async () => {
     })
 
     let options = groupItems
-      .filter(item => {
+      .filter((item) => {
         const groupId = String(item?.id || '')
         return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
       })
-      .map(item => normalizeGroupOption(item, memberCounts.get(String(item?.id || ''))))
+      .map((item) => normalizeGroupOption(item, memberCounts.get(String(item?.id || ''))))
       .sort((a, b) => a.name.localeCompare(b.name))
 
     const currentGroupId = getBackendGroupId() || routeGroupId.value
-    if (currentGroupId && !options.some(option => String(option.id) === String(currentGroupId))) {
+    if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
       options = [
-        normalizeGroupOption({
-          id: currentGroupId,
-          group_name: group.value?.name || `Group ${currentGroupId}`,
-          created_at: group.value?.createdAt
-        }, group.value?.members),
-        ...options
+        normalizeGroupOption(
+          {
+            id: currentGroupId,
+            group_name: group.value?.name || `Group ${currentGroupId}`,
+            created_at: group.value?.createdAt,
+          },
+          group.value?.members,
+        ),
+        ...options,
       ]
     }
 
@@ -586,7 +984,12 @@ const loadGroupOptions = async () => {
   } catch {
     const currentGroupId = getBackendGroupId() || routeGroupId.value
     availableGroups.value = currentGroupId
-      ? [normalizeGroupOption({ id: currentGroupId, group_name: group.value?.name || `Group ${currentGroupId}` }, group.value?.members)]
+      ? [
+          normalizeGroupOption(
+            { id: currentGroupId, group_name: group.value?.name || `Group ${currentGroupId}` },
+            group.value?.members,
+          ),
+        ]
       : []
     groupOptionsError.value = 'Group list unavailable'
   } finally {
@@ -606,15 +1009,17 @@ const loadGroupMembers = async () => {
   membersError.value = ''
 
   try {
-    const data = await requestJson(`${API_BASE_URL}/groups/group-members/by-group/${currentGroupId}/`)
+    const data = await requestJson(
+      `${API_BASE_URL}/groups/group-members/by-group/${currentGroupId}/`,
+    )
     const activeMemberships = extractCollectionItems(data)
       .map(normalizeMembership)
-      .filter(item => !item.leftAt)
+      .filter((item) => !item.leftAt)
 
     groupMemberships.value = activeMemberships
     group.value = {
       ...group.value,
-      members: activeMemberships.length
+      members: activeMemberships.length,
     }
   } catch {
     groupMemberships.value = []
@@ -632,18 +1037,33 @@ const normalizeReactionMap = (reactions) => {
   return Object.fromEntries(
     Object.entries(reactions)
       .map(([emoji, count]) => [emoji, Number(count) || 0])
-      .filter(([, count]) => count > 0)
+      .filter(([, count]) => count > 0),
   )
 }
 
 const normalizeGifResults = (data) => {
   const items = extractCollectionItems(data)
-  const normalized = items.map((item, index) => ({
-    id: item?.id || item?.media_id || item?.url || `gif-${index}`,
-    url: item?.gif_url || item?.url || item?.media?.gif?.url || item?.media_formats?.gif?.url || item?.itemurl || '',
-    previewUrl: item?.preview_url || item?.preview || item?.media_formats?.tinygif?.url || item?.media_formats?.nanogif?.url || item?.gif_url || item?.url || '',
-    title: item?.title || item?.content_description || 'GIF'
-  })).filter(item => item.url)
+  const normalized = items
+    .map((item, index) => ({
+      id: item?.id || item?.media_id || item?.url || `gif-${index}`,
+      url:
+        item?.gif_url ||
+        item?.url ||
+        item?.media?.gif?.url ||
+        item?.media_formats?.gif?.url ||
+        item?.itemurl ||
+        '',
+      previewUrl:
+        item?.preview_url ||
+        item?.preview ||
+        item?.media_formats?.tinygif?.url ||
+        item?.media_formats?.nanogif?.url ||
+        item?.gif_url ||
+        item?.url ||
+        '',
+      title: item?.title || item?.content_description || 'GIF',
+    }))
+    .filter((item) => item.url)
 
   return normalized
 }
@@ -662,12 +1082,12 @@ const loadGroup = async () => {
     if (firstGroup) {
       group.value = normalizeGroup(firstGroup)
     }
-  } catch (error) {
+  } catch {
     group.value = {
       id: routeGroupId.value || null,
       name: routeGroupId.value ? `Group ${routeGroupId.value}` : 'Group unavailable',
       members: 0,
-      createdAt: ''
+      createdAt: '',
     }
   }
 }
@@ -684,15 +1104,66 @@ const normalizeTask = (task) => ({
   group: task?.group ?? null,
   assignedUser: task?.assigned_user ?? null,
   creatorRole: task?.creator_role || '',
-  createdBy: task?.created_by || null
+  createdBy: task?.created_by || null,
+  deletedAt: task?.deleted_at || null,
+  createdAt: task?.created_at || '',
+  updatedAt: task?.updated_at || '',
 })
 
-const groupMemberUserIds = computed(() => new Set(
-  groupMemberships.value
-    .filter(item => !item.leftAt)
-    .map(item => Number(item.userId))
-    .filter(Number.isFinite)
-))
+const groupMemberUserIds = computed(
+  () =>
+    new Set(
+      groupMemberships.value
+        .filter((item) => !item.leftAt)
+        .map((item) => Number(item.userId))
+        .filter(Number.isFinite),
+    ),
+)
+
+const studentMemberUserIds = computed(
+  () =>
+    new Set(
+      groupMemberships.value
+        .filter(
+          (item) =>
+            !item.leftAt &&
+            String(item.role || '')
+              .toLowerCase()
+              .includes('student'),
+        )
+        .map((item) => Number(item.userId))
+        .filter(Number.isFinite),
+    ),
+)
+
+const supervisedStudentIds = computed(
+  () =>
+    new Set(
+      (auth.user?.supervised_students || [])
+        .map((student) => Number(student?.id))
+        .filter(Number.isFinite),
+    ),
+)
+
+const currentUserId = computed(() => Number(auth.user?.id || 0))
+
+const isCurrentGroupMentor = computed(() =>
+  groupMemberships.value.some(
+    (item) =>
+      !item.leftAt &&
+      Number(item.userId) === currentUserId.value &&
+      String(item.role || '')
+        .toLowerCase()
+        .includes('mentor'),
+  ),
+)
+
+const supervisesAnyCurrentGroupStudent = computed(() => {
+  if (!auth.isSupervisor) return false
+  return Array.from(studentMemberUserIds.value).some((userId) =>
+    supervisedStudentIds.value.has(userId),
+  )
+})
 
 const isTaskRelevantToCurrentGroup = (task) => {
   const currentGroupId = getBackendGroupId()
@@ -720,7 +1191,7 @@ const buildTaskRows = (items) => {
     childrenByParent.get(parentId).push(task)
   })
 
-  const roots = items.filter(task => {
+  const roots = items.filter((task) => {
     const parentId = Number(task.parent)
     return !parentId || !byId.has(parentId)
   })
@@ -728,17 +1199,17 @@ const buildTaskRows = (items) => {
   const rows = []
   const appendRows = (task, depth = 0) => {
     rows.push({ task, depth })
-    ;(childrenByParent.get(Number(task.id)) || []).forEach(child => appendRows(child, depth + 1))
+    ;(childrenByParent.get(Number(task.id)) || []).forEach((child) => appendRows(child, depth + 1))
   }
 
-  roots.forEach(task => appendRows(task))
+  roots.forEach((task) => appendRows(task))
   return rows
 }
 
 const createTaskSection = (key, title, icon, sectionTasks) => {
   const rows = buildTaskRows(sectionTasks)
   const total = sectionTasks.length
-  const completed = sectionTasks.filter(task => task.completed).length
+  const completed = sectionTasks.filter((task) => task.completed).length
 
   return {
     key,
@@ -746,25 +1217,46 @@ const createTaskSection = (key, title, icon, sectionTasks) => {
     icon,
     rows,
     total,
-    completed
+    completed,
   }
 }
 
 const taskSections = computed(() => {
   const relevantTasks = tasks.value.filter(isTaskRelevantToCurrentGroup)
-  const groupTasks = relevantTasks.filter(task => task.taskType === 'group')
-  const individualTasks = relevantTasks.filter(task => task.taskType === 'individual')
+  const groupTasks = relevantTasks.filter((task) => task.taskType === 'group')
+  const individualTasks = relevantTasks.filter((task) => task.taskType === 'individual')
 
   return [
     createTaskSection('group', 'Group Tasks', 'fas fa-users', groupTasks),
-    createTaskSection('individual', 'Individual Tasks', 'fas fa-user-check', individualTasks)
+    createTaskSection('individual', 'Individual Tasks', 'fas fa-user-check', individualTasks),
   ]
 })
 
-const canCreateGroupTasks = computed(() => auth.isMentor || auth.isSupervisor)
-const canCreateIndividualTasks = computed(() => auth.isStudent || auth.isMentor || auth.isSupervisor)
+const selectedTaskIdList = computed(() =>
+  Array.from(selectedTaskIds.value).map(Number).filter(Number.isFinite),
+)
+const canCreateGroupTasks = computed(
+  () =>
+    auth.isAdmin ||
+    (auth.isMentor && isCurrentGroupMentor.value) ||
+    supervisesAnyCurrentGroupStudent.value,
+)
+const canCreateIndividualTasks = computed(
+  () =>
+    auth.isAdmin ||
+    auth.isStudent ||
+    (auth.isMentor && isCurrentGroupMentor.value) ||
+    supervisesAnyCurrentGroupStudent.value,
+)
+const allowedTaskTypeOptions = computed(() =>
+  [
+    canCreateGroupTasks.value ? { value: 'group', label: 'Group' } : null,
+    canCreateIndividualTasks.value ? { value: 'individual', label: 'Individual' } : null,
+  ].filter(Boolean),
+)
 
 const isUpdatingTask = (taskId) => updatingTaskIds.value.has(Number(taskId))
+const isDeletingTask = (taskId) => deletingTaskIds.value.has(Number(taskId))
 
 const setTaskUpdating = (taskId, value) => {
   const next = new Set(updatingTaskIds.value)
@@ -773,6 +1265,141 @@ const setTaskUpdating = (taskId, value) => {
   else next.delete(id)
   updatingTaskIds.value = next
 }
+
+const setTaskDeleting = (taskId, value) => {
+  const next = new Set(deletingTaskIds.value)
+  const id = Number(taskId)
+  if (value) next.add(id)
+  else next.delete(id)
+  deletingTaskIds.value = next
+}
+
+const isTaskSelected = (taskId) => selectedTaskIds.value.has(Number(taskId))
+
+const setTaskSelected = (taskId, selected) => {
+  const next = new Set(selectedTaskIds.value)
+  const id = Number(taskId)
+  if (!Number.isFinite(id)) return
+  if (selected) next.add(id)
+  else next.delete(id)
+  selectedTaskIds.value = next
+}
+
+const setTaskSelectedFromEvent = (taskId, event) => {
+  setTaskSelected(taskId, Boolean(event?.target?.checked))
+}
+
+const clearTaskSelection = () => {
+  selectedTaskIds.value = new Set()
+}
+
+const syncSelectedTasks = () => {
+  const visibleIds = new Set(
+    tasks.value
+      .filter((task) => !task.deletedAt && canToggleTask(task))
+      .map((task) => Number(task.id)),
+  )
+  selectedTaskIds.value = new Set(selectedTaskIdList.value.filter((id) => visibleIds.has(id)))
+}
+
+const isGroupTaskInCurrentGroup = (task) =>
+  String(task?.group || '') === String(getBackendGroupId() || '')
+const isCurrentGroupStudent = (userId) => studentMemberUserIds.value.has(Number(userId))
+const isSupervisorOf = (userId) => supervisedStudentIds.value.has(Number(userId))
+const isAssigneeSelf = (task) => Number(task?.assignedUser) === currentUserId.value
+
+const isMentorOfTaskGroup = (task) => {
+  if (!auth.isMentor || !isCurrentGroupMentor.value) return false
+  if (task?.taskType === 'group') return isGroupTaskInCurrentGroup(task)
+  return isCurrentGroupStudent(task?.assignedUser)
+}
+
+const isSupervisorInTaskGroup = (task) => {
+  if (!auth.isSupervisor) return false
+  if (task?.taskType === 'group')
+    return isGroupTaskInCurrentGroup(task) && supervisesAnyCurrentGroupStudent.value
+  return isSupervisorOf(task?.assignedUser)
+}
+
+const canManageTask = (task) => {
+  if (!task || task.deletedAt) return false
+  if (auth.isAdmin) return true
+  const creatorId = Number(task.createdBy?.id)
+  if (Number.isFinite(creatorId) && creatorId === currentUserId.value) return true
+
+  if (task.creatorRole !== 'student') return false
+  if (task.taskType === 'group') return isMentorOfTaskGroup(task)
+  if (task.taskType === 'individual')
+    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  return false
+}
+
+const canToggleTask = (task) => {
+  if (!task || task.deletedAt) return false
+  if (auth.isAdmin) return true
+
+  if (task.taskType === 'group') {
+    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  }
+
+  if (isAssigneeSelf(task)) return true
+  if (!isCurrentGroupStudent(task.assignedUser)) return false
+
+  if (['global_admin', 'track_admin', 'student'].includes(task.creatorRole)) {
+    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  }
+  if (task.creatorRole === 'mentor') return isMentorOfTaskGroup(task)
+  if (task.creatorRole === 'supervisor') return isSupervisorInTaskGroup(task)
+  return false
+}
+
+const canCreateTaskType = (taskType, parentTask = null) => {
+  if (taskType === 'group') return canCreateGroupTasks.value
+  if (taskType !== 'individual') return false
+
+  if (!parentTask?.assignedUser) return canCreateIndividualTasks.value
+  const assigneeId = Number(parentTask.assignedUser)
+  if (auth.isAdmin) return true
+  if (auth.isStudent) return assigneeId === currentUserId.value
+  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isSupervisor) return isSupervisorOf(assigneeId)
+  return false
+}
+
+const canCreateTaskFromForm = () => {
+  const taskType = taskForm.value.taskType
+  if (taskType === 'group') return canCreateGroupTasks.value
+
+  const assigneeId = Number(taskForm.value.assignedUser)
+  if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
+  if (auth.isAdmin) return true
+  if (auth.isStudent) return assigneeId === currentUserId.value
+  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isSupervisor) return isSupervisorOf(assigneeId)
+  return false
+}
+
+const upsertTask = (task) => {
+  const normalized = normalizeTask(task)
+  const index = tasks.value.findIndex((item) => Number(item.id) === Number(normalized.id))
+  if (index === -1) tasks.value.push(normalized)
+  else tasks.value.splice(index, 1, normalized)
+}
+
+const removeTaskFromList = (taskId) => {
+  const index = tasks.value.findIndex((item) => Number(item.id) === Number(taskId))
+  if (index !== -1) tasks.value.splice(index, 1)
+}
+
+const getTaskListParams = () => ({
+  page_size: 100,
+  deleted: taskFilters.value.showDeleted,
+  task_type: taskFilters.value.taskType,
+  status: taskFilters.value.status,
+  completed: taskFilters.value.completed === '' ? '' : taskFilters.value.completed === 'true',
+  search: taskFilters.value.search,
+  ordering: taskFilters.value.ordering,
+})
 
 const loadTasks = async () => {
   const currentGroupId = getBackendGroupId()
@@ -786,11 +1413,9 @@ const loadTasks = async () => {
   taskError.value = ''
 
   try {
-    const data = await requestJson(`${API_BASE_URL}/api/v1/tasks/?page_size=100&deleted=false`)
+    const data = await listTasks(getTaskListParams())
     tasks.value = extractCollectionItems(data).map(normalizeTask)
-    if (!tasks.value.filter(isTaskRelevantToCurrentGroup).length) {
-      taskError.value = 'No tasks have been created for this group yet.'
-    }
+    syncSelectedTasks()
   } catch (error) {
     tasks.value = []
     taskError.value = error instanceof Error ? error.message : 'Task data could not be loaded.'
@@ -809,11 +1434,11 @@ const normalizeMessage = (item) => {
   const messageType = raw?.message_type || 'text'
   const attachments = [
     ...(Array.isArray(raw?.attachments) ? raw.attachments : []),
-    ...(Array.isArray(raw?.resources) ? raw.resources : [])
+    ...(Array.isArray(raw?.resources) ? raw.resources : []),
   ]
   const author = isOwn
     ? 'You'
-    : (raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member'))
+    : raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member')
 
   return {
     id: raw?.id || `${senderId}-${sentAt}`,
@@ -829,15 +1454,17 @@ const normalizeMessage = (item) => {
     preview: raw?.preview || null,
     editedAt: raw?.edited_at || null,
     readBy: Array.isArray(raw?.read_by) ? raw.read_by : [],
-    isLocalOnly: Boolean(raw?.isLocalOnly)
+    isLocalOnly: Boolean(raw?.isLocalOnly),
   }
 }
 
 const getAttachmentLabel = (attachment) => {
-  return attachment?.attachment_filename ||
+  return (
+    attachment?.attachment_filename ||
     attachment?.resource_name ||
     attachment?.name ||
     (attachment?.resource_id ? `Resource ${attachment.resource_id}` : 'Attachment')
+  )
 }
 
 const getBackendGroupId = () => {
@@ -851,55 +1478,158 @@ const resolveIndividualTaskAssignee = (parentTask = null) => {
   if (parentTask?.assignedUser) return Number(parentTask.assignedUser)
   if (auth.isStudent && auth.user?.id) return Number(auth.user.id)
 
-  const studentMemberships = groupMemberships.value.filter(item => {
+  const studentMemberships = groupMemberships.value.filter((item) => {
     const role = String(item.role || '').toLowerCase()
     return !item.leftAt && role.includes('student')
   })
-  const defaultAssignee = studentMemberships[0]?.userId || ''
-  const assignee = window.prompt('Assignee user id', defaultAssignee ? String(defaultAssignee) : '')
-  const assigneeId = Number(assignee)
+  const assigneeId = Number(studentMemberships[0]?.userId || '')
   return Number.isFinite(assigneeId) && assigneeId > 0 ? assigneeId : null
 }
 
-const createTask = async (taskType, parentTask = null) => {
+const toDateTimeLocal = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const offsetMs = date.getTimezoneOffset() * 60000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
+const fromDateTimeLocal = (value) => {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+const resetTaskForm = (taskType = 'group', parentTask = null) => {
+  const currentGroupId = getBackendGroupId()
+  const parentAssignee =
+    parentTask?.taskType === 'individual'
+      ? parentTask.assignedUser
+      : resolveIndividualTaskAssignee(parentTask)
+
+  taskForm.value = {
+    name: '',
+    description: '',
+    dueDate: '',
+    status: 'todo',
+    taskType,
+    parent: parentTask?.id ? String(parentTask.id) : '',
+    group: taskType === 'group' ? String(currentGroupId || '') : '',
+    assignedUser: taskType === 'individual' && parentAssignee ? String(parentAssignee) : '',
+  }
+}
+
+const openCreateTaskDialog = (taskType, parentTask = null) => {
   const currentGroupId = getBackendGroupId()
   if (!currentGroupId) {
     taskError.value = 'A backend numeric group id is required before tasks can be added.'
     return
   }
-
-  const label = parentTask ? 'New sub-task name' : taskType === 'group' ? 'New group task name' : 'New individual task name'
-  const taskName = window.prompt(label)
-  if (!taskName || !taskName.trim()) return
-
-  const payload = {
-    name: taskName.trim(),
-    description: '',
-    status: 'todo',
-    task_type: taskType
+  if (!canCreateTaskType(taskType, parentTask)) {
+    taskError.value = 'You do not have permission to create this task type for this group.'
+    return
   }
 
-  if (parentTask?.id) {
-    payload.parent = Number(parentTask.id)
+  taskDialogMode.value = 'create'
+  taskDialogTitle.value = parentTask
+    ? 'New sub-task'
+    : taskType === 'group'
+      ? 'New group task'
+      : 'New individual task'
+  editingTaskId.value = null
+  taskFormError.value = ''
+  resetTaskForm(taskType, parentTask)
+  taskDialogOpen.value = true
+}
+
+const openEditTaskDialog = (task) => {
+  taskDialogMode.value = 'edit'
+  taskDialogTitle.value = 'Edit task'
+  editingTaskId.value = Number(task.id)
+  taskFormError.value = ''
+  taskForm.value = {
+    name: task.name || '',
+    description: task.description || '',
+    dueDate: toDateTimeLocal(task.dueDate),
+    status: task.status || 'todo',
+    taskType: task.taskType || 'group',
+    parent: task.parent ? String(task.parent) : '',
+    group: task.group ? String(task.group) : '',
+    assignedUser: task.assignedUser ? String(task.assignedUser) : '',
+  }
+  taskDialogOpen.value = true
+}
+
+const closeTaskDialog = () => {
+  if (isSavingTask.value) return
+  taskDialogOpen.value = false
+  taskFormError.value = ''
+}
+
+const buildCreateTaskPayload = () => {
+  const taskType = taskForm.value.taskType
+  const payload = {
+    name: taskForm.value.name.trim(),
+    description: taskForm.value.description.trim(),
+    due_date: fromDateTimeLocal(taskForm.value.dueDate),
+    status: taskForm.value.status,
+    task_type: taskType,
+    parent: taskForm.value.parent ? Number(taskForm.value.parent) : null,
   }
 
   if (taskType === 'group') {
-    payload.group = Number(currentGroupId)
+    payload.group = Number(getBackendGroupId())
+    payload.assigned_user = null
   } else {
-    const assigneeId = resolveIndividualTaskAssignee(parentTask)
-    if (!assigneeId) return
-    payload.assigned_user = assigneeId
+    payload.group = null
+    payload.assigned_user = Number(taskForm.value.assignedUser)
   }
 
-  try {
-    await requestJson(`${API_BASE_URL}/api/v1/tasks/`, {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    })
+  return payload
+}
 
-    await loadTasks()
+const buildUpdateTaskPayload = () => ({
+  name: taskForm.value.name.trim(),
+  description: taskForm.value.description.trim(),
+  due_date: fromDateTimeLocal(taskForm.value.dueDate),
+  status: taskForm.value.status,
+  parent: taskForm.value.parent ? Number(taskForm.value.parent) : null,
+})
+
+const saveTask = async () => {
+  if (!taskForm.value.name.trim()) {
+    taskFormError.value = 'Task name is required.'
+    return
+  }
+  if (
+    taskDialogMode.value === 'create' &&
+    taskForm.value.taskType === 'individual' &&
+    !Number(taskForm.value.assignedUser)
+  ) {
+    taskFormError.value = 'Assignee user id is required for individual tasks.'
+    return
+  }
+  if (taskDialogMode.value === 'create' && !canCreateTaskFromForm()) {
+    taskFormError.value = 'You do not have permission to create a task for this target.'
+    return
+  }
+
+  isSavingTask.value = true
+  taskFormError.value = ''
+
+  try {
+    if (taskDialogMode.value === 'edit' && editingTaskId.value) {
+      const updatedTask = await updateTaskRequest(editingTaskId.value, buildUpdateTaskPayload())
+      upsertTask(updatedTask)
+    } else {
+      const createdTask = await createTaskRequest(buildCreateTaskPayload())
+      upsertTask(createdTask)
+    }
+    closeTaskDialog()
   } catch (error) {
-    taskError.value = error instanceof Error ? error.message : 'Task could not be created.'
+    taskFormError.value = error instanceof Error ? error.message : 'Task could not be saved.'
+  } finally {
+    isSavingTask.value = false
   }
 }
 
@@ -910,23 +1640,59 @@ const toggleTask = async (task) => {
   taskError.value = ''
 
   try {
-    const updatedTask = await requestJson(`${API_BASE_URL}/api/v1/tasks/${task.id}/check/`, {
-      method: 'POST',
-      body: JSON.stringify({
-        completed: !task.completed
-      })
-    })
-    const normalized = normalizeTask(updatedTask)
-    const index = tasks.value.findIndex(item => Number(item.id) === Number(task.id))
-    if (index === -1) {
-      tasks.value.push(normalized)
-    } else {
-      tasks.value.splice(index, 1, normalized)
-    }
+    const updatedTask = await toggleTaskCompletion(task.id, !task.completed)
+    upsertTask(updatedTask)
   } catch (error) {
     taskError.value = error instanceof Error ? error.message : 'Task status could not be updated.'
   } finally {
     setTaskUpdating(task.id, false)
+  }
+}
+
+const bulkSetTaskCompletion = async (completed) => {
+  const taskIds = selectedTaskIdList.value
+  if (!taskIds.length) return
+
+  isBulkUpdatingTasks.value = true
+  taskError.value = ''
+
+  try {
+    const result = await bulkToggleTasks(taskIds, completed)
+    result.updated.forEach(upsertTask)
+    clearTaskSelection()
+    if (result.forbidden.length || result.not_found.length) {
+      taskError.value = [
+        result.forbidden.length ? `${result.forbidden.length} task(s) were not allowed.` : '',
+        result.not_found.length ? `${result.not_found.length} task(s) were not found.` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+    }
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : 'Selected tasks could not be updated.'
+  } finally {
+    isBulkUpdatingTasks.value = false
+  }
+}
+
+const removeTask = async (task) => {
+  if (!task?.id || isDeletingTask(task.id)) return
+  const confirmed = window.confirm(`Delete "${task.name}" and its sub-tasks?`)
+  if (!confirmed) return
+
+  setTaskDeleting(task.id, true)
+  taskError.value = ''
+
+  try {
+    const deletedTask = await deleteTaskRequest(task.id)
+    setTaskSelected(task.id, false)
+    if (taskFilters.value.showDeleted) upsertTask(deletedTask)
+    else removeTaskFromList(task.id)
+  } catch (error) {
+    taskError.value = error instanceof Error ? error.message : 'Task could not be deleted.'
+  } finally {
+    setTaskDeleting(task.id, false)
   }
 }
 
@@ -937,7 +1703,7 @@ const typingIndicatorText = computed(() => {
 })
 
 const applyMessageUpdate = (messageId, updater) => {
-  const index = messages.value.findIndex(message => String(message.id) === String(messageId))
+  const index = messages.value.findIndex((message) => String(message.id) === String(messageId))
   if (index === -1) return
 
   const current = messages.value[index]
@@ -945,22 +1711,24 @@ const applyMessageUpdate = (messageId, updater) => {
   messages.value.splice(index, 1, nextValue)
 }
 
-const isPendingMessage = (message) => String(message?.id || '').startsWith('pending-') || Boolean(message?.isLocalOnly)
+const isPendingMessage = (message) =>
+  String(message?.id || '').startsWith('pending-') || Boolean(message?.isLocalOnly)
 
 const findMatchingPendingMessageIndex = (message) => {
   if (!message?.isOwn) return -1
 
-  return messages.value.findIndex(item =>
-    isPendingMessage(item) &&
-    item.isOwn &&
-    item.text === message.text &&
-    item.messageType === message.messageType
+  return messages.value.findIndex(
+    (item) =>
+      isPendingMessage(item) &&
+      item.isOwn &&
+      item.text === message.text &&
+      item.messageType === message.messageType,
   )
 }
 
 const upsertMessage = (message) => {
   const normalized = normalizeMessage(message)
-  const index = messages.value.findIndex(item => String(item.id) === String(normalized.id))
+  const index = messages.value.findIndex((item) => String(item.id) === String(normalized.id))
   if (index === -1) {
     const pendingIndex = findMatchingPendingMessageIndex(normalized)
     if (pendingIndex !== -1) {
@@ -974,21 +1742,27 @@ const upsertMessage = (message) => {
 
   messages.value.splice(index, 1, {
     ...messages.value[index],
-    ...normalized
+    ...normalized,
   })
 }
 
 const removeTypingUser = (name) => {
-  typingUsers.value = typingUsers.value.filter(item => item !== name)
+  typingUsers.value = typingUsers.value.filter((item) => item !== name)
 }
 
 const sendSocketAction = (payload) => {
-  if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return
+  if (!supportsChatClientSocketActions || !chatSocket || chatSocket.readyState !== WebSocket.OPEN)
+    return false
   chatSocket.send(JSON.stringify(payload))
+  return true
 }
 
 const stopTypingIndicator = () => {
   clearTimeout(typingStopTimer)
+  if (!supportsChatClientSocketActions) {
+    hasSentTypingStart = false
+    return
+  }
   if (hasSentTypingStart) {
     sendSocketAction({ action: 'client.typing', status: 'stopped' })
     hasSentTypingStart = false
@@ -1003,6 +1777,8 @@ const scheduleTypingStop = () => {
 }
 
 const handleComposerInput = () => {
+  if (!supportsChatClientSocketActions) return
+
   if (!newMessage.value.trim()) {
     stopTypingIndicator()
     return
@@ -1017,7 +1793,8 @@ const handleComposerInput = () => {
 }
 
 const markMessagesAsRead = (messageIds) => {
-  const ids = (messageIds || []).map(id => Number(id)).filter(id => Number.isFinite(id))
+  if (!supportsChatClientSocketActions) return
+  const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
   if (!ids.length) return
   sendSocketAction({ action: 'client.mark_read', message_ids: ids })
 }
@@ -1058,7 +1835,7 @@ const handleSocketPayload = async (payload) => {
   if (payload.type === 'message.reaction_updated') {
     applyMessageUpdate(payload.message_id, (message) => ({
       ...message,
-      reactions: normalizeReactionMap(payload.reactions)
+      reactions: normalizeReactionMap(payload.reactions),
     }))
     return
   }
@@ -1068,7 +1845,7 @@ const handleSocketPayload = async (payload) => {
     ids.forEach((id) => {
       applyMessageUpdate(id, (message) => ({
         ...message,
-        readBy: Array.from(new Set([...(message.readBy || []), payload.read_by]))
+        readBy: Array.from(new Set([...(message.readBy || []), payload.read_by])),
       }))
     })
     return
@@ -1077,33 +1854,47 @@ const handleSocketPayload = async (payload) => {
   if (payload.type === 'message.preview_ready') {
     applyMessageUpdate(payload.message_id, (message) => ({
       ...message,
-      preview: payload.preview || null
+      preview: payload.preview || null,
     }))
     return
   }
 
   const eventName = payload.event
-  if (eventName === 'message.created' && payload.message) {
-    upsertMessage(payload.message)
-    removeTypingUser(payload.user_name || payload.message.sender_name || '')
+  const socketMessage =
+    payload.message && typeof payload.message === 'object' ? payload.message : null
+  const socketMessageId = socketMessage?.id ?? payload.message_id
+
+  if (eventName === 'message.created' && socketMessage) {
+    upsertMessage(socketMessage)
+    removeTypingUser(payload.user_name || socketMessage.sender_name || '')
     await scrollMessagesToBottom()
-    if (Number(payload.message.sender_id) !== Number(auth.user?.id || 0)) {
-      markMessagesAsRead([payload.message.id])
+    if (
+      Number(socketMessage.sender_user || socketMessage.sender_id || 0) !==
+      Number(auth.user?.id || 0)
+    ) {
+      markMessagesAsRead([socketMessage.id])
     }
     return
   }
 
   if (eventName === 'message.edited') {
-    applyMessageUpdate(payload.message_id, (message) => ({
-      ...message,
-      text: payload.message_text || message.text,
-      editedAt: payload.edited_at || message.editedAt
-    }))
+    if (socketMessage) {
+      upsertMessage(socketMessage)
+    } else if (socketMessageId) {
+      applyMessageUpdate(socketMessageId, (message) => ({
+        ...message,
+        text: payload.message_text || message.text,
+        editedAt: payload.edited_at || message.editedAt,
+      }))
+    }
     return
   }
 
   if (eventName === 'message.deleted') {
-    messages.value = messages.value.filter(message => String(message.id) !== String(payload.message_id))
+    if (!socketMessageId) return
+    messages.value = messages.value.filter(
+      (message) => String(message.id) !== String(socketMessageId),
+    )
   }
 }
 
@@ -1124,7 +1915,9 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
-    markMessagesAsRead(messages.value.filter(message => !message.isOwn).map(message => message.id))
+    markMessagesAsRead(
+      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
+    )
   })
 
   chatSocket.addEventListener('message', async (event) => {
@@ -1159,25 +1952,29 @@ const loadMessages = async () => {
   chatError.value = ''
 
   try {
-    const data = await requestJson(
-      buildChatMessageCollectionUrl(backendGroupId, '?limit=50')
-    )
-    const liveMessages = extractCollectionItems(data)
-      .map(normalizeMessage)
-      .reverse()
+    const data = await requestJson(buildChatMessageCollectionUrl(backendGroupId, '?limit=50'))
+    const liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
 
     messages.value = liveMessages.length ? liveMessages : []
   } catch (error) {
-    chatError.value = error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
+    chatError.value =
+      error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
     messages.value = []
   } finally {
     isLoadingMessages.value = false
     await scrollMessagesToBottom()
-    markMessagesAsRead(messages.value.filter(message => !message.isOwn).map(message => message.id))
+    markMessagesAsRead(
+      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
+    )
   }
 }
 
-const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pendingId, keepLocalOnFailure = false }) => {
+const sendMessagePayload = async ({
+  body,
+  requestOptions,
+  pendingId,
+  keepLocalOnFailure = false,
+}) => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) {
     chatError.value = 'Live discussion needs a backend numeric group id.'
@@ -1187,31 +1984,36 @@ const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pen
   chatError.value = ''
 
   try {
-    const savedMessage = await requestJson(body === 'upload'
-      ? buildChatUploadUrl(backendGroupId)
-      : buildChatMessageCollectionUrl(backendGroupId), requestOptions)
+    const savedMessage = await requestJson(
+      body === 'upload'
+        ? buildChatUploadUrl(backendGroupId)
+        : buildChatMessageCollectionUrl(backendGroupId),
+      requestOptions,
+    )
 
     if (!savedMessage) {
       return null
     }
 
     if (pendingId) {
-      const index = messages.value.findIndex(message => message.id === pendingId)
+      const index = messages.value.findIndex((message) => message.id === pendingId)
       const normalizedSavedMessage = normalizeMessage(savedMessage)
-      const existingIndex = messages.value.findIndex(message => String(message.id) === String(normalizedSavedMessage.id))
+      const existingIndex = messages.value.findIndex(
+        (message) => String(message.id) === String(normalizedSavedMessage.id),
+      )
 
       if (index !== -1 && existingIndex !== -1 && index !== existingIndex) {
         messages.value.splice(index, 1)
         messages.value.splice(existingIndex > index ? existingIndex - 1 : existingIndex, 1, {
           ...messages.value[existingIndex > index ? existingIndex - 1 : existingIndex],
-          ...normalizedSavedMessage
+          ...normalizedSavedMessage,
         })
       } else if (index !== -1) {
         messages.value.splice(index, 1, normalizedSavedMessage)
       } else if (existingIndex !== -1) {
         messages.value.splice(existingIndex, 1, {
           ...messages.value[existingIndex],
-          ...normalizedSavedMessage
+          ...normalizedSavedMessage,
         })
       } else {
         upsertMessage(savedMessage)
@@ -1223,7 +2025,7 @@ const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pen
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Message could not be sent.'
     if (pendingId && !keepLocalOnFailure) {
-      messages.value = messages.value.filter(message => message.id !== pendingId)
+      messages.value = messages.value.filter((message) => message.id !== pendingId)
     }
     throw error
   } finally {
@@ -1248,7 +2050,7 @@ const sendMessage = async () => {
     time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     date: now.toISOString(),
     isOwn: true,
-    message_type: 'text'
+    message_type: 'text',
   }
 
   messages.value.push(normalizeMessage(draftMessage))
@@ -1261,14 +2063,13 @@ const sendMessage = async () => {
     await sendMessagePayload({
       body: 'message',
       pendingId,
-      optimisticMessage: draftMessage,
       requestOptions: {
         method: 'POST',
         body: JSON.stringify({
           message_text: text,
-          message_type: 'text'
-        })
-      }
+          message_type: 'text',
+        }),
+      },
     })
   } catch {
     newMessage.value = text
@@ -1318,12 +2119,10 @@ const fetchGifResults = async (mode = 'trending') => {
 
   try {
     const data = await requestJson(
-      mode === 'search'
-        ? buildGifSearchUrl(gifQuery.value.trim())
-        : buildGifTrendingUrl(),
+      mode === 'search' ? buildGifSearchUrl(gifQuery.value.trim()) : buildGifTrendingUrl(),
       {
-        method: 'GET'
-      }
+        method: 'GET',
+      },
     )
     gifResults.value = normalizeGifResults(data)
   } catch {
@@ -1367,23 +2166,21 @@ const reactToMessage = async (messageId, emoji) => {
     ...message,
     reactions: {
       ...(message.reactions || {}),
-      [emoji]: Number(message.reactions?.[emoji] || 0) + 1
-    }
+      [emoji]: Number(message.reactions?.[emoji] || 0) + 1,
+    },
   }))
 
   try {
     await requestJson(buildChatReactionUrl(backendGroupId, messageId), {
       method: 'POST',
       body: JSON.stringify({
-        emoji_string: emoji
-      })
+        emoji_string: emoji,
+      }),
     })
   } catch {
     chatError.value = 'Reaction endpoint is not available yet.'
   }
 }
-
-const focusComposer = () => composer.value?.focus()
 
 let loadSequence = 0
 
@@ -1396,25 +2193,29 @@ const switchGroup = async (event) => {
 const reloadGroupDetail = async () => {
   const sequence = ++loadSequence
 
+  isLoadingGroupDetail.value = true
   disconnectChatSocket()
   tasks.value = []
   messages.value = []
   taskError.value = ''
   chatError.value = ''
 
-  await loadGroup()
-  if (sequence !== loadSequence) return
+  try {
+    await loadGroup()
+    if (sequence !== loadSequence) return
 
-  await loadGroupMembers()
-  if (sequence !== loadSequence) return
+    await loadGroupMembers()
+    if (sequence !== loadSequence) return
 
-  await Promise.all([
-    loadTasks(),
-    loadMessages()
-  ])
-  if (sequence !== loadSequence) return
+    await Promise.all([loadTasks(), loadMessages()])
+    if (sequence !== loadSequence) return
 
-  connectChatSocket()
+    connectChatSocket()
+  } finally {
+    if (sequence === loadSequence) {
+      isLoadingGroupDetail.value = false
+    }
+  }
 }
 
 watch(routeGroupId, async () => {
@@ -1427,7 +2228,7 @@ watch(
     if (userId && userId !== previousUserId) {
       await loadGroupOptions()
     }
-  }
+  },
 )
 
 onMounted(async () => {
@@ -1461,8 +2262,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.9rem;
 }
-.gd-title { margin: 0; color: var(--charcoal); }
-.gd-subtitle { color: #6c757d; margin-top: 0.15rem; }
+.gd-title {
+  margin: 0;
+  color: var(--charcoal);
+}
+.gd-subtitle {
+  color: #6c757d;
+  margin-top: 0.15rem;
+}
 .gd-meta-row {
   display: flex;
   flex-wrap: wrap;
@@ -1585,6 +2392,70 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.task-filter-bar,
+.task-bulk-bar {
+  display: flex;
+  align-items: end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.task-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 118px;
+  color: #5b6770;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.task-filter-field input,
+.task-filter-field select,
+.task-form-field input,
+.task-form-field select,
+.task-form-field textarea {
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.52rem 0.62rem;
+  background: var(--white);
+  color: var(--charcoal);
+  font: inherit;
+}
+
+.task-filter-field input:focus,
+.task-filter-field select:focus,
+.task-form-field input:focus,
+.task-form-field select:focus,
+.task-form-field textarea:focus {
+  outline: none;
+  border-color: var(--air-force-blue);
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+
+.task-deleted-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-height: 38px;
+  color: #5b6770;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.task-bulk-bar {
+  align-items: center;
+  padding: 0.62rem 0.7rem;
+  background: #f1f5f7;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  color: var(--charcoal);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .task-section {
   border-bottom: 1px solid var(--border-light);
   padding: 0.9rem 0;
@@ -1623,6 +2494,20 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.task-select-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  flex-shrink: 0;
+}
+
+.task-select-control input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--air-force-blue);
+}
+
 .task-description {
   margin-top: 0.18rem;
   color: #6c757d;
@@ -1641,6 +2526,140 @@ onBeforeUnmount(() => {
 
 .task-meta i {
   margin-right: 0.25rem;
+}
+
+.task-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.task-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 32px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: #50616c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.task-status-toggle i {
+  color: var(--air-force-blue);
+  font-size: 0.82rem;
+}
+
+.task-status-toggle:hover:not(:disabled) {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+  color: var(--charcoal);
+}
+
+.task-status-toggle.is-complete {
+  border-color: rgba(77, 116, 94, 0.35);
+  background: rgba(77, 116, 94, 0.1);
+  color: var(--dark-green);
+}
+
+.task-status-toggle.is-complete i {
+  color: var(--dark-green);
+}
+
+.task-status-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.task-item.is-deleted {
+  opacity: 0.6;
+}
+
+.task-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.task-dialog {
+  width: min(100%, 560px);
+  max-height: min(720px, calc(100vh - 2rem));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22);
+}
+
+.task-dialog-header,
+.task-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.task-dialog-header h4 {
+  margin: 0;
+  color: var(--charcoal);
+  font-size: 1rem;
+}
+
+.task-dialog-close {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+}
+
+.task-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.task-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  color: #5b6770;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.task-form-field--wide {
+  width: 100%;
+}
+
+.task-form-field textarea {
+  resize: vertical;
 }
 
 /* Discussion board: chat-container fills card, chat-messages scrolls */
@@ -1887,34 +2906,32 @@ onBeforeUnmount(() => {
 }
 
 /* Mobile layout */
-@media (max-width: 900px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
+@media (max-width: 1180px) {
   .split {
     grid-template-columns: 1fr;
-    max-height: 80vh;
-    height: 80vh;
+    max-height: none;
+    height: auto;
   }
-  .mobile-tabs { display: flex; }
-  .split .pane { display: none; }
-  .split[data-active="tasks"] .pane--tasks { display: block; }
-  .split[data-active="discussion"] .pane--discussion { display: block; }
+  .mobile-tabs {
+    display: none;
+  }
+  .split .pane {
+    display: flex;
+    height: auto;
+  }
+  .pane--discussion .chat-container {
+    height: min(72vh, 620px);
+    min-height: 420px;
+  }
   .card {
+    height: auto;
     min-height: 220px;
+  }
+  .pane--tasks.card {
+    min-height: 520px;
+  }
+  .pane--discussion {
+    min-height: 520px;
   }
 
   .gif-grid {
@@ -1942,54 +2959,6 @@ onBeforeUnmount(() => {
   background: var(--group-shell-backdrop);
 }
 
-.group-detail--night {
-  --text-primary: #f2fff7;
-  --text-secondary: #b8d8c8;
-  --text-muted: #84a997;
-  --text-link: #8ee7c0;
-  --surface-base: rgba(6, 18, 12, 0.82);
-  --surface-elevated: rgba(8, 22, 16, 0.90);
-  --border-default: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --accent-blue: #60a5fa;
-  --accent-teal: #2dd4bf;
-  --accent-violet: #a78bfa;
-  --accent-amber: #fbbf24;
-  --accent-rose: #f87171;
-  --shadow-lg: 0 24px 64px rgba(0, 6, 2, 0.52);
-  --shadow-md: 0 14px 38px rgba(0, 6, 2, 0.40);
-  --shadow-sm: 0 8px 22px rgba(0, 6, 2, 0.30);
-  --page-glow-one: rgba(96, 165, 250, 0.14);
-  --page-glow-two: rgba(45, 212, 191, 0.12);
-  --page-glow-three: rgba(167, 139, 250, 0.10);
-  --group-shell-backdrop: linear-gradient(135deg, #060c1a, #0a1224);
-}
-
-.group-detail--day {
-  --text-primary: #1a3818;
-  --text-secondary: #3a5e2c;
-  --text-muted: #5e8040;
-  --text-link: #265c3c;
-  --surface-base: rgba(182, 214, 142, 0.84);
-  --surface-elevated: rgba(196, 226, 158, 0.94);
-  --surface-soft: rgba(80, 140, 40, 0.08);
-  --border-default: rgba(70, 120, 30, 0.16);
-  --border-strong: rgba(70, 120, 30, 0.24);
-  --accent-blue: #2a6048;
-  --accent-teal: #1f8a6a;
-  --accent-violet: #7450c6;
-  --accent-amber: #6a9820;
-  --accent-rose: #b74d7e;
-  --shadow-lg: 0 26px 72px rgba(30, 70, 14, 0.16);
-  --shadow-md: 0 18px 42px rgba(30, 70, 14, 0.12);
-  --hero-overlay-a: rgba(196, 222, 162, 0.96);
-  --hero-overlay-b: rgba(180, 210, 144, 0.84);
-  --group-shell-backdrop: linear-gradient(180deg, #d4eac0 0%, #c8e0b2 52%, #bcd6a4 100%);
-  --page-glow-one: rgba(80, 180, 50, 0.13);
-  --page-glow-two: rgba(100, 180, 80, 0.09);
-  --page-glow-three: rgba(60, 160, 80, 0.08);
-}
-
 .group-hero-card {
   position: relative;
   overflow: hidden;
@@ -1997,62 +2966,11 @@ onBeforeUnmount(() => {
   border-radius: 28px;
   padding: 1.6rem;
   border: 1px solid rgba(255, 255, 255, 0.13);
-  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-}
-
-.group-detail--night .group-hero-card {
-  background: linear-gradient(145deg, rgba(6, 18, 12, 0.92), rgba(7, 16, 11, 0.78));
-  border-color: rgba(255, 255, 255, 0.13);
-}
-
-.group-detail--day .group-hero-card {
-  background: linear-gradient(145deg, rgba(210, 234, 174, 0.94), rgba(198, 222, 158, 0.82));
-  border-color: rgba(90, 148, 50, 0.22);
-  box-shadow: 0 24px 64px rgba(30, 70, 14, 0.18), inset 0 1px 0 rgba(240, 255, 220, 0.70);
-}
-
-.group-detail--night .group-hero-card::before,
-.group-detail--night .group-hero-card::after,
-.group-detail--day .group-hero-card::before,
-.group-detail--day .group-hero-card::after {
-  content: '';
-  position: absolute;
-  width: 52%;
-  height: 72%;
-  border-radius: 999px;
-  filter: blur(22px);
-  pointer-events: none;
-}
-
-.group-detail--night .group-hero-card::before,
-.group-detail--day .group-hero-card::before {
-  top: -35%;
-  left: -6%;
-}
-
-.group-detail--night .group-hero-card::after,
-.group-detail--day .group-hero-card::after {
-  right: -8%;
-  bottom: -32%;
-  width: 46%;
-}
-
-.group-detail--night .group-hero-card::before {
-  background: radial-gradient(circle, rgba(96, 165, 250, 0.22), transparent 66%);
-}
-
-.group-detail--night .group-hero-card::after {
-  background: radial-gradient(circle, rgba(45, 212, 191, 0.18), transparent 68%);
-}
-
-.group-detail--day .group-hero-card::before {
-  background: radial-gradient(circle, rgba(190, 154, 88, 0.18), transparent 66%);
-}
-
-.group-detail--day .group-hero-card::after {
-  background: radial-gradient(circle, rgba(92, 138, 128, 0.14), transparent 68%);
 }
 
 .gd-head {
@@ -2067,22 +2985,6 @@ onBeforeUnmount(() => {
     background 0.28s ease,
     border-color 0.28s ease,
     box-shadow 0.28s ease;
-}
-
-.group-detail--night .gd-head {
-  background: linear-gradient(155deg, rgba(13, 30, 20, 0.94), rgba(9, 23, 16, 0.88));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 18px 42px rgba(0, 8, 3, 0.18);
-}
-
-.group-detail--day .gd-head {
-  background: linear-gradient(155deg, rgba(243, 250, 236, 0.94), rgba(232, 243, 223, 0.90));
-  border: 1px solid rgba(90, 148, 40, 0.18);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
-    0 16px 36px rgba(18, 31, 21, 0.08);
 }
 
 .gd-title {
@@ -2127,8 +3029,16 @@ onBeforeUnmount(() => {
   pointer-events: none;
   border-radius: inherit;
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-teal) 14%, transparent), transparent 32%),
-    radial-gradient(circle at bottom right, color-mix(in srgb, var(--accent-blue) 10%, transparent), transparent 30%);
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--accent-teal) 14%, transparent),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      color-mix(in srgb, var(--accent-blue) 10%, transparent),
+      transparent 30%
+    );
   opacity: 0.9;
 }
 
@@ -2225,73 +3135,36 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
 }
 
-.group-detail--day .card,
-.group-detail--day .pane--discussion .chat-container {
-  background: linear-gradient(165deg, rgba(196, 226, 158, 0.94), rgba(182, 214, 142, 0.84));
-  border-color: rgba(70, 120, 30, 0.16);
-}
-
-.group-detail--night .card,
-.group-detail--night .pane--discussion .chat-container {
-  background: linear-gradient(165deg, rgba(8, 22, 16, 0.92), rgba(6, 18, 12, 0.86));
-  border-color: rgba(255, 255, 255, 0.09);
-}
-
-.group-detail--night .card-title,
-.group-detail--night .pane--discussion .chat-header h3,
-.group-detail--night .task-section-title,
-.group-detail--night .task-label {
-  color: #ecf7f2 !important;
-}
-
-.group-detail--night .task-section-status,
-.group-detail--night .message-date,
-.group-detail--night .message-time {
-  color: rgba(214, 232, 223, 0.72) !important;
-}
-
-@media (max-width: 900px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
-
+@media (max-width: 1180px) {
   .split {
     grid-template-columns: 1fr;
-    max-height: 80vh;
-    height: 80vh;
+    max-height: none;
+    height: auto;
   }
 
   .mobile-tabs {
-    display: flex;
-  }
-
-  .split .pane {
     display: none;
   }
 
-  .split[data-active="tasks"] .pane--tasks,
-  .split[data-active="discussion"] .pane--discussion {
-    display: block;
+  .split .pane {
+    display: flex;
+    height: auto;
+  }
+
+  .pane--discussion .chat-container {
+    height: min(72vh, 620px);
+    min-height: 420px;
   }
 
   .card {
+    height: auto;
     min-height: 220px;
+  }
+  .pane--tasks.card {
+    min-height: 520px;
+  }
+  .pane--discussion {
+    min-height: 520px;
   }
 }
 
@@ -2523,11 +3396,6 @@ onBeforeUnmount(() => {
   background-color: transparent;
 }
 
-.task-checkbox.checked {
-  background-color: var(--air-force-blue);
-  border-color: var(--air-force-blue);
-}
-
 .add-subtask-btn {
   color: var(--air-force-blue);
   border-color: var(--border-light);
@@ -2536,5 +3404,263 @@ onBeforeUnmount(() => {
 .add-subtask-btn:hover {
   background: #f1f5f7;
   border-color: var(--air-force-blue);
+}
+
+.group-detail-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.group-loading-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.group-loading-avatar {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 50%;
+}
+
+.group-loading-title-stack {
+  flex: 1;
+  min-width: 160px;
+}
+
+.group-loading-meta,
+.group-loading-panel-header,
+.group-loading-filter-row,
+.group-loading-row,
+.group-loading-message {
+  display: flex;
+  align-items: center;
+}
+
+.group-loading-meta {
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.group-loading-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.group-loading-panel {
+  min-height: 520px;
+  padding: 1.5rem;
+}
+
+.group-loading-chat {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
+}
+
+.group-loading-panel-header {
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.group-loading-filter-row {
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 1rem 0;
+}
+
+.group-loading-list,
+.group-loading-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.group-loading-row {
+  gap: 0.85rem;
+  padding: 0.6rem 0;
+}
+
+.group-loading-row-copy,
+.group-loading-bubble {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-loading-message {
+  gap: 0.8rem;
+}
+
+.group-loading-message--own {
+  flex-direction: row-reverse;
+}
+
+.group-loading-message--own .group-loading-bubble {
+  flex: 0 1 72%;
+}
+
+.group-loading-bubble {
+  padding: 0.85rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e8edf1;
+}
+
+.skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: group-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+.skeleton-title {
+  width: min(360px, 78%);
+  height: 2rem;
+}
+
+.skeleton-subtitle {
+  width: min(300px, 64%);
+  height: 1rem;
+  margin-top: 0.65rem;
+}
+
+.skeleton-pill {
+  width: 130px;
+  height: 1.55rem;
+  border-radius: 999px;
+}
+
+.skeleton-pill--short {
+  width: 92px;
+}
+
+.skeleton-select {
+  width: 180px;
+  height: 2.35rem;
+}
+
+.skeleton-heading {
+  width: 120px;
+  height: 1.35rem;
+}
+
+.skeleton-button {
+  width: 116px;
+  height: 2rem;
+}
+
+.skeleton-filter {
+  width: 116px;
+  height: 2.35rem;
+}
+
+.skeleton-dot {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: 0.95rem;
+}
+
+.skeleton-line--short {
+  width: 58%;
+  margin-top: 0.55rem;
+}
+
+.skeleton-status {
+  width: 68px;
+  height: 1.25rem;
+}
+
+.skeleton-message-avatar {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+}
+
+.skeleton-composer {
+  height: 74px;
+  margin-top: 1rem;
+}
+
+@keyframes group-loading-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 1180px) {
+  .group-loading-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
+
+  .task-filter-field {
+    min-width: min(100%, 148px);
+    flex: 1 1 140px;
+  }
+
+  .task-row-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .task-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .group-loading-head,
+  .group-loading-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .skeleton-select,
+  .skeleton-button,
+  .skeleton-filter {
+    width: 100%;
+  }
 }
 </style>
