@@ -73,7 +73,7 @@
               class="btn btn-primary btn-sm"
               :disabled="!backendGroupId || isLoadingTasks"
               title="Create a shared group task"
-              @click="openCreateTaskDialog('group')"
+              @click="createTask('group')"
             >
               <i class="fas fa-plus"></i> Group Task
             </button>
@@ -83,106 +83,13 @@
               class="btn btn-outline btn-sm"
               :disabled="!backendGroupId || isLoadingTasks"
               title="Create an individual task"
-              @click="openCreateTaskDialog('individual')"
+              @click="createTask('individual')"
             >
               <i class="fas fa-user-plus"></i> Individual Task
             </button>
           </div>
         </div>
         <div class="card-content tasks-content">
-          <div class="task-filter-bar">
-            <label class="task-filter-field">
-              <span>Search</span>
-              <input
-                v-model.trim="taskFilters.search"
-                type="search"
-                placeholder="Task name"
-                @keyup.enter="loadTasks"
-              />
-            </label>
-            <label class="task-filter-field">
-              <span>Type</span>
-              <select v-model="taskFilters.taskType">
-                <option value="">All</option>
-                <option value="group">Group</option>
-                <option value="individual">Individual</option>
-              </select>
-            </label>
-            <label class="task-filter-field">
-              <span>Status</span>
-              <select v-model="taskFilters.status">
-                <option value="">All</option>
-                <option
-                  v-for="option in TASK_STATUS_OPTIONS"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="task-filter-field">
-              <span>Done</span>
-              <select v-model="taskFilters.completed">
-                <option value="">All</option>
-                <option value="true">Done</option>
-                <option value="false">Open</option>
-              </select>
-            </label>
-            <label class="task-filter-field">
-              <span>Sort</span>
-              <select v-model="taskFilters.ordering">
-                <option
-                  v-for="option in TASK_ORDERING_OPTIONS"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="task-deleted-toggle">
-              <input v-model="taskFilters.showDeleted" type="checkbox" />
-              Deleted
-            </label>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isLoadingTasks"
-              @click="loadTasks"
-            >
-              Apply
-            </button>
-          </div>
-
-          <div v-if="selectedTaskIds.size" class="task-bulk-bar">
-            <span>{{ selectedTaskIds.size }} selected</span>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="bulkSetTaskCompletion(true)"
-            >
-              Mark done
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="bulkSetTaskCompletion(false)"
-            >
-              Mark open
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="clearTaskSelection"
-            >
-              Clear
-            </button>
-          </div>
-
           <div v-if="taskError" class="chat-alert" style="margin-bottom:1rem;">
             {{ taskError }}
           </div>
@@ -209,17 +116,16 @@
                 v-for="row in section.rows"
                 :key="row.task.id"
                 class="task-item"
-                :class="{ 'is-subtask': row.depth > 0, 'is-deleted': row.task.deletedAt }"
+                :class="{ 'is-subtask': row.depth > 0 }"
                 :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
               >
-                <label class="task-select-control" title="Select task">
-                  <input
-                    type="checkbox"
-                    :checked="isTaskSelected(row.task.id)"
-                    :disabled="row.task.deletedAt || !canToggleTask(row.task)"
-                    @change="setTaskSelectedFromEvent(row.task.id, $event)"
-                  />
-                </label>
+                <button
+                  type="button"
+                  :class="['task-checkbox', { checked: row.task.completed }]"
+                  :disabled="isUpdatingTask(row.task.id) || (auth.isStudent && row.task.taskType === 'group')"
+                  :title="auth.isStudent && row.task.taskType === 'group' ? 'Students can view group task status only' : 'Toggle task status'"
+                  @click="toggleTask(row.task)"
+                />
                 <div class="task-body">
                   <div :class="['task-label', { completed: row.task.completed }]">{{ row.task.name }}</div>
                   <div v-if="row.task.description" class="task-description">{{ row.task.description }}</div>
@@ -228,55 +134,18 @@
                     <span v-if="row.task.status"><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span>
                     <span v-if="row.task.assignedUser"><i class="fas fa-user"></i> User {{ row.task.assignedUser }}</span>
                     <span v-if="row.task.creatorRole"><i class="fas fa-id-badge"></i> {{ formatTaskStatus(row.task.creatorRole) }}</span>
-                    <span v-if="row.task.deletedAt"><i class="fas fa-trash"></i> Deleted</span>
                   </div>
                 </div>
-                <div class="task-row-actions">
-                  <button
-                    type="button"
-                    :class="['task-status-toggle', { 'is-complete': row.task.completed }]"
-                    :disabled="isUpdatingTask(row.task.id) || row.task.deletedAt || !canToggleTask(row.task)"
-                    :title="canToggleTask(row.task) ? 'Toggle task status' : 'You can view this task status only'"
-                    :aria-pressed="row.task.completed"
-                    :aria-label="row.task.completed ? `Mark ${row.task.name} open` : `Mark ${row.task.name} done`"
-                    @click="toggleTask(row.task)"
-                  >
-                    <i :class="row.task.completed ? 'fas fa-check-circle' : 'fas fa-circle'"></i>
-                    <span>{{ row.task.completed ? 'Done' : 'Open' }}</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-sm add-subtask-btn"
-                    :disabled="isLoadingTasks || row.task.deletedAt || !canCreateTaskType(row.task.taskType, row.task)"
-                    title="Add a sub-task"
-                    @click="openCreateTaskDialog(row.task.taskType, row.task)"
-                  >
-                    <i class="fas fa-plus"></i>
-                    Sub-task
-                  </button>
-                  <button
-                    v-if="canManageTask(row.task)"
-                    type="button"
-                    class="btn btn-outline btn-sm"
-                    :disabled="isLoadingTasks || row.task.deletedAt"
-                    title="Edit task"
-                    @click="openEditTaskDialog(row.task)"
-                  >
-                    <i class="fas fa-pen"></i>
-                    Edit
-                  </button>
-                  <button
-                    v-if="canManageTask(row.task)"
-                    type="button"
-                    class="btn btn-outline btn-sm"
-                    :disabled="isDeletingTask(row.task.id) || row.task.deletedAt"
-                    title="Delete task"
-                    @click="removeTask(row.task)"
-                  >
-                    <i class="fas fa-trash"></i>
-                    Delete
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-sm add-subtask-btn"
+                  :disabled="isLoadingTasks"
+                  title="Add a sub-task"
+                  @click="createTask(row.task.taskType, row.task)"
+                >
+                  <i class="fas fa-plus"></i>
+                  Sub-task
+                </button>
               </div>
 
               <div v-if="!section.rows.length" class="task-empty-state">
@@ -284,90 +153,6 @@
               </div>
             </div>
           </div>
-        </div>
-
-        <div
-          v-if="taskDialogOpen"
-          class="task-dialog-backdrop"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="taskDialogTitle"
-        >
-          <form class="task-dialog" @submit.prevent="saveTask">
-            <div class="task-dialog-header">
-              <h4>{{ taskDialogTitle }}</h4>
-              <button type="button" class="task-dialog-close" title="Close" @click="closeTaskDialog">
-                <i class="fas fa-times"></i>
-              </button>
-            </div>
-
-            <div v-if="taskFormError" class="chat-alert">
-              {{ taskFormError }}
-            </div>
-
-            <label class="task-form-field task-form-field--wide">
-              <span>Name</span>
-              <input v-model.trim="taskForm.name" type="text" maxlength="255" required />
-            </label>
-
-            <label class="task-form-field task-form-field--wide">
-              <span>Description</span>
-              <textarea v-model.trim="taskForm.description" rows="3"></textarea>
-            </label>
-
-            <div class="task-form-grid">
-              <label class="task-form-field">
-                <span>Status</span>
-                <select v-model="taskForm.status">
-                  <option
-                    v-for="option in TASK_STATUS_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-
-              <label class="task-form-field">
-                <span>Due date</span>
-                <input v-model="taskForm.dueDate" type="datetime-local" />
-              </label>
-
-              <label class="task-form-field">
-                <span>Type</span>
-                <select v-model="taskForm.taskType" :disabled="taskDialogMode === 'edit'">
-                  <option
-                    v-for="option in allowedTaskTypeOptions"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-
-              <label v-if="taskForm.taskType === 'individual'" class="task-form-field">
-                <span>Assignee user id</span>
-                <input
-                  v-model.trim="taskForm.assignedUser"
-                  type="number"
-                  min="1"
-                  :disabled="taskDialogMode === 'edit'"
-                  required
-                />
-              </label>
-            </div>
-
-            <div class="task-dialog-actions">
-              <button type="button" class="btn btn-outline btn-sm" @click="closeTaskDialog">
-                Cancel
-              </button>
-              <button type="submit" class="btn btn-primary btn-sm" :disabled="isSavingTask">
-                {{ isSavingTask ? 'Saving...' : 'Save task' }}
-              </button>
-            </div>
-          </form>
         </div>
       </section>
 
@@ -527,14 +312,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import {
-  bulkToggleTasks,
-  createTask as createTaskRequest,
-  deleteTask as deleteTaskRequest,
-  listTasks,
-  toggleTaskCompletion,
-  updateTask as updateTaskRequest
-} from '@/utils/tasksAPI'
 
 const route = useRoute()
 const router = useRouter()
@@ -543,7 +320,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const supportsGifs = false
 const supportsAttachments = false
 const supportsMessageReactions = false
-const supportsChatClientSocketActions = false
 const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
 const routeGroupId = computed(() => route.params.id ? String(route.params.id) : '')
 const group = ref({
@@ -567,47 +343,6 @@ const tasks = ref([])
 const isLoadingTasks = ref(false)
 const taskError = ref('')
 const updatingTaskIds = ref(new Set())
-const deletingTaskIds = ref(new Set())
-const selectedTaskIds = ref(new Set())
-const isBulkUpdatingTasks = ref(false)
-const taskFilters = ref({
-  taskType: '',
-  status: '',
-  completed: '',
-  search: '',
-  ordering: 'due_date',
-  showDeleted: false
-})
-const taskDialogOpen = ref(false)
-const taskDialogMode = ref('create')
-const taskDialogTitle = ref('New task')
-const taskFormError = ref('')
-const isSavingTask = ref(false)
-const editingTaskId = ref(null)
-const taskForm = ref({
-  name: '',
-  description: '',
-  dueDate: '',
-  status: 'todo',
-  taskType: 'group',
-  parent: '',
-  group: '',
-  assignedUser: ''
-})
-
-const TASK_STATUS_OPTIONS = [
-  { value: 'todo', label: 'To do' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'done', label: 'Done' },
-  { value: 'blocked', label: 'Blocked' }
-]
-
-const TASK_ORDERING_OPTIONS = [
-  { value: 'due_date', label: 'Due date' },
-  { value: '-due_date', label: 'Due date desc' },
-  { value: '-updated_at', label: 'Recently updated' },
-  { value: 'status', label: 'Status' }
-]
 
 const messages = ref([])
 
@@ -688,41 +423,24 @@ const extractCollectionItems = (data) => {
   return []
 }
 
-const buildChatMessageCollectionUrls = (groupId, suffix = '') => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`,
-    `${API_BASE_URL}/chat/groups/${groupId}/messages/${suffix}`
-  ]
-}
+// Chat / GIF endpoints used to be wrapped in dual-URL helpers (``/api/v1/...``
+// primary, ``/...`` fallback) because only the legacy mount existed. The
+// backend now serves chat under both prefixes, so every helper returns a
+// single canonical URL.
+const buildChatMessageCollectionUrl = (groupId, suffix = '') =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`
 
-const buildChatUploadUrls = (groupId) => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/upload/`,
-    `${API_BASE_URL}/chat/groups/${groupId}/messages/upload/`
-  ]
-}
+const buildChatUploadUrl = (groupId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/upload/`
 
-const buildChatReactionUrls = (groupId, messageId) => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`,
-    `${API_BASE_URL}/chat/groups/${groupId}/messages/${messageId}/react/`
-  ]
-}
+const buildChatReactionUrl = (groupId, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`
 
-const buildGifSearchUrls = (query) => {
-  const encoded = encodeURIComponent(query)
-  return [
-    `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encoded}`,
-    `${API_BASE_URL}/chat/gifs/search?q=${encoded}`
-  ]
-}
+const buildGifSearchUrl = (query) =>
+  `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
 
-const buildGifTrendingUrls = () => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/gifs/trending`,
-    `${API_BASE_URL}/chat/gifs/trending`
-  ]
-}
+const buildGifTrendingUrl = () =>
+  `${API_BASE_URL}/api/v1/chat/gifs/trending`
 
 const buildChatWebSocketUrl = (groupId) => {
   try {
@@ -773,24 +491,6 @@ const requestJson = async (url, options = {}) => {
   }
 
   return data
-}
-
-const requestJsonFirst = async (urls, options = {}) => {
-  let lastError = null
-
-  for (const url of urls) {
-    try {
-      return await requestJson(url, options)
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  if (lastError) {
-    throw lastError
-  }
-
-  return null
 }
 
 const normalizeGroup = (item) => {
@@ -984,10 +684,7 @@ const normalizeTask = (task) => ({
   group: task?.group ?? null,
   assignedUser: task?.assigned_user ?? null,
   creatorRole: task?.creator_role || '',
-  createdBy: task?.created_by || null,
-  deletedAt: task?.deleted_at || null,
-  createdAt: task?.created_at || '',
-  updatedAt: task?.updated_at || ''
+  createdBy: task?.created_by || null
 })
 
 const groupMemberUserIds = computed(() => new Set(
@@ -996,32 +693,6 @@ const groupMemberUserIds = computed(() => new Set(
     .map(item => Number(item.userId))
     .filter(Number.isFinite)
 ))
-
-const studentMemberUserIds = computed(() => new Set(
-  groupMemberships.value
-    .filter(item => !item.leftAt && String(item.role || '').toLowerCase().includes('student'))
-    .map(item => Number(item.userId))
-    .filter(Number.isFinite)
-))
-
-const supervisedStudentIds = computed(() => new Set(
-  (auth.user?.supervised_students || [])
-    .map(student => Number(student?.id))
-    .filter(Number.isFinite)
-))
-
-const currentUserId = computed(() => Number(auth.user?.id || 0))
-
-const isCurrentGroupMentor = computed(() => groupMemberships.value.some(item => (
-  !item.leftAt &&
-  Number(item.userId) === currentUserId.value &&
-  String(item.role || '').toLowerCase().includes('mentor')
-)))
-
-const supervisesAnyCurrentGroupStudent = computed(() => {
-  if (!auth.isSupervisor) return false
-  return Array.from(studentMemberUserIds.value).some(userId => supervisedStudentIds.value.has(userId))
-})
 
 const isTaskRelevantToCurrentGroup = (task) => {
   const currentGroupId = getBackendGroupId()
@@ -1090,16 +761,10 @@ const taskSections = computed(() => {
   ]
 })
 
-const selectedTaskIdList = computed(() => Array.from(selectedTaskIds.value).map(Number).filter(Number.isFinite))
-const canCreateGroupTasks = computed(() => auth.isAdmin || (auth.isMentor && isCurrentGroupMentor.value) || supervisesAnyCurrentGroupStudent.value)
-const canCreateIndividualTasks = computed(() => auth.isAdmin || auth.isStudent || (auth.isMentor && isCurrentGroupMentor.value) || supervisesAnyCurrentGroupStudent.value)
-const allowedTaskTypeOptions = computed(() => [
-  canCreateGroupTasks.value ? { value: 'group', label: 'Group' } : null,
-  canCreateIndividualTasks.value ? { value: 'individual', label: 'Individual' } : null
-].filter(Boolean))
+const canCreateGroupTasks = computed(() => auth.isMentor || auth.isSupervisor)
+const canCreateIndividualTasks = computed(() => auth.isStudent || auth.isMentor || auth.isSupervisor)
 
 const isUpdatingTask = (taskId) => updatingTaskIds.value.has(Number(taskId))
-const isDeletingTask = (taskId) => deletingTaskIds.value.has(Number(taskId))
 
 const setTaskUpdating = (taskId, value) => {
   const next = new Set(updatingTaskIds.value)
@@ -1108,136 +773,6 @@ const setTaskUpdating = (taskId, value) => {
   else next.delete(id)
   updatingTaskIds.value = next
 }
-
-const setTaskDeleting = (taskId, value) => {
-  const next = new Set(deletingTaskIds.value)
-  const id = Number(taskId)
-  if (value) next.add(id)
-  else next.delete(id)
-  deletingTaskIds.value = next
-}
-
-const isTaskSelected = (taskId) => selectedTaskIds.value.has(Number(taskId))
-
-const setTaskSelected = (taskId, selected) => {
-  const next = new Set(selectedTaskIds.value)
-  const id = Number(taskId)
-  if (!Number.isFinite(id)) return
-  if (selected) next.add(id)
-  else next.delete(id)
-  selectedTaskIds.value = next
-}
-
-const setTaskSelectedFromEvent = (taskId, event) => {
-  setTaskSelected(taskId, Boolean(event?.target?.checked))
-}
-
-const clearTaskSelection = () => {
-  selectedTaskIds.value = new Set()
-}
-
-const syncSelectedTasks = () => {
-  const visibleIds = new Set(tasks.value.filter(task => !task.deletedAt && canToggleTask(task)).map(task => Number(task.id)))
-  selectedTaskIds.value = new Set(
-    selectedTaskIdList.value.filter(id => visibleIds.has(id))
-  )
-}
-
-const isGroupTaskInCurrentGroup = (task) => String(task?.group || '') === String(getBackendGroupId() || '')
-const isCurrentGroupStudent = (userId) => studentMemberUserIds.value.has(Number(userId))
-const isSupervisorOf = (userId) => supervisedStudentIds.value.has(Number(userId))
-const isAssigneeSelf = (task) => Number(task?.assignedUser) === currentUserId.value
-
-const isMentorOfTaskGroup = (task) => {
-  if (!auth.isMentor || !isCurrentGroupMentor.value) return false
-  if (task?.taskType === 'group') return isGroupTaskInCurrentGroup(task)
-  return isCurrentGroupStudent(task?.assignedUser)
-}
-
-const isSupervisorInTaskGroup = (task) => {
-  if (!auth.isSupervisor) return false
-  if (task?.taskType === 'group') return isGroupTaskInCurrentGroup(task) && supervisesAnyCurrentGroupStudent.value
-  return isSupervisorOf(task?.assignedUser)
-}
-
-const canManageTask = (task) => {
-  if (!task || task.deletedAt) return false
-  if (auth.isAdmin) return true
-  const creatorId = Number(task.createdBy?.id)
-  if (Number.isFinite(creatorId) && creatorId === currentUserId.value) return true
-
-  if (task.creatorRole !== 'student') return false
-  if (task.taskType === 'group') return isMentorOfTaskGroup(task)
-  if (task.taskType === 'individual') return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
-  return false
-}
-
-const canToggleTask = (task) => {
-  if (!task || task.deletedAt) return false
-  if (auth.isAdmin) return true
-
-  if (task.taskType === 'group') {
-    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
-  }
-
-  if (isAssigneeSelf(task)) return true
-  if (!isCurrentGroupStudent(task.assignedUser)) return false
-
-  if (['global_admin', 'track_admin', 'student'].includes(task.creatorRole)) {
-    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
-  }
-  if (task.creatorRole === 'mentor') return isMentorOfTaskGroup(task)
-  if (task.creatorRole === 'supervisor') return isSupervisorInTaskGroup(task)
-  return false
-}
-
-const canCreateTaskType = (taskType, parentTask = null) => {
-  if (taskType === 'group') return canCreateGroupTasks.value
-  if (taskType !== 'individual') return false
-
-  if (!parentTask?.assignedUser) return canCreateIndividualTasks.value
-  const assigneeId = Number(parentTask.assignedUser)
-  if (auth.isAdmin) return true
-  if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
-  if (auth.isSupervisor) return isSupervisorOf(assigneeId)
-  return false
-}
-
-const canCreateTaskFromForm = () => {
-  const taskType = taskForm.value.taskType
-  if (taskType === 'group') return canCreateGroupTasks.value
-
-  const assigneeId = Number(taskForm.value.assignedUser)
-  if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
-  if (auth.isAdmin) return true
-  if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
-  if (auth.isSupervisor) return isSupervisorOf(assigneeId)
-  return false
-}
-
-const upsertTask = (task) => {
-  const normalized = normalizeTask(task)
-  const index = tasks.value.findIndex(item => Number(item.id) === Number(normalized.id))
-  if (index === -1) tasks.value.push(normalized)
-  else tasks.value.splice(index, 1, normalized)
-}
-
-const removeTaskFromList = (taskId) => {
-  const index = tasks.value.findIndex(item => Number(item.id) === Number(taskId))
-  if (index !== -1) tasks.value.splice(index, 1)
-}
-
-const getTaskListParams = () => ({
-  page_size: 100,
-  deleted: taskFilters.value.showDeleted,
-  task_type: taskFilters.value.taskType,
-  status: taskFilters.value.status,
-  completed: taskFilters.value.completed === '' ? '' : taskFilters.value.completed === 'true',
-  search: taskFilters.value.search,
-  ordering: taskFilters.value.ordering
-})
 
 const loadTasks = async () => {
   const currentGroupId = getBackendGroupId()
@@ -1251,9 +786,11 @@ const loadTasks = async () => {
   taskError.value = ''
 
   try {
-    const data = await listTasks(getTaskListParams())
+    const data = await requestJson(`${API_BASE_URL}/api/v1/tasks/?page_size=100&deleted=false`)
     tasks.value = extractCollectionItems(data).map(normalizeTask)
-    syncSelectedTasks()
+    if (!tasks.value.filter(isTaskRelevantToCurrentGroup).length) {
+      taskError.value = 'No tasks have been created for this group yet.'
+    }
   } catch (error) {
     tasks.value = []
     taskError.value = error instanceof Error ? error.message : 'Task data could not be loaded.'
@@ -1318,145 +855,51 @@ const resolveIndividualTaskAssignee = (parentTask = null) => {
     const role = String(item.role || '').toLowerCase()
     return !item.leftAt && role.includes('student')
   })
-  const assigneeId = Number(studentMemberships[0]?.userId || '')
+  const defaultAssignee = studentMemberships[0]?.userId || ''
+  const assignee = window.prompt('Assignee user id', defaultAssignee ? String(defaultAssignee) : '')
+  const assigneeId = Number(assignee)
   return Number.isFinite(assigneeId) && assigneeId > 0 ? assigneeId : null
 }
 
-const toDateTimeLocal = (value) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const offsetMs = date.getTimezoneOffset() * 60000
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
-}
-
-const fromDateTimeLocal = (value) => {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date.toISOString()
-}
-
-const resetTaskForm = (taskType = 'group', parentTask = null) => {
-  const currentGroupId = getBackendGroupId()
-  const parentAssignee = parentTask?.taskType === 'individual'
-    ? parentTask.assignedUser
-    : resolveIndividualTaskAssignee(parentTask)
-
-  taskForm.value = {
-    name: '',
-    description: '',
-    dueDate: '',
-    status: 'todo',
-    taskType,
-    parent: parentTask?.id ? String(parentTask.id) : '',
-    group: taskType === 'group' ? String(currentGroupId || '') : '',
-    assignedUser: taskType === 'individual' && parentAssignee ? String(parentAssignee) : ''
-  }
-}
-
-const openCreateTaskDialog = (taskType, parentTask = null) => {
+const createTask = async (taskType, parentTask = null) => {
   const currentGroupId = getBackendGroupId()
   if (!currentGroupId) {
     taskError.value = 'A backend numeric group id is required before tasks can be added.'
     return
   }
-  if (!canCreateTaskType(taskType, parentTask)) {
-    taskError.value = 'You do not have permission to create this task type for this group.'
-    return
-  }
 
-  taskDialogMode.value = 'create'
-  taskDialogTitle.value = parentTask ? 'New sub-task' : taskType === 'group' ? 'New group task' : 'New individual task'
-  editingTaskId.value = null
-  taskFormError.value = ''
-  resetTaskForm(taskType, parentTask)
-  taskDialogOpen.value = true
-}
+  const label = parentTask ? 'New sub-task name' : taskType === 'group' ? 'New group task name' : 'New individual task name'
+  const taskName = window.prompt(label)
+  if (!taskName || !taskName.trim()) return
 
-const openEditTaskDialog = (task) => {
-  taskDialogMode.value = 'edit'
-  taskDialogTitle.value = 'Edit task'
-  editingTaskId.value = Number(task.id)
-  taskFormError.value = ''
-  taskForm.value = {
-    name: task.name || '',
-    description: task.description || '',
-    dueDate: toDateTimeLocal(task.dueDate),
-    status: task.status || 'todo',
-    taskType: task.taskType || 'group',
-    parent: task.parent ? String(task.parent) : '',
-    group: task.group ? String(task.group) : '',
-    assignedUser: task.assignedUser ? String(task.assignedUser) : ''
-  }
-  taskDialogOpen.value = true
-}
-
-const closeTaskDialog = () => {
-  if (isSavingTask.value) return
-  taskDialogOpen.value = false
-  taskFormError.value = ''
-}
-
-const buildCreateTaskPayload = () => {
-  const taskType = taskForm.value.taskType
   const payload = {
-    name: taskForm.value.name.trim(),
-    description: taskForm.value.description.trim(),
-    due_date: fromDateTimeLocal(taskForm.value.dueDate),
-    status: taskForm.value.status,
-    task_type: taskType,
-    parent: taskForm.value.parent ? Number(taskForm.value.parent) : null
+    name: taskName.trim(),
+    description: '',
+    status: 'todo',
+    task_type: taskType
+  }
+
+  if (parentTask?.id) {
+    payload.parent = Number(parentTask.id)
   }
 
   if (taskType === 'group') {
-    payload.group = Number(getBackendGroupId())
-    payload.assigned_user = null
+    payload.group = Number(currentGroupId)
   } else {
-    payload.group = null
-    payload.assigned_user = Number(taskForm.value.assignedUser)
+    const assigneeId = resolveIndividualTaskAssignee(parentTask)
+    if (!assigneeId) return
+    payload.assigned_user = assigneeId
   }
-
-  return payload
-}
-
-const buildUpdateTaskPayload = () => ({
-  name: taskForm.value.name.trim(),
-  description: taskForm.value.description.trim(),
-  due_date: fromDateTimeLocal(taskForm.value.dueDate),
-  status: taskForm.value.status,
-  parent: taskForm.value.parent ? Number(taskForm.value.parent) : null
-})
-
-const saveTask = async () => {
-  if (!taskForm.value.name.trim()) {
-    taskFormError.value = 'Task name is required.'
-    return
-  }
-  if (taskDialogMode.value === 'create' && taskForm.value.taskType === 'individual' && !Number(taskForm.value.assignedUser)) {
-    taskFormError.value = 'Assignee user id is required for individual tasks.'
-    return
-  }
-  if (taskDialogMode.value === 'create' && !canCreateTaskFromForm()) {
-    taskFormError.value = 'You do not have permission to create a task for this target.'
-    return
-  }
-
-  isSavingTask.value = true
-  taskFormError.value = ''
 
   try {
-    if (taskDialogMode.value === 'edit' && editingTaskId.value) {
-      const updatedTask = await updateTaskRequest(editingTaskId.value, buildUpdateTaskPayload())
-      upsertTask(updatedTask)
-    } else {
-      const createdTask = await createTaskRequest(buildCreateTaskPayload())
-      upsertTask(createdTask)
-    }
-    closeTaskDialog()
+    await requestJson(`${API_BASE_URL}/api/v1/tasks/`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+
+    await loadTasks()
   } catch (error) {
-    taskFormError.value = error instanceof Error ? error.message : 'Task could not be saved.'
-  } finally {
-    isSavingTask.value = false
+    taskError.value = error instanceof Error ? error.message : 'Task could not be created.'
   }
 }
 
@@ -1467,56 +910,23 @@ const toggleTask = async (task) => {
   taskError.value = ''
 
   try {
-    const updatedTask = await toggleTaskCompletion(task.id, !task.completed)
-    upsertTask(updatedTask)
+    const updatedTask = await requestJson(`${API_BASE_URL}/api/v1/tasks/${task.id}/check/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        completed: !task.completed
+      })
+    })
+    const normalized = normalizeTask(updatedTask)
+    const index = tasks.value.findIndex(item => Number(item.id) === Number(task.id))
+    if (index === -1) {
+      tasks.value.push(normalized)
+    } else {
+      tasks.value.splice(index, 1, normalized)
+    }
   } catch (error) {
     taskError.value = error instanceof Error ? error.message : 'Task status could not be updated.'
   } finally {
     setTaskUpdating(task.id, false)
-  }
-}
-
-const bulkSetTaskCompletion = async (completed) => {
-  const taskIds = selectedTaskIdList.value
-  if (!taskIds.length) return
-
-  isBulkUpdatingTasks.value = true
-  taskError.value = ''
-
-  try {
-    const result = await bulkToggleTasks(taskIds, completed)
-    result.updated.forEach(upsertTask)
-    clearTaskSelection()
-    if (result.forbidden.length || result.not_found.length) {
-      taskError.value = [
-        result.forbidden.length ? `${result.forbidden.length} task(s) were not allowed.` : '',
-        result.not_found.length ? `${result.not_found.length} task(s) were not found.` : ''
-      ].filter(Boolean).join(' ')
-    }
-  } catch (error) {
-    taskError.value = error instanceof Error ? error.message : 'Selected tasks could not be updated.'
-  } finally {
-    isBulkUpdatingTasks.value = false
-  }
-}
-
-const removeTask = async (task) => {
-  if (!task?.id || isDeletingTask(task.id)) return
-  const confirmed = window.confirm(`Delete "${task.name}" and its sub-tasks?`)
-  if (!confirmed) return
-
-  setTaskDeleting(task.id, true)
-  taskError.value = ''
-
-  try {
-    const deletedTask = await deleteTaskRequest(task.id)
-    setTaskSelected(task.id, false)
-    if (taskFilters.value.showDeleted) upsertTask(deletedTask)
-    else removeTaskFromList(task.id)
-  } catch (error) {
-    taskError.value = error instanceof Error ? error.message : 'Task could not be deleted.'
-  } finally {
-    setTaskDeleting(task.id, false)
   }
 }
 
@@ -1573,17 +983,12 @@ const removeTypingUser = (name) => {
 }
 
 const sendSocketAction = (payload) => {
-  if (!supportsChatClientSocketActions || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) return false
+  if (!chatSocket || chatSocket.readyState !== WebSocket.OPEN) return
   chatSocket.send(JSON.stringify(payload))
-  return true
 }
 
 const stopTypingIndicator = () => {
   clearTimeout(typingStopTimer)
-  if (!supportsChatClientSocketActions) {
-    hasSentTypingStart = false
-    return
-  }
   if (hasSentTypingStart) {
     sendSocketAction({ action: 'client.typing', status: 'stopped' })
     hasSentTypingStart = false
@@ -1598,8 +1003,6 @@ const scheduleTypingStop = () => {
 }
 
 const handleComposerInput = () => {
-  if (!supportsChatClientSocketActions) return
-
   if (!newMessage.value.trim()) {
     stopTypingIndicator()
     return
@@ -1614,7 +1017,6 @@ const handleComposerInput = () => {
 }
 
 const markMessagesAsRead = (messageIds) => {
-  if (!supportsChatClientSocketActions) return
   const ids = (messageIds || []).map(id => Number(id)).filter(id => Number.isFinite(id))
   if (!ids.length) return
   sendSocketAction({ action: 'client.mark_read', message_ids: ids })
@@ -1681,35 +1083,27 @@ const handleSocketPayload = async (payload) => {
   }
 
   const eventName = payload.event
-  const socketMessage = payload.message && typeof payload.message === 'object' ? payload.message : null
-  const socketMessageId = socketMessage?.id ?? payload.message_id
-
-  if (eventName === 'message.created' && socketMessage) {
-    upsertMessage(socketMessage)
-    removeTypingUser(payload.user_name || socketMessage.sender_name || '')
+  if (eventName === 'message.created' && payload.message) {
+    upsertMessage(payload.message)
+    removeTypingUser(payload.user_name || payload.message.sender_name || '')
     await scrollMessagesToBottom()
-    if (Number(socketMessage.sender_user || socketMessage.sender_id || 0) !== Number(auth.user?.id || 0)) {
-      markMessagesAsRead([socketMessage.id])
+    if (Number(payload.message.sender_id) !== Number(auth.user?.id || 0)) {
+      markMessagesAsRead([payload.message.id])
     }
     return
   }
 
   if (eventName === 'message.edited') {
-    if (socketMessage) {
-      upsertMessage(socketMessage)
-    } else if (socketMessageId) {
-      applyMessageUpdate(socketMessageId, (message) => ({
-        ...message,
-        text: payload.message_text || message.text,
-        editedAt: payload.edited_at || message.editedAt
-      }))
-    }
+    applyMessageUpdate(payload.message_id, (message) => ({
+      ...message,
+      text: payload.message_text || message.text,
+      editedAt: payload.edited_at || message.editedAt
+    }))
     return
   }
 
   if (eventName === 'message.deleted') {
-    if (!socketMessageId) return
-    messages.value = messages.value.filter(message => String(message.id) !== String(socketMessageId))
+    messages.value = messages.value.filter(message => String(message.id) !== String(payload.message_id))
   }
 }
 
@@ -1765,8 +1159,8 @@ const loadMessages = async () => {
   chatError.value = ''
 
   try {
-    const data = await requestJsonFirst(
-      buildChatMessageCollectionUrls(backendGroupId, '?limit=50')
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(backendGroupId, '?limit=50')
     )
     const liveMessages = extractCollectionItems(data)
       .map(normalizeMessage)
@@ -1793,9 +1187,9 @@ const sendMessagePayload = async ({ body, requestOptions, optimisticMessage, pen
   chatError.value = ''
 
   try {
-    const savedMessage = await requestJsonFirst(body === 'upload'
-      ? buildChatUploadUrls(backendGroupId)
-      : buildChatMessageCollectionUrls(backendGroupId), requestOptions)
+    const savedMessage = await requestJson(body === 'upload'
+      ? buildChatUploadUrl(backendGroupId)
+      : buildChatMessageCollectionUrl(backendGroupId), requestOptions)
 
     if (!savedMessage) {
       return null
@@ -1923,10 +1317,10 @@ const fetchGifResults = async (mode = 'trending') => {
   gifError.value = ''
 
   try {
-    const data = await requestJsonFirst(
+    const data = await requestJson(
       mode === 'search'
-        ? buildGifSearchUrls(gifQuery.value.trim())
-        : buildGifTrendingUrls(),
+        ? buildGifSearchUrl(gifQuery.value.trim())
+        : buildGifTrendingUrl(),
       {
         method: 'GET'
       }
@@ -1978,7 +1372,7 @@ const reactToMessage = async (messageId, emoji) => {
   }))
 
   try {
-    await requestJsonFirst(buildChatReactionUrls(backendGroupId, messageId), {
+    await requestJson(buildChatReactionUrl(backendGroupId, messageId), {
       method: 'POST',
       body: JSON.stringify({
         emoji_string: emoji
@@ -2191,70 +1585,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-filter-bar,
-.task-bulk-bar {
-  display: flex;
-  align-items: end;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.85rem;
-}
-
-.task-filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 118px;
-  color: #5b6770;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.task-filter-field input,
-.task-filter-field select,
-.task-form-field input,
-.task-form-field select,
-.task-form-field textarea {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.52rem 0.62rem;
-  background: var(--white);
-  color: var(--charcoal);
-  font: inherit;
-}
-
-.task-filter-field input:focus,
-.task-filter-field select:focus,
-.task-form-field input:focus,
-.task-form-field select:focus,
-.task-form-field textarea:focus {
-  outline: none;
-  border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
-}
-
-.task-deleted-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.38rem;
-  min-height: 38px;
-  color: #5b6770;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.task-bulk-bar {
-  align-items: center;
-  padding: 0.62rem 0.7rem;
-  background: #f1f5f7;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  color: var(--charcoal);
-  font-size: 0.84rem;
-  font-weight: 700;
-}
-
 .task-section {
   border-bottom: 1px solid var(--border-light);
   padding: 0.9rem 0;
@@ -2293,20 +1623,6 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.task-select-control {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  flex-shrink: 0;
-}
-
-.task-select-control input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--air-force-blue);
-}
-
 .task-description {
   margin-top: 0.18rem;
   color: #6c757d;
@@ -2325,137 +1641,6 @@ onBeforeUnmount(() => {
 
 .task-meta i {
   margin-right: 0.25rem;
-}
-
-.task-row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-
-.task-status-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  min-height: 32px;
-  padding: 0.35rem 0.65rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: #fff;
-  color: #50616c;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
-}
-
-.task-status-toggle i {
-  color: var(--air-force-blue);
-  font-size: 0.82rem;
-}
-
-.task-status-toggle:hover:not(:disabled) {
-  border-color: var(--air-force-blue);
-  background: #f1f5f7;
-  color: var(--charcoal);
-}
-
-.task-status-toggle.is-complete {
-  border-color: rgba(77, 116, 94, 0.35);
-  background: rgba(77, 116, 94, 0.1);
-  color: var(--dark-green);
-}
-
-.task-status-toggle.is-complete i {
-  color: var(--dark-green);
-}
-
-.task-status-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.task-item.is-deleted {
-  opacity: 0.6;
-}
-
-.task-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgba(15, 23, 42, 0.45);
-}
-
-.task-dialog {
-  width: min(100%, 560px);
-  max-height: min(720px, calc(100vh - 2rem));
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  padding: 1rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22);
-}
-
-.task-dialog-header,
-.task-dialog-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
-}
-
-.task-dialog-header h4 {
-  margin: 0;
-  color: var(--charcoal);
-  font-size: 1rem;
-}
-
-.task-dialog-close {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--white);
-  color: var(--charcoal);
-  cursor: pointer;
-}
-
-.task-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.task-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.32rem;
-  color: #5b6770;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.task-form-field--wide {
-  width: 100%;
-}
-
-.task-form-field textarea {
-  resize: vertical;
 }
 
 /* Discussion board: chat-container fills card, chat-messages scrolls */
@@ -2702,30 +1887,34 @@ onBeforeUnmount(() => {
 }
 
 /* Mobile layout */
-@media (max-width: 1180px) {
+@media (max-width: 900px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
   .split {
     grid-template-columns: 1fr;
-    max-height: none;
-    height: auto;
+    max-height: 80vh;
+    height: 80vh;
   }
-  .mobile-tabs { display: none; }
-  .split .pane {
-    display: flex;
-    height: auto;
-  }
-  .pane--discussion .chat-container {
-    height: min(72vh, 620px);
-    min-height: 420px;
-  }
+  .mobile-tabs { display: flex; }
+  .split .pane { display: none; }
+  .split[data-active="tasks"] .pane--tasks { display: block; }
+  .split[data-active="discussion"] .pane--discussion { display: block; }
   .card {
-    height: auto;
     min-height: 220px;
-  }
-  .pane--tasks.card {
-    min-height: 520px;
-  }
-  .pane--discussion {
-    min-height: 520px;
   }
 
   .gif-grid {
@@ -3061,36 +2250,48 @@ onBeforeUnmount(() => {
   color: rgba(214, 232, 223, 0.72) !important;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 900px) {
+  .gd-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .gd-head-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .group-switcher {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .group-switcher select {
+    flex: 1;
+    max-width: none;
+  }
+
   .split {
     grid-template-columns: 1fr;
-    max-height: none;
-    height: auto;
+    max-height: 80vh;
+    height: 80vh;
   }
 
   .mobile-tabs {
-    display: none;
+    display: flex;
   }
 
   .split .pane {
-    display: flex;
-    height: auto;
+    display: none;
   }
 
-  .pane--discussion .chat-container {
-    height: min(72vh, 620px);
-    min-height: 420px;
+  .split[data-active="tasks"] .pane--tasks,
+  .split[data-active="discussion"] .pane--discussion {
+    display: block;
   }
 
   .card {
-    height: auto;
     min-height: 220px;
-  }
-  .pane--tasks.card {
-    min-height: 520px;
-  }
-  .pane--discussion {
-    min-height: 520px;
   }
 }
 
@@ -3322,6 +2523,11 @@ onBeforeUnmount(() => {
   background-color: transparent;
 }
 
+.task-checkbox.checked {
+  background-color: var(--air-force-blue);
+  border-color: var(--air-force-blue);
+}
+
 .add-subtask-btn {
   color: var(--air-force-blue);
   border-color: var(--border-light);
@@ -3330,41 +2536,5 @@ onBeforeUnmount(() => {
 .add-subtask-btn:hover {
   background: #f1f5f7;
   border-color: var(--air-force-blue);
-}
-
-@media (max-width: 720px) {
-  .gd-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .gd-head-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
-
-  .task-filter-field {
-    min-width: min(100%, 148px);
-    flex: 1 1 140px;
-  }
-
-  .task-row-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .task-form-grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>
