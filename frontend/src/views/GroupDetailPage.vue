@@ -2,66 +2,124 @@
   <div
     class="content-area group-detail"
     :data-active="activeTab"
+    :aria-busy="isLoadingGroupDetail"
   >
-    <!-- Header -->
-    <div class="group-hero-card">
-      <div class="gd-head">
-        <div class="gd-head-left">
-          <div class="group-avatars">
-            <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">{{ groupInitials }}</div>
-          </div>
-          <div>
-            <h2 class="gd-title">{{ group.name }}</h2>
-            <p class="gd-subtitle">{{ groupSubtitle }}</p>
-            <div v-if="groupMetaItems.length" class="gd-meta-row">
-              <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+    <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
+      <span class="sr-only">Loading group details...</span>
+      <div class="group-hero-card group-loading-hero">
+        <div class="gd-head group-loading-head">
+          <div class="group-loading-avatar skeleton-block"></div>
+          <div class="group-loading-title-stack">
+            <div class="skeleton-block skeleton-title"></div>
+            <div class="skeleton-block skeleton-subtitle"></div>
+            <div class="group-loading-meta">
+              <div class="skeleton-block skeleton-pill"></div>
+              <div class="skeleton-block skeleton-pill skeleton-pill--short"></div>
             </div>
           </div>
+          <div class="skeleton-block skeleton-select"></div>
         </div>
-        <div class="gd-head-actions">
-          <label class="group-switcher" for="group-switcher">
-            <span>Group</span>
-            <select
-              id="group-switcher"
-              :value="backendGroupId"
-              :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
-              @change="switchGroup"
-            >
-              <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
-              <option
-                v-for="option in availableGroups"
-                :key="option.id"
-                :value="option.id"
-              >
-                {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
-              </option>
-            </select>
-          </label>
-          <span v-if="groupOptionsError" class="group-switcher-error">{{ groupOptionsError }}</span>
-        </div>
+      </div>
+
+      <div class="group-loading-grid">
+        <section class="card group-loading-panel">
+          <div class="group-loading-panel-header">
+            <div class="skeleton-block skeleton-heading"></div>
+            <div class="skeleton-block skeleton-button"></div>
+          </div>
+          <div class="group-loading-filter-row">
+            <div v-for="item in 5" :key="`task-filter-${item}`" class="skeleton-block skeleton-filter"></div>
+          </div>
+          <div class="group-loading-list">
+            <div v-for="item in 5" :key="`task-row-${item}`" class="group-loading-row">
+              <div class="skeleton-block skeleton-dot"></div>
+              <div class="group-loading-row-copy">
+                <div class="skeleton-block skeleton-line"></div>
+                <div class="skeleton-block skeleton-line skeleton-line--short"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="group-loading-panel group-loading-chat">
+          <div class="group-loading-panel-header">
+            <div class="skeleton-block skeleton-heading"></div>
+            <div class="skeleton-block skeleton-status"></div>
+          </div>
+          <div class="group-loading-messages">
+            <div v-for="item in 4" :key="`message-${item}`" class="group-loading-message" :class="{ 'group-loading-message--own': item % 2 === 0 }">
+              <div class="skeleton-block skeleton-message-avatar"></div>
+              <div class="group-loading-bubble">
+                <div class="skeleton-block skeleton-line"></div>
+                <div class="skeleton-block skeleton-line skeleton-line--short"></div>
+              </div>
+            </div>
+          </div>
+          <div class="skeleton-block skeleton-composer"></div>
+        </section>
       </div>
     </div>
 
-    <!-- Mobile tabs (hidden on desktop) -->
-    <nav class="mobile-tabs">
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'tasks' }"
-        @click="activeTab = 'tasks'"
-      >
-        Tasks
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'discussion' }"
-        @click="activeTab = 'discussion'"
-      >
-        Discussion
-      </button>
-    </nav>
+    <template v-else>
+      <!-- Header -->
+      <div class="group-hero-card">
+        <div class="gd-head">
+          <div class="gd-head-left">
+            <div class="group-avatars">
+              <div class="group-avatar" style="width:48px;height:48px;font-size:1.1rem;">{{ groupInitials }}</div>
+            </div>
+            <div>
+              <h2 class="gd-title">{{ group.name }}</h2>
+              <p class="gd-subtitle">{{ groupSubtitle }}</p>
+              <div v-if="groupMetaItems.length" class="gd-meta-row">
+                <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="gd-head-actions">
+            <label class="group-switcher" for="group-switcher">
+              <span>Group</span>
+              <select
+                id="group-switcher"
+                :value="backendGroupId"
+                :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
+                @change="switchGroup"
+              >
+                <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
+                <option
+                  v-for="option in availableGroups"
+                  :key="option.id"
+                  :value="option.id"
+                >
+                  {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
+                </option>
+              </select>
+            </label>
+            <span v-if="groupOptionsError" class="group-switcher-error">{{ groupOptionsError }}</span>
+          </div>
+        </div>
+      </div>
 
-    <!-- Desktop: two columns; mobile: single column via tabs -->
-    <div class="split" :data-active="activeTab">
+      <!-- Mobile tabs (hidden on desktop) -->
+      <nav class="mobile-tabs">
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'tasks' }"
+          @click="activeTab = 'tasks'"
+        >
+          Tasks
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'discussion' }"
+          @click="activeTab = 'discussion'"
+        >
+          Discussion
+        </button>
+      </nav>
+
+      <!-- Desktop: two columns; mobile: single column via tabs -->
+      <div class="split" :data-active="activeTab">
       <!-- Left column: Tasks -->
       <section class="pane pane--tasks card">
         <div class="card-header">
@@ -517,7 +575,8 @@
           </div>
         </div>
       </section>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -553,6 +612,7 @@ const group = ref({
   createdAt: ''
 })
 const groupMemberships = ref([])
+const isLoadingGroupDetail = ref(true)
 const isLoadingMembers = ref(false)
 const membersError = ref('')
 const availableGroups = ref([])
@@ -2002,25 +2062,32 @@ const switchGroup = async (event) => {
 const reloadGroupDetail = async () => {
   const sequence = ++loadSequence
 
+  isLoadingGroupDetail.value = true
   disconnectChatSocket()
   tasks.value = []
   messages.value = []
   taskError.value = ''
   chatError.value = ''
 
-  await loadGroup()
-  if (sequence !== loadSequence) return
+  try {
+    await loadGroup()
+    if (sequence !== loadSequence) return
 
-  await loadGroupMembers()
-  if (sequence !== loadSequence) return
+    await loadGroupMembers()
+    if (sequence !== loadSequence) return
 
-  await Promise.all([
-    loadTasks(),
-    loadMessages()
-  ])
-  if (sequence !== loadSequence) return
+    await Promise.all([
+      loadTasks(),
+      loadMessages()
+    ])
+    if (sequence !== loadSequence) return
 
-  connectChatSocket()
+    connectChatSocket()
+  } finally {
+    if (sequence === loadSequence) {
+      isLoadingGroupDetail.value = false
+    }
+  }
 }
 
 watch(routeGroupId, async () => {
@@ -3332,6 +3399,216 @@ onBeforeUnmount(() => {
   border-color: var(--air-force-blue);
 }
 
+.group-detail-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.group-loading-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.group-loading-avatar {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 50%;
+}
+
+.group-loading-title-stack {
+  flex: 1;
+  min-width: 160px;
+}
+
+.group-loading-meta,
+.group-loading-panel-header,
+.group-loading-filter-row,
+.group-loading-row,
+.group-loading-message {
+  display: flex;
+  align-items: center;
+}
+
+.group-loading-meta {
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.group-loading-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.group-loading-panel {
+  min-height: 520px;
+  padding: 1.5rem;
+}
+
+.group-loading-chat {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
+}
+
+.group-loading-panel-header {
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.group-loading-filter-row {
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 1rem 0;
+}
+
+.group-loading-list,
+.group-loading-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.group-loading-row {
+  gap: 0.85rem;
+  padding: 0.6rem 0;
+}
+
+.group-loading-row-copy,
+.group-loading-bubble {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-loading-message {
+  gap: 0.8rem;
+}
+
+.group-loading-message--own {
+  flex-direction: row-reverse;
+}
+
+.group-loading-message--own .group-loading-bubble {
+  flex: 0 1 72%;
+}
+
+.group-loading-bubble {
+  padding: 0.85rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e8edf1;
+}
+
+.skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: group-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+.skeleton-title {
+  width: min(360px, 78%);
+  height: 2rem;
+}
+
+.skeleton-subtitle {
+  width: min(300px, 64%);
+  height: 1rem;
+  margin-top: 0.65rem;
+}
+
+.skeleton-pill {
+  width: 130px;
+  height: 1.55rem;
+  border-radius: 999px;
+}
+
+.skeleton-pill--short {
+  width: 92px;
+}
+
+.skeleton-select {
+  width: 180px;
+  height: 2.35rem;
+}
+
+.skeleton-heading {
+  width: 120px;
+  height: 1.35rem;
+}
+
+.skeleton-button {
+  width: 116px;
+  height: 2rem;
+}
+
+.skeleton-filter {
+  width: 116px;
+  height: 2.35rem;
+}
+
+.skeleton-dot {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: 0.95rem;
+}
+
+.skeleton-line--short {
+  width: 58%;
+  margin-top: 0.55rem;
+}
+
+.skeleton-status {
+  width: 68px;
+  height: 1.25rem;
+}
+
+.skeleton-message-avatar {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+}
+
+.skeleton-composer {
+  height: 74px;
+  margin-top: 1rem;
+}
+
+@keyframes group-loading-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 1180px) {
+  .group-loading-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .gd-head {
     align-items: flex-start;
@@ -3365,6 +3642,18 @@ onBeforeUnmount(() => {
 
   .task-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .group-loading-head,
+  .group-loading-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .skeleton-select,
+  .skeleton-button,
+  .skeleton-filter {
+    width: 100%;
   }
 }
 </style>

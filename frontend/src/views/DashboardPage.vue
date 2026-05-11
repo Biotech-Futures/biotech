@@ -8,6 +8,93 @@
   >
     <div class="dashboard-page-inner">
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
+
+      <div v-if="isLoading" class="dashboard-loading-skeleton" role="status" aria-live="polite">
+        <span class="sr-only">Loading dashboard...</span>
+
+        <section class="dashboard-hero-shell">
+          <div class="dashboard-hero-card dashboard-skeleton-hero">
+            <div class="dashboard-skeleton-hero-copy">
+              <div class="dashboard-skeleton-block dashboard-skeleton-eyebrow"></div>
+              <div class="dashboard-skeleton-block dashboard-skeleton-title"></div>
+              <div class="dashboard-skeleton-chip-row">
+                <div v-for="item in 3" :key="`hero-chip-${item}`" class="dashboard-skeleton-block dashboard-skeleton-chip"></div>
+              </div>
+              <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+              <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"></div>
+            </div>
+
+            <div class="dashboard-skeleton-calendar">
+              <div class="dashboard-skeleton-calendar-head">
+                <div class="dashboard-skeleton-block dashboard-skeleton-calendar-title"></div>
+                <div class="dashboard-skeleton-block dashboard-skeleton-calendar-nav"></div>
+              </div>
+              <div class="dashboard-skeleton-calendar-grid">
+                <div v-for="item in 35" :key="`calendar-day-${item}`" class="dashboard-skeleton-block dashboard-skeleton-calendar-day"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="dashboard-section">
+          <div class="dashboard-section-grid summary-grid">
+            <article v-for="item in 4" :key="`summary-${item}`" class="summary-card dashboard-skeleton-card">
+              <div class="dashboard-skeleton-card-top">
+                <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                <div class="dashboard-skeleton-block dashboard-skeleton-label"></div>
+              </div>
+              <div class="dashboard-skeleton-block dashboard-skeleton-metric"></div>
+              <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="dashboard-section">
+          <article class="surface-card dashboard-skeleton-progress">
+            <div class="dashboard-skeleton-section-head">
+              <div>
+                <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
+                <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
+              </div>
+              <div class="dashboard-skeleton-block dashboard-skeleton-select"></div>
+            </div>
+            <div class="dashboard-skeleton-progress-body">
+              <div class="dashboard-skeleton-block dashboard-skeleton-ring"></div>
+              <div class="dashboard-skeleton-progress-rows">
+                <div v-for="item in 4" :key="`progress-row-${item}`" class="dashboard-skeleton-progress-row">
+                  <div class="dashboard-skeleton-block dashboard-skeleton-row-label"></div>
+                  <div class="dashboard-skeleton-block dashboard-skeleton-row-value"></div>
+                </div>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="dashboard-section">
+          <div class="dashboard-section-grid two-col-layout">
+            <article v-for="panel in 2" :key="`panel-${panel}`" class="surface-card dashboard-skeleton-panel">
+              <div class="dashboard-skeleton-section-head">
+                <div>
+                  <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
+                  <div class="dashboard-skeleton-block dashboard-skeleton-heading"></div>
+                </div>
+                <div class="dashboard-skeleton-block dashboard-skeleton-link"></div>
+              </div>
+              <div class="dashboard-skeleton-list">
+                <div v-for="row in 3" :key="`panel-${panel}-row-${row}`" class="dashboard-skeleton-list-row">
+                  <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                  <div class="dashboard-skeleton-list-copy">
+                    <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                    <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+
+      <template v-else>
       <section class="dashboard-hero-shell">
         <div class="dashboard-hero-card interactive-surface">
           <div class="dashboard-hero-main">
@@ -377,10 +464,7 @@
         </div>
       </section>
 
-      <div v-if="isLoading" class="dashboard-loading">
-        <div class="loading-ring"></div>
-        <span>Loading dashboard...</span>
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -433,7 +517,7 @@ const DASHBOARD_ENDPOINTS = {
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`
 }
 
-const isLoading = ref(false)
+const isLoading = ref(true)
 const loadError = ref('')
 
 const groups = ref([])
@@ -2768,6 +2852,237 @@ onBeforeUnmount(() => {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.dashboard-loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+
+.dashboard-skeleton-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 1.4rem;
+  padding: 1.5rem;
+}
+
+.dashboard-skeleton-hero-copy,
+.dashboard-skeleton-calendar,
+.dashboard-skeleton-card,
+.dashboard-skeleton-progress,
+.dashboard-skeleton-panel {
+  min-width: 0;
+}
+
+.dashboard-skeleton-hero-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 280px;
+}
+
+.dashboard-skeleton-chip-row,
+.dashboard-skeleton-card-top,
+.dashboard-skeleton-section-head,
+.dashboard-skeleton-progress-body,
+.dashboard-skeleton-progress-row,
+.dashboard-skeleton-list-row,
+.dashboard-skeleton-calendar-head {
+  display: flex;
+  align-items: center;
+}
+
+.dashboard-skeleton-chip-row {
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin: 1.1rem 0;
+}
+
+.dashboard-skeleton-card,
+.dashboard-skeleton-progress,
+.dashboard-skeleton-panel,
+.dashboard-skeleton-calendar {
+  padding: 1.25rem;
+}
+
+.dashboard-skeleton-card-top,
+.dashboard-skeleton-section-head,
+.dashboard-skeleton-calendar-head {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.dashboard-skeleton-progress-body {
+  gap: 2rem;
+  padding-top: 1.5rem;
+}
+
+.dashboard-skeleton-progress-rows {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.dashboard-skeleton-progress-row {
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.dashboard-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  margin-top: 1.25rem;
+}
+
+.dashboard-skeleton-list-row {
+  gap: 0.85rem;
+}
+
+.dashboard-skeleton-list-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.dashboard-skeleton-calendar {
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-base);
+}
+
+.dashboard-skeleton-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.dashboard-skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e8edf1;
+}
+
+.dashboard-skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: dashboard-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+.dashboard-skeleton-eyebrow {
+  width: 116px;
+  height: 1.15rem;
+}
+
+.dashboard-skeleton-title {
+  width: min(540px, 82%);
+  height: 3rem;
+  margin-top: 1rem;
+}
+
+.dashboard-skeleton-chip {
+  width: 142px;
+  height: 2.35rem;
+  border-radius: 999px;
+}
+
+.dashboard-skeleton-line {
+  width: 100%;
+  height: 1rem;
+  margin-top: 0.7rem;
+}
+
+.dashboard-skeleton-line--short {
+  width: 58%;
+}
+
+.dashboard-skeleton-line--tiny {
+  width: 44%;
+}
+
+.dashboard-skeleton-calendar-title {
+  width: 128px;
+  height: 1.3rem;
+}
+
+.dashboard-skeleton-calendar-nav {
+  width: 72px;
+  height: 1.8rem;
+}
+
+.dashboard-skeleton-calendar-day {
+  aspect-ratio: 1;
+}
+
+.dashboard-skeleton-icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 50%;
+}
+
+.dashboard-skeleton-label {
+  width: 112px;
+  height: 1rem;
+}
+
+.dashboard-skeleton-metric {
+  width: 92px;
+  height: 2.6rem;
+  margin-top: 1.3rem;
+}
+
+.dashboard-skeleton-kicker {
+  width: 86px;
+  height: 0.85rem;
+}
+
+.dashboard-skeleton-heading {
+  width: 176px;
+  height: 1.45rem;
+  margin-top: 0.55rem;
+}
+
+.dashboard-skeleton-select {
+  width: 180px;
+  height: 2.35rem;
+}
+
+.dashboard-skeleton-ring {
+  width: 172px;
+  height: 172px;
+  flex: 0 0 172px;
+  border-radius: 50%;
+}
+
+.dashboard-skeleton-row-label {
+  width: 120px;
+  height: 1rem;
+}
+
+.dashboard-skeleton-row-value {
+  width: 160px;
+  height: 1rem;
+}
+
+.dashboard-skeleton-link {
+  width: 84px;
+  height: 1.8rem;
+}
+
+@keyframes dashboard-loading-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 .empty-state {
   min-height: 140px;
   border-radius: 18px;
@@ -2799,6 +3114,11 @@ onBeforeUnmount(() => {
   .dashboard-hero-copy { padding: 1.2rem 1.15rem 1.22rem; }
   .showcase-card { min-height: 0; }
   .two-col-layout { grid-template-columns: 1fr; }
+  .dashboard-skeleton-hero { grid-template-columns: 1fr; }
+  .dashboard-skeleton-progress-body {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 880px) {
@@ -2811,6 +3131,22 @@ onBeforeUnmount(() => {
   .dashboard-hero-calendar { display: block; }
   .showcase-footer { flex-direction: column; align-items: stretch; }
   .showcase-image { aspect-ratio: 16 / 9; }
+  .dashboard-skeleton-hero,
+  .dashboard-skeleton-card,
+  .dashboard-skeleton-progress,
+  .dashboard-skeleton-panel,
+  .dashboard-skeleton-calendar {
+    padding: 1rem;
+  }
+  .dashboard-skeleton-section-head,
+  .dashboard-skeleton-calendar-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dashboard-skeleton-select,
+  .dashboard-skeleton-link {
+    width: 100%;
+  }
 }
 
 @media (max-width: 560px) {
