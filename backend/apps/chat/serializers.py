@@ -296,6 +296,12 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
 
 class MessageUpdateSerializer(serializers.ModelSerializer):
     class Meta:
+        # Intentionally excludes ``reply_to_id``: once a quoted reply is
+        # created, its parent context is immutable. Re-pointing a reply
+        # via PATCH would let a moderator re-frame an existing message
+        # against a different parent, which is not a flow we want to
+        # allow. If a "change parent" feature is ever needed, give it a
+        # dedicated endpoint with its own audit trail.
         model = Messages
         fields = ["message_text"]
 
