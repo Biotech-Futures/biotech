@@ -28,6 +28,17 @@ class Messages(models.Model):
         choices=MessageType.choices,
         default=MessageType.TEXT,
     )
+    # Self-referential FK enables "quoted reply" threading. SET_NULL keeps
+    # a reply visible if its parent is hard-deleted; soft-deletion of the
+    # parent is handled at the serializer layer (text nulled, deleted=True)
+    # so moderated content never leaks through children that quoted it.
+    reply_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="replies",
+    )
 
     class Meta:
         db_table = "messages"
@@ -54,6 +65,7 @@ class Messages(models.Model):
             models.Index(fields=["group", "sent_at"]),
             models.Index(fields=["sender_user"]),
             models.Index(fields=["deleted_at"]),
+            models.Index(fields=["reply_to"]),
         ]
 
     @property
