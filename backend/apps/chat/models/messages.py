@@ -10,6 +10,7 @@ SELF_ACTION_WINDOW = timedelta(minutes=10)
 
 class MessageType(models.TextChoices):
     TEXT = "text", "Text"
+    ATTACHMENT = "attachment", "Attachment"
     RESOURCE = "resource", "Resource Link"
     SYSTEM = "system", "System Message"
 

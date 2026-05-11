@@ -12,6 +12,7 @@ from django.apps import apps as dj_apps
 
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
 from apps.resources.services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
+from apps.users.models import AdminScope
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 
@@ -212,6 +213,7 @@ class RoleManagementApiTests(TestCase):
         self.user = get_user_model().objects.create_user(password="pw12345", email = "test_email@gmail.com")
         # Admin
         self.admin = get_user_model().objects.create_user(password="pw123456", email = "admin_test_email@gmail.com", is_staff = True)
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
     def test_create_requires_admin(self):
         self.client.force_authenticate(self.user)
@@ -247,6 +249,7 @@ class RoleAssignmentPatchApiTests(TestCase):
         # admin vs non-admin
         self.non_admin = AuthUser.objects.create_user(email="reader@example.com", password="pw")
         self.admin = AuthUser.objects.create_user(email="admin@example.com", password="pw", is_staff=True)
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
         # FK chain for Users
         Countries = dj_apps.get_model('groups', 'Countries')
@@ -423,6 +426,7 @@ class GrantRoleComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -534,6 +538,7 @@ class ResourcesCRUDComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -564,8 +569,8 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['name'], 'Test Resource')
-        # The uploader should be the authenticated user (admin_user)
-        self.assertEqual(response.data['uploader']['email'], 'admin@test.com')
+        self.assertEqual(response.data['uploader_name'], 'Admin User')
+        self.assertNotIn('uploader', response.data)
         
         # Verify resource was created in database
         resource = Resources.objects.get(name='Test Resource')
@@ -646,7 +651,8 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['name'], 'Test Resource')
-        self.assertEqual(response.data['uploader']['email'], 'user@test.com')
+        self.assertEqual(response.data['uploader_name'], 'Regular User')
+        self.assertNotIn('uploader', response.data)
     
     def test_update_resource(self):
         """Test resource update"""
@@ -729,6 +735,7 @@ class PaginationComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         
         # Create multiple resources for pagination testing
         for i in range(25):
@@ -824,6 +831,7 @@ class ResourceRolesComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -916,7 +924,7 @@ class ResourceRolesComprehensiveTests(TestCase):
         self.assertIn('not assigned', response.data['error'])
     
     def test_resource_with_visible_roles(self):
-        """Test that resource shows visible roles in API response"""
+        """Test that public resource detail hides internal role visibility fields"""
         # Assign roles to resource
         ResourceRoles.objects.create(resource=self.resource, role=self.supervisor_role)
         ResourceRoles.objects.create(resource=self.resource, role=self.student_role)
@@ -925,13 +933,11 @@ class ResourceRolesComprehensiveTests(TestCase):
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('visible_roles', response.data)
-        self.assertEqual(len(response.data['visible_roles']), 2)
-        
-        # Check role names
-        role_names = [role['role_name'] for role in response.data['visible_roles']]
-        self.assertIn('Supervisor', role_names)
-        self.assertIn('Student', role_names)
+        self.assertNotIn('visible_roles', response.data)
+        self.assertEqual(
+            ResourceRoles.objects.filter(resource=self.resource).count(),
+            2,
+        )
     
     def test_assign_role_missing_role_id(self):
         """Test error handling for missing role_id"""
@@ -1053,6 +1059,7 @@ class CreateRoleAPITests(TestCase):
             password="adminpass123",
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
     def test_create_role_unauthenticated_fails(self):
         """Test that unauthenticated requests are rejected"""
@@ -1203,6 +1210,7 @@ class CreateRoleIntegrationTests(TestCase):
             password="adminpass123",
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
     def test_created_role_can_be_assigned_to_user(self):
         """Test that a newly created role can be assigned to users"""
@@ -1316,6 +1324,7 @@ class ResourceTypeAPITests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -1356,8 +1365,8 @@ class ResourceTypeAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['name'], 'Python Guide')
-        self.assertIn('resource_type_detail', response.data)
-        self.assertEqual(response.data['resource_type_detail']['type_name'], 'guide')
+        self.assertEqual(response.data['type_name'], 'guide')
+        self.assertNotIn('resource_type_detail', response.data)
 
         # Verify in database
         resource = Resources.objects.get(name='Python Guide')
@@ -1375,7 +1384,8 @@ class ResourceTypeAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['name'], 'Untitled Resource')
-        self.assertIsNone(response.data.get('resource_type_detail'))
+        self.assertIsNone(response.data.get('type_name'))
+        self.assertNotIn('resource_type_detail', response.data)
 
         # Verify in database
         resource = Resources.objects.get(name='Untitled Resource')
@@ -1403,13 +1413,14 @@ class ResourceTypeAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
 
-        # Check that resource_type_detail is included
+        # Check that the public list shape exposes the type name only.
         for resource in response.data['results']:
-            self.assertIn('resource_type_detail', resource)
+            self.assertIn('type_name', resource)
+            self.assertNotIn('resource_type_detail', resource)
             if resource['name'] == 'Video Tutorial':
-                self.assertEqual(resource['resource_type_detail']['type_name'], 'video')
+                self.assertEqual(resource['type_name'], 'video')
             elif resource['name'] == 'PDF Document':
-                self.assertEqual(resource['resource_type_detail']['type_name'], 'document')
+                self.assertEqual(resource['type_name'], 'document')
 
     def test_update_resource_type(self):
         """Test updating a resource's type"""
@@ -1428,7 +1439,8 @@ class ResourceTypeAPITests(TestCase):
         response = self.client.patch(url, data, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['resource_type_detail']['type_name'], 'video')
+        self.assertEqual(response.data['type_name'], 'video')
+        self.assertNotIn('resource_type_detail', response.data)
 
         # Verify in database
         resource.refresh_from_db()
@@ -1451,7 +1463,8 @@ class ResourceTypeAPITests(TestCase):
         response = self.client.patch(url, data, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.data.get('resource_type_detail'))
+        self.assertIsNone(response.data.get('type_name'))
+        self.assertNotIn('resource_type_detail', response.data)
 
         # Verify in database
         resource.refresh_from_db()
@@ -1515,12 +1528,8 @@ class ResourceTypeAPITests(TestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('resource_type_detail', response.data)
-
-        type_detail = response.data['resource_type_detail']
-        self.assertEqual(type_detail['id'], self.template_type.id)
-        self.assertEqual(type_detail['type_name'], 'template')
-        self.assertEqual(type_detail['type_description'], 'Template resources')
+        self.assertEqual(response.data['type_name'], 'template')
+        self.assertNotIn('resource_type_detail', response.data)
 
 
 class ResourceTypeIntegrationTests(TestCase):
@@ -1537,6 +1546,7 @@ class ResourceTypeIntegrationTests(TestCase):
             last_name='User',
             is_staff=True
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
 
         # Get or create all 4 resource types (migration may have already created them)
         self.document_type, _ = ResourceType.objects.get_or_create(
@@ -1603,9 +1613,12 @@ class ResourceTypeIntegrationTests(TestCase):
         response = self.client.post(url, data, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['resource_type_detail']['type_name'], 'guide')
-        self.assertEqual(len(response.data['visible_roles']), 1)
-        self.assertEqual(response.data['visible_roles'][0]['role_name'], 'Supervisor')
+        self.assertEqual(response.data['type_name'], 'guide')
+        self.assertNotIn('visible_roles', response.data)
+        self.assertEqual(
+            ResourceRoles.objects.filter(role=self.supervisor_role).count(),
+            1,
+        )
 
     def test_data_migration_populated_types(self):
         """Test that data migration has populated the 4 types"""

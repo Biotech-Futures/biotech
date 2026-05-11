@@ -22,6 +22,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,7 +45,7 @@ onMounted(async () => {
     const userData = await auth.fetchUserData()
 
     if (userData) {
-      await router.push('/dashboard')
+      await redirectAfterLogin(auth, router)
       return
     }
 

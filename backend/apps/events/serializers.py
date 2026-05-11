@@ -61,6 +61,16 @@ class EventSerializer(serializers.ModelSerializer):
     target_groups = serializers.SerializerMethodField()
     target_tracks = serializers.SerializerMethodField()
     target_roles = serializers.SerializerMethodField()
+    # event_image is a CharField on the model but should behave like the other
+    # URL-bearing fields (location_link is URLField; dashboard exposes
+    # event_image as URLField). Promoting it here keeps validation uniform —
+    # rejects javascript: and other non-http(s) schemes, accepts blank/null.
+    event_image = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+    )
 
     class Meta:
         model = Events

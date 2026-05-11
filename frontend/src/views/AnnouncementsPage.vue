@@ -1,14 +1,13 @@
 <template>
   <div class="content-area">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;">
+    <div class="announcements-toolbar">
       <h1>Recent Announcements</h1>
-      <div style="display:flex;gap:0.75rem;align-items:center;">
+      <div class="announcements-toolbar-actions">
         <input
           v-model="q"
           type="text"
           class="form-control"
           placeholder="Search announcements..."
-          style="width: 320px;"
         />
       </div>
     </div>
@@ -23,32 +22,51 @@
     </div>
 
     <template v-else>
-      <div class="card" v-for="a in filtered" :key="a.id" style="margin-bottom:1rem;">
-        <div class="card-header" style="margin-bottom:0;padding-bottom:0;border-bottom:none;">
-          <div class="announcement-card-heading">
-            <h3 class="card-title announcement-card-title">{{ a.title }}</h3>
-            <span class="status-badge announcement-card-badge" :class="getAudienceClass(a.audience)">
-              {{ getAudienceLabel(a.audience) }}
-            </span>
-          </div>
-        </div>
-        <div style="color:#6c757d;margin:0.25rem 0 1rem;">
-          {{ formatDate(a.date) }} by {{ a.author || 'Program Team' }}
-        </div>
-        <p style="margin-bottom:1rem;line-height:1.7;">{{ a.summary }}</p>
+      <div class="announcements-list">
+        <article
+          v-for="a in filtered"
+          :key="a.id"
+          class="announcement-card"
+          :class="{ 'announcement-card--with-image': a.imageUrl }"
+        >
+          <figure v-if="a.imageUrl" class="announcement-card-media">
+            <img
+              :src="a.imageUrl"
+              :alt="`${a.title} announcement image`"
+              loading="lazy"
+              @error="handleAnnouncementImageError(a)"
+            />
+          </figure>
 
-        <div>
-          <RouterLink v-if="a.route" :to="a.route" class="btn btn-outline btn-sm">Read more</RouterLink>
-          <a
-            v-else-if="a.link"
-            :href="a.link"
-            target="_blank"
-            rel="noopener"
-            class="btn btn-outline btn-sm"
-          >
-            Open link
-          </a>
-        </div>
+          <div class="announcement-card-content">
+            <div class="card-header announcement-card-header">
+              <div class="announcement-card-heading">
+                <h3 class="card-title announcement-card-title">{{ a.title }}</h3>
+                <span class="status-badge announcement-card-badge" :class="getAudienceClass(a.audience)">
+                  {{ getAudienceLabel(a.audience) }}
+                </span>
+              </div>
+            </div>
+
+            <div class="announcement-card-meta">
+              {{ formatDate(a.date) }} by {{ a.author || 'Program Team' }}
+            </div>
+            <p class="announcement-card-summary">{{ a.summary }}</p>
+
+            <div v-if="a.route || a.link" class="announcement-card-actions">
+              <RouterLink v-if="a.route" :to="a.route" class="btn btn-outline btn-sm">Read more</RouterLink>
+              <a
+                v-else-if="a.link"
+                :href="a.link"
+                target="_blank"
+                rel="noopener"
+                class="btn btn-outline btn-sm"
+              >
+                Open link
+              </a>
+            </div>
+          </div>
+        </article>
       </div>
     </template>
 
@@ -78,6 +96,7 @@ interface AnnouncementApiItem {
   archived_at?: string | null
   author_email?: string | null
   author?: string | null
+  image_url?: string | null
   audiences?: AnnouncementAudience[]
 }
 
@@ -92,6 +111,7 @@ interface AnnouncementItem {
   author: string
   summary: string
   audience: string
+  imageUrl?: string
   link?: string
   route?: string | null
 }
@@ -133,6 +153,18 @@ const truncateText = (value?: string | null, maxLength = 220) => {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1).trim()}...` : text
 }
 
+const normalizeImageUrl = (value?: string | null) => {
+  const url = String(value || '').trim()
+  if (!url) return undefined
+  if (/^(https?:|data:|blob:|\/\/)/i.test(url)) return url
+
+  try {
+    return new URL(url, API_BASE_URL).toString()
+  } catch {
+    return undefined
+  }
+}
+
 const extractCollectionItems = (data: AnnouncementApiItem[] | AnnouncementListResponse | null) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
@@ -158,7 +190,8 @@ const normalizeAnnouncement = (announcement: AnnouncementApiItem): AnnouncementI
     date: announcement?.published_at || '',
     author: announcement?.author_email || announcement?.author || 'Program Team',
     summary: truncateText(body),
-    audience
+    audience,
+    imageUrl: normalizeImageUrl(announcement?.image_url)
   }
 }
 
@@ -197,6 +230,10 @@ const getAudienceClass = (audience: string) => {
   return classes[audience] || 'status-active'
 }
 
+const handleAnnouncementImageError = (announcement: AnnouncementItem) => {
+  announcement.imageUrl = undefined
+}
+
 async function loadAnnouncements() {
   isLoading.value = true
   loadError.value = ''
@@ -233,6 +270,89 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.announcements-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.announcements-toolbar h1 {
+  margin: 0;
+}
+
+.announcements-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: min(320px, 100%);
+}
+
+.announcements-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.announcement-card {
+  width: min(100%, 860px);
+  background: var(--white);
+  border: 1px solid rgba(1, 113, 81, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px var(--shadow);
+  transition:
+    box-shadow 0.3s ease,
+    transform 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.announcement-card:hover {
+  border-color: rgba(1, 113, 81, 0.2);
+  box-shadow: 0 4px 12px var(--shadow);
+  transform: translateY(-1px);
+}
+
+.announcement-card:not(.announcement-card--with-image) {
+  padding: 1.5rem;
+}
+
+.announcement-card--with-image {
+  display: grid;
+  grid-template-columns: minmax(280px, 42%) minmax(0, 1fr);
+  width: min(100%, 1100px);
+  min-height: 260px;
+  overflow: hidden;
+}
+
+.announcement-card-media {
+  min-height: 260px;
+  background: var(--light-green);
+}
+
+.announcement-card-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  object-fit: cover;
+}
+
+.announcement-card-content {
+  padding: 1.5rem;
+}
+
+.announcement-card--with-image .announcement-card-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.announcement-card-header {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
 .announcement-card-heading {
   display: flex;
   align-items: center;
@@ -252,7 +372,46 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.announcement-card-meta {
+  color: #6c757d;
+  margin: 0.25rem 0 1rem;
+}
+
+.announcement-card-summary {
+  margin-bottom: 1rem;
+  line-height: 1.7;
+}
+
+.announcement-card-actions {
+  margin-top: auto;
+}
+
+@media (max-width: 900px) {
+  .announcement-card--with-image {
+    grid-template-columns: 1fr;
+  }
+
+  .announcement-card-media,
+  .announcement-card-media img {
+    min-height: 220px;
+  }
+}
+
 @media (max-width: 640px) {
+  .announcements-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .announcements-toolbar-actions {
+    width: 100%;
+  }
+
+  .announcement-card:not(.announcement-card--with-image),
+  .announcement-card-content {
+    padding: 1.25rem;
+  }
+
   .announcement-card-heading {
     align-items: flex-start;
     flex-direction: column;
