@@ -187,6 +187,8 @@ function UserManagementPage() {
           role: values.role,
           track: values.track ?? undefined,
           adminTracks: values.role === "admin" ? values.adminTracks : undefined,
+          adminIsGlobal:
+            values.role === "admin" ? values.adminIsGlobal : undefined,
           schoolName: values.role === "student" ? values.schoolName : undefined,
           supervisorSchoolName:
             values.role === "supervisor"
@@ -239,6 +241,8 @@ function UserManagementPage() {
           role: values.role,
           track: values.role === "admin" ? null : values.track,
           adminTracks: values.role === "admin" ? values.adminTracks : undefined,
+          adminIsGlobal:
+            values.role === "admin" ? values.adminIsGlobal : undefined,
           schoolName: values.role === "student" ? values.schoolName : null,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : null,
@@ -332,6 +336,7 @@ function UserManagementPage() {
           role: row.role,
           track: row.track ?? undefined,
           adminTracks: row.role === "admin" ? row.adminTracks : undefined,
+          adminIsGlobal: row.role === "admin" ? row.adminIsGlobal : undefined,
           schoolName: row.role === "student" ? row.schoolName : undefined,
           supervisorSchoolName:
             row.role === "supervisor" ? row.supervisorSchoolName : undefined,

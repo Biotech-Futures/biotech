@@ -99,11 +99,18 @@ export function UserDetailSheet({
             />
           )}
 
-          {user.role === "admin" && user.adminTracks.length > 0 && (
+          {user.role === "admin" && (
             <DetailSection
               title="Admin Profile"
               items={[
-                { label: "Managed Tracks", value: user.adminTracks.join(", ") },
+                {
+                  label: "Scope",
+                  value: user.adminIsGlobal ? "Global admin" : "Track admin",
+                },
+                {
+                  label: "Managed Tracks",
+                  value: user.adminTracks.length ? user.adminTracks.join(", ") : "-",
+                },
               ]}
             />
           )}
