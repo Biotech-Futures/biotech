@@ -72,8 +72,9 @@ const router = createRouter({
 })
 
 import { useAuthStore } from '../stores/auth'
+import { redirectAdminToAdminPortal } from '@/utils/postLoginRedirect'
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
 
   const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
   const auth = useAuthStore()
@@ -82,11 +83,12 @@ router.beforeEach((to, from, next) => {
     next('/login')
 
   } else if (!publicPaths.includes(to.path) && auth.isAuthenticated && auth.isAdmin) {
-    next('/login')
+    await redirectAdminToAdminPortal(auth)
+    return
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.isAdmin) {
-      next()
+      await redirectAdminToAdminPortal(auth)
       return
     }
 
