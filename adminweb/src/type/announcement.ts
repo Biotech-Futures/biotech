@@ -9,7 +9,7 @@ export type Announcement = {
   id: number;
   title: string;
   body: string;
-  visibilityScope: "global" | "track_based" | "role_based";
+  visibilityScope: "global" | "track_based" | "role_based" | "track_role_based";
   publishedAt: string;
   archivedAt: string | null;
   authorUserId: number;

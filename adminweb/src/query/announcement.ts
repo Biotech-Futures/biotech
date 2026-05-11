@@ -75,8 +75,7 @@ export function useCreateAnnouncement() {
     mutationFn: async (data: {
       title: string;
       body: string;
-      visibility_scope: string;
-      track_id?: number;
+      track_ids?: number[];
       role_ids?: number[];
       send_email: boolean;
     }) => {
@@ -101,8 +100,7 @@ export function useUpdateAnnouncement() {
       data: {
         title?: string;
         body?: string;
-        visibility_scope?: string;
-        track_id?: number | null;
+        track_ids?: number[];
         role_ids?: number[];
         send_email?: boolean;
       };

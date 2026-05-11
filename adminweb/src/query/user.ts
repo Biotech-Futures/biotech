@@ -22,6 +22,7 @@ type CreateUserPayload = {
   role: UserRole;
   track?: UserTrack;
   adminTracks?: UserTrack[];
+  adminIsGlobal?: boolean;
   schoolName?: string;
   supervisorSchoolName?: string;
   mentorBackground?: string | null;
@@ -40,6 +41,7 @@ type UpdateUserPayload = {
   role?: UserRole;
   track?: UserTrack | null;
   adminTracks?: string[];
+  adminIsGlobal?: boolean;
   schoolName?: string | null;
   supervisorSchoolName?: string | null;
   mentorBackground?: string | null;
@@ -286,6 +288,7 @@ export function normalizeServerUser(
     joinPermissionReceived: Boolean(user.joinPermissionReceived),
     interests: Array.isArray(user.interests) ? user.interests : [],
     adminTracks: Array.isArray((user as any).adminTracks) ? (user as any).adminTracks : [],
+    adminIsGlobal: Boolean((user as any).adminIsGlobal),
     createdAt:
       user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
     updatedAt:
@@ -325,6 +328,7 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
     adminTracks: values.role === "admin" ? values.adminTracks : [],
+    adminIsGlobal: values.role === "admin" ? values.adminIsGlobal : false,
     interests:
       values.role === "student" || values.role === "mentor"
         ? values.interests
@@ -397,6 +401,12 @@ export function parseCsvUsers(text: string) {
       const role = normalizeRole(roleValue);
       const track = normalizeTrack((row[headerIndex.track] ?? "").trim());
       const adminTracksRaw = (row[headerIndex.admintracks] ?? "").trim();
+      const adminIsGlobalRaw = (
+        row[headerIndex.adminisglobal] ??
+        row[headerIndex.globaladmin] ??
+        row[headerIndex.isglobaladmin] ??
+        ""
+      ).trim();
       const statusRaw = (row[headerIndex.status] ?? "").trim().toLowerCase();
       const schoolName = (
         row[headerIndex.school] ??
@@ -436,6 +446,7 @@ export function parseCsvUsers(text: string) {
         role,
         track,
         adminTracks: parseTrackList(adminTracksRaw),
+        adminIsGlobal: parseBoolean(adminIsGlobalRaw),
         schoolName,
         supervisorSchoolName:
           role === "supervisor"

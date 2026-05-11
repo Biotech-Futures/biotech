@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,6 +47,7 @@ const initialValues: UserFormValues = {
   role: "student",
   track: null,
   adminTracks: [],
+  adminIsGlobal: false,
   schoolName: "",
   supervisorSchoolName: "",
   mentorBackground: "",
@@ -82,6 +84,7 @@ export function UserEditorSheet({
     new Set([
       ...(tracks ?? []).map((item) => item.trackName),
       ...(user?.track ? [user.track] : []),
+      ...(user?.adminTracks ?? []),
     ]),
   );
 
@@ -96,6 +99,7 @@ export function UserEditorSheet({
         role: user.role,
         track: user.track,
         adminTracks: user.role === "admin" ? (user.adminTracks ?? []) : [],
+        adminIsGlobal: user.role === "admin" ? user.adminIsGlobal : false,
         schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
         supervisorSchoolName:
           user.role === "supervisor" ? (user.schoolName ?? "") : "",
@@ -137,8 +141,12 @@ export function UserEditorSheet({
       window.alert("Track is required for non-admin users.");
       return;
     }
-    if (mode === "create" && values.role === "admin" && !values.adminTracks.length) {
-      window.alert("At least one admin track is required for admin users.");
+    if (
+      values.role === "admin" &&
+      !values.adminIsGlobal &&
+      !values.adminTracks.length
+    ) {
+      window.alert("Select global admin or at least one admin track.");
       return;
     }
     if (values.role === "student") {
@@ -251,6 +259,7 @@ export function UserEditorSheet({
                   role: value as UserRole,
                   track: value === "admin" ? null : current.track,
                   adminTracks: value === "admin" ? current.adminTracks : [],
+                  adminIsGlobal: value === "admin" ? current.adminIsGlobal : false,
                 }))
               }
             >
@@ -268,7 +277,20 @@ export function UserEditorSheet({
           </div>
 
           {values.role === "admin" ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
+              <label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm">
+                <Checkbox
+                  checked={values.adminIsGlobal}
+                  onCheckedChange={(checked) =>
+                    setValues((current) => ({
+                      ...current,
+                      adminIsGlobal: checked === true,
+                    }))
+                  }
+                />
+                <span className="font-medium">Global admin</span>
+              </label>
+
               <Label>Admin Tracks</Label>
               <div className="max-h-40 overflow-auto rounded-md border p-3">
                 {availableTracks.length ? (
@@ -285,6 +307,7 @@ export function UserEditorSheet({
                             type="checkbox"
                             className="size-4 rounded border-border"
                             checked={checked}
+                            disabled={values.adminIsGlobal}
                             onChange={() =>
                               setValues((current) => ({
                                 ...current,

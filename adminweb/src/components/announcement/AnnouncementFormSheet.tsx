@@ -7,16 +7,8 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,8 +29,6 @@ import {
 import type { Announcement } from "@/type/announcement";
 import { toast } from "sonner";
 
-type VisibilityScope = "global" | "track_based" | "role_based";
-
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,8 +40,7 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [scope, setScope] = useState<VisibilityScope>("global");
-  const [trackId, setTrackId] = useState<number | null>(null);
+  const [trackIds, setTrackIds] = useState<number[]>([]);
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingSendEmail, setPendingSendEmail] = useState(false);
@@ -62,11 +51,15 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
   const { mutateAsync: update, isPending: updating } = useUpdateAnnouncement();
 
   useEffect(() => {
+    if (!open) return;
     if (editing) {
       setTitle(editing.title);
       setBody(editing.body ?? "");
-      setScope(editing.visibilityScope as VisibilityScope);
-      setTrackId(editing.trackId);
+      // Populate track IDs from audience records
+      const existingTrackIds = editing.audiences
+        .map((a) => a.trackId)
+        .filter((id): id is number => id !== null);
+      setTrackIds(existingTrackIds.length > 0 ? existingTrackIds : (editing.trackId ? [editing.trackId] : []));
       setRoleIds(
         editing.audiences
           .map((a) => a.roleId)
@@ -75,11 +68,16 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
     } else {
       setTitle("");
       setBody("");
-      setScope("global");
-      setTrackId(null);
+      setTrackIds([]);
       setRoleIds([]);
     }
   }, [editing, open]);
+
+  function toggleTrack(id: number) {
+    setTrackIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+    );
+  }
 
   function toggleRole(id: number) {
     setRoleIds((prev) =>
@@ -91,9 +89,8 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
     return {
       title,
       body,
-      visibility_scope: scope,
-      track_id: scope === "track_based" ? (trackId ?? undefined) : undefined,
-      role_ids: scope === "role_based" ? roleIds : undefined,
+      track_ids: trackIds.length > 0 ? trackIds : undefined,
+      role_ids: roleIds.length > 0 ? roleIds : undefined,
       send_email: sendEmail,
     };
   }
@@ -105,16 +102,13 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
         toast.success(sendEmail ? "Saved and re-notified" : "Saved");
       } else {
         await create(buildPayload(sendEmail));
-        toast.success("Published and notified");
+        toast.success("Published");
       }
       onOpenChange(false);
     } catch {
       toast.error("Something went wrong");
     }
   }
-
-  // Create: one button → confirm dialog → publish + email
-  // Edit: Save (no email) + Save & Re-notify (with email)
 
   return (
     <>
@@ -139,58 +133,47 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
 
             <RichEditor value={body} onChange={setBody} />
 
-            <div className="space-y-1.5">
-              <Label>Audience</Label>
-              <Select
-                value={scope}
-                onValueChange={(v) => setScope(v as VisibilityScope)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="global">All users</SelectItem>
-                  <SelectItem value="track_based">By track</SelectItem>
-                  <SelectItem value="role_based">By role</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {scope === "track_based" && (
-              <div className="space-y-1.5">
-                <Label>Track</Label>
-                <Select
-                  value={trackId ? String(trackId) : ""}
-                  onValueChange={(v) => setTrackId(Number(v))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select track" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tracks?.map((t) => (
-                      <SelectItem key={t.id} value={String(t.id)}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {(tracks?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <Label>Target Tracks</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {tracks!.map((t) => (
+                    <label
+                      key={t.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={trackIds.includes(t.id)}
+                        onChange={() => toggleTrack(t.id)}
+                      />
+                      {t.name}
+                    </label>
+                  ))}
+                </div>
+                {trackIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {trackIds.length} track{trackIds.length > 1 ? "s" : ""} selected
+                  </p>
+                )}
               </div>
             )}
 
-            {scope === "role_based" && (
-              <div className="space-y-1.5">
-                <Label>Roles</Label>
-                <div className="rounded-md border divide-y max-h-48 overflow-y-auto">
-                  {roles?.map((r) => (
+            {(roles?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <Label>Target Roles</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {roles!.map((r) => (
                     <label
                       key={r.id}
-                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-accent"
+                      className="flex items-center gap-2 text-sm cursor-pointer"
                     >
-                      <Checkbox
+                      <input
+                        type="checkbox"
                         checked={roleIds.includes(r.id)}
-                        onCheckedChange={() => toggleRole(r.id)}
+                        onChange={() => toggleRole(r.id)}
                       />
-                      <span className="text-sm">{r.name}</span>
+                      {r.name}
                     </label>
                   ))}
                 </div>
@@ -200,6 +183,12 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
                   </p>
                 )}
               </div>
+            )}
+
+            {trackIds.length === 0 && roleIds.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No tracks or roles selected — announcement will be visible to all users.
+              </p>
             )}
           </div>
 

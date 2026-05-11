@@ -30,6 +30,7 @@ const USER_IMPORT_TEMPLATE = [
     "role",
     "track",
     "adminTracks",
+    "adminIsGlobal",
     "school",
     "yearLevel",
     "interests",
@@ -46,6 +47,7 @@ const USER_IMPORT_TEMPLATE = [
     "ava.nguyen@example.com",
     "student",
     "AUS-NSW",
+    "",
     "",
     "Example High School",
     "10",
@@ -66,6 +68,7 @@ const USER_IMPORT_TEMPLATE = [
     "",
     "",
     "",
+    "",
     "Biotechnology, Research",
     "University of Sydney",
     "Interested in supporting student research projects",
@@ -80,6 +83,7 @@ const USER_IMPORT_TEMPLATE = [
     "mia.chen@example.com",
     "supervisor",
     "AUS-VIC",
+    "",
     "",
     "Example High School",
     "",
@@ -98,6 +102,7 @@ const USER_IMPORT_TEMPLATE = [
     "admin",
     "",
     "AUS-NSW|AUS-QLD",
+    "no",
     "",
     "",
     "",
@@ -165,11 +170,12 @@ export function UserBulkUploadSheet({
       return;
     }
     const adminMissingTracks = rows.find(
-      (row) => row.role === "admin" && !row.adminTracks.length,
+      (row) =>
+        row.role === "admin" && !row.adminIsGlobal && !row.adminTracks.length,
     );
     if (adminMissingTracks) {
       window.alert(
-        `At least one admin track is required for admin user ${adminMissingTracks.email}.`,
+        `Select global admin or at least one admin track for admin user ${adminMissingTracks.email}.`,
       );
       return;
     }
@@ -236,7 +242,7 @@ export function UserBulkUploadSheet({
           <SheetTitle>Bulk Upload Users</SheetTitle>
           <SheetDescription>
             Upload a CSV with either a single name column or split firstName and
-            lastName columns, plus email, role, track, adminTracks, school,
+            lastName columns, plus email, role, track, adminTracks, adminIsGlobal, school,
             yearLevel, interests, institution, mentorReason, maxGroupCount,
             background, joinPermissionReceived, and status.
           </SheetDescription>

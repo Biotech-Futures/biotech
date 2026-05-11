@@ -23,6 +23,7 @@ export type UserAccount = {
   joinPermissionReceived: boolean;
   interests: string[];
   adminTracks: string[];
+  adminIsGlobal: boolean;
   createdAt: string;
   updatedAt: string;
   active: boolean;
@@ -49,6 +50,7 @@ export type UserFormValues = {
   role: UserRole;
   track: UserTrack | null;
   adminTracks: UserTrack[];
+  adminIsGlobal: boolean;
   schoolName: string;
   supervisorSchoolName: string;
   mentorBackground: string;

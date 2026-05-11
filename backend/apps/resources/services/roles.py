@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 from django.contrib.auth.models import Group
 from django.db import transaction
@@ -64,10 +66,21 @@ def grant_role(user, role: Roles, start=None, revoke_others=True, force=False):
     dict: Information about what was done
   """
   start = start or timezone.now()
-  
+
+  # Clock-resolution guard: Windows ``time.time``/``datetime.now`` can
+  # return the same microsecond timestamp for two adjacent calls, which
+  # collides with the ``UniqueConstraint(user, role, valid_from)``. Nudge
+  # ``start`` forward in 1µs steps until it does not match an existing
+  # row. Bounded by the (small) number of rows for this (user, role)
+  # and safe inside the surrounding ``transaction.atomic``.
+  while RoleAssignmentHistory.objects.filter(
+      user=user, role=role, valid_from=start
+  ).exists():
+      start = start + timedelta(microseconds=1)
+
   # Get current active roles before changes
   current_active_roles = RoleAssignmentHistory.objects.filter(
-      user=user, 
+      user=user,
       valid_to__isnull=True
         # ).values_list('role__role_name', flat=True)
   )
