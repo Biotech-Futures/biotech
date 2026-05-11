@@ -6,9 +6,38 @@ from apps.common.filenames import sanitize_upload_filename
 from apps.common.upload_validation import validate_uploaded_file
 from apps.resources.models import Resources
 
-from .models import MessageAttachment, MessageResource, MessageStatus, Messages, MessageType
+from .models import (
+    MessageAttachment,
+    MessageReaction,
+    MessageResource,
+    MessageStatus,
+    Messages,
+    MessageType,
+)
 from .services.storage import stored_chat_file
 from .utils import sanitize_text
+
+
+def aggregate_reactions(message):
+    """Group reactions on a message into the public payload shape.
+
+    Returns ``{emoji: {"count": int, "users": [{"id", "name"}, ...]}}``.
+    Iterates the prefetched ``message.reactions.all()`` to avoid an
+    extra query per message in list endpoints.
+    """
+    bucket = {}
+    for reaction in message.reactions.all():
+        entry = bucket.setdefault(
+            reaction.emoji, {"count": 0, "users": []}
+        )
+        entry["count"] += 1
+        entry["users"].append(
+            {
+                "id": reaction.user_id,
+                "name": reaction.user.get_full_name(),
+            }
+        )
+    return bucket
 
 
 class MessageResourceSerializer(serializers.ModelSerializer):
@@ -169,6 +198,11 @@ class MessageSerializer(serializers.ModelSerializer):
     )
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    reactions = serializers.SerializerMethodField()
+    read_count = serializers.IntegerField(source="_read_count", read_only=True, default=0)
+    delivered_count = serializers.IntegerField(source="_delivered_count", read_only=True, default=0)
+    is_read_by_me = serializers.BooleanField(source="_is_read_by_me", read_only=True, default=False)
+    is_delivered_to_me = serializers.BooleanField(source="_is_delivered_to_me", read_only=True, default=False)
 
     # Read: nested lightweight parent context (or null if not a reply).
     # Write: ``reply_to_id`` accepts a PK constrained to the current
@@ -197,6 +231,11 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_edited",
             "attachments",
             "resources",
+            "reactions",
+            "read_count",
+            "delivered_count",
+            "is_read_by_me",
+            "is_delivered_to_me",
             "reply_to",
             "reply_to_id",
         ]
@@ -204,6 +243,9 @@ class MessageSerializer(serializers.ModelSerializer):
             "id", "group", "sender_user",
             "sent_at", "edited_at", "deleted_at",
         ]
+
+    def get_reactions(self, obj):
+        return aggregate_reactions(obj)
 
     def create(self, validated_data):
         resources_data = validated_data.pop("resources", [])
@@ -236,6 +278,11 @@ class MessagePublicSerializer(serializers.ModelSerializer):
         source="sender_user.get_full_name", read_only=True
     )
     is_edited = serializers.BooleanField(read_only=True)
+    reactions = serializers.SerializerMethodField()
+    read_count = serializers.IntegerField(source="_read_count", read_only=True, default=0)
+    delivered_count = serializers.IntegerField(source="_delivered_count", read_only=True, default=0)
+    is_read_by_me = serializers.BooleanField(source="_is_read_by_me", read_only=True, default=False)
+    is_delivered_to_me = serializers.BooleanField(source="_is_delivered_to_me", read_only=True, default=False)
     # Embedded parent context for quoted replies. Same flat shape as
     # MessageSerializer's ``reply_to`` — see ``ReplyToSerializer`` for
     # the recursion-bound rationale.
@@ -253,9 +300,17 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             "is_edited",
             "attachments",
             "resources",
+            "reactions",
+            "read_count",
+            "delivered_count",
+            "is_read_by_me",
+            "is_delivered_to_me",
             "reply_to",
         ]
         read_only_fields = fields
+
+    def get_reactions(self, obj):
+        return aggregate_reactions(obj)
 
 
 class MessageAttachmentUploadSerializer(serializers.Serializer):

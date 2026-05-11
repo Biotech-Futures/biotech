@@ -22,7 +22,9 @@ For deletes the embedded message has ``is_deleted=true`` and a non-null
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from apps.chat.models import Messages
 from apps.chat.rbac import can_access_chat_group
+from apps.chat.views import mark_delivered_cursor
 from apps.groups.models import Groups
 
 
@@ -49,13 +51,54 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
+        # Catch-up: mark everything currently in the group as delivered
+        # for this user, mirroring WhatsApp's "double-tick on app open".
+        # Runs after ``accept()`` so a slow DB query never delays the
+        # handshake.
+        await self._auto_mark_delivered(user)
+
     @database_sync_to_async
     def _can_access_group(self, user):
         group = Groups.objects.only("id", "track_id").filter(pk=self.group_id).first()
         return can_access_chat_group(user, group)
 
+    @database_sync_to_async
+    def _auto_mark_delivered(self, user):
+        latest_id = (
+            Messages.objects
+            .filter(group_id=self.group_id, deleted_at__isnull=True)
+            .exclude(sender_user_id=user.id)
+            .order_by("-id")
+            .values_list("id", flat=True)
+            .first()
+        )
+        if latest_id is None:
+            return
+        mark_delivered_cursor(user, self.group_id, latest_id)
+
     async def chat_message(self, event):
-        await self.send_json(event["payload"])
+        # Mirror per-message live delivery: when this consumer forwards a
+        # newly-created message to its client, also mark that message as
+        # delivered for the connected user (skipping the sender, who has
+        # no MessageStatus row of their own). Idempotent.
+        payload = event.get("payload") or {}
+        if payload.get("event") == "message.created":
+            user = self.scope.get("user")
+            msg = payload.get("message") or {}
+            sender_id = msg.get("sender_user") or msg.get("sender_id")
+            mid = msg.get("id")
+            if (
+                user is not None
+                and getattr(user, "is_authenticated", False)
+                and isinstance(mid, int)
+                and sender_id != user.id
+            ):
+                await self._mark_one_delivered(user, mid)
+        await self.send_json(payload)
+
+    @database_sync_to_async
+    def _mark_one_delivered(self, user, message_id):
+        mark_delivered_cursor(user, self.group_id, message_id)
 
     async def disconnect(self, code):
         if hasattr(self, "room_group_name"):
