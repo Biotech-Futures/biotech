@@ -17,8 +17,15 @@ from .management.permissions import (
     IsGroupMemberOrAdmin,
 )
 from .rbac import can_access_chat_group
-from .models import MessageAttachment, MessageReaction, MessageStatus, Messages
+from .models import (
+    MessageAttachment,
+    MessageMention,
+    MessageReaction,
+    MessageStatus,
+    Messages,
+)
 from .serializers import (
+    MentionSerializer,
     MessageAttachmentUploadSerializer,
     MessagePublicSerializer,
     MessageSerializer,
@@ -26,7 +33,8 @@ from .serializers import (
     aggregate_reactions,
 )
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
-from apps.groups.models import Groups
+from .utils import parse_mentions
+from apps.groups.models import Groups, GroupMembership
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -126,6 +134,93 @@ def _broadcast_reaction(group_id: int, message_id: int, reactions: dict) -> None
         async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
 
     transaction.on_commit(_send)
+
+
+def _broadcast_mention(user_id: int, payload: dict) -> None:
+    """Push a ``mention.created`` event to a single user across all the
+    devices/tabs they currently have connected.
+
+    Per-user channel group ``user_{id}`` is joined by ``GroupChatConsumer``
+    on connect (regardless of which group's WS the user happens to be on)
+    so a mention in group A reaches the user even if their open socket is
+    for group B's chat.
+    """
+    channel_layer = get_channel_layer()
+    envelope = {
+        "type": "chat.message",
+        "payload": {
+            "event": "mention.created",
+            "type": "mention.created",
+            **payload,
+        },
+    }
+
+    def _send():
+        async_to_sync(channel_layer.group_send)(f"user_{user_id}", envelope)
+
+    transaction.on_commit(_send)
+
+
+def apply_mentions(message) -> list[int]:
+    """Parse ``<@N>`` tokens in ``message.message_text``, filter to
+    active members of the message's group (excluding the sender), insert
+    any new ``MessageMention`` rows, and broadcast ``mention.created`` to
+    each newly mentioned user.
+
+    Idempotent: re-running on an edited message that re-mentions the
+    same user does *not* duplicate rows (unique_together) and does not
+    re-broadcast. Mentions removed by an edit are intentionally left
+    in place — the user was already notified once and the inbox entry
+    should survive the sender's edits.
+
+    Returns the list of user IDs that received a new mention row (for
+    test introspection).
+    """
+    candidate_ids = parse_mentions(message.message_text or "")
+    if not candidate_ids:
+        return []
+    # Drop self-mentions and any IDs outside the current active group
+    # membership. The DB filter is the source of truth — never trust a
+    # client-supplied ID list.
+    candidate_ids.discard(message.sender_user_id)
+    valid_ids = set(
+        GroupMembership.objects
+        .filter(
+            group_id=message.group_id,
+            user_id__in=candidate_ids,
+            left_at__isnull=True,
+        )
+        .values_list("user_id", flat=True)
+    )
+    if not valid_ids:
+        return []
+
+    existing_ids = set(
+        MessageMention.objects
+        .filter(message=message, mentioned_user_id__in=valid_ids)
+        .values_list("mentioned_user_id", flat=True)
+    )
+    to_create = valid_ids - existing_ids
+    if not to_create:
+        return []
+
+    MessageMention.objects.bulk_create(
+        [
+            MessageMention(message=message, mentioned_user_id=uid)
+            for uid in to_create
+        ],
+        ignore_conflicts=True,
+    )
+
+    payload = {
+        "group_id": message.group_id,
+        "message_id": message.id,
+        "sender_user_id": message.sender_user_id,
+        "preview": (message.message_text or "")[:140],
+    }
+    for uid in to_create:
+        _broadcast_mention(uid, payload)
+    return sorted(to_create)
 
 
 def mark_delivered_cursor(user, group_id: int, up_to_id: int) -> int:
@@ -399,10 +494,52 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    # GET /chat/groups/{gid}/messages/search/?q=&before=&limit=
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request, *args, **kwargs):
+        gid = self.kwargs.get("group_pk")
+        q = (request.query_params.get("q") or "").strip()
+        if not q:
+            return Response({"items": [], "next_before": None}, status=status.HTTP_200_OK)
+
+        qs = (
+            self.get_queryset()
+            .filter(message_text__icontains=q)
+            .order_by("-sent_at", "-id")
+        )
+
+        before = request.query_params.get("before")
+        if before:
+            try:
+                pivot = Messages.objects.get(pk=int(before), group_id=gid)
+                qs = qs.filter(
+                    Q(sent_at__lt=pivot.sent_at)
+                    | Q(sent_at=pivot.sent_at, id__lt=pivot.id)
+                )
+            except (ValueError, Messages.DoesNotExist):
+                pass
+
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 50))
+
+        items = list(qs[:limit])
+        data = MessagePublicSerializer(items, many=True, context=self.get_serializer_context()).data
+        # next_before is the oldest returned id when the page is full — null
+        # signals end-of-results so the FE can stop paging.
+        next_before = items[-1].id if len(items) == limit else None
+        return Response(
+            {"items": data, "next_before": next_before},
+            status=status.HTTP_200_OK,
+        )
+
     # POST /chat/groups/{gid}/messages/
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
+        apply_mentions(msg)
         _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
 
     def create(self, request, *args, **kwargs):
@@ -437,6 +574,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             serializer.context["attachment_data"] = attachment_data
             with transaction.atomic():
                 message = serializer.save(sender_user=request.user, group_id=gid)
+                apply_mentions(message)
                 # _broadcast itself wraps in transaction.on_commit, so a rollback
                 # of this atomic block discards the WS event automatically.
                 _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
@@ -449,6 +587,9 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        # Edits can introduce *new* mentions (existing ones are preserved
+        # — see ``apply_mentions``'s contract).
+        apply_mentions(instance)
         _broadcast(
             instance.group_id, "message.edited", self._serialize_broadcast_message(instance)
         )
@@ -609,3 +750,78 @@ class MessageViewSet(viewsets.ModelViewSet):
             as_attachment=True,
             on_open_failure_detail="The attachment could not be opened for download.",
         )
+
+
+class MentionViewSet(viewsets.GenericViewSet):
+    """Per-user @mentions inbox.
+
+    Scoped to ``request.user`` — the queryset never returns mentions for
+    anyone else, so there is no group-level RBAC to enforce here; access
+    is already restricted by ownership of the mention row.
+    """
+
+    serializer_class = MentionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            MessageMention.objects
+            .filter(mentioned_user=self.request.user)
+            .select_related("message", "message__sender_user")
+            .order_by("-message__sent_at", "-id")
+        )
+
+    # GET /chat/mentions/?unread=true&limit=&before=
+    def list(self, request, *args, **kwargs):
+        qs = self.get_queryset()
+        if request.query_params.get("unread", "").lower() == "true":
+            qs = qs.filter(read_at__isnull=True)
+
+        before = request.query_params.get("before")
+        if before:
+            try:
+                pivot = (
+                    MessageMention.objects
+                    .filter(pk=int(before), mentioned_user=request.user)
+                    .select_related("message")
+                    .first()
+                )
+            except ValueError:
+                pivot = None
+            if pivot is not None:
+                qs = qs.filter(
+                    Q(message__sent_at__lt=pivot.message.sent_at)
+                    | Q(message__sent_at=pivot.message.sent_at, id__lt=pivot.id)
+                )
+
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 50))
+
+        items = list(qs[:limit])
+        unread_count = (
+            MessageMention.objects
+            .filter(mentioned_user=request.user, read_at__isnull=True)
+            .count()
+        )
+        data = MentionSerializer(items, many=True).data
+        next_before = items[-1].id if len(items) == limit else None
+        return Response(
+            {"items": data, "next_before": next_before, "unread_count": unread_count},
+            status=status.HTTP_200_OK,
+        )
+
+    # POST /chat/mentions/{id}/read/
+    @action(detail=True, methods=["post"], url_path="read")
+    def read(self, request, *args, **kwargs):
+        mention = self.get_queryset().filter(pk=kwargs.get("pk")).first()
+        if mention is None:
+            return Response(
+                {"detail": "Mention not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+        if mention.read_at is None:
+            mention.read_at = timezone.now()
+            mention.save(update_fields=["read_at"])
+        return Response(MentionSerializer(mention).data, status=status.HTTP_200_OK)

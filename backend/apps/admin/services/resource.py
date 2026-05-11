@@ -180,7 +180,7 @@ def normalize_visibility_scope(
 
 def build_storage_key(resource_id: int, file_name: Optional[str] = None) -> str:
     """Build a unique storage key for blob storage."""
-    stamp = int(datetime.now().timestamp() * 1000)
+    stamp = int(timezone.now().timestamp() * 1000)
     safe_name = re.sub(r'[^a-zA-Z0-9._-]', '_', file_name or "resource.bin")
     return f"resources/{stamp}-{resource_id}-{safe_name}"
 

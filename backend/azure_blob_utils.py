@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from azure.storage.blob import (
     BlobServiceClient,
     generate_blob_sas,
@@ -43,7 +43,7 @@ def generate_sas_url(blob_name: str, expiry_minutes: int = 60):
         blob_name=blob_name,
         account_key=settings.AZURE_ACCOUNT_KEY,
         permission=BlobSasPermissions(read=True),
-        expiry=datetime.utcnow() + timedelta(minutes=expiry_minutes)
+        expiry=datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
     )
     return (
         f"https://{settings.AZURE_ACCOUNT_NAME}.blob.core.windows.net"
