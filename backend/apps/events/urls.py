@@ -8,26 +8,32 @@ from .views import (
     EventInviteListMeHTMLView,
     EventRsvpSetView,
     EventViewSet,
-    RsvpReminderTriggerView,
 )
 
 router = SimpleRouter()
-router.register(r"v1", EventViewSet, basename="events")
+# Canonical route at the app root — exposed as ``/events/...`` (legacy mount)
+# and ``/api/v1/events/...`` (canonical) by config.urls.
+router.register(r"", EventViewSet, basename="events")
+
+# Canonical app-root patterns. Specific paths come BEFORE ``*router.urls`` so
+# the router's catch-all ``<pk>/`` detail pattern doesn't shadow them.
+_canonical = [
+    # ``/rsvps/me/`` — current-user RSVP list (full user-side control:
+    # accepted/tentative/declined). Distinct from the admin invite path
+    # ``/<id>/rsvp/<uid>/`` which targets another user.
+    path("rsvps/me/", EventInviteListMeHTMLView.as_view(), name="list-event-rsvp-me"),
+    path("<int:id>/rsvp/", EventRsvpSetView.as_view(), name="event-self-rsvp"),
+    path("<int:id>/rsvp/bulk/", EventBulkInviteView.as_view(), name="event-bulk-invite"),
+    path("<int:id>/rsvp/<int:uid>/", EventInviteCreateView.as_view(), name="create-event-rsvp"),
+    path("<int:id>/rsvps/", EventInviteListHTMLView.as_view(), name="list-event-rsvp"),
+    path("", include(router.urls)),
+]
 
 urlpatterns = [
-    path("", include(router.urls)),
-    # /rsvp/ — full user-side control (accepted/tentative/declined).
-    # Distinct from the admin invite path (/rsvp/<uid>/) by the trailing uid.
-    path("v1/<int:id>/rsvp/", EventRsvpSetView.as_view(), name="event-self-rsvp"),
-    path("v1/<int:id>/rsvp/bulk/", EventBulkInviteView.as_view(), name="event-bulk-invite"),
-    path("v1/<int:id>/rsvp/<int:uid>/", EventInviteCreateView.as_view(), name="create-event-rsvp"),
-    path("v1/<int:id>/rsvps/", EventInviteListHTMLView.as_view(), name="list-event-rsvp"),
-    path("v1/rsvps/me/", EventInviteListMeHTMLView.as_view(), name="list-event-rsvp-me"),
-    # Cron-trigger for the 24h RSVP reminder dispatcher. Hit hourly by
-    # .github/workflows/rsvp-reminders.yml with a shared-secret header.
-    path(
-        "v1/admin/send-rsvp-reminders/",
-        RsvpReminderTriggerView.as_view(),
-        name="rsvp-reminder-trigger",
-    ),
+    # Legacy ``/events/v1/...`` alias — preserves the original paths so any
+    # client that hasn't migrated keeps resolving. Listed FIRST so the canonical
+    # patterns below are the last named registration and win ``reverse()``
+    # lookups. Drop once all consumers move off the ``v1/`` segment.
+    path("v1/", include(_canonical)),
+    *_canonical,
 ]
