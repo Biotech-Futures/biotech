@@ -332,7 +332,10 @@
                   <div class="list-row-meta">{{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}</div>
 
 
-                  <div class="list-row-description">{{ getAnnouncementSnippet(announcement) }}</div>
+                  <div
+                    class="list-row-description dashboard-announcement-body"
+                    v-html="getAnnouncementPreviewHtml(announcement)"
+                  ></div>
                 </div>
 
                 <div class="list-row-tail">
@@ -902,6 +905,120 @@ function truncateText(value, maxLength = 160) {
   return `${text.slice(0, maxLength - 1).trim()}...`
 }
 
+function stripHtml(value) {
+  const source = String(value || '')
+  if (typeof document !== 'undefined') {
+    const template = document.createElement('template')
+    template.innerHTML = source
+    return (template.content.textContent || '').replace(/\s+/g, ' ').trim()
+  }
+
+  return source.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function plainTextToHtml(value) {
+  return String(value || '')
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean)
+    .map(paragraph => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}
+
+function sanitizeDashboardAnnouncementRichText(value) {
+  const source = String(value || '').trim()
+  const fallbackHtml = '<p>Open the announcement to read more details.</p>'
+  if (!source) return fallbackHtml
+
+  const rawHtml = /<\/?[a-z][\s\S]*>/i.test(source) ? source : plainTextToHtml(source)
+  if (typeof document === 'undefined') return rawHtml
+
+  const allowedTags = new Set([
+    'B',
+    'BLOCKQUOTE',
+    'BR',
+    'CODE',
+    'DIV',
+    'EM',
+    'H1',
+    'H2',
+    'H3',
+    'H4',
+    'H5',
+    'H6',
+    'I',
+    'LI',
+    'OL',
+    'P',
+    'S',
+    'SPAN',
+    'STRONG',
+    'U',
+    'UL'
+  ])
+  const removedTags = new Set([
+    'AUDIO',
+    'CANVAS',
+    'EMBED',
+    'IFRAME',
+    'IMG',
+    'OBJECT',
+    'PICTURE',
+    'SCRIPT',
+    'STYLE',
+    'SVG',
+    'TABLE',
+    'TBODY',
+    'TD',
+    'TFOOT',
+    'TH',
+    'THEAD',
+    'TR',
+    'VIDEO'
+  ])
+
+  const template = document.createElement('template')
+  template.innerHTML = rawHtml
+
+  const cleanNode = node => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+
+    const element = node
+    if (removedTags.has(element.tagName)) {
+      element.remove()
+      return
+    }
+
+    if (!allowedTags.has(element.tagName)) {
+      Array.from(element.childNodes).forEach(cleanNode)
+      element.replaceWith(...Array.from(element.childNodes))
+      return
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      element.removeAttribute(attribute.name)
+    }
+
+    Array.from(element.childNodes).forEach(cleanNode)
+  }
+
+  Array.from(template.content.childNodes).forEach(cleanNode)
+  return template.innerHTML || fallbackHtml
+}
+
+function getAnnouncementBody(announcement) {
+  return announcement?.body || announcement?.content || announcement?.summary || announcement?.description || announcement?.excerpt || ''
+}
+
 function isValidDate(value) {
   if (!value) return false
   const date = value instanceof Date ? value : new Date(value)
@@ -1036,7 +1153,8 @@ function normalizeResource(resource) {
 }
 
 function normalizeAnnouncement(announcement) {
-  const body = announcement?.body || announcement?.summary || announcement?.description || ''
+  const body = getAnnouncementBody(announcement)
+  const bodyText = stripHtml(body)
   const audienceRoles = Array.isArray(announcement?.audiences)
     ? announcement.audiences.map(rule => rule?.role_name)
     : []
@@ -1050,9 +1168,11 @@ function normalizeAnnouncement(announcement) {
     ...announcement,
     id: announcement?.id,
     title: announcement?.title || announcement?.name || 'Untitled announcement',
-    summary: truncateText(body),
+    summary: truncateText(bodyText),
     description: body,
     content: body,
+    bodyText,
+    bodyHtml: sanitizeDashboardAnnouncementRichText(body),
     date: announcement?.published_at || announcement?.date || announcement?.created_at,
     updated: announcement?.published_at || announcement?.updated || announcement?.created_at,
     author: announcement?.author_email || announcement?.author || 'Program Team',
@@ -1365,6 +1485,11 @@ function getAnnouncementMeta(item) {
 
 function getAnnouncementSnippet(item) {
   return item?.summary || item?.description || item?.content || item?.excerpt || 'Open the announcement to read more details.'
+}
+
+function getAnnouncementPreviewHtml(item) {
+  if (item?.bodyHtml) return item.bodyHtml
+  return sanitizeDashboardAnnouncementRichText(getAnnouncementSnippet(item))
 }
 
 function getResourceTitle(item) {
@@ -3793,5 +3918,77 @@ onBeforeUnmount(() => {
 .resource-card-link:hover .resource-icon,
 .showcase-card:hover .showcase-image {
   transform: none !important;
+}
+
+.dashboard-announcement-body {
+  display: block;
+  max-height: 4.8rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.dashboard-announcement-body :deep(*) {
+  max-width: 100%;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.dashboard-announcement-body :deep(p),
+.dashboard-announcement-body :deep(ul),
+.dashboard-announcement-body :deep(ol),
+.dashboard-announcement-body :deep(blockquote) {
+  margin: 0 0 0.36rem;
+}
+
+.dashboard-announcement-body :deep(p:last-child),
+.dashboard-announcement-body :deep(ul:last-child),
+.dashboard-announcement-body :deep(ol:last-child),
+.dashboard-announcement-body :deep(blockquote:last-child) {
+  margin-bottom: 0;
+}
+
+.dashboard-announcement-body :deep(h1),
+.dashboard-announcement-body :deep(h2),
+.dashboard-announcement-body :deep(h3),
+.dashboard-announcement-body :deep(h4),
+.dashboard-announcement-body :deep(h5),
+.dashboard-announcement-body :deep(h6) {
+  margin: 0 0 0.28rem;
+  color: var(--charcoal) !important;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.dashboard-announcement-body :deep(ul),
+.dashboard-announcement-body :deep(ol) {
+  padding-left: 1rem;
+}
+
+.dashboard-announcement-body :deep(li + li) {
+  margin-top: 0.12rem;
+}
+
+.dashboard-announcement-body :deep(blockquote) {
+  padding: 0.32rem 0.55rem;
+  border-left: 2px solid #cfd6dc;
+  background: #f8f9fa;
+  border-radius: 0 6px 6px 0;
+}
+
+.dashboard-announcement-body :deep(code) {
+  padding: 0.04rem 0.22rem;
+  background: #eef1f3;
+  border-radius: 4px;
+  color: var(--charcoal);
+  font-size: 0.84rem;
+}
+
+.dashboard-announcement-body :deep(img),
+.dashboard-announcement-body :deep(table),
+.dashboard-announcement-body :deep(figure),
+.dashboard-announcement-body :deep(pre) {
+  display: none !important;
 }
 </style>
