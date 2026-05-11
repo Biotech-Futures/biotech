@@ -27,15 +27,36 @@
           v-for="a in filtered"
           :key="a.id"
           class="announcement-card"
-          :class="{ 'announcement-card--with-image': a.imageUrl }"
+          :class="{
+            'announcement-card--with-image': a.images.length > 0,
+            'announcement-card--gallery': a.images.length > 1
+          }"
         >
-          <figure v-if="a.imageUrl" class="announcement-card-media">
-            <img
-              :src="a.imageUrl"
-              :alt="`${a.title} announcement image`"
-              loading="lazy"
-              @error="handleAnnouncementImageError(a)"
-            />
+          <figure
+            v-if="a.images.length"
+            class="announcement-card-media"
+            :class="{ 'announcement-card-media--multiple': a.images.length > 1 }"
+          >
+            <div class="announcement-card-gallery" :class="getGalleryClass(a.images.length)">
+              <div
+                v-for="(image, index) in getVisibleImages(a.images)"
+                :key="`${a.id}-${image.url}`"
+                class="announcement-card-gallery-item"
+              >
+                <img
+                  :src="image.url"
+                  :alt="image.alt || `${a.title} announcement image ${index + 1}`"
+                  loading="lazy"
+                  @error="handleAnnouncementImageError(a, image.url)"
+                />
+                <span
+                  v-if="a.images.length > MAX_VISIBLE_IMAGES && index === MAX_VISIBLE_IMAGES - 1"
+                  class="announcement-card-gallery-more"
+                >
+                  +{{ a.images.length - MAX_VISIBLE_IMAGES }}
+                </span>
+              </div>
+            </div>
           </figure>
 
           <div class="announcement-card-content">
@@ -51,7 +72,7 @@
             <div class="announcement-card-meta">
               {{ formatDate(a.date) }} by {{ a.author || 'Program Team' }}
             </div>
-            <p class="announcement-card-summary">{{ a.summary }}</p>
+            <div class="announcement-card-body" v-html="a.bodyHtml"></div>
 
             <div v-if="a.route || a.link" class="announcement-card-actions">
               <RouterLink v-if="a.route" :to="a.route" class="btn btn-outline btn-sm">Read more</RouterLink>
@@ -91,13 +112,22 @@ interface AnnouncementApiItem {
   id: number | string
   title?: string | null
   body?: string | null
+  content?: string | null
+  summary?: string | null
   visibility_scope?: string | null
   published_at?: string | null
   archived_at?: string | null
   author_email?: string | null
   author?: string | null
-  image_url?: string | null
+  image_url?: string | string[] | null
+  image_urls?: unknown[] | null
+  images?: unknown[] | null
+  attachments?: unknown[] | null
+  media?: unknown[] | null
+  link?: string | null
+  route?: string | null
   audiences?: AnnouncementAudience[]
+  [key: string]: unknown
 }
 
 interface AnnouncementListResponse {
@@ -109,15 +139,22 @@ interface AnnouncementItem {
   title: string
   date: string
   author: string
-  summary: string
+  bodyText: string
+  bodyHtml: string
   audience: string
-  imageUrl?: string
+  images: AnnouncementImage[]
   link?: string
   route?: string | null
 }
 
+interface AnnouncementImage {
+  url: string
+  alt?: string
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const ANNOUNCEMENTS_ENDPOINT = `${API_BASE_URL}/announcements/v1/?page_size=100`
+const MAX_VISIBLE_IMAGES = 4
 
 const q = ref('')
 const announcements = ref<AnnouncementItem[]>([])
@@ -128,7 +165,7 @@ const filtered = computed(() => {
   const text = q.value.trim().toLowerCase()
   if (!text) return announcements.value
   return announcements.value.filter(a =>
-    [a.title, a.summary, a.author, getAudienceLabel(a.audience)].some(f =>
+    [a.title, a.bodyText, a.author, getAudienceLabel(a.audience)].some(f =>
       String(f || '').toLowerCase().includes(text)
     )
   )
@@ -147,13 +184,151 @@ const normalizeAudienceValue = (value?: string | null) => {
     .replace(/\s+/g, '_')
 }
 
-const truncateText = (value?: string | null, maxLength = 220) => {
-  const text = String(value || '').replace(/\s+/g, ' ').trim()
-  if (!text) return 'No announcement details are available yet.'
-  return text.length > maxLength ? `${text.slice(0, maxLength - 1).trim()}...` : text
+const stripHtml = (value?: string | null) => {
+  const source = String(value || '')
+  if (typeof document !== 'undefined') {
+    const template = document.createElement('template')
+    template.innerHTML = source
+    return (template.content.textContent || '').replace(/\s+/g, ' ').trim()
+  }
+  return source.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-const normalizeImageUrl = (value?: string | null) => {
+const escapeHtml = (value: string) => {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const plainTextToHtml = (value: string) => {
+  return value
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean)
+    .map(paragraph => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}
+
+const normalizeRichTextUrl = (value?: string | null) => {
+  const url = String(value || '').trim()
+  if (!url) return ''
+  if (/^(https?:|mailto:|tel:|data:image\/|\/(?!\/)|#)/i.test(url)) return url
+  return ''
+}
+
+const sanitizeRichText = (value?: string | null) => {
+  const source = String(value || '').trim()
+  const fallbackHtml = '<p>No announcement details are available yet.</p>'
+  if (!source) return fallbackHtml
+
+  const rawHtml = /<\/?[a-z][\s\S]*>/i.test(source) ? source : plainTextToHtml(source)
+  if (typeof document === 'undefined') return rawHtml
+
+  const allowedTags = new Set([
+    'A',
+    'B',
+    'BLOCKQUOTE',
+    'BR',
+    'CODE',
+    'DIV',
+    'EM',
+    'FIGCAPTION',
+    'FIGURE',
+    'H1',
+    'H2',
+    'H3',
+    'H4',
+    'H5',
+    'H6',
+    'HR',
+    'I',
+    'IMG',
+    'LI',
+    'OL',
+    'P',
+    'PRE',
+    'S',
+    'SPAN',
+    'STRONG',
+    'TABLE',
+    'TBODY',
+    'TD',
+    'TH',
+    'THEAD',
+    'TR',
+    'U',
+    'UL'
+  ])
+  const allowedAttributes: Record<string, Set<string>> = {
+    A: new Set(['href', 'title', 'target', 'rel']),
+    IMG: new Set(['src', 'alt', 'title', 'width', 'height']),
+    TD: new Set(['colspan', 'rowspan']),
+    TH: new Set(['colspan', 'rowspan'])
+  }
+
+  const template = document.createElement('template')
+  template.innerHTML = rawHtml
+
+  const cleanNode = (node: Node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+
+    const element = node as HTMLElement
+    if (!allowedTags.has(element.tagName)) {
+      Array.from(element.childNodes).forEach(cleanNode)
+      element.replaceWith(...Array.from(element.childNodes))
+      return
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      const allowed = allowedAttributes[element.tagName]?.has(attribute.name.toLowerCase()) || false
+      if (!allowed) {
+        element.removeAttribute(attribute.name)
+      }
+    }
+
+    if (element.tagName === 'A') {
+      const href = normalizeRichTextUrl(element.getAttribute('href'))
+      if (href) {
+        element.setAttribute('href', href)
+        element.setAttribute('target', '_blank')
+        element.setAttribute('rel', 'noopener noreferrer')
+      } else {
+        element.removeAttribute('href')
+      }
+    }
+
+    if (element.tagName === 'IMG') {
+      const src = normalizeImageUrl(element.getAttribute('src'))
+      if (src) {
+        element.setAttribute('src', src)
+        element.setAttribute('loading', 'lazy')
+      } else {
+        element.remove()
+        return
+      }
+    }
+
+    Array.from(element.childNodes).forEach(cleanNode)
+  }
+
+  Array.from(template.content.childNodes).forEach(cleanNode)
+  return template.innerHTML || fallbackHtml
+}
+
+const getAnnouncementBody = (announcement: AnnouncementApiItem) => {
+  return announcement?.body || announcement?.content || announcement?.summary || ''
+}
+
+const buildBodyText = (value?: string | null) => {
+  const text = stripHtml(value)
+  if (!text) return 'No announcement details are available yet.'
+  return text
+}
+
+const normalizeImageUrl = (value?: unknown) => {
   const url = String(value || '').trim()
   if (!url) return undefined
   if (/^(https?:|data:|blob:|\/\/)/i.test(url)) return url
@@ -165,6 +340,59 @@ const normalizeImageUrl = (value?: string | null) => {
   }
 }
 
+const getImageCandidateUrl = (value: unknown) => {
+  if (typeof value === 'string') return normalizeImageUrl(value)
+  if (!value || typeof value !== 'object') return undefined
+
+  const item = value as Record<string, unknown>
+  const mimeType = String(item.mime_type || item.content_type || item.type || '').toLowerCase()
+  if (mimeType && !mimeType.startsWith('image/')) return undefined
+
+  return normalizeImageUrl(
+    item.url ||
+    item.image_url ||
+    item.imageUrl ||
+    item.src ||
+    item.download_url ||
+    item.downloadUrl ||
+    item.file_url ||
+    item.fileUrl
+  )
+}
+
+const getImageCandidateAlt = (value: unknown) => {
+  if (!value || typeof value !== 'object') return undefined
+  const item = value as Record<string, unknown>
+  const alt = String(item.alt || item.caption || item.title || item.name || '').trim()
+  return alt || undefined
+}
+
+const extractAnnouncementImages = (announcement: AnnouncementApiItem): AnnouncementImage[] => {
+  const candidates: unknown[] = []
+  const append = (value: unknown) => {
+    if (Array.isArray(value)) {
+      candidates.push(...value)
+      return
+    }
+    if (value) candidates.push(value)
+  }
+
+  append(announcement?.image_url)
+  append(announcement?.image_urls)
+  append(announcement?.images)
+  append(announcement?.attachments)
+  append(announcement?.media)
+
+  const seen = new Set<string>()
+  return candidates.reduce<AnnouncementImage[]>((images, candidate) => {
+    const url = getImageCandidateUrl(candidate)
+    if (!url || seen.has(url)) return images
+    seen.add(url)
+    images.push({ url, alt: getImageCandidateAlt(candidate) })
+    return images
+  }, [])
+}
+
 const extractCollectionItems = (data: AnnouncementApiItem[] | AnnouncementListResponse | null) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
@@ -172,7 +400,7 @@ const extractCollectionItems = (data: AnnouncementApiItem[] | AnnouncementListRe
 }
 
 const normalizeAnnouncement = (announcement: AnnouncementApiItem): AnnouncementItem => {
-  const body = announcement?.body || ''
+  const body = getAnnouncementBody(announcement)
   const roleAudiences = Array.isArray(announcement?.audiences)
     ? announcement.audiences.map(rule => rule?.role_name).filter(Boolean)
     : []
@@ -189,9 +417,12 @@ const normalizeAnnouncement = (announcement: AnnouncementApiItem): AnnouncementI
     title: announcement?.title || 'Untitled announcement',
     date: announcement?.published_at || '',
     author: announcement?.author_email || announcement?.author || 'Program Team',
-    summary: truncateText(body),
+    bodyText: buildBodyText(body),
+    bodyHtml: sanitizeRichText(body),
     audience,
-    imageUrl: normalizeImageUrl(announcement?.image_url)
+    images: extractAnnouncementImages(announcement),
+    link: normalizeRichTextUrl(announcement?.link),
+    route: typeof announcement?.route === 'string' ? announcement.route : null
   }
 }
 
@@ -230,8 +461,17 @@ const getAudienceClass = (audience: string) => {
   return classes[audience] || 'status-active'
 }
 
-const handleAnnouncementImageError = (announcement: AnnouncementItem) => {
-  announcement.imageUrl = undefined
+const getVisibleImages = (images: AnnouncementImage[]) => images.slice(0, MAX_VISIBLE_IMAGES)
+
+const getGalleryClass = (count: number) => {
+  if (count <= 1) return 'announcement-card-gallery--single'
+  if (count === 2) return 'announcement-card-gallery--two'
+  if (count === 3) return 'announcement-card-gallery--three'
+  return 'announcement-card-gallery--many'
+}
+
+const handleAnnouncementImageError = (announcement: AnnouncementItem, imageUrl: string) => {
+  announcement.images = announcement.images.filter(image => image.url !== imageUrl)
 }
 
 async function loadAnnouncements() {
@@ -300,6 +540,7 @@ onMounted(() => {
   border: 1px solid rgba(1, 113, 81, 0.08);
   border-radius: 8px;
   box-shadow: 0 2px 4px var(--shadow);
+  overflow: hidden;
   transition:
     box-shadow 0.3s ease,
     transform 0.3s ease,
@@ -318,23 +559,70 @@ onMounted(() => {
 
 .announcement-card--with-image {
   display: grid;
-  grid-template-columns: minmax(280px, 42%) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 40%) minmax(0, 1fr);
   width: min(100%, 1100px);
-  min-height: 260px;
-  overflow: hidden;
+  min-height: 280px;
 }
 
 .announcement-card-media {
-  min-height: 260px;
+  position: relative;
+  min-height: 280px;
+  margin: 0;
   background: var(--light-green);
 }
 
-.announcement-card-media img {
+.announcement-card-gallery {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  gap: 3px;
+  background: rgba(1, 113, 81, 0.12);
+}
+
+.announcement-card-gallery--single {
+  grid-template-columns: 1fr;
+}
+
+.announcement-card-gallery--two {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.announcement-card-gallery--three,
+.announcement-card-gallery--many {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.announcement-card-gallery--three .announcement-card-gallery-item:first-child,
+.announcement-card-gallery--many .announcement-card-gallery-item:first-child {
+  grid-row: 1 / span 2;
+}
+
+.announcement-card-gallery-item {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--white);
+}
+
+.announcement-card-gallery-item img {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 260px;
   object-fit: cover;
+}
+
+.announcement-card-gallery-more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(19, 28, 34, 0.54);
+  color: var(--white);
+  font-size: 1.35rem;
+  font-weight: 700;
 }
 
 .announcement-card-content {
@@ -344,7 +632,6 @@ onMounted(() => {
 .announcement-card--with-image .announcement-card-content {
   display: flex;
   flex-direction: column;
-  justify-content: center;
 }
 
 .announcement-card-header {
@@ -377,9 +664,118 @@ onMounted(() => {
   margin: 0.25rem 0 1rem;
 }
 
-.announcement-card-summary {
+.announcement-card-body {
   margin-bottom: 1rem;
   line-height: 1.7;
+  color: var(--dark-gray);
+  overflow-wrap: anywhere;
+}
+
+.announcement-card-body :deep(*) {
+  max-width: 100%;
+}
+
+.announcement-card-body :deep(p),
+.announcement-card-body :deep(ul),
+.announcement-card-body :deep(ol),
+.announcement-card-body :deep(blockquote),
+.announcement-card-body :deep(pre),
+.announcement-card-body :deep(table),
+.announcement-card-body :deep(figure) {
+  margin: 0 0 0.9rem;
+}
+
+.announcement-card-body :deep(p:last-child),
+.announcement-card-body :deep(ul:last-child),
+.announcement-card-body :deep(ol:last-child),
+.announcement-card-body :deep(blockquote:last-child),
+.announcement-card-body :deep(pre:last-child),
+.announcement-card-body :deep(table:last-child),
+.announcement-card-body :deep(figure:last-child) {
+  margin-bottom: 0;
+}
+
+.announcement-card-body :deep(h1),
+.announcement-card-body :deep(h2),
+.announcement-card-body :deep(h3),
+.announcement-card-body :deep(h4),
+.announcement-card-body :deep(h5),
+.announcement-card-body :deep(h6) {
+  margin: 1rem 0 0.45rem;
+  color: var(--primary-green);
+  line-height: 1.25;
+}
+
+.announcement-card-body :deep(h1:first-child),
+.announcement-card-body :deep(h2:first-child),
+.announcement-card-body :deep(h3:first-child),
+.announcement-card-body :deep(h4:first-child),
+.announcement-card-body :deep(h5:first-child),
+.announcement-card-body :deep(h6:first-child) {
+  margin-top: 0;
+}
+
+.announcement-card-body :deep(ul),
+.announcement-card-body :deep(ol) {
+  padding-left: 1.3rem;
+}
+
+.announcement-card-body :deep(a) {
+  color: var(--primary-green);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.announcement-card-body :deep(blockquote) {
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--primary-green);
+  background: rgba(1, 113, 81, 0.06);
+  border-radius: 0 8px 8px 0;
+}
+
+.announcement-card-body :deep(pre) {
+  max-width: 100%;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  background: #f5f7f8;
+  border-radius: 8px;
+}
+
+.announcement-card-body :deep(code) {
+  padding: 0.1rem 0.3rem;
+  background: #f5f7f8;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.announcement-card-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.announcement-card-body :deep(img) {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--light-green);
+}
+
+.announcement-card-body :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.announcement-card-body :deep(th),
+.announcement-card-body :deep(td) {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(1, 113, 81, 0.14);
+  text-align: left;
 }
 
 .announcement-card-actions {
@@ -392,7 +788,7 @@ onMounted(() => {
   }
 
   .announcement-card-media,
-  .announcement-card-media img {
+  .announcement-card-gallery {
     min-height: 220px;
   }
 }

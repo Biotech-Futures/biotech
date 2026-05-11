@@ -37,36 +37,23 @@
  * Modified By: CS17-1 Frontend Team
  */
 
-
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-
 
 interface RequestOptions extends RequestInit {
   includeCSRF?: boolean
 }
 
 async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-
-
-  const {
-    includeCSRF,
-    headers: initHeaders,
-    method = 'GET',
-    body,
-    ...fetchOptions
-  } = options
-
+  const { includeCSRF, headers: initHeaders, method = 'GET', body, ...fetchOptions } = options
 
   const upperMethod = method.toUpperCase()
 
-
   const isFormData = body instanceof FormData
 
-  const shouldIncludeCSRF =
-    includeCSRF ?? !['GET', 'HEAD', 'OPTIONS'].includes(upperMethod)
+  const shouldIncludeCSRF = includeCSRF ?? !['GET', 'HEAD', 'OPTIONS'].includes(upperMethod)
 
   if (shouldIncludeCSRF) {
     const csrfReady = await ensureCsrfCookie(API_BASE_URL)
@@ -78,7 +65,7 @@ async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Pr
   const headers = buildSessionHeaders({
     includeCSRF: shouldIncludeCSRF,
     headers: initHeaders,
-    isFormData
+    isFormData,
   })
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -86,12 +73,14 @@ async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Pr
     method: upperMethod,
     body,
     headers,
-    credentials: 'include'
+    credentials: 'include',
   })
 
-
   if (!response.ok) {
-    const apiError = await apiErrorFromResponse(response, `HTTP ${response.status}: ${response.statusText}`)
+    const apiError = await apiErrorFromResponse(
+      response,
+      `HTTP ${response.status}: ${response.statusText}`,
+    )
 
     if (apiError.code === 'not_authenticated') {
       apiError.message = 'Unauthenticated. Please sign in again.'
@@ -138,13 +127,6 @@ export interface Resource {
   deleted_flag?: boolean
 }
 
-export interface CreateResourceData {
-  resource_name: string
-  resource_description: string
-  resource_type_id?: number | null
-  role_ids?: number[]
-}
-
 export async function fetchResources(params?: {
   search?: string
   role?: string
@@ -152,9 +134,7 @@ export async function fetchResources(params?: {
   order?: 'newest' | 'oldest' | 'name'
   page?: number
   page_size?: number
-
 }): Promise<{ results: Resource[]; count: number }> {
-
   const queryParams = new URLSearchParams()
 
   if (params?.search) queryParams.append('search', params.search)
@@ -167,40 +147,4 @@ export async function fetchResources(params?: {
   const endpoint = `/resources/resource-files/${queryParams.toString() ? `?${queryParams}` : ''}`
 
   return apiRequest<{ results: Resource[]; count: number }>(endpoint)
-}
-
-export async function fetchResource(id: number): Promise<Resource> {
-  return apiRequest<Resource>(`/resources/resource-files/${id}/`)
-}
-
-export async function createResource(data: CreateResourceData): Promise<Resource> {
-  return apiRequest<Resource>('/resources/resource-files/', {
-    method: 'POST',
-    body: JSON.stringify(data)
-  })
-}
-
-export async function updateResource(
-  id: number,
-  data: Partial<CreateResourceData>
-): Promise<Resource> {
-  return apiRequest<Resource>(`/resources/resource-files/${id}/`, {
-    method: 'PATCH',
-    body: JSON.stringify(data)
-  })
-}
-
-export async function deleteResource(id: number): Promise<void> {
-  return apiRequest<void>(`/resources/resource-files/${id}/`, {
-    method: 'DELETE'
-  })
-}
-
-export async function fetchResourceTypes(): Promise<ResourceType[]> {
-  return [
-    { id: 1, type_name: 'document', type_description: 'Document resources' },
-    { id: 2, type_name: 'guide', type_description: 'Step-by-step guides' },
-    { id: 3, type_name: 'video', type_description: 'Video recordings' },
-    { id: 4, type_name: 'template', type_description: 'Templates and boilerplates' }
-  ]
 }

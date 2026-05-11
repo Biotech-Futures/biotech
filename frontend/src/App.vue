@@ -12,7 +12,6 @@
         </div>
 
         <div class="header-nav">
-          <input type="text" class="search-bar" placeholder="Search Program" />
           <div class="user-menu">
             <button
               class="user-avatar"
@@ -100,7 +99,6 @@
             </li>
           </ul>
         </nav>
-
       </aside>
 
       <main class="main-content">
@@ -128,7 +126,11 @@
             </div>
           </div>
 
-          <button @click="showUserMenu = false" class="close-button account-close-button" aria-label="Close">
+          <button
+            @click="showUserMenu = false"
+            class="close-button account-close-button"
+            aria-label="Close"
+          >
             <i class="fas fa-times"></i>
           </button>
         </div>
@@ -144,11 +146,7 @@
         </div>
 
         <div class="notification-panel-footer">
-          <button
-            class="logout-button"
-            type="button"
-            @click="handleLogout"
-          >
+          <button class="logout-button" type="button" @click="handleLogout">
             <i class="fas fa-sign-out-alt"></i>
             <span>Log out</span>
           </button>
@@ -173,7 +171,9 @@ const handleLogout = async () => {
   go('/login')
 }
 
-const isLoginPage = computed(() => ['/login', '/auth/callback', '/auth/reset-password'].includes(route.path))
+const isLoginPage = computed(() =>
+  ['/login', '/auth/callback', '/auth/reset-password'].includes(route.path),
+)
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
@@ -215,7 +215,7 @@ watch(
   () => route.fullPath,
   () => {
     showUserMenu.value = false
-  }
+  },
 )
 
 onMounted(() => {
@@ -349,27 +349,6 @@ select {
 .header-nav {
   display: flex;
   align-items: center;
-  gap: 2rem;
-}
-
-.search-bar {
-  width: 300px;
-  padding: 0.5rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--white);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
-
-.search-bar::placeholder {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.search-bar:focus {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.4);
-  outline: none;
 }
 
 .user-menu {
@@ -451,7 +430,10 @@ select {
   text-decoration: none;
   color: var(--charcoal);
   border-left: 3px solid transparent;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .sidebar-icon {
@@ -486,167 +468,14 @@ select {
   background: rgba(17, 30, 25, 0.05);
   color: var(--text-main);
   cursor: pointer;
-  transition: transform 180ms ease, background 180ms ease;
+  transition:
+    transform 180ms ease,
+    background 180ms ease;
 }
 
 .close-button:hover {
   transform: translateY(-1px);
   background: rgba(17, 30, 25, 0.08);
-}
-
-.editor-body {
-  display: grid;
-  gap: 0.9rem;
-}
-
-.editor-readonly-note {
-  border-radius: 14px;
-  padding: 0.72rem 0.8rem;
-  background: rgba(87, 110, 160, 0.08);
-  color: #4d5f83;
-  font-size: 0.74rem;
-  line-height: 1.45;
-}
-
-.editor-form {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.form-row {
-  display: grid;
-  gap: 0.34rem;
-}
-
-.form-label {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.form-input {
-  width: 100%;
-  border: 1px solid rgba(17, 30, 25, 0.1);
-  border-radius: 14px;
-  padding: 0.72rem 0.8rem;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--text-strong);
-  outline: none;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
-}
-
-.form-input:focus {
-  border-color: rgba(126, 157, 197, 0.46);
-  box-shadow: 0 0 0 4px rgba(146, 177, 214, 0.12);
-}
-
-.editor-actions {
-  display: flex;
-  gap: 0.55rem;
-}
-
-.editor-primary-button,
-.editor-secondary-button,
-.mini-action-button {
-  border: none;
-  border-radius: 14px;
-  padding: 0.72rem 0.9rem;
-  cursor: pointer;
-  font-weight: 760;
-  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
-}
-
-.editor-primary-button {
-  background: linear-gradient(180deg, #274039 0%, #1b2d28 100%);
-  color: #ffffff;
-  box-shadow: 0 10px 22px rgba(16, 26, 23, 0.16);
-}
-
-.editor-secondary-button,
-.mini-action-button {
-  background: rgba(17, 30, 25, 0.06);
-  color: var(--text-main);
-}
-
-.editor-primary-button:hover,
-.editor-secondary-button:hover,
-.mini-action-button:hover {
-  transform: translateY(-1px);
-}
-
-.editor-list {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.editor-list-title {
-  font-size: 0.8rem;
-  font-weight: 760;
-  color: var(--text-strong);
-}
-
-.editor-list-scroll {
-  display: grid;
-  gap: 0.55rem;
-  max-height: 240px;
-  overflow-y: auto;
-  padding-right: 0.2rem;
-}
-
-.editor-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.8rem;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(17, 30, 25, 0.06);
-}
-
-.editor-item-main {
-  min-width: 0;
-  display: grid;
-  gap: 0.2rem;
-}
-
-.editor-type-chip {
-  display: inline-flex;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 0.22rem 0.52rem;
-  font-size: 0.64rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.chip-event {
-  background: rgba(95, 140, 124, 0.12);
-  color: #45675b;
-}
-
-.editor-item-date {
-  font-size: 0.72rem;
-  color: var(--text-soft);
-}
-
-.editor-item-title {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--text-strong);
-  line-height: 1.35;
-}
-
-.editor-item-actions {
-  display: flex;
-  gap: 0.45rem;
-  flex-shrink: 0;
-}
-
-.mini-action-button.danger {
-  background: rgba(208, 92, 101, 0.12);
-  color: #8f3d46;
 }
 
 .notification-panel {
@@ -656,8 +485,7 @@ select {
   width: 320px;
   max-width: calc(100vw - 36px);
   border-radius: 22px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(245, 248, 247, 0.94) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(245, 248, 247, 0.94) 100%);
   border: 1px solid rgba(17, 30, 25, 0.08);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
@@ -734,7 +562,10 @@ select {
   gap: 0.7rem;
   cursor: pointer;
   text-align: left;
-  transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
 }
 
 .panel-quick-link:hover {
@@ -791,7 +622,9 @@ select {
   justify-content: center;
   gap: 0.48rem;
   box-shadow: 0 12px 28px rgba(16, 26, 23, 0.18);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .logout-button:hover {
@@ -799,15 +632,13 @@ select {
   box-shadow: 0 14px 30px rgba(16, 26, 23, 0.24);
 }
 
-.calendar-fade-enter-active,
-.calendar-fade-leave-active,
 .menu-fade-enter-active,
 .menu-fade-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
 }
 
-.calendar-fade-enter-from,
-.calendar-fade-leave-to,
 .menu-fade-enter-from,
 .menu-fade-leave-to {
   opacity: 0;
@@ -822,16 +653,8 @@ select {
   }
 
   .header-nav {
-    width: 100%;
     margin-left: 0;
-    justify-content: space-between;
-    gap: 0.6rem;
-  }
-
-  .search-bar {
-    flex: 1;
-    min-width: 0;
-    width: auto;
+    justify-content: flex-end;
   }
 
   .main-layout {

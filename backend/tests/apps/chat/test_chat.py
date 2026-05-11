@@ -534,6 +534,81 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         )
         self.assertEqual(download_response.status_code, 403)
 
+    # --------- search ---------
+    def _search_url(self, group_id=None):
+        gid = group_id or self.group.id
+        return reverse("group-messages-search", kwargs={"group_pk": gid})
+
+    def test_search_matches_case_insensitive_and_excludes_other_groups(self):
+        Messages.objects.create(group=self.group, sender_user=self.student, message_text="Hello biotech world")
+        Messages.objects.create(group=self.group, sender_user=self.student, message_text="unrelated note")
+        # Leak guard: a message in another group containing the term must not appear.
+        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        GroupMembership.objects.create(user=self.student, group=other_group)
+        Messages.objects.create(group=other_group, sender_user=self.student, message_text="biotech elsewhere")
+
+        resp = self.client_student.get(self._search_url() + "?q=BIOTECH")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        items = resp.data["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["message_text"], "Hello biotech world")
+        self.assertIsNone(resp.data["next_before"])
+
+    def test_search_excludes_soft_deleted_messages(self):
+        Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep biotech")
+        Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="hide biotech",
+            sent_at=timezone.now() - timedelta(minutes=2),
+            deleted_at=timezone.now() - timedelta(minutes=1),
+        )
+        resp = self.client_student.get(self._search_url() + "?q=biotech")
+        self.assertEqual(resp.status_code, 200)
+        texts = [it["message_text"] for it in resp.data["items"]]
+        self.assertEqual(texts, ["keep biotech"])
+
+    def test_search_forbidden_for_non_member(self):
+        outsider = get_user_model().objects.create_user(email="outsider-search@test.com", password="pw")
+        outsider_client = APIClient(); outsider_client.force_authenticate(user=outsider)
+        Messages.objects.create(group=self.group, sender_user=self.student, message_text="biotech")
+        resp = outsider_client.get(self._search_url() + "?q=biotech")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_search_empty_query_returns_empty(self):
+        Messages.objects.create(group=self.group, sender_user=self.student, message_text="anything")
+        resp = self.client_student.get(self._search_url() + "?q=")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["items"], [])
+        self.assertIsNone(resp.data["next_before"])
+
+    def test_search_pagination_with_before_cursor(self):
+        # Three matches, newest-first ordering, limit=2 → next_before points at oldest of page 1.
+        m1 = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="biotech one",
+            sent_at=timezone.now() - timedelta(minutes=3),
+        )
+        m2 = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="biotech two",
+            sent_at=timezone.now() - timedelta(minutes=2),
+        )
+        m3 = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="biotech three",
+            sent_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        resp1 = self.client_student.get(self._search_url() + "?q=biotech&limit=2")
+        self.assertEqual(resp1.status_code, 200)
+        ids1 = [it["id"] for it in resp1.data["items"]]
+        self.assertEqual(ids1, [m3.id, m2.id])
+        self.assertEqual(resp1.data["next_before"], m2.id)
+
+        resp2 = self.client_student.get(self._search_url() + f"?q=biotech&limit=2&before={m2.id}")
+        self.assertEqual(resp2.status_code, 200)
+        ids2 = [it["id"] for it in resp2.data["items"]]
+        self.assertEqual(ids2, [m1.id])
+        self.assertIsNone(resp2.data["next_before"])
+
 
 class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
     storage_attr = "chat_storage"
