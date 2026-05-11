@@ -1,0 +1,45 @@
+name: Hourly RSVP reminders
+
+# Trigger the 24h RSVP reminder dispatcher every hour. The job is a
+# thin curl against a shared-secret-protected backend endpoint; all
+# logic lives in apps/events/services.py::send_due_rsvp_reminders.
+#
+# Required configuration:
+#   secret  RSVP_REMINDER_TOKEN         shared secret, must match
+#                                       backend env RSVP_REMINDER_TOKEN
+#   var     RSVP_REMINDER_BACKEND_URL   base URL of the backend, e.g.
+#                                       https://biotechbe.azurewebsites.net
+#
+# GitHub schedules can drift by several minutes under load — that's
+# fine, the dispatcher window is one hour wide.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger RSVP reminder dispatch
+        env:
+          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          REMINDER_TOKEN: ${{ secrets.RSVP_REMINDER_TOKEN }}
+        run: |
+          if [ -z "${BACKEND_URL}" ]; then
+            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
+            exit 1
+          fi
+          if [ -z "${REMINDER_TOKEN}" ]; then
+            echo "RSVP_REMINDER_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow
+          # surfaces auth or server failures instead of silently
+          # succeeding. -sS keeps output quiet but still prints errors.
+          curl -fsS -X POST \
+            -H "X-Reminder-Token: ${REMINDER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/events/v1/admin/send-rsvp-reminders/"

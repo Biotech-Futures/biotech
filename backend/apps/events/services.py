@@ -16,6 +16,11 @@ funnel through the same rule so a user who can SEE an event can RSVP
 to it, and vice-versa.
 """
 
+import logging
+from datetime import timedelta
+
+from django.conf import settings
+from django.core.mail import send_mail
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -32,6 +37,8 @@ from .models import (
     EventTargetTrack,
     Events,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_accepted_event_ids(user):
@@ -368,3 +375,176 @@ def set_user_rsvp(user, event_id, rsvp_status):
         },
     )
     return event, rsvp, created
+
+
+# ---------------------------------------------------------------------------
+# 24h RSVP reminder dispatch. Invoked by:
+#   * `manage.py send_rsvp_reminders`
+#   * the POST /events/v1/admin/send-rsvp-reminders/ endpoint (guarded by
+#     RSVP_REMINDER_TOKEN), which the hourly GitHub Actions workflow hits.
+#
+# Why this lives in services.py rather than a Celery task:
+# we don't want a broker/worker just for one cron job. An external
+# scheduler triggers the same code path via the management command or
+# the admin endpoint.
+# ---------------------------------------------------------------------------
+
+
+# Window the dispatcher scans on each invocation. Designed for an hourly
+# trigger: an event starting between 24h and 25h from "now" will be
+# caught on exactly one run.
+RSVP_REMINDER_WINDOW_START_HOURS = 24
+RSVP_REMINDER_WINDOW_END_HOURS = 25
+
+# How many RSVPs to pull from the DB per chunk inside one event. Keeps
+# memory flat for events with very large attendee lists.
+RSVP_REMINDER_RSVP_CHUNK_SIZE = 100
+
+
+def send_due_rsvp_reminders():
+    """Dispatch reminder emails for events ~24h away.
+
+    Returns ``(events_processed, emails_sent, emails_failed)``. The
+    caller (management command or HTTP endpoint) is welcome to log /
+    surface those numbers but they are not part of any user contract.
+
+    Idempotency: ``Events.reminder_sent`` is flipped to True *before*
+    the per-recipient loop, using a conditional UPDATE. If two workers
+    race or a previous run died mid-loop, only one will see
+    ``rowcount==1`` and proceed; the other skips. Trade-off: a crash
+    inside the loop silently drops the tail of un-mailed attendees,
+    which we accept as the lesser evil — re-spamming everyone who
+    already got the email is worse than under-notifying once.
+    """
+    now = timezone.now()
+    window_start = now + timedelta(hours=RSVP_REMINDER_WINDOW_START_HOURS)
+    window_end = now + timedelta(hours=RSVP_REMINDER_WINDOW_END_HOURS)
+
+    candidates = Events.objects.filter(
+        start_datetime__gte=window_start,
+        start_datetime__lt=window_end,
+        deleted_at__isnull=True,
+        reminder_sent=False,
+    )
+
+    events_processed = 0
+    total_sent = 0
+    total_failed = 0
+
+    for event in candidates:
+        # Atomic claim. update() with a filter on reminder_sent=False
+        # guarantees a single winner; subsequent runs / parallel
+        # workers see rowcount==0 and skip.
+        claimed = Events.objects.filter(
+            pk=event.pk, reminder_sent=False
+        ).update(reminder_sent=True)
+        if not claimed:
+            continue
+
+        try:
+            sent, failed = _send_reminders_for_event(event)
+        except Exception:
+            # One bad event must not abort the rest. We've already
+            # claimed the row, so it won't be retried — log loud.
+            logger.exception(
+                "RSVP reminder dispatch crashed for event %s", event.id
+            )
+            continue
+
+        events_processed += 1
+        total_sent += sent
+        total_failed += failed
+        logger.info(
+            "RSVP reminders for event %s (%s): sent=%s failed=%s",
+            event.id,
+            event.event_name,
+            sent,
+            failed,
+        )
+
+    return events_processed, total_sent, total_failed
+
+
+def _send_reminders_for_event(event):
+    """Email all ACCEPTED RSVPs of `event`. Returns ``(sent, failed)``.
+
+    The codebase uses meeting-standard PARTSTAT wording — "accepted",
+    not "going" — see ``EventRsvp.RsvpStatus`` for the rationale. A
+    confirmed attendee is one in the ACCEPTED state; TENTATIVE / DECLINED
+    / PENDING all skip the email.
+    """
+    rsvps = (
+        EventRsvp.objects.filter(
+            event=event,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+        )
+        .select_related("user")
+        .iterator(chunk_size=RSVP_REMINDER_RSVP_CHUNK_SIZE)
+    )
+
+    body_template = _rsvp_reminder_body_template(event)
+    from_email = settings.DEFAULT_FROM_EMAIL or "noreply@biotechfutures.com"
+    subject = f"Reminder: {event.event_name} is tomorrow"
+
+    sent = 0
+    failed = 0
+    for rsvp in rsvps:
+        user = rsvp.user
+        email = getattr(user, "email", None)
+        if not email:
+            continue
+        first_name = (getattr(user, "first_name", "") or "").strip() or "there"
+        try:
+            send_mail(
+                subject=subject,
+                message=body_template.format(first_name=first_name),
+                from_email=from_email,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+            sent += 1
+        except Exception:
+            failed += 1
+            logger.exception(
+                "Failed to send RSVP reminder for event %s to user %s",
+                event.id,
+                user.id,
+            )
+    return sent, failed
+
+
+def _rsvp_reminder_body_template(event):
+    """Return a ``str.format``-ready body with a ``{first_name}`` slot.
+
+    Built once per event so we don't re-render the location block for
+    every recipient.
+    """
+    if event.is_virtual:
+        if event.location_link:
+            location_line = f"Join online: {event.location_link}"
+        else:
+            location_line = (
+                "This is a virtual event. Check your calendar invite for the link."
+            )
+    else:
+        # Non-virtual events can legitimately have a null `location`
+        # (the model allows it) — fall back to the map link, then to
+        # nothing, rather than emailing "Location: None".
+        parts = []
+        if event.location:
+            parts.append(f"Location: {event.location}")
+        if event.location_link:
+            parts.append(f"Map: {event.location_link}")
+        location_line = "\n".join(parts) if parts else ""
+
+    when = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p")
+    body = (
+        "Hi {first_name},\n\n"
+        "This is a friendly reminder that you have an upcoming event:\n\n"
+        f"Event:  {event.event_name}\n"
+        f"Date:   {when}\n"
+    )
+    if location_line:
+        body += f"{location_line}\n"
+    body += "\nWe look forward to seeing you there!\n\nThe BIOTech Futures Team"
+    return body

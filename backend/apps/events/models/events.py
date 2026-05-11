@@ -28,6 +28,12 @@ class Events(models.Model):
         help_text="Zoom URL when is_virtual=True, Google Maps URL otherwise.",
     )
     is_virtual = models.BooleanField(default=False)
+    # Idempotency flag for the 24h RSVP-reminder dispatch. Flipped to
+    # True atomically *before* the per-recipient send loop in
+    # `send_due_rsvp_reminders`, so a mid-run crash drops the tail of
+    # un-mailed attendees rather than re-spamming the ones who already
+    # got their reminder on restart.
+    reminder_sent = models.BooleanField(default=False)
 
     class Meta:
         db_table = "events"
