@@ -18,10 +18,16 @@
               <div class="dashboard-skeleton-block dashboard-skeleton-eyebrow"></div>
               <div class="dashboard-skeleton-block dashboard-skeleton-title"></div>
               <div class="dashboard-skeleton-chip-row">
-                <div v-for="item in 3" :key="`hero-chip-${item}`" class="dashboard-skeleton-block dashboard-skeleton-chip"></div>
+                <div
+                  v-for="item in 3"
+                  :key="`hero-chip-${item}`"
+                  class="dashboard-skeleton-block dashboard-skeleton-chip"
+                ></div>
               </div>
               <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
-              <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"></div>
+              <div
+                class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+              ></div>
             </div>
 
             <div class="dashboard-skeleton-calendar">
@@ -30,7 +36,11 @@
                 <div class="dashboard-skeleton-block dashboard-skeleton-calendar-nav"></div>
               </div>
               <div class="dashboard-skeleton-calendar-grid">
-                <div v-for="item in 35" :key="`calendar-day-${item}`" class="dashboard-skeleton-block dashboard-skeleton-calendar-day"></div>
+                <div
+                  v-for="item in 35"
+                  :key="`calendar-day-${item}`"
+                  class="dashboard-skeleton-block dashboard-skeleton-calendar-day"
+                ></div>
               </div>
             </div>
           </div>
@@ -38,13 +48,19 @@
 
         <section class="dashboard-section">
           <div class="dashboard-section-grid summary-grid">
-            <article v-for="item in 4" :key="`summary-${item}`" class="summary-card dashboard-skeleton-card">
+            <article
+              v-for="item in 4"
+              :key="`summary-${item}`"
+              class="summary-card dashboard-skeleton-card"
+            >
               <div class="dashboard-skeleton-card-top">
                 <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
                 <div class="dashboard-skeleton-block dashboard-skeleton-label"></div>
               </div>
               <div class="dashboard-skeleton-block dashboard-skeleton-metric"></div>
-              <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
+              <div
+                class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"
+              ></div>
             </article>
           </div>
         </section>
@@ -61,7 +77,11 @@
             <div class="dashboard-skeleton-progress-body">
               <div class="dashboard-skeleton-block dashboard-skeleton-ring"></div>
               <div class="dashboard-skeleton-progress-rows">
-                <div v-for="item in 4" :key="`progress-row-${item}`" class="dashboard-skeleton-progress-row">
+                <div
+                  v-for="item in 4"
+                  :key="`progress-row-${item}`"
+                  class="dashboard-skeleton-progress-row"
+                >
                   <div class="dashboard-skeleton-block dashboard-skeleton-row-label"></div>
                   <div class="dashboard-skeleton-block dashboard-skeleton-row-value"></div>
                 </div>
@@ -72,7 +92,11 @@
 
         <section class="dashboard-section">
           <div class="dashboard-section-grid two-col-layout">
-            <article v-for="panel in 2" :key="`panel-${panel}`" class="surface-card dashboard-skeleton-panel">
+            <article
+              v-for="panel in 2"
+              :key="`panel-${panel}`"
+              class="surface-card dashboard-skeleton-panel"
+            >
               <div class="dashboard-skeleton-section-head">
                 <div>
                   <div class="dashboard-skeleton-block dashboard-skeleton-kicker"></div>
@@ -81,11 +105,17 @@
                 <div class="dashboard-skeleton-block dashboard-skeleton-link"></div>
               </div>
               <div class="dashboard-skeleton-list">
-                <div v-for="row in 3" :key="`panel-${panel}-row-${row}`" class="dashboard-skeleton-list-row">
+                <div
+                  v-for="row in 3"
+                  :key="`panel-${panel}-row-${row}`"
+                  class="dashboard-skeleton-list-row"
+                >
                   <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
                   <div class="dashboard-skeleton-list-copy">
                     <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
-                    <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"></div>
+                    <div
+                      class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                    ></div>
                   </div>
                 </div>
               </div>
@@ -95,86 +125,74 @@
       </div>
 
       <template v-else>
-      <section class="dashboard-hero-shell">
-        <div class="dashboard-hero-card interactive-surface">
-          <div class="dashboard-hero-main">
-            <div class="dashboard-hero-copy">
-              <div class="hero-eyebrow-row">
-                <span class="hero-eyebrow">{{ heroEyebrow }}</span>
+        <section class="dashboard-hero-shell">
+          <div class="dashboard-hero-card interactive-surface">
+            <div class="dashboard-hero-main">
+              <div class="dashboard-hero-copy">
+                <div class="hero-eyebrow-row">
+                  <span class="hero-eyebrow">{{ heroEyebrow }}</span>
+                </div>
+                <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
+
+                <div class="hero-meta-row">
+                  <span
+                    v-for="chip in heroMetaChips"
+                    :key="chip.key"
+                    class="hero-meta-chip"
+                    :class="`hero-meta-chip--${chip.tone}`"
+                  >
+                    <span class="hero-meta-chip-label">{{ chip.label }}</span>
+                    <strong class="hero-meta-chip-value">{{ chip.value }}</strong>
+                  </span>
+                </div>
+
+                <p class="dashboard-subtext">
+                  Curated overview for {{ roleLabel.toLowerCase() }} workflow, current tasks, and
+                  the next best actions.
+                </p>
+
+                <p class="dashboard-hero-message">
+                  {{ heroMessage }}
+                </p>
+
+                <div class="hero-highlight-wrap">
+                  <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
+                    {{ item.label }}
+                  </span>
+                </div>
               </div>
-              <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
-
-              <div class="hero-meta-row">
-                <span
-                  v-for="chip in heroMetaChips"
-                  :key="chip.key"
-                  class="hero-meta-chip"
-                  :class="`hero-meta-chip--${chip.tone}`"
-                >
-                  <span class="hero-meta-chip-label">{{ chip.label }}</span>
-                  <strong class="hero-meta-chip-value">{{ chip.value }}</strong>
-                </span>
-              </div>
-
-              <p class="dashboard-subtext">
-                Curated overview for {{ roleLabel.toLowerCase() }} workflow, current tasks, and the next best actions.
-              </p>
-
-              <p class="dashboard-hero-message">
-                {{ heroMessage }}
-              </p>
-
-
-              <div class="hero-highlight-wrap">
-                <span
-                  v-for="item in headerHighlights"
-                  :key="item.key"
-                  class="status-pill"
-                >
-                  {{ item.label }}
-                </span>
-              </div>
-
-
+              <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
             </div>
-            <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
           </div>
+        </section>
 
+        <div v-if="loadError" class="dashboard-alert">
+          <i class="fas fa-circle-info"></i>
+          <span>{{ loadError }}</span>
         </div>
-      </section>
 
-
-      <div v-if="loadError" class="dashboard-alert">
-        <i class="fas fa-circle-info"></i>
-        <span>{{ loadError }}</span>
-      </div>
-
-
-      <section class="dashboard-section">
-        <div class="dashboard-section-grid summary-grid">
-
-
-          <article
-            v-for="item in summaryWidgets"
-            :key="item.key"
-            class="summary-card interactive-surface"
-            :class="getAccentClass(item.accent)"
-          >
-            <div class="summary-card-top">
-              <div class="summary-icon-wrap">
-                <i :class="item.icon"></i>
+        <section class="dashboard-section">
+          <div class="dashboard-section-grid summary-grid">
+            <article
+              v-for="item in summaryWidgets"
+              :key="item.key"
+              class="summary-card interactive-surface"
+              :class="getAccentClass(item.accent)"
+            >
+              <div class="summary-card-top">
+                <div class="summary-icon-wrap">
+                  <i :class="item.icon"></i>
+                </div>
+                <span class="summary-label">{{ item.title }}</span>
               </div>
-              <span class="summary-label">{{ item.title }}</span>
-            </div>
 
-            <div class="summary-card-value">{{ item.value }}</div>
-            <div class="summary-card-subtext">{{ item.subtext }}</div>
-          </article>
-        </div>
-      </section>
+              <div class="summary-card-value">{{ item.value }}</div>
+              <div class="summary-card-subtext">{{ item.subtext }}</div>
+            </article>
+          </div>
+        </section>
 
-
-      <section class="dashboard-section">
+        <section class="dashboard-section">
           <article class="surface-card feature-card progress-card">
             <div class="surface-card-header">
               <div>
@@ -188,53 +206,40 @@
                 aria-label="Select progress group"
                 @change="loadProgress"
               >
-                <option
-                  v-for="group in progressGroupOptions"
-                  :key="group.id"
-                  :value="group.id"
-                >
+                <option v-for="group in progressGroupOptions" :key="group.id" :value="group.id">
                   {{ group.label }}
                 </option>
               </select>
             </div>
 
-              <div class="progress-layout">
-
-
+            <div class="progress-layout">
               <div class="progress-ring-shell">
                 <div class="progress-ring" :style="progressCircleStyle">
                   <div class="progress-ring-inner">
-
-
                     <div class="progress-value">{{ progressSnapshot.completionRate }}%</div>
-
 
                     <div class="progress-label">Completion</div>
                   </div>
                 </div>
               </div>
 
-
               <div class="progress-details">
-
-
                 <div class="progress-detail-row">
                   <span>Tasks</span>
-                  <strong>{{ progressSnapshot.completedTasks }}/{{ progressSnapshot.totalTasks }}</strong>
+                  <strong
+                    >{{ progressSnapshot.completedTasks }}/{{ progressSnapshot.totalTasks }}</strong
+                  >
                 </div>
-
 
                 <div class="progress-detail-row">
                   <span>Current stage</span>
                   <strong>{{ progressSnapshot.currentWeek }}</strong>
                 </div>
 
-
                 <div class="progress-detail-row">
                   <span>Next task</span>
                   <strong>{{ progressSnapshot.nextTask }}</strong>
                 </div>
-
 
                 <div class="progress-detail-row">
                   <span>Due</span>
@@ -243,230 +248,199 @@
               </div>
             </div>
           </article>
-      </section>
+        </section>
 
+        <section class="dashboard-section">
+          <div class="dashboard-section-grid two-col-layout">
+            <article class="surface-card interactive-surface">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Calendar</p>
+                  <h3 class="surface-card-title">Next Event</h3>
+                </div>
 
-      <section class="dashboard-section">
-        <div class="dashboard-section-grid two-col-layout">
-
-          <article class="surface-card interactive-surface">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Calendar</p>
-                <h3 class="surface-card-title">Next Event</h3>
+                <RouterLink to="/events" class="surface-link">Open calendar</RouterLink>
               </div>
 
-
-              <RouterLink to="/events" class="surface-link">Open calendar</RouterLink>
-            </div>
-
-
-            <div v-if="nextEvent" class="event-detail-card">
-
-
-              <div class="event-date-badge">
-                <span class="event-date-day">{{ nextEventDateParts.day }}</span>
-                <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
-              </div>
-
-              <div class="event-content">
-
-                <div class="event-title">{{ nextEvent.title }}</div>
-
-
-                <div class="event-meta-row">
-                  <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
-                  <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
+              <div v-if="nextEvent" class="event-detail-card">
+                <div class="event-date-badge">
+                  <span class="event-date-day">{{ nextEventDateParts.day }}</span>
+                  <span class="event-date-rest">{{ nextEventDateParts.rest }}</span>
                 </div>
 
+                <div class="event-content">
+                  <div class="event-title">{{ nextEvent.title }}</div>
 
-                <div class="event-meta-row location-row">
-                  <span><i class="fas fa-location-dot"></i>{{ nextEvent.location || 'Location TBC' }}</span>
-                </div>
-
-
-                <div class="event-actions">
-                  <RouterLink to="/events" class="primary-chip">
-                    {{ isAdmin ? 'Manage event' : isMentor ? 'Open session' : 'View event' }}
-                  </RouterLink>
-                </div>
-              </div>
-            </div>
-
-
-            <div v-else class="empty-state">
-              <i class="fas fa-calendar-xmark"></i>
-              <p>No upcoming event is available yet.</p>
-            </div>
-          </article>
-
-
-          <article class="surface-card interactive-surface">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Updates</p>
-
-
-                <h3 class="surface-card-title">{{ announcementsSectionTitle }}</h3>
-              </div>
-              <RouterLink to="/announcements" class="surface-link">View all</RouterLink>
-            </div>
-
-
-            <div v-if="announcementsPreview.length" class="list-stack">
-              <RouterLink
-                v-for="announcement in announcementsPreview"
-                :key="announcement.id || getAnnouncementTitle(announcement)"
-                to="/announcements"
-                class="list-row premium-row"
-              >
-                <div class="list-row-icon announcement-icon">
-                  <i class="fas fa-bullhorn"></i>
-                </div>
-
-                <div class="list-row-content">
-
-                  <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
-
-
-                  <div class="list-row-meta">{{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}</div>
-
-
-                  <div
-                    class="list-row-description dashboard-announcement-body"
-                    v-html="getAnnouncementPreviewHtml(announcement)"
-                  ></div>
-                </div>
-
-                <div class="list-row-tail">
-                  <i class="fas fa-chevron-right"></i>
-                </div>
-              </RouterLink>
-            </div>
-
-
-            <div v-else class="empty-state">
-              <i class="fas fa-bell-slash"></i>
-              <p>No recent announcements are available yet.</p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-
-      <section class="dashboard-section">
-        <article class="surface-card interactive-surface">
-          <div class="surface-card-header">
-            <div>
-              <p class="surface-kicker">Groups</p>
-              <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
-            </div>
-            <RouterLink to="/groups" class="surface-link">View all</RouterLink>
-          </div>
-
-
-          <div v-if="groupsPreview.length" class="groups-grid">
-            <RouterLink
-              v-for="group in groupsPreview"
-              :key="group.id || getGroupName(group)"
-              :to="group.id ? '/groups/' + group.id : '/groups'"
-              class="group-card-link"
-            >
-              <div class="group-card-surface interactive-surface">
-
-
-                <div class="group-card-top">
-                  <div class="group-avatars">
-
-
-                    <div class="group-avatar primary-avatar">
-                      {{ getInitials(getGroupName(group)) }}
-                    </div>
-
-
-                    <div class="group-avatar secondary-avatar">
-                      {{ getGroupSecondaryLabel(group) }}
-                    </div>
-
-
-                    <div class="group-avatar tertiary-avatar">
-                      +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
-                    </div>
+                  <div class="event-meta-row">
+                    <span><i class="fas fa-clock"></i>{{ nextEvent.time || 'Time TBC' }}</span>
+                    <span><i class="fas fa-layer-group"></i>{{ nextEvent.mode || 'Hybrid' }}</span>
                   </div>
 
-                  <span class="group-open-indicator">
-                    <i class="fas fa-arrow-up-right-from-square"></i>
-                  </span>
+                  <div class="event-meta-row location-row">
+                    <span
+                      ><i class="fas fa-location-dot"></i
+                      >{{ nextEvent.location || 'Location TBC' }}</span
+                    >
+                  </div>
+
+                  <div class="event-actions">
+                    <RouterLink to="/events" class="primary-chip">
+                      {{ isAdmin ? 'Manage event' : isMentor ? 'Open session' : 'View event' }}
+                    </RouterLink>
+                  </div>
                 </div>
-
-
-                <div class="group-name">{{ getGroupName(group) }}</div>
-
-
-                <div class="group-meta">{{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}</div>
               </div>
-            </RouterLink>
+
+              <div v-else class="empty-state">
+                <i class="fas fa-calendar-xmark"></i>
+                <p>No upcoming event is available yet.</p>
+              </div>
+            </article>
+
+            <article class="surface-card interactive-surface">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Updates</p>
+
+                  <h3 class="surface-card-title">{{ announcementsSectionTitle }}</h3>
+                </div>
+                <RouterLink to="/announcements" class="surface-link">View all</RouterLink>
+              </div>
+
+              <div v-if="announcementsPreview.length" class="list-stack">
+                <RouterLink
+                  v-for="announcement in announcementsPreview"
+                  :key="announcement.id || getAnnouncementTitle(announcement)"
+                  to="/announcements"
+                  class="list-row premium-row"
+                >
+                  <div class="list-row-icon announcement-icon">
+                    <i class="fas fa-bullhorn"></i>
+                  </div>
+
+                  <div class="list-row-content">
+                    <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
+
+                    <div class="list-row-meta">
+                      {{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}
+                    </div>
+
+                    <div
+                      class="list-row-description dashboard-announcement-body"
+                      v-html="getAnnouncementPreviewHtml(announcement)"
+                    ></div>
+                  </div>
+
+                  <div class="list-row-tail">
+                    <i class="fas fa-chevron-right"></i>
+                  </div>
+                </RouterLink>
+              </div>
+
+              <div v-else class="empty-state">
+                <i class="fas fa-bell-slash"></i>
+                <p>No recent announcements are available yet.</p>
+              </div>
+            </article>
           </div>
+        </section>
 
-
-          <div v-else class="empty-state">
-            <i class="fas fa-users-slash"></i>
-            <p>No group is available yet.</p>
-          </div>
-        </article>
-      </section>
-
-
-      <section class="dashboard-section">
-        <div class="dashboard-section-grid two-col-layout">
-
-
+        <section class="dashboard-section">
           <article class="surface-card interactive-surface">
             <div class="surface-card-header">
               <div>
-                <p class="surface-kicker">Library</p>
-                <h3 class="surface-card-title">{{ resourcesSectionTitle }}</h3>
+                <p class="surface-kicker">Groups</p>
+                <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
               </div>
-              <RouterLink to="/resources" class="surface-link">View all</RouterLink>
+              <RouterLink to="/groups" class="surface-link">View all</RouterLink>
             </div>
 
-
-            <div v-if="resourcesPreview.length" class="resource-grid">
+            <div v-if="groupsPreview.length" class="groups-grid">
               <RouterLink
-                v-for="resource in resourcesPreview"
-                :key="resource.id || getResourceTitle(resource)"
-                :to="resource.id ? '/resources/' + resource.id : '/resources'"
-                class="resource-card-link"
+                v-for="group in groupsPreview"
+                :key="group.id || getGroupName(group)"
+                :to="group.id ? '/groups/' + group.id : '/groups'"
+                class="group-card-link"
               >
-                <div class="resource-card-surface interactive-surface">
+                <div class="group-card-surface interactive-surface">
+                  <div class="group-card-top">
+                    <div class="group-avatars">
+                      <div class="group-avatar primary-avatar">
+                        {{ getInitials(getGroupName(group)) }}
+                      </div>
 
+                      <div class="group-avatar secondary-avatar">
+                        {{ getGroupSecondaryLabel(group) }}
+                      </div>
 
-                  <div class="resource-icon">
-                    <i :class="getResourceIcon(resource.type)"></i>
+                      <div class="group-avatar tertiary-avatar">
+                        +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
+                      </div>
+                    </div>
+
+                    <span class="group-open-indicator">
+                      <i class="fas fa-arrow-up-right-from-square"></i>
+                    </span>
                   </div>
 
-                  <div class="resource-content">
+                  <div class="group-name">{{ getGroupName(group) }}</div>
 
-                    <div class="resource-title">{{ getResourceTitle(resource) }}</div>
-
-
-                    <div class="resource-meta">
-                      {{ getResourceCategory(resource) }} · Updated {{ getResourceMeta(resource) }}
-                    </div>
+                  <div class="group-meta">
+                    {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
                   </div>
                 </div>
               </RouterLink>
             </div>
 
-
             <div v-else class="empty-state">
-              <i class="fas fa-folder-open"></i>
-              <p>No resource is available yet.</p>
+              <i class="fas fa-users-slash"></i>
+              <p>No group is available yet.</p>
             </div>
           </article>
-        </div>
-      </section>
+        </section>
 
+        <section class="dashboard-section">
+          <div class="dashboard-section-grid two-col-layout">
+            <article class="surface-card interactive-surface">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Library</p>
+                  <h3 class="surface-card-title">{{ resourcesSectionTitle }}</h3>
+                </div>
+                <RouterLink to="/resources" class="surface-link">View all</RouterLink>
+              </div>
+
+              <div v-if="resourcesPreview.length" class="resource-grid">
+                <RouterLink
+                  v-for="resource in resourcesPreview"
+                  :key="resource.id || getResourceTitle(resource)"
+                  :to="resource.id ? '/resources/' + resource.id : '/resources'"
+                  class="resource-card-link"
+                >
+                  <div class="resource-card-surface interactive-surface">
+                    <div class="resource-icon">
+                      <i :class="getResourceIcon(resource.type)"></i>
+                    </div>
+
+                    <div class="resource-content">
+                      <div class="resource-title">{{ getResourceTitle(resource) }}</div>
+
+                      <div class="resource-meta">
+                        {{ getResourceCategory(resource) }} · Updated
+                        {{ getResourceMeta(resource) }}
+                      </div>
+                    </div>
+                  </div>
+                </RouterLink>
+              </div>
+
+              <div v-else class="empty-state">
+                <i class="fas fa-folder-open"></i>
+                <p>No resource is available yet.</p>
+              </div>
+            </article>
+          </div>
+        </section>
       </template>
     </div>
   </div>
@@ -493,20 +467,12 @@ import { getAccentClass } from '@/utils/ui'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
-const {
-  isAdmin,
-  isMentor,
-  isSupervisor,
-  displayName,
-  displayTrack,
-  organizationLabel,
-  roleLabel,
-  normalizedRole,
-  user
-} = storeToRefs(auth)
+const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user } =
+  storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const DASHBOARD_ENDPOINTS = {
-  groupsPreview: (mine = false) => `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
+  groupsPreview: (mine = false) =>
+    `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
   groupsMine: `${API_BASE_URL}/groups/groups/?page_size=20&mine=true`,
   groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
@@ -517,7 +483,7 @@ const DASHBOARD_ENDPOINTS = {
   personalizedEvents: `${API_BASE_URL}/events/v1/?audience=me&page_size=1&ordering=start_datetime`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
   progress: `${API_BASE_URL}/dashboard/v1/progress/`,
-  adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`
+  adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`,
 }
 
 const isLoading = ref(true)
@@ -532,7 +498,7 @@ const dashboardSummary = ref({
   activeGroups: groups.value.length,
   upcomingEvents: events.value.length,
   resources: resources.value.length,
-  announcements: announcements.value.length
+  announcements: announcements.value.length,
 })
 
 const isMentoringRole = computed(() => isMentor.value || isSupervisor.value)
@@ -541,7 +507,7 @@ const adminWorkflow = ref({
   pendingMatches: 0,
   pendingReassignments: 0,
   pendingApprovals: 0,
-  draftBulkMessages: 0
+  draftBulkMessages: 0,
 })
 
 const adminOperationsSummary = ref(null)
@@ -552,7 +518,7 @@ const progressSnapshot = ref({
   totalTasks: 0,
   currentWeek: 'No tasks yet',
   nextTask: 'TBC',
-  nextTaskDate: ''
+  nextTaskDate: '',
 })
 const selectedProgressGroupId = ref('')
 
@@ -561,7 +527,7 @@ const nextEventDateParts = computed(() => {
   const parts = formatted.split(' ')
   return {
     day: parts[0] || 'TBC',
-    rest: parts.slice(1).join(' ')
+    rest: parts.slice(1).join(' '),
   }
 })
 
@@ -578,7 +544,7 @@ const dashboardFxState = {
   scene: null,
   camera: null,
   material: null,
-  clock: null
+  clock: null,
 }
 
 const dashboardPalette = {
@@ -604,7 +570,7 @@ const dashboardPalette = {
   pageGlowOne: 'transparent',
   pageGlowTwo: 'transparent',
   pageGlowThree: 'transparent',
-  fxOpacity: '0'
+  fxOpacity: '0',
 }
 
 const dashboardThemeStyle = computed(() => {
@@ -631,7 +597,7 @@ const dashboardThemeStyle = computed(() => {
     '--page-glow-one': dashboardPalette.pageGlowOne,
     '--page-glow-two': dashboardPalette.pageGlowTwo,
     '--page-glow-three': dashboardPalette.pageGlowThree,
-    '--dashboard-fx-opacity': dashboardPalette.fxOpacity
+    '--dashboard-fx-opacity': dashboardPalette.fxOpacity,
   }
 })
 
@@ -643,7 +609,7 @@ const heroMetaChips = computed(() => {
   return [
     { key: 'date', label: 'Today', value: currentDateText.value, tone: 'neutral' },
     { key: 'track', label: 'Track', value: displayTrack.value || 'General', tone: 'cyan' },
-    { key: 'role', label: 'Role', value: roleLabel.value || 'Member', tone: 'violet' }
+    { key: 'role', label: 'Role', value: roleLabel.value || 'Member', tone: 'violet' },
   ]
 })
 
@@ -663,20 +629,12 @@ const heroMessage = computed(() => {
   return 'Stay focused on your next event, active group, and current tasks with a dashboard designed for fast decisions.'
 })
 
-const heroShowcaseFacts = computed(() => {
-  return [
-    { key: 'groups', label: `${groupsCount.value} groups` },
-    { key: 'resources', label: `${resourcesCount.value} resources` },
-    { key: 'updates', label: `${announcementsCount.value} updates` }
-  ]
-})
-
 const headerHighlights = computed(() => {
   if (isAdmin.value) {
     return [
       { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
       { key: 'matches', label: `${adminWorkflow.value.pendingMatches} pending matches` },
-      { key: 'approvals', label: `${adminWorkflow.value.pendingApprovals} approvals` }
+      { key: 'approvals', label: `${adminWorkflow.value.pendingApprovals} approvals` },
     ]
   }
 
@@ -684,14 +642,17 @@ const headerHighlights = computed(() => {
     return [
       { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
       { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
-      { key: 'progress', label: `${progressSnapshot.value.completionRate}% progress` }
+      { key: 'progress', label: `${progressSnapshot.value.completionRate}% progress` },
     ]
   }
 
   return [
     { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
     { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming events` },
-    { key: 'tasks', label: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks} tasks done` }
+    {
+      key: 'tasks',
+      label: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks} tasks done`,
+    },
   ]
 })
 
@@ -724,17 +685,17 @@ const groupsPreview = computed(() => {
 
 const progressGroupOptions = computed(() => {
   return groups.value
-    .map(group => ({
+    .map((group) => ({
       id: String(group?.id || ''),
-      label: getGroupName(group)
+      label: getGroupName(group),
     }))
-    .filter(group => group.id)
+    .filter((group) => group.id)
 })
 
 const progressCircleStyle = computed(() => {
   const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
   return {
-    background: `conic-gradient(var(--accent-blue) 0deg ${value * 2.2}deg, var(--accent-teal) ${value * 2.2}deg ${value * 3.1}deg, var(--accent-violet) ${value * 3.1}deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`
+    background: `conic-gradient(var(--accent-blue) 0deg ${value * 2.2}deg, var(--accent-teal) ${value * 2.2}deg ${value * 3.1}deg, var(--accent-violet) ${value * 3.1}deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`,
   }
 })
 
@@ -747,7 +708,7 @@ const summaryWidgets = computed(() => {
         value: dashboardSummary.value.activeGroups,
         subtext: 'Current mentoring groups across the platform',
         icon: 'fas fa-users',
-        accent: 'blue'
+        accent: 'blue',
       },
       {
         key: 'events',
@@ -755,7 +716,7 @@ const summaryWidgets = computed(() => {
         value: dashboardSummary.value.upcomingEvents,
         subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming event',
         icon: 'fas fa-calendar-days',
-        accent: 'violet'
+        accent: 'violet',
       },
       {
         key: 'matches',
@@ -763,7 +724,7 @@ const summaryWidgets = computed(() => {
         value: adminWorkflow.value.pendingMatches,
         subtext: 'Items waiting for mentor allocation review',
         icon: 'fas fa-arrows-rotate',
-        accent: 'teal'
+        accent: 'teal',
       },
       {
         key: 'approvals',
@@ -771,8 +732,8 @@ const summaryWidgets = computed(() => {
         value: adminWorkflow.value.pendingApprovals,
         subtext: 'Requests that need admin action',
         icon: 'fas fa-badge-check',
-        accent: 'amber'
-      }
+        accent: 'amber',
+      },
     ]
   }
 
@@ -784,7 +745,7 @@ const summaryWidgets = computed(() => {
         value: dashboardSummary.value.activeGroups,
         subtext: 'Groups currently assigned to you',
         icon: 'fas fa-users',
-        accent: 'blue'
+        accent: 'blue',
       },
       {
         key: 'events',
@@ -792,7 +753,7 @@ const summaryWidgets = computed(() => {
         value: dashboardSummary.value.upcomingEvents,
         subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming session',
         icon: 'fas fa-calendar-check',
-        accent: 'violet'
+        accent: 'violet',
       },
       {
         key: 'resources',
@@ -800,7 +761,7 @@ const summaryWidgets = computed(() => {
         value: resourcesCount.value,
         subtext: 'Guides, rubrics, and support materials',
         icon: 'fas fa-book-open',
-        accent: 'teal'
+        accent: 'teal',
       },
       {
         key: 'updates',
@@ -808,8 +769,8 @@ const summaryWidgets = computed(() => {
         value: announcementsCount.value,
         subtext: 'Latest program communication',
         icon: 'fas fa-bullhorn',
-        accent: 'rose'
-      }
+        accent: 'rose',
+      },
     ]
   }
 
@@ -820,7 +781,7 @@ const summaryWidgets = computed(() => {
       value: dashboardSummary.value.activeGroups,
       subtext: 'Your current mentoring spaces',
       icon: 'fas fa-users',
-      accent: 'blue'
+      accent: 'blue',
     },
     {
       key: 'events',
@@ -828,7 +789,7 @@ const summaryWidgets = computed(() => {
       value: dashboardSummary.value.upcomingEvents,
       subtext: nextEvent.value ? `Next: ${nextEvent.value.title}` : 'No upcoming event',
       icon: 'fas fa-calendar-check',
-      accent: 'violet'
+      accent: 'violet',
     },
     {
       key: 'tasks',
@@ -836,7 +797,7 @@ const summaryWidgets = computed(() => {
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
       subtext: 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
-      accent: 'teal'
+      accent: 'teal',
     },
     {
       key: 'resources',
@@ -844,8 +805,8 @@ const summaryWidgets = computed(() => {
       value: resourcesCount.value,
       subtext: 'Materials available to you',
       icon: 'fas fa-book',
-      accent: 'amber'
-    }
+      accent: 'amber',
+    },
   ]
 })
 
@@ -876,7 +837,7 @@ function getEmptyProgressSnapshot() {
     totalTasks: 0,
     currentWeek: 'No tasks yet',
     nextTask: 'TBC',
-    nextTaskDate: ''
+    nextTaskDate: '',
   }
 }
 
@@ -891,15 +852,13 @@ function getCurrentUserId() {
 }
 
 function toNumberSet(items) {
-  return new Set(
-    items
-      .map(item => Number(item))
-      .filter(item => Number.isFinite(item))
-  )
+  return new Set(items.map((item) => Number(item)).filter((item) => Number.isFinite(item)))
 }
 
 function truncateText(value, maxLength = 160) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
   if (text.length <= maxLength) return text
   return `${text.slice(0, maxLength - 1).trim()}...`
@@ -913,7 +872,10 @@ function stripHtml(value) {
     return (template.content.textContent || '').replace(/\s+/g, ' ').trim()
   }
 
-  return source.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  return source
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function escapeHtml(value) {
@@ -928,9 +890,9 @@ function escapeHtml(value) {
 function plainTextToHtml(value) {
   return String(value || '')
     .split(/\n{2,}/)
-    .map(paragraph => paragraph.trim())
+    .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-    .map(paragraph => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
     .join('')
 }
 
@@ -963,7 +925,7 @@ function sanitizeDashboardAnnouncementRichText(value) {
     'SPAN',
     'STRONG',
     'U',
-    'UL'
+    'UL',
   ])
   const removedTags = new Set([
     'AUDIO',
@@ -983,13 +945,13 @@ function sanitizeDashboardAnnouncementRichText(value) {
     'TH',
     'THEAD',
     'TR',
-    'VIDEO'
+    'VIDEO',
   ])
 
   const template = document.createElement('template')
   template.innerHTML = rawHtml
 
-  const cleanNode = node => {
+  const cleanNode = (node) => {
     if (node.nodeType !== Node.ELEMENT_NODE) return
 
     const element = node
@@ -1016,7 +978,14 @@ function sanitizeDashboardAnnouncementRichText(value) {
 }
 
 function getAnnouncementBody(announcement) {
-  return announcement?.body || announcement?.content || announcement?.summary || announcement?.description || announcement?.excerpt || ''
+  return (
+    announcement?.body ||
+    announcement?.content ||
+    announcement?.summary ||
+    announcement?.description ||
+    announcement?.excerpt ||
+    ''
+  )
 }
 
 function isValidDate(value) {
@@ -1030,7 +999,7 @@ function formatEventTime(startValue, endValue) {
 
   const options = {
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
   }
   const start = new Date(startValue).toLocaleTimeString('en-AU', options)
 
@@ -1053,7 +1022,9 @@ function resolveResourceIconType(value) {
 }
 
 function normalizeRoleName(value) {
-  const role = String(value || '').trim().toLowerCase()
+  const role = String(value || '')
+    .trim()
+    .toLowerCase()
 
   if (!role) return ''
   if (['all', 'public', 'everyone'].includes(role)) return 'all'
@@ -1066,27 +1037,26 @@ function normalizeRoleName(value) {
 
 function normalizeGroup(group, memberships = [], trackById = new Map()) {
   const groupId = group?.id
-  const matchingMemberships = memberships.filter(item => String(item?.group) === String(groupId))
-  const activeMentors = matchingMemberships.filter(item => {
+  const matchingMemberships = memberships.filter((item) => String(item?.group) === String(groupId))
+  const activeMentors = matchingMemberships.filter((item) => {
     const role = String(item?.membership_role || '').toLowerCase()
     return role.includes('mentor') || role.includes('supervisor')
   })
-  const leadName = group?.lead_name || group?.lead_user
-    ? [
-        group?.lead_user?.first_name,
-        group?.lead_user?.last_name
-      ].filter(Boolean).join(' ').trim() || group?.lead_user?.email || group?.lead_name
-    : ''
+  const leadName =
+    group?.lead_name || group?.lead_user
+      ? [group?.lead_user?.first_name, group?.lead_user?.last_name]
+          .filter(Boolean)
+          .join(' ')
+          .trim() ||
+        group?.lead_user?.email ||
+        group?.lead_name
+      : ''
   const trackLabel =
     group?.track_name ||
     trackById.get(Number(group?.track)) ||
     (group?.track ? `Track ${group.track}` : group?.category)
   const memberCount = Number(
-    group?.member_count ??
-    group?.memberCount ??
-    group?.members ??
-    matchingMemberships.length ??
-    0
+    group?.member_count ?? group?.memberCount ?? group?.members ?? matchingMemberships.length ?? 0,
   )
 
   return {
@@ -1102,7 +1072,7 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
       group?.mentor ||
       group?.lead ||
       (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
-    track: trackLabel || 'General'
+    track: trackLabel || 'General',
   }
 }
 
@@ -1114,30 +1084,26 @@ function filterGroupsForDashboard(items, memberships = []) {
 
   const groupIds = toNumberSet(
     memberships
-      .filter(item => String(item?.user) === String(currentUserId))
-      .map(item => item?.group)
+      .filter((item) => String(item?.user) === String(currentUserId))
+      .map((item) => item?.group),
   )
 
-  return items.filter(group => groupIds.has(Number(group?.id)))
+  return items.filter((group) => groupIds.has(Number(group?.id)))
 }
 
 function normalizeResource(resource) {
   const typeLabel =
-    resource?.resource_type_detail?.type_name ||
-    resource?.category ||
-    resource?.type ||
-    'General'
+    resource?.resource_type_detail?.type_name || resource?.category || resource?.type || 'General'
   const visibleRoles = Array.isArray(resource?.visible_roles)
-    ? resource.visible_roles.map(role => role?.role_name)
+    ? resource.visible_roles.map((role) => role?.role_name)
     : []
   const audienceRoles = Array.isArray(resource?.audiences)
-    ? resource.audiences.map(rule => rule?.role_name)
+    ? resource.audiences.map((rule) => rule?.role_name)
     : []
-  const roles = [...visibleRoles, ...audienceRoles]
-    .map(normalizeRoleName)
-    .filter(Boolean)
+  const roles = [...visibleRoles, ...audienceRoles].map(normalizeRoleName).filter(Boolean)
   const scope = String(resource?.visibility_scope || '').toLowerCase()
-  const normalizedRoles = scope === 'public' || roles.length === 0 ? ['all'] : Array.from(new Set(roles))
+  const normalizedRoles =
+    scope === 'public' || roles.length === 0 ? ['all'] : Array.from(new Set(roles))
 
   return {
     ...resource,
@@ -1146,9 +1112,10 @@ function normalizeResource(resource) {
     name: resource?.resource_name || resource?.name || resource?.title || 'Untitled resource',
     type: resolveResourceIconType(typeLabel),
     category: typeLabel,
-    updated: resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
+    updated:
+      resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
     role: normalizedRoles[0] || 'all',
-    roles: normalizedRoles
+    roles: normalizedRoles,
   }
 }
 
@@ -1156,13 +1123,12 @@ function normalizeAnnouncement(announcement) {
   const body = getAnnouncementBody(announcement)
   const bodyText = stripHtml(body)
   const audienceRoles = Array.isArray(announcement?.audiences)
-    ? announcement.audiences.map(rule => rule?.role_name)
+    ? announcement.audiences.map((rule) => rule?.role_name)
     : []
   const normalizedRoles = audienceRoles.map(normalizeRoleName).filter(Boolean)
   const visibilityScope = normalizeRoleName(announcement?.visibility_scope)
-  const audience = visibilityScope === 'public'
-    ? 'all'
-    : (normalizedRoles[0] || visibilityScope || 'all')
+  const audience =
+    visibilityScope === 'public' ? 'all' : normalizedRoles[0] || visibilityScope || 'all'
 
   return {
     ...announcement,
@@ -1176,7 +1142,7 @@ function normalizeAnnouncement(announcement) {
     date: announcement?.published_at || announcement?.date || announcement?.created_at,
     updated: announcement?.published_at || announcement?.updated || announcement?.created_at,
     author: announcement?.author_email || announcement?.author || 'Program Team',
-    audience
+    audience,
   }
 }
 
@@ -1193,7 +1159,7 @@ function normalizeEvent(event) {
     time: formatEventTime(start, end) || event?.time || '',
     location: isVirtual ? 'Online' : event?.location || 'Location TBC',
     mode: isVirtual ? 'Virtual event' : event?.mode || 'In-person event',
-    link: event?.humanitix_link || event?.link
+    link: event?.humanitix_link || event?.link,
   }
 }
 
@@ -1203,7 +1169,7 @@ function deriveDashboardSummary() {
       activeGroups: Number(adminOperationsSummary.value.active_groups || groups.value.length),
       upcomingEvents: Number(adminOperationsSummary.value.upcoming_events || events.value.length),
       resources: resources.value.length,
-      announcements: announcements.value.length
+      announcements: announcements.value.length,
     }
     return
   }
@@ -1212,7 +1178,7 @@ function deriveDashboardSummary() {
     activeGroups: groups.value.length,
     upcomingEvents: events.value.length,
     resources: resources.value.length,
-    announcements: announcements.value.length
+    announcements: announcements.value.length,
   }
 }
 
@@ -1224,12 +1190,16 @@ function normalizeProgressSnapshot(payload) {
   }
 
   return {
-    completionRate: Number(payload?.completionRate ?? payload?.completion_rate ?? fallback.completionRate),
-    completedTasks: Number(payload?.completedTasks ?? payload?.completed_tasks ?? fallback.completedTasks),
+    completionRate: Number(
+      payload?.completionRate ?? payload?.completion_rate ?? fallback.completionRate,
+    ),
+    completedTasks: Number(
+      payload?.completedTasks ?? payload?.completed_tasks ?? fallback.completedTasks,
+    ),
     totalTasks: Number(payload?.totalTasks ?? payload?.total_tasks ?? fallback.totalTasks),
     currentWeek: payload?.currentWeek ?? payload?.current_stage ?? fallback.currentWeek,
     nextTask: payload?.nextTask ?? payload?.next_task?.name ?? fallback.nextTask,
-    nextTaskDate: payload?.nextTaskDate ?? payload?.next_task?.due_date ?? fallback.nextTaskDate
+    nextTaskDate: payload?.nextTaskDate ?? payload?.next_task?.due_date ?? fallback.nextTaskDate,
   }
 }
 
@@ -1240,7 +1210,7 @@ function ensureSelectedProgressGroup() {
     return
   }
 
-  const hasSelectedGroup = options.some(group => group.id === selectedProgressGroupId.value)
+  const hasSelectedGroup = options.some((group) => group.id === selectedProgressGroupId.value)
   if (!hasSelectedGroup) {
     selectedProgressGroupId.value = options[0].id
   }
@@ -1253,13 +1223,15 @@ function getProgressEndpoint() {
 }
 
 function hasGroupPreviewShape(items) {
-  return Array.isArray(items) && items.some(item =>
-    item &&
-    (
-      'track_name' in item ||
-      'member_count' in item ||
-      'lead_name' in item ||
-      'lead_user' in item
+  return (
+    Array.isArray(items) &&
+    items.some(
+      (item) =>
+        item &&
+        ('track_name' in item ||
+          'member_count' in item ||
+          'lead_name' in item ||
+          'lead_user' in item),
     )
   )
 }
@@ -1271,9 +1243,9 @@ async function fetchJson(url, options = {}) {
     credentials: 'include',
     headers: buildSessionHeaders({
       headers: {
-        Accept: 'application/json'
-      }
-    })
+        Accept: 'application/json',
+      },
+    }),
   })
 
   if (allowNoContent && response.status === 204) {
@@ -1323,7 +1295,7 @@ async function loadDashboardData() {
       loadResources(),
       loadAnnouncements(),
       loadEvents(),
-      loadAdminWorkflow()
+      loadAdminWorkflow(),
     ])
     await loadProgress()
     loadSummary()
@@ -1350,13 +1322,17 @@ async function loadGroups() {
     const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
     const groupItems = extractCollectionItems(data)
 
-    if (Array.isArray(groupItems) && groupItems.length === 0 && String(primaryGroupUrl).includes('/dashboard/v1/groups-preview/')) {
+    if (
+      Array.isArray(groupItems) &&
+      groupItems.length === 0 &&
+      String(primaryGroupUrl).includes('/dashboard/v1/groups-preview/')
+    ) {
       groups.value = []
       return
     }
 
     if (hasGroupPreviewShape(groupItems)) {
-      groups.value = groupItems.map(group => normalizeGroup(group))
+      groups.value = groupItems.map((group) => normalizeGroup(group))
       return
     }
 
@@ -1365,14 +1341,16 @@ async function loadGroups() {
 
     try {
       memberships = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.groupMembers))
-    } catch (error) {
+    } catch {
       memberships = null
     }
 
     try {
       const tracks = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.tracks))
-      trackById = new Map(tracks.map(track => [Number(track?.id), track?.track_name]).filter(item => item[1]))
-    } catch (error) {
+      trackById = new Map(
+        tracks.map((track) => [Number(track?.id), track?.track_name]).filter((item) => item[1]),
+      )
+    } catch {
       trackById = new Map()
     }
 
@@ -1381,8 +1359,8 @@ async function loadGroups() {
     }
 
     const liveGroups = filterGroupsForDashboard(groupItems, memberships || [])
-    groups.value = liveGroups.map(group => normalizeGroup(group, memberships || [], trackById))
-  } catch (error) {
+    groups.value = liveGroups.map((group) => normalizeGroup(group, memberships || [], trackById))
+  } catch {
     groups.value = []
   }
 }
@@ -1392,7 +1370,7 @@ async function loadResources() {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.resources)
     const liveResources = extractCollectionItems(data)
     resources.value = liveResources.map(normalizeResource)
-  } catch (error) {
+  } catch {
     resources.value = []
   }
 }
@@ -1402,7 +1380,7 @@ async function loadAnnouncements() {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.announcements)
     const liveAnnouncements = extractCollectionItems(data)
     announcements.value = liveAnnouncements.map(normalizeAnnouncement)
-  } catch (error) {
+  } catch {
     announcements.value = []
   }
 }
@@ -1410,7 +1388,7 @@ async function loadAnnouncements() {
 async function loadEvents() {
   try {
     const nextEventData = await fetchJson(DASHBOARD_ENDPOINTS.nextEvent, {
-      allowNoContent: true
+      allowNoContent: true,
     })
 
     if (nextEventData) {
@@ -1425,15 +1403,15 @@ async function loadEvents() {
 
     const fallbackEvents = await fetchFirstAvailable([
       DASHBOARD_ENDPOINTS.personalizedEvents,
-      DASHBOARD_ENDPOINTS.events
+      DASHBOARD_ENDPOINTS.events,
     ])
     const liveEvents = extractCollectionItems(fallbackEvents)
     events.value = liveEvents.map(normalizeEvent)
-  } catch (error) {
+  } catch {
     try {
       const fallbackEvents = await fetchFirstAvailable([
         DASHBOARD_ENDPOINTS.personalizedEvents,
-        DASHBOARD_ENDPOINTS.events
+        DASHBOARD_ENDPOINTS.events,
       ])
       const liveEvents = extractCollectionItems(fallbackEvents)
       events.value = liveEvents.length ? liveEvents.map(normalizeEvent) : []
@@ -1453,15 +1431,15 @@ async function loadAdminWorkflow() {
       pendingMatches: Number(data?.unassigned_match_recommendations || 0),
       pendingReassignments: Number(data?.groups_without_mentor || 0),
       pendingApprovals: Number(data?.invited_or_pending_users || 0),
-      draftBulkMessages: 0
+      draftBulkMessages: 0,
     }
-  } catch (error) {
+  } catch {
     adminOperationsSummary.value = null
     adminWorkflow.value = {
       pendingMatches: 0,
       pendingReassignments: 0,
       pendingApprovals: 0,
-      draftBulkMessages: 0
+      draftBulkMessages: 0,
     }
   }
 }
@@ -1484,7 +1462,13 @@ function getAnnouncementMeta(item) {
 }
 
 function getAnnouncementSnippet(item) {
-  return item?.summary || item?.description || item?.content || item?.excerpt || 'Open the announcement to read more details.'
+  return (
+    item?.summary ||
+    item?.description ||
+    item?.content ||
+    item?.excerpt ||
+    'Open the announcement to read more details.'
+  )
 }
 
 function getAnnouncementPreviewHtml(item) {
@@ -1678,7 +1662,7 @@ function initDashboardFx() {
     canvas: dashboardFxCanvasRef.value,
     alpha: true,
     antialias: true,
-    powerPreference: 'high-performance'
+    powerPreference: 'high-performance',
   })
   dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
   dashboardFxState.renderer.setSize(rect.width, rect.height, false)
@@ -1697,8 +1681,8 @@ function initDashboardFx() {
     depthTest: false,
     uniforms: {
       uTime: { value: 0 },
-      uResolution: { value: new THREE.Vector2(rect.width, rect.height) }
-    }
+      uResolution: { value: new THREE.Vector2(rect.width, rect.height) },
+    },
   })
 
   const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), dashboardFxState.material)
@@ -1724,7 +1708,13 @@ function resizeDashboardFx() {
 }
 
 function renderDashboardFx() {
-  if (!dashboardFxState.renderer || !dashboardFxState.scene || !dashboardFxState.camera || !dashboardFxState.material || !dashboardFxState.clock) {
+  if (
+    !dashboardFxState.renderer ||
+    !dashboardFxState.scene ||
+    !dashboardFxState.camera ||
+    !dashboardFxState.material ||
+    !dashboardFxState.clock
+  ) {
     return
   }
 
@@ -1806,26 +1796,26 @@ onBeforeUnmount(() => {
    § 1  DESIGN TOKENS
    ────────────────────────────────────────────────────────────── */
 .dashboard-page-shell {
-  --text-primary:   #eef5ff;
+  --text-primary: #eef5ff;
   --text-secondary: #94b8d8;
-  --text-muted:     #5c7a9a;
-  --text-link:      #7ec8ff;
+  --text-muted: #5c7a9a;
+  --text-link: #7ec8ff;
 
-  --surface-base:     rgba(6, 18, 12, 0.82);
-  --surface-elevated: rgba(8, 22, 16, 0.90);
+  --surface-base: rgba(6, 18, 12, 0.82);
+  --surface-elevated: rgba(8, 22, 16, 0.9);
 
   --border-default: rgba(255, 255, 255, 0.09);
-  --border-strong:  rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  --accent-blue:   #60a5fa;
-  --accent-teal:   #2dd4bf;
+  --accent-blue: #60a5fa;
+  --accent-teal: #2dd4bf;
   --accent-violet: #a78bfa;
-  --accent-amber:  #fbbf24;
-  --accent-rose:   #f87171;
+  --accent-amber: #fbbf24;
+  --accent-rose: #f87171;
 
   --shadow-lg: 0 24px 64px rgba(0, 6, 2, 0.52);
-  --shadow-md: 0 14px 38px rgba(0, 6, 2, 0.40);
-  --shadow-sm: 0 8px 22px rgba(0, 6, 2, 0.30);
+  --shadow-md: 0 14px 38px rgba(0, 6, 2, 0.4);
+  --shadow-sm: 0 8px 22px rgba(0, 6, 2, 0.3);
 
   --radius-card: 24px;
   --radius-hero: 28px;
@@ -1848,7 +1838,6 @@ onBeforeUnmount(() => {
     radial-gradient(circle at 68% 84%, var(--page-glow-three), transparent 26%);
 }
 
-
 /* ──────────────────────────────────────────────────────────────
    § 2  PAGE SHELL & BACKGROUND
    ────────────────────────────────────────────────────────────── */
@@ -1864,24 +1853,6 @@ onBeforeUnmount(() => {
   position: relative;
   max-width: 1520px;
   margin: 0 auto;
-}
-
-/* ──────────────────────────────────────────────────────────────
-   § 3  BACKGROUND EFFECTS
-   ────────────────────────────────────────────────────────────── */
-.dashboard-fx-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: -6;
-  pointer-events: none;
-  opacity: var(--dashboard-fx-opacity, 0.92);
-}
-
-.dashboard-page-shell.is-fx-disabled .dashboard-fx-canvas {
-  opacity: 0;
-  visibility: hidden;
 }
 
 .dashboard-backdrop-grid {
@@ -1901,20 +1872,28 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 4  SECTION LAYOUT
    ────────────────────────────────────────────────────────────── */
-.dashboard-section { margin-bottom: 1.6rem; }
+.dashboard-section {
+  margin-bottom: 1.6rem;
+}
 
 .dashboard-section-grid {
   display: grid;
   gap: 1.2rem;
 }
 
-.two-col-layout   { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.summary-grid     { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.two-col-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 5  HERO CARD
    ────────────────────────────────────────────────────────────── */
-.dashboard-hero-shell { margin-bottom: 1.5rem; }
+.dashboard-hero-shell {
+  margin-bottom: 1.5rem;
+}
 
 .dashboard-hero-card {
   position: relative;
@@ -1923,18 +1902,24 @@ onBeforeUnmount(() => {
   padding: 1.6rem;
   border: 1px solid rgba(255, 255, 255, 0.13);
   background: linear-gradient(145deg, rgba(6, 18, 12, 0.92), rgba(7, 16, 11, 0.78));
-  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-base);
 }
 
 /* Blue aurora top-left */
 .dashboard-hero-card::before {
   content: '';
   position: absolute;
-  top: -35%; left: -6%;
-  width: 52%; height: 72%;
+  top: -35%;
+  left: -6%;
+  width: 52%;
+  height: 72%;
   border-radius: 999px;
   background: radial-gradient(circle, rgba(96, 165, 250, 0.22), transparent 66%);
   filter: blur(22px);
@@ -1945,8 +1930,10 @@ onBeforeUnmount(() => {
 .dashboard-hero-card::after {
   content: '';
   position: absolute;
-  bottom: -32%; right: -8%;
-  width: 46%; height: 72%;
+  bottom: -32%;
+  right: -8%;
+  width: 46%;
+  height: 72%;
   border-radius: 999px;
   background: radial-gradient(circle, rgba(45, 212, 191, 0.18), transparent 68%);
   filter: blur(22px);
@@ -2045,11 +2032,15 @@ onBeforeUnmount(() => {
   gap: 0.7rem;
   min-height: 58px;
   padding: 0.78rem 1.05rem;
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
   overflow: hidden;
   isolation: isolate;
-  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    border-color var(--t-fast),
+    box-shadow var(--t-fast),
+    background var(--t-fast);
 }
 
 .hero-meta-chip:hover {
@@ -2067,7 +2058,15 @@ onBeforeUnmount(() => {
 .hero-meta-chip::before {
   inset: -1px;
   opacity: 0.75;
-  background: linear-gradient(115deg, transparent 10%, rgba(255, 255, 255, 0.14) 30%, transparent 48%, transparent 70%, rgba(255, 255, 255, 0.08) 88%, transparent);
+  background: linear-gradient(
+    115deg,
+    transparent 10%,
+    rgba(255, 255, 255, 0.14) 30%,
+    transparent 48%,
+    transparent 70%,
+    rgba(255, 255, 255, 0.08) 88%,
+    transparent
+  );
   transform: translateX(-72%);
   transition: transform 0.9s var(--ease-out);
 }
@@ -2089,7 +2088,9 @@ onBeforeUnmount(() => {
 }
 
 .hero-meta-chip--neutral::after {
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.10), transparent 42%), linear-gradient(145deg, rgba(140, 200, 170, 0.12), rgba(8, 22, 12, 0.08));
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.1), transparent 42%),
+    linear-gradient(145deg, rgba(140, 200, 170, 0.12), rgba(8, 22, 12, 0.08));
 }
 
 .hero-meta-chip--cyan {
@@ -2099,17 +2100,21 @@ onBeforeUnmount(() => {
 }
 
 .hero-meta-chip--cyan::after {
-  background: radial-gradient(circle at top left, rgba(34, 211, 180, 0.24), transparent 38%), linear-gradient(135deg, rgba(34, 211, 180, 0.10), rgba(6, 18, 11, 0.02));
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 180, 0.24), transparent 38%),
+    linear-gradient(135deg, rgba(34, 211, 180, 0.1), rgba(6, 18, 11, 0.02));
 }
 
 .hero-meta-chip--violet {
   border-radius: 16px 22px 16px 22px;
   background: linear-gradient(135deg, rgba(91, 33, 182, 0.26), rgba(8, 20, 12, 0.74));
-  border-color: rgba(167, 139, 250, 0.30);
+  border-color: rgba(167, 139, 250, 0.3);
 }
 
 .hero-meta-chip--violet::after {
-  background: radial-gradient(circle at top left, rgba(192, 132, 252, 0.22), transparent 38%), linear-gradient(135deg, rgba(167, 139, 250, 0.10), rgba(6, 18, 11, 0.02));
+  background:
+    radial-gradient(circle at top left, rgba(192, 132, 252, 0.22), transparent 38%),
+    linear-gradient(135deg, rgba(167, 139, 250, 0.1), rgba(6, 18, 11, 0.02));
 }
 
 .hero-meta-chip-label {
@@ -2174,12 +2179,23 @@ onBeforeUnmount(() => {
   margin-right: 0.56rem;
   border-radius: 999px;
   background: currentColor;
-  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 18%, transparent), 0 0 18px color-mix(in srgb, currentColor 30%, transparent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, currentColor 18%, transparent),
+    0 0 18px color-mix(in srgb, currentColor 30%, transparent);
 }
 
-.status-pill:nth-child(1) { border: 1px solid rgba(96, 165, 250, 0.24); color: #bfdbfe; }
-.status-pill:nth-child(2) { border: 1px solid rgba(45, 212, 191, 0.24); color: #99f6e4; }
-.status-pill:nth-child(3) { border: 1px solid rgba(244, 114, 182, 0.24); color: #fbcfe8; }
+.status-pill:nth-child(1) {
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  color: #bfdbfe;
+}
+.status-pill:nth-child(2) {
+  border: 1px solid rgba(45, 212, 191, 0.24);
+  color: #99f6e4;
+}
+.status-pill:nth-child(3) {
+  border: 1px solid rgba(244, 114, 182, 0.24);
+  color: #fbcfe8;
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 8  SHOWCASE CAROUSEL
@@ -2193,275 +2209,6 @@ onBeforeUnmount(() => {
   min-height: 100%;
 }
 
-.showcase-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  min-height: 100%;
-  padding: 1rem;
-  border-radius: 28px;
-  background:
-    linear-gradient(160deg, rgba(5, 16, 10, 0.88), rgba(7, 20, 12, 0.78)),
-    radial-gradient(circle at top right, rgba(60, 200, 110, 0.12), transparent 32%),
-    radial-gradient(circle at bottom left, rgba(167, 139, 250, 0.10), transparent 28%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  overflow: hidden;
-  isolation: isolate;
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
-}
-
-.showcase-card::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: conic-gradient(from 0deg, transparent 0deg 40deg, rgba(60, 200, 110, 0.54) 78deg, transparent 126deg, transparent 185deg, rgba(167, 139, 250, 0.42) 230deg, transparent 286deg, rgba(45, 212, 170, 0.42) 326deg, transparent 360deg);
-  opacity: 0.72;
-  animation: showcaseBorderSpin 9s linear infinite;
-  z-index: -2;
-}
-
-.showcase-card::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  border-radius: calc(28px - 1px);
-  background: linear-gradient(160deg, rgba(6, 18, 11, 0.94), rgba(8, 20, 12, 0.84));
-  z-index: -1;
-}
-
-.showcase-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(125, 211, 252, 0.22);
-  box-shadow: 0 36px 92px rgba(0, 3, 18, 0.50), 0 0 0 1px rgba(96, 165, 250, 0.06) inset;
-}
-
-.showcase-heading-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.8rem;
-}
-
-.showcase-kicker {
-  font-size: 0.74rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-weight: 900;
-  color: #8fd4ff;
-}
-
-.showcase-mini-label {
-  margin-top: 0.28rem;
-  color: color-mix(in srgb, var(--text-secondary) 90%, white 10%);
-  font-size: 0.82rem;
-}
-
-.showcase-controls {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.26rem;
-  border-radius: 16px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.showcase-nav-btn {
-  width: 38px;
-  height: 38px;
-  border: none;
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
-}
-
-.showcase-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.10);
-  box-shadow: 0 10px 24px rgba(0, 3, 18, 0.22);
-}
-
-.showcase-nav-btn:first-child:hover { transform: translateX(-2px) translateY(-1px) scale(1.04); }
-.showcase-nav-btn:last-child:hover  { transform: translateX(2px) translateY(-1px) scale(1.04); }
-
-.showcase-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.88rem;
-  flex: 1;
-}
-
-.showcase-image {
-  position: relative;
-  aspect-ratio: 16 / 8;
-  width: 100%;
-  border-radius: 22px;
-  overflow: hidden;
-  background-size: cover;
-  background-position: center;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 22px 50px rgba(0, 3, 18, 0.26);
-  transition: transform var(--t-slow) var(--ease-out), filter var(--t-slow), box-shadow var(--t-slow);
-}
-
-.showcase-image::before {
-  content: '';
-  position: absolute;
-  inset: -35% auto auto -18%;
-  width: 42%;
-  height: 170%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-  transform: skewX(-16deg);
-  animation: showcaseImageSheen 10s ease-in-out infinite;
-}
-
-.showcase-card:hover .showcase-image {
-  transform: translateY(-2px) scale(1.022);
-  filter: saturate(1.12) contrast(1.02);
-  box-shadow: 0 28px 62px rgba(0, 3, 18, 0.34);
-}
-
-.showcase-image-overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(0, 3, 18, 0.04), rgba(0, 3, 18, 0.38)),
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.10), transparent 28%);
-}
-
-.showcase-copy {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.showcase-title {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1.12rem;
-  font-weight: 850;
-  line-height: 1.35;
-  letter-spacing: -0.02em;
-}
-
-.showcase-summary {
-  margin: 0.4rem 0 0;
-  color: color-mix(in srgb, var(--text-secondary) 90%, white 10%);
-  font-size: 0.9rem;
-  line-height: 1.72;
-}
-
-.showcase-footer {
-  margin-top: auto;
-  padding-top: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.showcase-dots {
-  display: flex;
-  align-items: center;
-  gap: 0.42rem;
-}
-
-.showcase-dot {
-  width: 8px;
-  height: 8px;
-  border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.20);
-  cursor: pointer;
-  transition: background var(--t-fast), width var(--t-base), box-shadow var(--t-fast), transform var(--t-fast);
-}
-
-.showcase-dot:hover {
-  transform: translateY(-1px) scale(1.08);
-}
-
-.showcase-dot.active {
-  width: 22px;
-  background: linear-gradient(90deg, #60a5fa, #7c3aed);
-  box-shadow: 0 0 14px rgba(96, 165, 250, 0.45);
-}
-
-.showcase-link-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.52rem;
-  min-height: 40px;
-  padding: 0.5rem 0.96rem;
-  border-radius: 999px;
-  border: 1px solid rgba(60, 200, 110, 0.26);
-  background: linear-gradient(145deg, rgba(40, 160, 80, 0.16), rgba(30, 130, 60, 0.08));
-  color: #d6ffec;
-  cursor: pointer;
-  font-weight: 800;
-  font-size: 0.84rem;
-  overflow: hidden;
-  transition: transform var(--t-fast), background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
-}
-
-.showcase-link-btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 18%, rgba(255, 255, 255, 0.16) 50%, transparent 82%);
-  transform: translateX(-110%);
-  transition: transform 0.8s ease;
-}
-
-.showcase-link-btn:hover::before {
-  transform: translateX(110%);
-}
-
-.showcase-link-btn:hover {
-  transform: translateY(-2px);
-  background: linear-gradient(145deg, rgba(40, 160, 80, 0.24), rgba(30, 130, 60, 0.12));
-  border-color: rgba(80, 220, 140, 0.42);
-  box-shadow: 0 14px 30px rgba(30, 130, 60, 0.18);
-}
-
-.showcase-fade-enter-active,
-.showcase-fade-leave-active {
-  transition: opacity 0.34s ease, transform 0.34s ease;
-}
-
-.showcase-fade-enter-from,
-.showcase-fade-leave-to {
-  opacity: 0;
-  transform: translateY(10px) scale(0.99);
-}
-
-@keyframes showcaseBorderSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes showcaseImageSheen {
-  0%, 72%, 100% { transform: translateX(0) skewX(-16deg); opacity: 0; }
-  10%, 42% { opacity: 1; }
-  50% { transform: translateX(240%) skewX(-16deg); opacity: 0; }
-}
-
-@keyframes heroSheen {
-  0%, 100% { transform: translateX(0) skewX(-18deg); opacity: 0; }
-  14%, 34% { opacity: 1; }
-  46% { transform: translateX(260%) skewX(-18deg); opacity: 0; }
-}
-
-/* ──────────────────────────────────────────────────────────────
-   § 10  SUMMARY CARDS  (vivid neon top-border differentiates each)
-   ────────────────────────────────────────────────────────────── */
 .summary-card {
   position: relative;
   overflow: hidden;
@@ -2469,17 +2216,22 @@ onBeforeUnmount(() => {
   padding: 1.25rem 1.2rem 1.1rem;
   border-radius: var(--radius-card);
   border: 1px solid rgba(255, 255, 255, 0.09);
-  background: linear-gradient(160deg, rgba(6, 18, 12, 0.90), rgba(7, 16, 10, 0.76));
+  background: linear-gradient(160deg, rgba(6, 18, 12, 0.9), rgba(7, 16, 10, 0.76));
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-base),
+    border-color var(--t-fast);
 }
 
 .summary-card::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 2.5px;
   border-radius: var(--radius-card) var(--radius-card) 0 0;
 }
@@ -2487,58 +2239,129 @@ onBeforeUnmount(() => {
 .summary-card::after {
   content: '';
   position: absolute;
-  right: -24px; top: -28px;
-  width: 130px; height: 130px;
+  right: -24px;
+  top: -28px;
+  width: 130px;
+  height: 130px;
   border-radius: 999px;
   opacity: 0.32;
   pointer-events: none;
 }
 
-.summary-card:hover { transform: translateY(-7px) scale(1.014); box-shadow: var(--shadow-lg); }
-.summary-card:hover .summary-icon-wrap { transform: translateY(-4px) rotate(-8deg); }
+.summary-card:hover {
+  transform: translateY(-7px) scale(1.014);
+  box-shadow: var(--shadow-lg);
+}
+.summary-card:hover .summary-icon-wrap {
+  transform: translateY(-4px) rotate(-8deg);
+}
 
-.accent-blue::before  { background: linear-gradient(90deg, transparent, #60a5fa, #38bdf8, transparent); }
-.accent-blue::after   { background: radial-gradient(circle, rgba(96, 165, 250, 0.9), transparent 70%); }
-.accent-blue:hover    { border-color: rgba(96, 165, 250, 0.26); }
-.accent-blue .summary-icon-wrap { color: #93c5fd; }
+.accent-blue::before {
+  background: linear-gradient(90deg, transparent, #60a5fa, #38bdf8, transparent);
+}
+.accent-blue::after {
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.9), transparent 70%);
+}
+.accent-blue:hover {
+  border-color: rgba(96, 165, 250, 0.26);
+}
+.accent-blue .summary-icon-wrap {
+  color: #93c5fd;
+}
 
-.accent-violet::before { background: linear-gradient(90deg, transparent, #a78bfa, #c084fc, transparent); }
-.accent-violet::after  { background: radial-gradient(circle, rgba(167, 139, 250, 0.88), transparent 70%); }
-.accent-violet:hover   { border-color: rgba(167, 139, 250, 0.26); }
-.accent-violet .summary-icon-wrap { color: #c4b5fd; }
+.accent-violet::before {
+  background: linear-gradient(90deg, transparent, #a78bfa, #c084fc, transparent);
+}
+.accent-violet::after {
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.88), transparent 70%);
+}
+.accent-violet:hover {
+  border-color: rgba(167, 139, 250, 0.26);
+}
+.accent-violet .summary-icon-wrap {
+  color: #c4b5fd;
+}
 
-.accent-teal::before { background: linear-gradient(90deg, transparent, #2dd4bf, #5eead4, transparent); }
-.accent-teal::after  { background: radial-gradient(circle, rgba(45, 212, 191, 0.9), transparent 70%); }
-.accent-teal:hover   { border-color: rgba(45, 212, 191, 0.26); }
-.accent-teal .summary-icon-wrap { color: #5eead4; }
+.accent-teal::before {
+  background: linear-gradient(90deg, transparent, #2dd4bf, #5eead4, transparent);
+}
+.accent-teal::after {
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.9), transparent 70%);
+}
+.accent-teal:hover {
+  border-color: rgba(45, 212, 191, 0.26);
+}
+.accent-teal .summary-icon-wrap {
+  color: #5eead4;
+}
 
-.accent-amber::before { background: linear-gradient(90deg, transparent, #fbbf24, #fcd34d, transparent); }
-.accent-amber::after  { background: radial-gradient(circle, rgba(251, 191, 36, 0.88), transparent 70%); }
-.accent-amber:hover   { border-color: rgba(251, 191, 36, 0.26); }
-.accent-amber .summary-icon-wrap { color: #fcd34d; }
+.accent-amber::before {
+  background: linear-gradient(90deg, transparent, #fbbf24, #fcd34d, transparent);
+}
+.accent-amber::after {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.88), transparent 70%);
+}
+.accent-amber:hover {
+  border-color: rgba(251, 191, 36, 0.26);
+}
+.accent-amber .summary-icon-wrap {
+  color: #fcd34d;
+}
 
-.accent-rose::before { background: linear-gradient(90deg, transparent, #f87171, #fb7185, transparent); }
-.accent-rose::after  { background: radial-gradient(circle, rgba(248, 113, 113, 0.86), transparent 70%); }
-.accent-rose:hover   { border-color: rgba(248, 113, 113, 0.26); }
-.accent-rose .summary-icon-wrap { color: #fca5a5; }
+.accent-rose::before {
+  background: linear-gradient(90deg, transparent, #f87171, #fb7185, transparent);
+}
+.accent-rose::after {
+  background: radial-gradient(circle, rgba(248, 113, 113, 0.86), transparent 70%);
+}
+.accent-rose:hover {
+  border-color: rgba(248, 113, 113, 0.26);
+}
+.accent-rose .summary-icon-wrap {
+  color: #fca5a5;
+}
 
-.summary-card-top { display: flex; align-items: center; gap: 0.8rem; }
+.summary-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
 
 .summary-icon-wrap {
-  width: 46px; height: 46px;
+  width: 46px;
+  height: 46px;
   border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 0.96rem;
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-fast);
 }
 
-.summary-label   { color: var(--text-secondary); font-size: 0.91rem; font-weight: 700; }
-.summary-card-value { margin-top: 1rem; font-size: clamp(2rem, 3vw, 2.5rem); line-height: 1; font-weight: 800; color: var(--text-primary); letter-spacing: -0.05em; }
-.summary-card-subtext { margin-top: 0.65rem; max-width: 26ch; color: var(--text-muted); font-size: 0.87rem; line-height: 1.55; }
+.summary-label {
+  color: var(--text-secondary);
+  font-size: 0.91rem;
+  font-weight: 700;
+}
+.summary-card-value {
+  margin-top: 1rem;
+  font-size: clamp(2rem, 3vw, 2.5rem);
+  line-height: 1;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.05em;
+}
+.summary-card-subtext {
+  margin-top: 0.65rem;
+  max-width: 26ch;
+  color: var(--text-muted);
+  font-size: 0.87rem;
+  line-height: 1.55;
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 11  SURFACE CARDS  (generic feature card base)
@@ -2555,9 +2378,17 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: blur(20px);
 }
 
-.feature-card { min-height: 100%; }
+.feature-card {
+  min-height: 100%;
+}
 
-.surface-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.1rem; }
+.surface-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
 
 /* HUD-style kicker: animated dot + label */
 .surface-kicker {
@@ -2565,7 +2396,7 @@ onBeforeUnmount(() => {
   font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.10em;
+  letter-spacing: 0.1em;
   color: #3cc87a;
   display: flex;
   align-items: center;
@@ -2575,7 +2406,8 @@ onBeforeUnmount(() => {
 .surface-kicker::before {
   content: '';
   display: inline-block;
-  width: 6px; height: 6px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #3cc87a;
   box-shadow: 0 0 8px rgba(60, 200, 110, 0.85);
@@ -2584,11 +2416,24 @@ onBeforeUnmount(() => {
 }
 
 @keyframes hud-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(60, 200, 110, 0.85); }
-  50%       { opacity: 0.52; box-shadow: 0 0 4px rgba(60, 200, 110, 0.38); }
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(60, 200, 110, 0.85);
+  }
+  50% {
+    opacity: 0.52;
+    box-shadow: 0 0 4px rgba(60, 200, 110, 0.38);
+  }
 }
 
-.surface-card-title { margin: 0; color: var(--text-primary); font-size: 1.12rem; font-weight: 800; letter-spacing: -0.02em; }
+.surface-card-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.12rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
 
 .surface-link {
   display: inline-flex;
@@ -2602,10 +2447,17 @@ onBeforeUnmount(() => {
   text-decoration: none;
   font-size: 0.82rem;
   font-weight: 700;
-  transition: transform var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+  transition:
+    transform var(--t-fast),
+    border-color var(--t-fast),
+    background var(--t-fast);
 }
 
-.surface-link:hover { transform: translateY(-1px); border-color: rgba(60, 200, 120, 0.32); background: rgba(60, 200, 120, 0.09); }
+.surface-link:hover {
+  transform: translateY(-1px);
+  border-color: rgba(60, 200, 120, 0.32);
+  background: rgba(60, 200, 120, 0.09);
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 12  ACTION CENTER  (cyberpunk terminal aesthetic)
@@ -2613,7 +2465,9 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 13  PROGRESS CARD  (orbital ring display)
    ────────────────────────────────────────────────────────────── */
-.progress-card { border-color: rgba(167, 139, 250, 0.16); }
+.progress-card {
+  border-color: rgba(167, 139, 250, 0.16);
+}
 
 .progress-group-select {
   min-width: 180px;
@@ -2637,28 +2491,45 @@ onBeforeUnmount(() => {
 .progress-card::after {
   content: '';
   position: absolute;
-  bottom: -20%; right: -10%;
-  width: 38%; aspect-ratio: 1;
+  bottom: -20%;
+  right: -10%;
+  width: 38%;
+  aspect-ratio: 1;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(103, 232, 249, 0.10), transparent 70%);
+  background: radial-gradient(circle, rgba(103, 232, 249, 0.1), transparent 70%);
   pointer-events: none;
   filter: blur(16px);
 }
 
-.progress-layout { display: flex; gap: 1.1rem; align-items: center; flex-wrap: wrap; }
+.progress-layout {
+  display: flex;
+  gap: 1.1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
 
-.progress-ring-shell { flex: 0 0 148px; display: flex; justify-content: center; position: relative; isolation: isolate; }
+.progress-ring-shell {
+  flex: 0 0 148px;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  isolation: isolate;
+}
 
 .progress-ring {
   position: relative;
-  width: 130px; height: 130px;
+  width: 130px;
+  height: 130px;
   border-radius: 999px;
   padding: 10px;
-  box-shadow: 0 24px 52px rgba(0, 3, 18, 0.40), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 24px 52px rgba(0, 3, 18, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .progress-ring-inner {
-  width: 100%; height: 100%;
+  width: 100%;
+  height: 100%;
   border-radius: 999px;
   display: flex;
   flex-direction: column;
@@ -2668,23 +2539,44 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.progress-value { font-size: 1.85rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.04em; }
-.progress-label { margin-top: 0.14rem; color: var(--text-muted); font-size: 0.78rem; font-weight: 700; }
+.progress-value {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.04em;
+}
+.progress-label {
+  margin-top: 0.14rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
 
-.progress-details { flex: 1; min-width: 220px; }
+.progress-details {
+  flex: 1;
+  min-width: 220px;
+}
 
 .progress-detail-row {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.70rem 0.82rem;
+  padding: 0.7rem 0.82rem;
   border-radius: 12px;
   color: var(--text-secondary);
-  transition: transform var(--t-fast), background var(--t-fast);
+  transition:
+    transform var(--t-fast),
+    background var(--t-fast);
 }
 
-.progress-detail-row:hover { transform: translateX(4px); background: rgba(255, 255, 255, 0.04); }
-.progress-detail-row strong { color: var(--text-primary); font-weight: 800; }
+.progress-detail-row:hover {
+  transform: translateX(4px);
+  background: rgba(255, 255, 255, 0.04);
+}
+.progress-detail-row strong {
+  color: var(--text-primary);
+  font-weight: 800;
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 14  EVENTS CARD  (calendar badge style)
@@ -2711,23 +2603,63 @@ onBeforeUnmount(() => {
   justify-content: center;
   text-align: center;
   box-shadow: 0 0 24px rgba(56, 189, 248, 0.14);
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-fast);
 }
 
-.event-detail-card:hover .event-date-badge { transform: rotate(-4deg) translateY(-4px); box-shadow: 0 0 34px rgba(56, 189, 248, 0.24); }
+.event-detail-card:hover .event-date-badge {
+  transform: rotate(-4deg) translateY(-4px);
+  box-shadow: 0 0 34px rgba(56, 189, 248, 0.24);
+}
 
-.event-date-day  { color: #f0f8ff; font-size: 1.5rem; font-weight: 800; line-height: 1; }
-.event-date-rest { margin-top: 0.34rem; color: rgba(186, 230, 255, 0.88); font-size: 0.80rem; line-height: 1.3; }
+.event-date-day {
+  color: #f0f8ff;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.event-date-rest {
+  margin-top: 0.34rem;
+  color: rgba(186, 230, 255, 0.88);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
 
-.event-content { flex: 1; min-width: 0; transition: transform var(--t-base); }
-.event-detail-card:hover .event-content { transform: translateX(3px); }
+.event-content {
+  flex: 1;
+  min-width: 0;
+  transition: transform var(--t-base);
+}
+.event-detail-card:hover .event-content {
+  transform: translateX(3px);
+}
 
-.event-title { font-size: 1.08rem; font-weight: 800; color: var(--text-primary); }
+.event-title {
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
 
-.event-meta-row { display: flex; flex-wrap: wrap; gap: 0.88rem; margin-top: 0.62rem; color: var(--text-secondary); font-size: 0.90rem; }
-.event-meta-row span { display: inline-flex; align-items: center; gap: 0.42rem; }
-.location-row { margin-top: 0.42rem; }
-.event-actions { margin-top: 0.82rem; }
+.event-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.88rem;
+  margin-top: 0.62rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+.event-meta-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+.location-row {
+  margin-top: 0.42rem;
+}
+.event-actions {
+  margin-top: 0.82rem;
+}
 
 .primary-chip {
   display: inline-flex;
@@ -2741,7 +2673,10 @@ onBeforeUnmount(() => {
   font-size: 0.84rem;
   font-weight: 700;
   border: 1px solid rgba(96, 165, 250, 0.24);
-  transition: transform var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+  transition:
+    transform var(--t-fast),
+    background var(--t-fast),
+    box-shadow var(--t-fast);
 }
 
 .primary-chip:hover {
@@ -2753,50 +2688,109 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 15  LISTS  (announcements)
    ────────────────────────────────────────────────────────────── */
-.list-stack { display: flex; flex-direction: column; gap: 0.70rem; }
+.list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
 
-.list-row { display: flex; align-items: flex-start; gap: 0.82rem; text-decoration: none; color: inherit; }
+.list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.82rem;
+  text-decoration: none;
+  color: inherit;
+}
 
 .premium-row {
   padding: 0.85rem 0.95rem;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.03);
-  transition: transform var(--t-base) var(--ease-out), border-color var(--t-fast), background var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    border-color var(--t-fast),
+    background var(--t-fast);
 }
 
-.premium-row:hover { transform: translateX(5px); border-color: rgba(251, 191, 36, 0.22); background: rgba(251, 191, 36, 0.05); }
+.premium-row:hover {
+  transform: translateX(5px);
+  border-color: rgba(251, 191, 36, 0.22);
+  background: rgba(251, 191, 36, 0.05);
+}
 
 .list-row-icon {
-  width: 40px; height: 40px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  font-size: 0.90rem;
+  font-size: 0.9rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: transform var(--t-fast), box-shadow var(--t-fast);
+  transition:
+    transform var(--t-fast),
+    box-shadow var(--t-fast);
 }
 
-.announcement-icon { background: rgba(251, 191, 36, 0.12); color: #fcd34d; }
+.announcement-icon {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+}
 
-.premium-row:hover .announcement-icon { transform: scale(1.08) rotate(-8deg); box-shadow: 0 10px 22px rgba(251, 191, 36, 0.22); }
+.premium-row:hover .announcement-icon {
+  transform: scale(1.08) rotate(-8deg);
+  box-shadow: 0 10px 22px rgba(251, 191, 36, 0.22);
+}
 
-.list-row-content { min-width: 0; flex: 1; }
-.list-row-title       { color: var(--text-primary); font-weight: 800; line-height: 1.45; }
-.list-row-meta        { margin-top: 0.14rem; color: var(--text-muted); font-size: 0.84rem; }
-.list-row-description { margin-top: 0.24rem; color: var(--text-secondary); font-size: 0.87rem; line-height: 1.55; }
-.list-row-tail        { color: var(--text-muted); padding-top: 0.18rem; transition: transform var(--t-fast), color var(--t-fast); }
-.premium-row:hover .list-row-tail { transform: translateX(3px); color: var(--text-secondary); }
+.list-row-content {
+  min-width: 0;
+  flex: 1;
+}
+.list-row-title {
+  color: var(--text-primary);
+  font-weight: 800;
+  line-height: 1.45;
+}
+.list-row-meta {
+  margin-top: 0.14rem;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+.list-row-description {
+  margin-top: 0.24rem;
+  color: var(--text-secondary);
+  font-size: 0.87rem;
+  line-height: 1.55;
+}
+.list-row-tail {
+  color: var(--text-muted);
+  padding-top: 0.18rem;
+  transition:
+    transform var(--t-fast),
+    color var(--t-fast);
+}
+.premium-row:hover .list-row-tail {
+  transform: translateX(3px);
+  color: var(--text-secondary);
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 16  GROUPS GRID  (identity cards — distinct per card)
    ────────────────────────────────────────────────────────────── */
-.groups-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.1rem; }
+.groups-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.1rem;
+}
 
 .group-card-link,
-.resource-card-link { display: block; text-decoration: none; color: inherit; }
+.resource-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
 
 .group-card-surface {
   position: relative;
@@ -2805,80 +2799,159 @@ onBeforeUnmount(() => {
   padding: 1rem;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.09);
-  transition: transform var(--t-slow) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
+  transition:
+    transform var(--t-slow) var(--ease-out),
+    box-shadow var(--t-base),
+    border-color var(--t-fast);
 }
 
-.group-card-link:nth-child(1) .group-card-surface { background: linear-gradient(150deg, rgba(20, 100, 50, 0.28), rgba(5, 15, 9, 0.84) 50%); border-color: rgba(60, 200, 120, 0.18); }
-.group-card-link:nth-child(2) .group-card-surface { background: linear-gradient(150deg, rgba(91, 33, 182, 0.28), rgba(5, 15, 9, 0.84) 50%); border-color: rgba(167, 139, 250, 0.18); }
-.group-card-link:nth-child(3) .group-card-surface { background: linear-gradient(150deg, rgba(13, 148, 100, 0.28), rgba(5, 15, 9, 0.84) 50%); border-color: rgba(45, 212, 170, 0.18); }
-.group-card-link:nth-child(4) .group-card-surface { background: linear-gradient(150deg, rgba(234, 88, 12, 0.26), rgba(5, 15, 9, 0.84) 50%); border-color: rgba(251, 146, 60, 0.18); }
+.group-card-link:nth-child(1) .group-card-surface {
+  background: linear-gradient(150deg, rgba(20, 100, 50, 0.28), rgba(5, 15, 9, 0.84) 50%);
+  border-color: rgba(60, 200, 120, 0.18);
+}
+.group-card-link:nth-child(2) .group-card-surface {
+  background: linear-gradient(150deg, rgba(91, 33, 182, 0.28), rgba(5, 15, 9, 0.84) 50%);
+  border-color: rgba(167, 139, 250, 0.18);
+}
+.group-card-link:nth-child(3) .group-card-surface {
+  background: linear-gradient(150deg, rgba(13, 148, 100, 0.28), rgba(5, 15, 9, 0.84) 50%);
+  border-color: rgba(45, 212, 170, 0.18);
+}
+.group-card-link:nth-child(4) .group-card-surface {
+  background: linear-gradient(150deg, rgba(234, 88, 12, 0.26), rgba(5, 15, 9, 0.84) 50%);
+  border-color: rgba(251, 146, 60, 0.18);
+}
 
 /* Bottom shine sweep */
 .group-card-surface::after {
   content: '';
   position: absolute;
   inset: auto 16px 14px;
-  height: 2px; border-radius: 999px;
+  height: 2px;
+  border-radius: 999px;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  transform: scaleX(0.26); transform-origin: center;
+  transform: scaleX(0.26);
+  transform-origin: center;
   opacity: 0;
-  transition: opacity var(--t-fast), transform var(--t-base) var(--ease-out);
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-base) var(--ease-out);
 }
 
-.group-card-link:hover .group-card-surface { transform: translateY(-10px) rotateX(2deg) rotateY(-2deg); box-shadow: 0 28px 60px rgba(0, 3, 18, 0.38); }
-.group-card-link:hover .group-card-surface::after { opacity: 1; transform: scaleX(1); }
+.group-card-link:hover .group-card-surface {
+  transform: translateY(-10px) rotateX(2deg) rotateY(-2deg);
+  box-shadow: 0 28px 60px rgba(0, 3, 18, 0.38);
+}
+.group-card-link:hover .group-card-surface::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
 
-.group-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.72rem; }
-.group-avatars  { display: flex; align-items: center; flex-shrink: 0; }
+.group-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.72rem;
+}
+.group-avatars {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
 
 .group-avatar {
-  width: 2.35rem; height: 2.35rem;
+  width: 2.35rem;
+  height: 2.35rem;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 2px solid rgba(7, 13, 28, 0.82);
-  margin-left: -0.30rem;
-  font-size: 0.74rem; font-weight: 800;
+  margin-left: -0.3rem;
+  font-size: 0.74rem;
+  font-weight: 800;
   box-shadow: 0 8px 20px rgba(0, 3, 18, 0.26);
   transition: transform var(--t-base) var(--ease-out);
 }
 
-.group-avatar:first-child { margin-left: 0; }
+.group-avatar:first-child {
+  margin-left: 0;
+}
 
-.group-card-link:nth-child(1) .primary-avatar { background: linear-gradient(135deg, #60a5fa, #22d3ee); color: #0c4a6e; }
-.group-card-link:nth-child(2) .primary-avatar { background: linear-gradient(135deg, #a78bfa, #f472b6); color: #2e1065; }
-.group-card-link:nth-child(3) .primary-avatar { background: linear-gradient(135deg, #34d399, #38bdf8); color: #064e3b; }
-.group-card-link:nth-child(4) .primary-avatar { background: linear-gradient(135deg, #fb923c, #facc15); color: #431407; }
+.group-card-link:nth-child(1) .primary-avatar {
+  background: linear-gradient(135deg, #60a5fa, #22d3ee);
+  color: #0c4a6e;
+}
+.group-card-link:nth-child(2) .primary-avatar {
+  background: linear-gradient(135deg, #a78bfa, #f472b6);
+  color: #2e1065;
+}
+.group-card-link:nth-child(3) .primary-avatar {
+  background: linear-gradient(135deg, #34d399, #38bdf8);
+  color: #064e3b;
+}
+.group-card-link:nth-child(4) .primary-avatar {
+  background: linear-gradient(135deg, #fb923c, #facc15);
+  color: #431407;
+}
 
-.secondary-avatar { background: linear-gradient(135deg, #0f766e, #14b8a6); color: #ccfbf1; }
-.tertiary-avatar  { background: linear-gradient(135deg, #7c3aed, #a78bfa); color: #ede9fe; }
+.secondary-avatar {
+  background: linear-gradient(135deg, #0f766e, #14b8a6);
+  color: #ccfbf1;
+}
+.tertiary-avatar {
+  background: linear-gradient(135deg, #7c3aed, #a78bfa);
+  color: #ede9fe;
+}
 
-.group-card-link:hover .primary-avatar   { transform: translateX(-8px) translateY(-2px) scale(1.08); }
-.group-card-link:hover .secondary-avatar { transform: translateX(2px) translateY(3px); }
-.group-card-link:hover .tertiary-avatar  { transform: translateX(10px) translateY(-2px); }
+.group-card-link:hover .primary-avatar {
+  transform: translateX(-8px) translateY(-2px) scale(1.08);
+}
+.group-card-link:hover .secondary-avatar {
+  transform: translateX(2px) translateY(3px);
+}
+.group-card-link:hover .tertiary-avatar {
+  transform: translateX(10px) translateY(-2px);
+}
 
 .group-open-indicator {
-  width: 32px; height: 32px;
+  width: 32px;
+  height: 32px;
   border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.07);
   color: #7ec8ff;
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   transition: transform var(--t-fast);
 }
 
-.group-card-link:hover .group-open-indicator { transform: translateY(-2px) scale(1.08); }
+.group-card-link:hover .group-open-indicator {
+  transform: translateY(-2px) scale(1.08);
+}
 
-.group-name { margin-top: 0.9rem; color: var(--text-primary); font-size: 0.98rem; font-weight: 800; }
-.group-meta { margin-top: 0.26rem; color: var(--text-secondary); font-size: 0.86rem; line-height: 1.5; }
+.group-name {
+  margin-top: 0.9rem;
+  color: var(--text-primary);
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+.group-meta {
+  margin-top: 0.26rem;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 17  RESOURCES GRID  (color-coded left accent bar)
    ────────────────────────────────────────────────────────────── */
-.resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.88rem; }
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.88rem;
+}
 
 .resource-card-surface {
   position: relative;
@@ -2890,50 +2963,114 @@ onBeforeUnmount(() => {
   padding: 1rem;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-base), border-color var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-base),
+    border-color var(--t-fast);
 }
 
 /* Left accent bar */
 .resource-card-surface::before {
   content: '';
   position: absolute;
-  left: 0; top: 12px; bottom: 12px;
-  width: 4px; border-radius: 0 3px 3px 0;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 0 3px 3px 0;
   opacity: 0.72;
-  transition: width var(--t-fast), opacity var(--t-fast);
+  transition:
+    width var(--t-fast),
+    opacity var(--t-fast);
 }
 
-.resource-card-link:nth-child(1) .resource-card-surface { background: linear-gradient(155deg, rgba(40, 140, 70, 0.16), rgba(5, 15, 9, 0.80) 50%); border-color: rgba(60, 200, 110, 0.16); }
-.resource-card-link:nth-child(1) .resource-card-surface::before { background: #3cc87a; }
-.resource-card-link:nth-child(2) .resource-card-surface { background: linear-gradient(155deg, rgba(168, 85, 247, 0.16), rgba(5, 15, 9, 0.80) 50%); border-color: rgba(167, 139, 250, 0.16); }
-.resource-card-link:nth-child(2) .resource-card-surface::before { background: #a78bfa; }
-.resource-card-link:nth-child(3) .resource-card-surface { background: linear-gradient(155deg, rgba(45, 212, 170, 0.16), rgba(5, 15, 9, 0.80) 50%); border-color: rgba(45, 212, 170, 0.16); }
-.resource-card-link:nth-child(3) .resource-card-surface::before { background: #2dd4aa; }
-.resource-card-link:nth-child(4) .resource-card-surface { background: linear-gradient(155deg, rgba(244, 114, 182, 0.16), rgba(5, 15, 9, 0.80) 50%); border-color: rgba(244, 114, 182, 0.16); }
-.resource-card-link:nth-child(4) .resource-card-surface::before { background: #f472b6; }
-.resource-card-link:nth-child(5) .resource-card-surface { background: linear-gradient(155deg, rgba(251, 191, 36, 0.16), rgba(5, 15, 9, 0.80) 50%); border-color: rgba(251, 191, 36, 0.16); }
-.resource-card-link:nth-child(5) .resource-card-surface::before { background: #fbbf24; }
-.resource-card-link:nth-child(6) .resource-card-surface { background: linear-gradient(155deg, rgba(16, 185, 100, 0.16), rgba(5, 15, 9, 0.80) 50%); border-color: rgba(52, 200, 140, 0.16); }
-.resource-card-link:nth-child(6) .resource-card-surface::before { background: #34d399; }
+.resource-card-link:nth-child(1) .resource-card-surface {
+  background: linear-gradient(155deg, rgba(40, 140, 70, 0.16), rgba(5, 15, 9, 0.8) 50%);
+  border-color: rgba(60, 200, 110, 0.16);
+}
+.resource-card-link:nth-child(1) .resource-card-surface::before {
+  background: #3cc87a;
+}
+.resource-card-link:nth-child(2) .resource-card-surface {
+  background: linear-gradient(155deg, rgba(168, 85, 247, 0.16), rgba(5, 15, 9, 0.8) 50%);
+  border-color: rgba(167, 139, 250, 0.16);
+}
+.resource-card-link:nth-child(2) .resource-card-surface::before {
+  background: #a78bfa;
+}
+.resource-card-link:nth-child(3) .resource-card-surface {
+  background: linear-gradient(155deg, rgba(45, 212, 170, 0.16), rgba(5, 15, 9, 0.8) 50%);
+  border-color: rgba(45, 212, 170, 0.16);
+}
+.resource-card-link:nth-child(3) .resource-card-surface::before {
+  background: #2dd4aa;
+}
+.resource-card-link:nth-child(4) .resource-card-surface {
+  background: linear-gradient(155deg, rgba(244, 114, 182, 0.16), rgba(5, 15, 9, 0.8) 50%);
+  border-color: rgba(244, 114, 182, 0.16);
+}
+.resource-card-link:nth-child(4) .resource-card-surface::before {
+  background: #f472b6;
+}
+.resource-card-link:nth-child(5) .resource-card-surface {
+  background: linear-gradient(155deg, rgba(251, 191, 36, 0.16), rgba(5, 15, 9, 0.8) 50%);
+  border-color: rgba(251, 191, 36, 0.16);
+}
+.resource-card-link:nth-child(5) .resource-card-surface::before {
+  background: #fbbf24;
+}
+.resource-card-link:nth-child(6) .resource-card-surface {
+  background: linear-gradient(155deg, rgba(16, 185, 100, 0.16), rgba(5, 15, 9, 0.8) 50%);
+  border-color: rgba(52, 200, 140, 0.16);
+}
+.resource-card-link:nth-child(6) .resource-card-surface::before {
+  background: #34d399;
+}
 
-.resource-card-link:hover .resource-card-surface { transform: translateY(-6px) rotateZ(-0.4deg); box-shadow: 0 24px 52px rgba(0, 3, 18, 0.34); }
-.resource-card-link:hover .resource-card-surface::before { width: 7px; opacity: 1; }
+.resource-card-link:hover .resource-card-surface {
+  transform: translateY(-6px) rotateZ(-0.4deg);
+  box-shadow: 0 24px 52px rgba(0, 3, 18, 0.34);
+}
+.resource-card-link:hover .resource-card-surface::before {
+  width: 7px;
+  opacity: 1;
+}
 
 .resource-icon {
-  width: 44px; height: 44px;
-  flex-shrink: 0; border-radius: 13px;
-  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.07);
   color: #93c5fd;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: transform var(--t-base) var(--ease-out), box-shadow var(--t-fast);
+  transition:
+    transform var(--t-base) var(--ease-out),
+    box-shadow var(--t-fast);
 }
 
-.resource-card-link:hover .resource-icon { transform: translateY(-3px) rotate(8deg); box-shadow: 0 14px 28px rgba(96, 165, 250, 0.22); }
+.resource-card-link:hover .resource-icon {
+  transform: translateY(-3px) rotate(8deg);
+  box-shadow: 0 14px 28px rgba(96, 165, 250, 0.22);
+}
 
-.resource-content { min-width: 0; }
-.resource-title { color: var(--text-primary); font-weight: 800; line-height: 1.45; }
-.resource-meta  { margin-top: 0.22rem; color: var(--text-secondary); font-size: 0.84rem; line-height: 1.5; }
+.resource-content {
+  min-width: 0;
+}
+.resource-title {
+  color: var(--text-primary);
+  font-weight: 800;
+  line-height: 1.45;
+}
+.resource-meta {
+  margin-top: 0.22rem;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 18  TIMELINE  (sci-fi roadmap with connecting line)
@@ -2942,45 +3079,17 @@ onBeforeUnmount(() => {
    § 19  ALERT, LOADING, EMPTY STATE
    ────────────────────────────────────────────────────────────── */
 .dashboard-alert {
-  display: flex; align-items: center; gap: 0.65rem;
-  padding: 0.9rem 1rem; margin-bottom: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1.25rem;
   border-radius: 16px;
   background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.20);
+  border: 1px solid rgba(251, 191, 36, 0.2);
   color: #fcd34d;
   box-shadow: var(--shadow-sm);
   backdrop-filter: blur(16px);
-}
-
-.dashboard-loading {
-  position: fixed; right: 1.35rem; bottom: 1.35rem; z-index: 20;
-  display: inline-flex; align-items: center; gap: 0.65rem;
-  padding: 0.72rem 1rem;
-  border-radius: var(--radius-chip);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: linear-gradient(160deg, rgba(6, 18, 12, 0.92), rgba(7, 16, 10, 0.86));
-  color: var(--text-primary);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.loading-ring {
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  border-top-color: #38bdf8;
-  border-right-color: #a78bfa;
-  border-bottom-color: #2dd4bf;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.dashboard-loading-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 1.6rem;
 }
 
 .dashboard-skeleton-hero {
@@ -3211,35 +3320,57 @@ onBeforeUnmount(() => {
 .empty-state {
   min-height: 140px;
   border-radius: 18px;
-  border: 1px dashed rgba(255, 255, 255, 0.10);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.02);
-  display: flex; align-items: center; justify-content: center;
-  gap: 0.62rem; flex-direction: column;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.62rem;
+  flex-direction: column;
   color: var(--text-secondary);
-  text-align: center; padding: 1.5rem;
+  text-align: center;
+  padding: 1.5rem;
 }
 
-.empty-state i { font-size: 1.4rem; color: var(--text-muted); }
+.empty-state i {
+  font-size: 1.4rem;
+  color: var(--text-muted);
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 20  INTERACTIVE SURFACE  (legacy compat stub)
    ────────────────────────────────────────────────────────────── */
-.interactive-surface { position: relative; isolation: isolate; }
+.interactive-surface {
+  position: relative;
+  isolation: isolate;
+}
 
 /* ──────────────────────────────────────────────────────────────
    § 21  RESPONSIVE
    ────────────────────────────────────────────────────────────── */
 @media (max-width: 1400px) {
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .groups-grid  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .groups-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1180px) {
-  .dashboard-hero-main { grid-template-columns: 1fr; padding-top: 3rem; }
-  .dashboard-hero-copy { padding: 1.2rem 1.15rem 1.22rem; }
-  .showcase-card { min-height: 0; }
-  .two-col-layout { grid-template-columns: 1fr; }
-  .dashboard-skeleton-hero { grid-template-columns: 1fr; }
+  .dashboard-hero-main {
+    grid-template-columns: 1fr;
+    padding-top: 3rem;
+  }
+  .dashboard-hero-copy {
+    padding: 1.2rem 1.15rem 1.22rem;
+  }
+  .two-col-layout {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-skeleton-hero {
+    grid-template-columns: 1fr;
+  }
   .dashboard-skeleton-progress-body {
     align-items: flex-start;
     flex-direction: column;
@@ -3247,15 +3378,32 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 880px) {
-  .dashboard-page-shell { padding: 1rem 0.8rem 2rem; }
-  .summary-grid, .groups-grid, .resource-grid { grid-template-columns: 1fr; }
-  .event-detail-card { flex-direction: column; }
-  .event-date-badge { width: 100%; min-height: 72px; flex-direction: row; justify-content: flex-start; align-items: center; gap: 0.72rem; }
-  .dashboard-hero-main { padding-top: 0; }
+  .dashboard-page-shell {
+    padding: 1rem 0.8rem 2rem;
+  }
+  .summary-grid,
+  .groups-grid,
+  .resource-grid {
+    grid-template-columns: 1fr;
+  }
+  .event-detail-card {
+    flex-direction: column;
+  }
+  .event-date-badge {
+    width: 100%;
+    min-height: 72px;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 0.72rem;
+  }
+  .dashboard-hero-main {
+    padding-top: 0;
+  }
   .dashboard-hero-copy,
-  .dashboard-hero-calendar { display: block; }
-  .showcase-footer { flex-direction: column; align-items: stretch; }
-  .showcase-image { aspect-ratio: 16 / 9; }
+  .dashboard-hero-calendar {
+    display: block;
+  }
   .dashboard-skeleton-hero,
   .dashboard-skeleton-card,
   .dashboard-skeleton-progress,
@@ -3275,11 +3423,21 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 560px) {
-  .dashboard-hero-card, .surface-card, .summary-card { border-radius: 20px; }
-  .hero-title { font-size: 1.75rem; }
-  .dashboard-subtext, .dashboard-hero-message { font-size: 0.90rem; }
-  .summary-card-value { font-size: 1.9rem; }
-  .showcase-title { font-size: 1rem; }
+  .dashboard-hero-card,
+  .surface-card,
+  .summary-card {
+    border-radius: 20px;
+  }
+  .hero-title {
+    font-size: 1.75rem;
+  }
+  .dashboard-subtext,
+  .dashboard-hero-message {
+    font-size: 0.9rem;
+  }
+  .summary-card-value {
+    font-size: 1.9rem;
+  }
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -3291,21 +3449,24 @@ onBeforeUnmount(() => {
   .summary-card:hover,
   .hero-meta-chip:hover,
   .event-detail-card:hover .event-date-badge,
-  .event-detail-card:hover .event-content { transform: none; }
+  .event-detail-card:hover .event-content {
+    transform: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .surface-kicker::before { animation: none !important; }
-
+  .surface-kicker::before {
+    animation: none !important;
+  }
   .group-card-link:hover .group-card-surface,
   .resource-card-link:hover .resource-card-surface,
   .summary-card:hover,
   .hero-meta-chip:hover,
   .event-detail-card:hover .event-date-badge,
-  .event-detail-card:hover .event-content,
-  .showcase-card:hover { transform: none !important; }
+  .event-detail-card:hover .event-content {
+    transform: none !important;
+  }
 }
-
 
 /* ──────────────────────────────────────────────────────────────
    § 23  HERO ENRICHMENT & ADAPTIVE OVERRIDES
@@ -3321,88 +3482,77 @@ onBeforeUnmount(() => {
 .dashboard-hero-card {
   background: linear-gradient(145deg, var(--hero-overlay-a), var(--hero-overlay-b));
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
-
 .surface-card,
 .summary-card,
-.showcase-card,
-.dashboard-loading,
 .dashboard-alert {
   box-shadow: var(--shadow-md);
 }
-
 .hero-title,
 .surface-card-title,
 .group-name,
 .resource-title,
-.showcase-title,
 .summary-card-value,
 .event-title,
 .progress-value,
 .hero-meta-chip-value {
   color: var(--text-primary);
 }
-
 .dashboard-subtext,
 .dashboard-hero-message,
-.showcase-summary,
 .summary-card-subtext,
 .progress-detail-row span,
 .progress-label,
-.progress-caption,
 .resource-meta,
 .group-meta,
 .list-row-meta,
 .list-row-description,
 .surface-link,
-.showcase-mini-label,
 .event-meta-row,
 .empty-state,
 .dashboard-alert,
-.dashboard-loading,
 .hero-meta-chip-label,
 .summary-label,
 .status-pill,
 .hero-eyebrow {
   color: var(--text-secondary);
 }
-
 .hero-eyebrow,
 .hero-meta-chip,
 .status-pill,
 .summary-card,
 .surface-card,
-.showcase-card,
 .group-card-surface,
 .resource-card-surface,
-.list-row,
-.dashboard-loading {
+.list-row {
   border-color: var(--border-default);
 }
-
 .surface-card,
 .summary-card,
-.showcase-card,
 .group-card-surface,
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
 .status-pill,
 .hero-eyebrow {
-  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 88%, transparent), color-mix(in srgb, var(--surface-base) 94%, transparent));
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface-elevated) 88%, transparent),
+    color-mix(in srgb, var(--surface-base) 94%, transparent)
+  );
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }
-
 .hero-meta-chip:hover,
 .status-pill:hover,
 .summary-card:hover,
 .surface-card:hover,
 .group-card-link:hover .group-card-surface,
 .resource-card-link:hover .resource-card-surface,
-.list-row:hover,
-.showcase-card:hover {
+.list-row:hover {
   transform: translateY(-4px);
   border-color: var(--border-strong);
 }
@@ -3421,14 +3571,20 @@ onBeforeUnmount(() => {
   height: 172px;
   border-radius: 50%;
   padding: 13px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-blue) 18%, transparent), 0 18px 42px rgba(0, 4, 20, 0.24);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-blue) 18%, transparent),
+    0 18px 42px rgba(0, 4, 20, 0.24);
 }
 
 .progress-ring-inner {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-elevated) 98%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--surface-elevated) 98%, transparent),
+    color-mix(in srgb, var(--surface-base) 98%, transparent)
+  );
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3449,26 +3605,43 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.progress-caption {
-  margin-top: 0.35rem;
-  font-size: 0.82rem;
-  color: var(--text-link);
-  font-weight: 700;
+.summary-card:nth-child(1) {
+  border-radius: 28px 18px 24px 18px;
+}
+.summary-card:nth-child(2) {
+  border-radius: 18px 30px 18px 24px;
+}
+.summary-card:nth-child(3) {
+  border-radius: 24px 18px 30px 18px;
+}
+.summary-card:nth-child(4) {
+  border-radius: 18px 24px 18px 30px;
+}
+.progress-card {
+  border-radius: 22px 34px 22px 34px;
+}
+.event-detail-card {
+  border-radius: 26px 22px 30px 22px;
+}
+.list-row {
+  border-radius: 18px 14px 18px 14px;
+}
+.group-card-surface {
+  border-radius: 26px 20px 32px 18px;
+}
+.resource-card-surface {
+  border-radius: 20px 28px 18px 28px;
 }
 
-.summary-card:nth-child(1) { border-radius: 28px 18px 24px 18px; }
-.summary-card:nth-child(2) { border-radius: 18px 30px 18px 24px; }
-.summary-card:nth-child(3) { border-radius: 24px 18px 30px 18px; }
-.summary-card:nth-child(4) { border-radius: 18px 24px 18px 30px; }
-.progress-card { border-radius: 22px 34px 22px 34px; }
-.event-detail-card { border-radius: 26px 22px 30px 22px; }
-.list-row { border-radius: 18px 14px 18px 14px; }
-.group-card-surface { border-radius: 26px 20px 32px 18px; }
-.resource-card-surface { border-radius: 20px 28px 18px 28px; }
-
-.hero-meta-chip--neutral { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 8%, transparent); }
-.hero-meta-chip--cyan { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-teal) 18%, transparent); }
-.hero-meta-chip--violet { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-violet) 18%, transparent); }
+.hero-meta-chip--neutral {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+.hero-meta-chip--cyan {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-teal) 18%, transparent);
+}
+.hero-meta-chip--violet {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-violet) 18%, transparent);
+}
 
 @media (max-width: 1180px) {
   .progress-ring-shell {
@@ -3488,30 +3661,29 @@ onBeforeUnmount(() => {
   }
 }
 
-
-
 /* ================================================================
    Typography and text-color refinement override
    ================================================================ */
 .dashboard-page-shell {
-  --font-display: "Aptos Display", "Segoe UI Variable Display", "Inter", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-  --font-body: "Aptos", "Segoe UI Variable Text", "Inter", "SF Pro Text", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-label: "JetBrains Mono", "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
-  --font-number: "Bahnschrift", "Inter", "Segoe UI", sans-serif;
+  --font-display:
+    'Aptos Display', 'Segoe UI Variable Display', 'Inter', 'SF Pro Display', 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-body:
+    'Aptos', 'Segoe UI Variable Text', 'Inter', 'SF Pro Text', system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
+  --font-label: 'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
+  --font-number: 'Bahnschrift', 'Inter', 'Segoe UI', sans-serif;
   font-family: var(--font-body);
 }
-
 
 .dashboard-page-shell,
 .dashboard-page-shell * {
   font-variant-ligatures: common-ligatures;
 }
-
 .hero-title,
 .surface-card-title,
 .group-name,
 .resource-title,
-.showcase-title,
 .summary-card-value,
 .event-title,
 .progress-value,
@@ -3526,11 +3698,9 @@ onBeforeUnmount(() => {
   font-size: clamp(2rem, 3.4vw, 2.95rem);
   font-weight: 820;
 }
-
 .surface-card-title,
 .group-name,
 .resource-title,
-.showcase-title,
 .event-title,
 .list-row-title {
   color: var(--text-primary);
@@ -3544,16 +3714,12 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   letter-spacing: -0.05em;
 }
-
 .surface-kicker,
 .hero-eyebrow,
-.showcase-kicker,
 .summary-label,
 .hero-meta-chip-label,
 .progress-label,
-.progress-caption,
 .status-pill,
-.showcase-mini-label,
 .list-row-meta,
 .event-date-rest {
   font-family: var(--font-label);
@@ -3567,17 +3733,14 @@ onBeforeUnmount(() => {
   font-weight: 620;
   line-height: 1.65;
 }
-
 .dashboard-hero-message,
-.showcase-summary,
 .summary-card-subtext,
 .list-row-description,
 .resource-meta,
 .group-meta,
 .event-meta-row,
 .empty-state,
-.dashboard-alert,
-.dashboard-loading {
+.dashboard-alert {
   color: var(--text-secondary);
   font-family: var(--font-body);
   line-height: 1.7;
@@ -3586,53 +3749,43 @@ onBeforeUnmount(() => {
 .hero-eyebrow {
   color: var(--text-hero-accent);
 }
-
-.surface-kicker,
-.showcase-kicker {
+.surface-kicker {
   color: var(--accent-blue);
 }
-
 .hero-meta-chip,
 .status-pill,
 .summary-card,
 .surface-card,
-.showcase-card,
 .group-card-surface,
 .resource-card-surface,
 .list-row,
 .event-detail-card,
-.dashboard-alert,
-.dashboard-loading {
+.dashboard-alert {
   border-color: var(--border-default);
-  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 92%, transparent), color-mix(in srgb, var(--surface-base) 96%, transparent));
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface-elevated) 92%, transparent),
+    color-mix(in srgb, var(--surface-base) 96%, transparent)
+  );
 }
 
 .dashboard-hero-card {
   background: linear-gradient(145deg, var(--hero-overlay-a), var(--hero-overlay-b));
   border-color: var(--border-strong);
 }
-
-
-.showcase-nav-btn,
-.showcase-link-btn,
 .primary-chip,
 .surface-link {
   color: var(--text-link);
   font-family: var(--font-display);
   font-weight: 720;
 }
-
-.showcase-link-btn,
 .primary-chip {
   border-color: color-mix(in srgb, var(--accent-blue) 18%, var(--border-default));
 }
-
 .list-row-meta,
 .progress-label,
-.progress-caption,
 .event-date-rest,
-.summary-label,
-.showcase-mini-label {
+.summary-label {
   color: var(--text-muted);
 }
 
@@ -3648,14 +3801,6 @@ onBeforeUnmount(() => {
 .event-meta-row {
   color: var(--text-secondary);
 }
-
-.showcase-dot.active {
-  background: var(--accent-teal);
-}
-
-
-
-
 
 /* Clean white/grey dashboard palette, aligned with Events and Resources pages. */
 .dashboard-page-shell {
@@ -3692,27 +3837,22 @@ onBeforeUnmount(() => {
 .dashboard-page-shell::before {
   background: var(--bg-light) !important;
 }
-
-.dashboard-fx-canvas,
 .dashboard-backdrop-grid,
 .dashboard-page-inner {
   position: relative;
   z-index: 1;
 }
-
 .dashboard-hero-card,
 .dashboard-hero-copy,
 .surface-card,
 .summary-card,
-.showcase-card,
 .group-card-surface,
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
 .status-pill,
 .event-detail-card,
-.dashboard-alert,
-.dashboard-loading {
+.dashboard-alert {
   background: var(--white) !important;
   border: 1px solid var(--border-light) !important;
   border-radius: 8px !important;
@@ -3720,20 +3860,16 @@ onBeforeUnmount(() => {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-
 .dashboard-hero-card,
 .surface-card,
 .summary-card,
-.showcase-card,
 .group-card-surface,
 .resource-card-surface {
   overflow: hidden;
 }
-
 .dashboard-hero-card:hover,
 .surface-card:hover,
 .summary-card:hover,
-.showcase-card:hover,
 .group-card-link:hover .group-card-surface,
 .resource-card-link:hover .resource-card-surface,
 .list-row:hover,
@@ -3743,12 +3879,9 @@ onBeforeUnmount(() => {
   border-color: var(--border-light) !important;
   box-shadow: 0 4px 12px var(--shadow) !important;
 }
-
 .dashboard-hero-card::before,
 .dashboard-hero-card::after,
 .dashboard-hero-copy::before,
-.showcase-card::before,
-.showcase-card::after,
 .summary-card::before,
 .summary-card::after,
 .group-card-surface::after,
@@ -3776,9 +3909,6 @@ onBeforeUnmount(() => {
 .dashboard-hero-main {
   padding-top: 3rem;
 }
-
-.showcase-nav-btn,
-.showcase-link-btn,
 .primary-chip,
 .surface-link {
   color: #4f5f6f !important;
@@ -3786,21 +3916,16 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light) !important;
   box-shadow: none !important;
 }
-
-.showcase-nav-btn:hover,
-.showcase-link-btn:hover,
 .primary-chip:hover,
 .surface-link:hover {
   color: var(--charcoal) !important;
   background: #eef1f3 !important;
   border-color: #cfd6dc !important;
 }
-
 .hero-title,
 .surface-card-title,
 .group-name,
 .resource-title,
-.showcase-title,
 .summary-card-value,
 .event-title,
 .progress-value,
@@ -3809,10 +3934,8 @@ onBeforeUnmount(() => {
   color: var(--charcoal) !important;
   letter-spacing: 0 !important;
 }
-
 .dashboard-subtext,
 .dashboard-hero-message,
-.showcase-summary,
 .summary-card-subtext,
 .list-row-description,
 .resource-meta,
@@ -3822,20 +3945,15 @@ onBeforeUnmount(() => {
 .hero-meta-chip-label,
 .summary-label,
 .status-pill,
-.showcase-mini-label,
 .list-row-meta,
 .progress-detail-row span,
 .progress-label,
-.progress-caption,
 .event-date-rest,
-.dashboard-alert,
-.dashboard-loading {
+.dashboard-alert {
   color: #6c757d !important;
 }
-
 .surface-kicker,
-.hero-eyebrow,
-.showcase-kicker {
+.hero-eyebrow {
   color: #6c757d !important;
 }
 
@@ -3860,27 +3978,9 @@ onBeforeUnmount(() => {
 
 .progress-ring {
   background: #f8f9fa !important;
-  box-shadow: inset 0 0 0 1px var(--border-light), 0 2px 4px var(--shadow) !important;
-}
-
-.showcase-image {
-  border-radius: 8px;
-  border-color: var(--border-light) !important;
-  box-shadow: none !important;
-}
-
-.showcase-image::before,
-.showcase-image-overlay {
-  display: none !important;
-}
-
-.showcase-dot {
-  background: #d7dde2 !important;
-}
-
-.showcase-dot.active {
-  background: #6c757d !important;
-  box-shadow: none !important;
+  box-shadow:
+    inset 0 0 0 1px var(--border-light),
+    0 2px 4px var(--shadow) !important;
 }
 
 @media (max-width: 880px) {
@@ -3892,11 +3992,9 @@ onBeforeUnmount(() => {
     padding-top: 0;
   }
 }
-
 .dashboard-hero-card:hover,
 .surface-card:hover,
 .summary-card:hover,
-.showcase-card:hover,
 .hero-meta-chip:hover,
 .premium-row:hover,
 .group-card-link:hover .group-card-surface,
@@ -3905,7 +4003,6 @@ onBeforeUnmount(() => {
   transform: none !important;
   box-shadow: 0 2px 4px var(--shadow) !important;
 }
-
 .summary-card:hover .summary-icon-wrap,
 .event-detail-card:hover .event-date-badge,
 .event-detail-card:hover .event-content,
@@ -3915,8 +4012,7 @@ onBeforeUnmount(() => {
 .group-card-link:hover .secondary-avatar,
 .group-card-link:hover .tertiary-avatar,
 .group-card-link:hover .group-open-indicator,
-.resource-card-link:hover .resource-icon,
-.showcase-card:hover .showcase-image {
+.resource-card-link:hover .resource-icon {
   transform: none !important;
 }
 
