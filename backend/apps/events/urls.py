@@ -8,6 +8,7 @@ from .views import (
     EventInviteListMeHTMLView,
     EventRsvpSetView,
     EventViewSet,
+    RsvpReminderTriggerView,
 )
 
 router = SimpleRouter()
@@ -26,6 +27,17 @@ _canonical = [
     path("<int:id>/rsvp/bulk/", EventBulkInviteView.as_view(), name="event-bulk-invite"),
     path("<int:id>/rsvp/<int:uid>/", EventInviteCreateView.as_view(), name="create-event-rsvp"),
     path("<int:id>/rsvps/", EventInviteListHTMLView.as_view(), name="list-event-rsvp"),
+    # Cron-trigger for the 24h RSVP reminder dispatcher. Hit hourly by
+    # .github/workflows/rsvp-reminders.yml with a shared-secret header.
+    # Listed under the canonical root so it's also reachable at
+    # ``/api/v1/events/admin/send-rsvp-reminders/`` — the legacy
+    # ``/events/v1/admin/send-rsvp-reminders/`` keeps resolving via the
+    # ``v1/`` alias below so the existing workflow doesn't need changes.
+    path(
+        "admin/send-rsvp-reminders/",
+        RsvpReminderTriggerView.as_view(),
+        name="rsvp-reminder-trigger",
+    ),
     path("", include(router.urls)),
 ]
 
