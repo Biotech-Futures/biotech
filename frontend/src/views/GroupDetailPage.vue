@@ -812,26 +812,24 @@ const extractCollectionItems = (data) => {
   return []
 }
 
-const buildChatMessageCollectionUrls = (groupId, suffix = '') => {
-  return [`${API_BASE_URL}/chat/groups/${groupId}/messages/${suffix}`]
-}
+// Chat / GIF endpoints used to be wrapped in dual-URL helpers (``/api/v1/...``
+// primary, ``/...`` fallback) because only the legacy mount existed. The
+// backend now serves chat under both prefixes via ``config.urls._DUAL_MOUNTS``,
+// so every helper returns a single canonical URL.
+const buildChatMessageCollectionUrl = (groupId, suffix = '') =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`
 
-const buildChatUploadUrls = (groupId) => {
-  return [`${API_BASE_URL}/chat/groups/${groupId}/messages/upload/`]
-}
+const buildChatUploadUrl = (groupId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/upload/`
 
-const buildChatReactionUrls = (groupId, messageId) => {
-  return [`${API_BASE_URL}/chat/groups/${groupId}/messages/${messageId}/react/`]
-}
+const buildChatReactionUrl = (groupId, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`
 
-const buildGifSearchUrls = (query) => {
-  const encoded = encodeURIComponent(query)
-  return [`${API_BASE_URL}/chat/gifs/search?q=${encoded}`]
-}
+const buildGifSearchUrl = (query) =>
+  `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
 
-const buildGifTrendingUrls = () => {
-  return [`${API_BASE_URL}/chat/gifs/trending`]
-}
+const buildGifTrendingUrl = () =>
+  `${API_BASE_URL}/api/v1/chat/gifs/trending`
 
 const buildChatWebSocketUrl = (groupId) => {
   try {
@@ -882,24 +880,6 @@ const requestJson = async (url, options = {}) => {
   }
 
   return data
-}
-
-const requestJsonFirst = async (urls, options = {}) => {
-  let lastError = null
-
-  for (const url of urls) {
-    try {
-      return await requestJson(url, options)
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  if (lastError) {
-    throw lastError
-  }
-
-  return null
 }
 
 const normalizeGroup = (item) => {
@@ -1972,7 +1952,7 @@ const loadMessages = async () => {
   chatError.value = ''
 
   try {
-    const data = await requestJsonFirst(buildChatMessageCollectionUrls(backendGroupId, '?limit=50'))
+    const data = await requestJson(buildChatMessageCollectionUrl(backendGroupId, '?limit=50'))
     const liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
 
     messages.value = liveMessages.length ? liveMessages : []
@@ -2004,10 +1984,10 @@ const sendMessagePayload = async ({
   chatError.value = ''
 
   try {
-    const savedMessage = await requestJsonFirst(
+    const savedMessage = await requestJson(
       body === 'upload'
-        ? buildChatUploadUrls(backendGroupId)
-        : buildChatMessageCollectionUrls(backendGroupId),
+        ? buildChatUploadUrl(backendGroupId)
+        : buildChatMessageCollectionUrl(backendGroupId),
       requestOptions,
     )
 
@@ -2138,8 +2118,8 @@ const fetchGifResults = async (mode = 'trending') => {
   gifError.value = ''
 
   try {
-    const data = await requestJsonFirst(
-      mode === 'search' ? buildGifSearchUrls(gifQuery.value.trim()) : buildGifTrendingUrls(),
+    const data = await requestJson(
+      mode === 'search' ? buildGifSearchUrl(gifQuery.value.trim()) : buildGifTrendingUrl(),
       {
         method: 'GET',
       },
@@ -2191,7 +2171,7 @@ const reactToMessage = async (messageId, emoji) => {
   }))
 
   try {
-    await requestJsonFirst(buildChatReactionUrls(backendGroupId, messageId), {
+    await requestJson(buildChatReactionUrl(backendGroupId, messageId), {
       method: 'POST',
       body: JSON.stringify({
         emoji_string: emoji,

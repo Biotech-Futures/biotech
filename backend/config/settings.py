@@ -155,13 +155,19 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
 }
 
-
-
 SPECTACULAR_SETTINGS = {
     'TITLE': 'BIOTech Futures Mentoring Platform API',
     'DESCRIPTION': 'API Documentation for the New BIOTech Futures Mentoring Platform',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    # Restrict the generated schema to canonical ``/api/v1/...`` paths. Legacy
+    # ``/<app>/...`` and in-app ``v1/`` aliases still resolve at runtime — they
+    # just don't show up in OpenAPI. Removes operationId-collision warnings
+    # caused by dual-mounting the same view at multiple URLs. See
+    # ``config/spectacular_hooks.py`` for the filter.
+    'PREPROCESSING_HOOKS': [
+        'config.spectacular_hooks.filter_v1_only',
+    ],
 }
 
 MIDDLEWARE = [
