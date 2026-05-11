@@ -7,7 +7,7 @@ from unittest.mock import patch
 from apps.admin.services.user import query_users, update_user
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import AdminProfile, StudentProfile, User
+from apps.users.models import StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
 
 
@@ -54,9 +54,34 @@ class AdminUserServiceTests(TestCase):
                 valid_to__isnull=True,
             ).exists()
         )
-        self.assertTrue(AdminProfile.objects.filter(admin=self.user).exists())
         self.assertTrue(
             AdminScope.objects.filter(user=self.user, track=self.track).exists()
+        )
+
+    def test_update_user_can_assign_global_admin_scope(self):
+        result = update_user(
+            self.user.id,
+            {
+                "firstName": "Chen",
+                "lastName": "Supervisor",
+                "role": "admin",
+                "track": None,
+                "adminIsGlobal": True,
+                "adminTracks": [],
+                "interests": [],
+                "joinPermissionReceived": False,
+            },
+        )
+
+        self.assertEqual(result["msg"], "User updated successfully")
+        self.assertTrue(result["data"]["adminIsGlobal"])
+        self.assertEqual(result["data"]["adminTracks"], ["AUS-NSW"])
+        self.assertTrue(
+            AdminScope.objects.filter(
+                user=self.user,
+                is_global=True,
+                track__isnull=True,
+            ).exists()
         )
 
     def test_query_users_filters_students_with_active_group(self):

@@ -1,5 +1,5 @@
 from rest_framework_nested import routers
-from .views import MessageViewSet
+from .views import MentionViewSet, MessageViewSet
 
 router = routers.SimpleRouter()
 router.register(
@@ -7,5 +7,6 @@ router.register(
     MessageViewSet,
     basename="group-messages",
 )
+router.register(r"mentions", MentionViewSet, basename="mentions")
 
 urlpatterns = router.urls

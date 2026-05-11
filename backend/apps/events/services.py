@@ -537,7 +537,9 @@ def _rsvp_reminder_body_template(event):
             parts.append(f"Map: {event.location_link}")
         location_line = "\n".join(parts) if parts else ""
 
-    when = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p")
+    # Event times are stored in UTC; label the rendered string so the
+    # recipient never has to guess which zone "10:00 AM" refers to.
+    when = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p UTC")
     body = (
         "Hi {first_name},\n\n"
         "This is a friendly reminder that you have an upcoming event:\n\n"

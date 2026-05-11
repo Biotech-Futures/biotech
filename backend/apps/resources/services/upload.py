@@ -1,10 +1,10 @@
 import os
 import re
 import tempfile
-from datetime import datetime
 from typing import Any, Mapping
 
 from django.db import transaction
+from django.utils import timezone
 
 from apps.audit.services import log_audit_event
 from apps.resources.models import ResourceType, Resources
@@ -57,7 +57,7 @@ def _visibility_scope(value: Any, *, track_id: int | None, role_ids: list[Any]) 
 
 
 def _storage_key(resource_id: int, file_name: str | None) -> str:
-    stamp = int(datetime.now().timestamp() * 1000)
+    stamp = int(timezone.now().timestamp() * 1000)
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file_name or "resource.bin")
     return f"resources/{stamp}-{resource_id}-{safe_name}"
 

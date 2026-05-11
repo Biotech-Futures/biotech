@@ -813,36 +813,24 @@ const extractCollectionItems = (data) => {
 }
 
 const buildChatMessageCollectionUrls = (groupId, suffix = '') => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`,
-    `${API_BASE_URL}/chat/groups/${groupId}/messages/${suffix}`,
-  ]
+  return [`${API_BASE_URL}/chat/groups/${groupId}/messages/${suffix}`]
 }
 
 const buildChatUploadUrls = (groupId) => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/upload/`,
-    `${API_BASE_URL}/chat/groups/${groupId}/messages/upload/`,
-  ]
+  return [`${API_BASE_URL}/chat/groups/${groupId}/messages/upload/`]
 }
 
 const buildChatReactionUrls = (groupId, messageId) => {
-  return [
-    `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`,
-    `${API_BASE_URL}/chat/groups/${groupId}/messages/${messageId}/react/`,
-  ]
+  return [`${API_BASE_URL}/chat/groups/${groupId}/messages/${messageId}/react/`]
 }
 
 const buildGifSearchUrls = (query) => {
   const encoded = encodeURIComponent(query)
-  return [
-    `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encoded}`,
-    `${API_BASE_URL}/chat/gifs/search?q=${encoded}`,
-  ]
+  return [`${API_BASE_URL}/chat/gifs/search?q=${encoded}`]
 }
 
 const buildGifTrendingUrls = () => {
-  return [`${API_BASE_URL}/api/v1/chat/gifs/trending`, `${API_BASE_URL}/chat/gifs/trending`]
+  return [`${API_BASE_URL}/chat/gifs/trending`]
 }
 
 const buildChatWebSocketUrl = (groupId) => {
