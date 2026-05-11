@@ -76,9 +76,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         return MessageSerializer
 
     def _message_queryset(self):
+        # ``reply_to`` is select_related so the embedded parent context
+        # does not issue an extra query per row. The join is intentionally
+        # one level deep — mirroring ReplyToSerializer's bounded shape —
+        # so a long chain of quotes still costs exactly one extra JOIN.
         return (
             Messages.objects.filter(deleted_at__isnull=True)
-            .select_related("sender_user")
+            .select_related("sender_user", "reply_to")
             .prefetch_related("attachments", "resources__resource")
         )
 
@@ -92,7 +96,10 @@ class MessageViewSet(viewsets.ModelViewSet):
         return context
 
     def _serialize_public_message(self, message):
-        # Refetch only if attachments/resources aren't prefetched.
+        # Re-fetch only when the prefetch cache is missing. The standard
+        # queryset filters out soft-deleted rows, so for soft-deleted messages
+        # we keep the raw instance. ``get_object()``-derived instances already
+        # have attachments+resources prefetched.
         cache = getattr(message, "_prefetched_objects_cache", None) or {}
         if "attachments" not in cache or "resources" not in cache:
             try:
@@ -102,12 +109,15 @@ class MessageViewSet(viewsets.ModelViewSet):
         return MessagePublicSerializer(message, context=self.get_serializer_context()).data
 
     def _serialize_broadcast_message(self, message):
-        # Refetch only if prefetch cache is missing.
+        # Re-fetch only when the prefetch cache is empty — get_object()-derived
+        # instances (partial_update, destroy) already have attachments+resources
+        # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
+        # created instances from serializer.save() do need the fetch.
         cache = getattr(message, "_prefetched_objects_cache", None) or {}
         if "attachments" not in cache or "resources" not in cache:
             try:
                 message = (
-                    Messages.objects.select_related("sender_user")
+                    Messages.objects.select_related("sender_user", "reply_to")
                     .prefetch_related("attachments", "resources__resource")
                     .get(pk=message.pk)
                 )
@@ -116,9 +126,14 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         context = self.get_serializer_context()
         data = MessageSerializer(message, context=context).data
-        # Public attachment shape carries download_url; default model field doesn't.
+        # MessageSerializer's nested attachments lack download_url; rebuild from
+        # the public shape that does include it.
         data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
-        # Legacy aliases for older clients.
+        # Legacy aliases kept for the existing frontend / tests; preserved
+        # alongside MessageSerializer's canonical fields so both new and old
+        # clients can read the same payload without a protocol migration.
+        # ``message.resources.all()`` walks the prefetch cache instead of issuing
+        # a fresh query.
         data["sender_id"] = message.sender_user_id
         data["text"] = data.get("message_text", "")
         data["resource_ids"] = [r.resource_id for r in message.resources.all()]
@@ -190,11 +205,15 @@ class MessageViewSet(viewsets.ModelViewSet):
         uploaded_file = serializer.validated_data["uploaded_file"]
         gid = group.id
 
-        # Blob delete-on-rollback covers the whole atomic block.
+        # stored_chat_file wraps the blob upload so any exception inside the
+        # atomic block — DB write, broadcast, serialization — deletes the blob
+        # before propagating, leaving no orphaned file behind on rollback.
         with stored_chat_file(uploaded_file) as attachment_data:
             serializer.context["attachment_data"] = attachment_data
             with transaction.atomic():
                 message = serializer.save(sender_user=request.user, group_id=gid)
+                # _broadcast itself wraps in transaction.on_commit, so a rollback
+                # of this atomic block discards the WS event automatically.
                 _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
