@@ -3,15 +3,27 @@ from channels.layers import get_channel_layer
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.common.storage import serve_managed_file
 from .management.permissions import (
     CanEditMessage,
     CanModerateMessage,
     IsGroupMemberOrAdmin,
 )
-from .models import Messages
-from .serializers import MessageSerializer, MessageUpdateSerializer
+from .rbac import can_access_chat_group
+from .models import MessageAttachment, Messages
+from .serializers import (
+    MessageAttachmentUploadSerializer,
+    MessagePublicSerializer,
+    MessageSerializer,
+    MessageUpdateSerializer,
+)
+from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
+from apps.groups.models import Groups
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -41,26 +53,91 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
+    parser_classes = [JSONParser]
 
     def get_permissions(self):
         if self.action == "destroy":
-            return [CanModerateMessage()]
+            return [IsAuthenticated(), CanModerateMessage()]
         if self.action == "partial_update":
-            return [CanEditMessage()]
+            # Edit and delete share the same window-bounded RBAC rule, but the
+            # permission classes stay split so view wiring expresses intent.
+            return [IsAuthenticated(), CanEditMessage()]
+        if self.action in {"upload", "attachment_download"}:
+            return [IsAuthenticated()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
+        if self.action == "upload":
+            return MessageAttachmentUploadSerializer
         if self.action == "partial_update":
             return MessageUpdateSerializer
+        if self.action == "retrieve":
+            return MessagePublicSerializer
         return MessageSerializer
+
+    def _message_queryset(self):
+        return (
+            Messages.objects.filter(deleted_at__isnull=True)
+            .select_related("sender_user")
+            .prefetch_related("attachments", "resources__resource")
+        )
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        return (
-            Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
-            .select_related("sender_user")
-            .prefetch_related("resources__resource")
-        )
+        return self._message_queryset().filter(group_id=gid)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["group_pk"] = self.kwargs.get("group_pk")
+        return context
+
+    def _serialize_public_message(self, message):
+        # Re-fetch only when the prefetch cache is missing. The standard
+        # queryset filters out soft-deleted rows, so for soft-deleted messages
+        # we keep the raw instance. ``get_object()``-derived instances already
+        # have attachments+resources prefetched.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = self._message_queryset().get(pk=message.pk)
+            except Messages.DoesNotExist:
+                pass
+        return MessagePublicSerializer(message, context=self.get_serializer_context()).data
+
+    def _serialize_broadcast_message(self, message):
+        # Re-fetch only when the prefetch cache is empty — get_object()-derived
+        # instances (partial_update, destroy) already have attachments+resources
+        # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
+        # created instances from serializer.save() do need the fetch.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = (
+                    Messages.objects.select_related("sender_user")
+                    .prefetch_related("attachments", "resources__resource")
+                    .get(pk=message.pk)
+                )
+            except Messages.DoesNotExist:
+                pass
+
+        context = self.get_serializer_context()
+        data = MessageSerializer(message, context=context).data
+        # MessageSerializer's nested attachments lack download_url; rebuild from
+        # the public shape that does include it.
+        data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
+        # Legacy aliases kept for the existing frontend / tests; preserved
+        # alongside MessageSerializer's canonical fields so both new and old
+        # clients can read the same payload without a protocol migration.
+        # ``message.resources.all()`` walks the prefetch cache instead of issuing
+        # a fresh query.
+        data["sender_id"] = message.sender_user_id
+        data["text"] = data.get("message_text", "")
+        data["resource_ids"] = [r.resource_id for r in message.resources.all()]
+        return data
+
+    def _get_group(self):
+        group_pk = self.kwargs.get("group_pk")
+        return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
 
     # GET /chat/groups/{gid}/messages/
     def list(self, request, *args, **kwargs):
@@ -85,7 +162,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = self.get_serializer(items, many=True).data
+        data = MessagePublicSerializer(items, many=True, context=self.get_serializer_context()).data
         next_after = items[0].id if items else None
 
         return Response(
@@ -97,12 +174,44 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-        _broadcast(gid, "message.created", MessageSerializer(msg).data)
+        _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
 
     def create(self, request, *args, **kwargs):
-        resp = super().create(request, *args, **kwargs)
-        resp.status_code = status.HTTP_201_CREATED
-        return resp
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(self._serialize_public_message(serializer.instance), status=status.HTTP_201_CREATED, headers=headers)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload(self, request, *args, **kwargs):
+        group = self._get_group()
+        if group is None:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_chat_group(request.user, group):
+            return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        uploaded_file = serializer.validated_data["uploaded_file"]
+        gid = group.id
+
+        # stored_chat_file wraps the blob upload so any exception inside the
+        # atomic block — DB write, broadcast, serialization — deletes the blob
+        # before propagating, leaving no orphaned file behind on rollback.
+        with stored_chat_file(uploaded_file) as attachment_data:
+            serializer.context["attachment_data"] = attachment_data
+            with transaction.atomic():
+                message = serializer.save(sender_user=request.user, group_id=gid)
+                # _broadcast itself wraps in transaction.on_commit, so a rollback
+                # of this atomic block discards the WS event automatically.
+                _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
+        return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
     def partial_update(self, request, *args, **kwargs):
@@ -112,15 +221,47 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.save()
 
         _broadcast(
-            instance.group_id, "message.edited", MessageSerializer(instance).data
+            instance.group_id, "message.edited", self._serialize_broadcast_message(instance)
         )
-        return Response(MessageSerializer(instance).data)
+        return Response(self._serialize_public_message(instance))
 
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.soft_delete()
+
         _broadcast(
-            instance.group_id, "message.deleted", MessageSerializer(instance).data
+            instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"attachments/(?P<attachment_pk>\d+)/download",
+        url_name="attachment-download",
+    )
+    def attachment_download(self, request, *args, **kwargs):
+        group = self._get_group()
+        if group is None:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        message = self.get_object()
+        attachment_pk = kwargs.get("attachment_pk")
+        attachment = message.attachments.filter(pk=attachment_pk).first()
+        if attachment is None:
+            return Response({"detail": "Attachment not found for this message."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not can_access_chat_group(request.user, group):
+            return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
+
+        return serve_managed_file(
+            resolve_url=CHAT_FILE_SERVICE.resolve_url,
+            open_file=CHAT_FILE_SERVICE.open,
+            storage_key=attachment.storage_key,
+            filename=attachment.attachment_filename,
+            mime_type=attachment.attachment_mime_type,
+            size=attachment.attachment_size,
+            as_attachment=True,
+            on_open_failure_detail="The attachment could not be opened for download.",
+        )

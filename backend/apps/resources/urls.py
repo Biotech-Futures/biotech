@@ -1,10 +1,11 @@
 from rest_framework.routers import DefaultRouter
-from .views import RoleViewSet, RoleAssignmentHistoryViewSet, ResourcesViewSet
+from .views import RoleViewSet, RoleAssignmentHistoryViewSet, ResourcesViewSet, ResourceTypeViewSet
 from django.urls import path, include
 
 router = DefaultRouter()
 router.register(r"roles", RoleViewSet, basename="roles")
 router.register(r"role-assignments", RoleAssignmentHistoryViewSet, basename="role-assignments")
+router.register(r"resource-types", ResourceTypeViewSet, basename="resource-types")
 router.register(r"resource-files", ResourcesViewSet, basename="resource-files")
 
 # API v1 router for versioned endpoints
