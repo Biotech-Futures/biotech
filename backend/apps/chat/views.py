@@ -1,7 +1,8 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -15,12 +16,13 @@ from .management.permissions import (
     IsGroupMemberOrAdmin,
 )
 from .rbac import can_access_chat_group
-from .models import MessageAttachment, Messages
+from .models import MessageAttachment, MessageReaction, Messages
 from .serializers import (
     MessageAttachmentUploadSerializer,
     MessagePublicSerializer,
     MessageSerializer,
     MessageUpdateSerializer,
+    aggregate_reactions,
 )
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from apps.groups.models import Groups
@@ -50,6 +52,31 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
     transaction.on_commit(_send)
 
 
+def _broadcast_reaction(group_id: int, message_id: int, reactions: dict) -> None:
+    """Reaction updates use a flatter envelope than message events.
+
+    Reactions don't need the full message payload — only the aggregated
+    map. ``type`` is duplicated alongside ``event`` so clients reading
+    either key (the FE currently reads ``payload.type``) stay in sync.
+    """
+    channel_layer = get_channel_layer()
+    envelope = {
+        "type": "chat.message",
+        "payload": {
+            "event": "message.reaction_updated",
+            "type": "message.reaction_updated",
+            "group_id": group_id,
+            "message_id": message_id,
+            "reactions": reactions,
+        },
+    }
+
+    def _send():
+        async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
+
+    transaction.on_commit(_send)
+
+
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
@@ -64,6 +91,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), CanEditMessage()]
         if self.action in {"upload", "attachment_download"}:
             return [IsAuthenticated()]
+        if self.action == "react":
+            return [IsAuthenticated(), IsGroupMemberOrAdmin()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
@@ -83,7 +112,14 @@ class MessageViewSet(viewsets.ModelViewSet):
         return (
             Messages.objects.filter(deleted_at__isnull=True)
             .select_related("sender_user", "reply_to")
-            .prefetch_related("attachments", "resources__resource")
+            .prefetch_related(
+                "attachments",
+                "resources__resource",
+                Prefetch(
+                    "reactions",
+                    queryset=MessageReaction.objects.select_related("user").order_by("id"),
+                ),
+            )
         )
 
     def get_queryset(self):
@@ -99,9 +135,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         # Re-fetch only when the prefetch cache is missing. The standard
         # queryset filters out soft-deleted rows, so for soft-deleted messages
         # we keep the raw instance. ``get_object()``-derived instances already
-        # have attachments+resources prefetched.
+        # have attachments+resources+reactions prefetched.
         cache = getattr(message, "_prefetched_objects_cache", None) or {}
-        if "attachments" not in cache or "resources" not in cache:
+        if (
+            "attachments" not in cache
+            or "resources" not in cache
+            or "reactions" not in cache
+        ):
             try:
                 message = self._message_queryset().get(pk=message.pk)
             except Messages.DoesNotExist:
@@ -114,11 +154,22 @@ class MessageViewSet(viewsets.ModelViewSet):
         # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
         # created instances from serializer.save() do need the fetch.
         cache = getattr(message, "_prefetched_objects_cache", None) or {}
-        if "attachments" not in cache or "resources" not in cache:
+        if (
+            "attachments" not in cache
+            or "resources" not in cache
+            or "reactions" not in cache
+        ):
             try:
                 message = (
                     Messages.objects.select_related("sender_user", "reply_to")
-                    .prefetch_related("attachments", "resources__resource")
+                    .prefetch_related(
+                        "attachments",
+                        "resources__resource",
+                        Prefetch(
+                            "reactions",
+                            queryset=MessageReaction.objects.select_related("user").order_by("id"),
+                        ),
+                    )
                     .get(pk=message.pk)
                 )
             except Messages.DoesNotExist:
@@ -238,6 +289,44 @@ class MessageViewSet(viewsets.ModelViewSet):
             instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="react")
+    def react(self, request, *args, **kwargs):
+        # Toggle: if the (user, message, emoji) row exists, delete it; otherwise create it.
+        # Broadcasts a flat ``message.reaction_updated`` WS frame on commit.
+        message = self.get_object()
+        emoji = request.data.get("emoji_string")
+        if not isinstance(emoji, str):
+            return Response(
+                {"emoji_string": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        emoji = emoji.strip()
+        allowed = getattr(settings, "CHAT_REACTION_EMOJIS", ())
+        if emoji not in allowed:
+            return Response(
+                {"emoji_string": ["Unsupported emoji."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            existing = (
+                MessageReaction.objects
+                .select_for_update()
+                .filter(message=message, user=request.user, emoji=emoji)
+                .first()
+            )
+            if existing is not None:
+                existing.delete()
+            else:
+                MessageReaction.objects.create(
+                    message=message, user=request.user, emoji=emoji
+                )
+
+        message = self._message_queryset().get(pk=message.pk)
+        reactions = aggregate_reactions(message)
+        _broadcast_reaction(message.group_id, message.id, reactions)
+        return Response({"reactions": reactions}, status=status.HTTP_200_OK)
 
     @action(
         detail=True,

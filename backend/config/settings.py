@@ -128,6 +128,15 @@ CHAT_ATTACHMENT_ALLOWED_MIME_TYPES = tuple(
     )
     if str(value).strip()
 )
+CHAT_REACTION_EMOJIS = tuple(
+    str(value).strip()
+    for value in config(
+        "CHAT_REACTION_EMOJIS",
+        default="\U0001F44D,❤️,\U0001F389",
+        cast=Csv(),
+    )
+    if str(value).strip()
+)
 
 AUTH_USER_MODEL = 'users.User'
 
