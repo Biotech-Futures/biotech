@@ -8,6 +8,7 @@ from apps.resources.models import Resources
 
 from .models import (
     MessageAttachment,
+    MessageMention,
     MessageReaction,
     MessageResource,
     MessageStatus,
@@ -347,6 +348,46 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
         )
         MessageAttachment.objects.create(message=message, **attachment_data)
         return message
+
+
+class MentionSerializer(serializers.ModelSerializer):
+    """Inbox row for ``GET /chat/mentions/``.
+
+    Embeds enough of the source message and group context that the FE
+    can render a list item without a second fetch, but stays
+    intentionally flat — full message detail (attachments, reactions,
+    full reply chain) is still fetched via the group messages endpoint
+    if the user clicks through.
+    """
+
+    group_id = serializers.IntegerField(source="message.group_id", read_only=True)
+    message_id = serializers.IntegerField(read_only=True)
+    message_text = serializers.SerializerMethodField()
+    sender_user_id = serializers.IntegerField(source="message.sender_user_id", read_only=True)
+    sender_name = serializers.CharField(source="message.sender_user.get_full_name", read_only=True)
+    sent_at = serializers.DateTimeField(source="message.sent_at", read_only=True)
+
+    class Meta:
+        model = MessageMention
+        fields = [
+            "id",
+            "group_id",
+            "message_id",
+            "message_text",
+            "sender_user_id",
+            "sender_name",
+            "sent_at",
+            "created_at",
+            "read_at",
+        ]
+        read_only_fields = fields
+
+    def get_message_text(self, obj):
+        # Soft-deleted parent messages mustn't leak their text through
+        # the mentions inbox either — mirror ReplyToSerializer's policy.
+        if obj.message.deleted_at is not None:
+            return None
+        return obj.message.message_text
 
 
 class MessageUpdateSerializer(serializers.ModelSerializer):
