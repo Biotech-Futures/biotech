@@ -82,6 +82,7 @@ class MessageAttachmentSerializer(serializers.ModelSerializer):
 class MessageSerializer(serializers.ModelSerializer):
     resources = MessageResourceSerializer(many=True, required=False)
     attachments = MessageAttachmentSerializer(many=True, read_only=True)
+    sender_id = serializers.IntegerField(source="sender_user_id", read_only=True)
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
@@ -93,7 +94,7 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "group",
-            "sender_user",
+            "sender_id",
             "sender_name",
             "message_text",
             "message_type",
@@ -106,7 +107,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "resources",
         ]
         read_only_fields = [
-            "id", "group", "sender_user",
+            "id", "group", "sender_id",
             "sent_at", "edited_at", "deleted_at",
         ]
 

@@ -118,9 +118,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         data = MessageSerializer(message, context=context).data
         # Public attachment shape carries download_url; default model field doesn't.
         data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
-        # Legacy aliases for older clients.
         data["sender_id"] = message.sender_user_id
-        data["sender_user"] = message.sender_user_id
         data["text"] = data.get("message_text", "")
         data["resource_ids"] = [r.resource_id for r in message.resources.all()]
         return data

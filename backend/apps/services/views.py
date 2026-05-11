@@ -177,7 +177,7 @@ class MagicLoginView(APIView):
         login(request, user)
 
         # Admins land on the admin portal; everyone else on the user app.
-        if user.is_staff or user.is_superuser or is_operational_admin(user):
+        if is_operational_admin(user):
             frontend_callback = settings.ADMIN_MAGIC_LINK_REDIRECT_URL
         else:
             frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
