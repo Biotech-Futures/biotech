@@ -17,6 +17,7 @@ function scopeLabel(scope: string) {
   if (scope === "global") return "All users";
   if (scope === "track_based") return "By track";
   if (scope === "role_based") return "By role";
+  if (scope === "track_role_based") return "By track & role";
   return scope;
 }
 

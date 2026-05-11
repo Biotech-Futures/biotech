@@ -29,6 +29,7 @@ class CreateAnnouncementInput(TypedDict, total=False):
     body: str
     visibility_scope: str
     track_id: Optional[int]
+    track_ids: Optional[List[int]]
     role_ids: Optional[List[int]]
     send_email: bool
 
@@ -38,6 +39,7 @@ class UpdateAnnouncementInput(TypedDict, total=False):
     body: Optional[str]
     visibility_scope: Optional[str]
     track_id: Optional[int]
+    track_ids: Optional[List[int]]
     role_ids: Optional[List[int]]
     send_email: bool
 
@@ -113,45 +115,33 @@ def _resolve_recipient_emails(
     announcement_id: int,
     visibility_scope: str,
 ) -> List[str]:
-    """
-    Resolve recipient emails based on visibility scope.
-    
-    Args:
-        announcement_id: Announcement ID
-        visibility_scope: One of "global", "track_based", "role_based"
-        
-    Returns:
-        List of recipient email addresses
-    """
+    """Resolve recipient emails based on visibility scope."""
     if visibility_scope == "global":
         users = User.objects.filter(is_active=True).values_list("email", flat=True)
         return list(users)
-    
-    # Get audience for this announcement
+
     audience_rows = AnnouncementAudience.objects.filter(
         announcement_id=announcement_id
     ).values_list("role_id", "track_id")
-    
+
     if not audience_rows:
         return []
-    
-    if visibility_scope == "track_based":
-        track_ids = [row[1] for row in audience_rows if row[1] is not None]
-        if not track_ids:
-            return []
-        users = User.objects.filter(
+
+    track_ids = [row[1] for row in audience_rows if row[1] is not None]
+    role_ids = [row[0] for row in audience_rows if row[0] is not None]
+
+    emails: set = set()
+    now = timezone.now()
+
+    if track_ids:
+        track_emails = User.objects.filter(
             is_active=True,
             track_id__in=track_ids,
         ).values_list("email", flat=True)
-        return list(users)
-    
-    if visibility_scope == "role_based":
-        role_ids = [row[0] for row in audience_rows if row[0] is not None]
-        if not role_ids:
-            return []
-        
-        now = timezone.now()
-        users = User.objects.filter(
+        emails.update(track_emails)
+
+    if role_ids:
+        role_emails = User.objects.filter(
             is_active=True,
         ).filter(
             Exists(
@@ -163,48 +153,42 @@ def _resolve_recipient_emails(
                 )
             )
         ).values_list("email", flat=True).distinct()
-        
-        return list(users)
-    
-    return []
+        emails.update(role_emails)
+
+    return list(emails)
 
 
 @transaction.atomic
 def _sync_audience(
     announcement_id: int,
-    visibility_scope: str,
-    track_id: Optional[int] = None,
+    track_ids: Optional[List[int]] = None,
     role_ids: Optional[List[int]] = None,
-) -> None:
+) -> str:
     """
     Sync audience targeting for an announcement.
-    
-    Args:
-        announcement_id: Announcement ID
-        visibility_scope: One of "global", "track_based", "role_based"
-        track_id: Track ID for track-based scope
-        role_ids: Role IDs for role-based scope
+    Returns the resolved visibility_scope string.
     """
     AnnouncementAudience.objects.filter(announcement_id=announcement_id).delete()
-    
-    if visibility_scope == "global":
-        return
-    
-    if visibility_scope == "track_based" and track_id:
-        AnnouncementAudience.objects.create(
-            announcement_id=announcement_id,
-            track_id=track_id,
-        )
-        return
-    
-    if visibility_scope == "role_based" and role_ids:
-        AnnouncementAudience.objects.bulk_create([
-            AnnouncementAudience(
-                announcement_id=announcement_id,
-                role_id=rid,
-            )
-            for rid in role_ids
-        ])
+
+    track_ids = [t for t in (track_ids or []) if t]
+    role_ids = [r for r in (role_ids or []) if r]
+
+    records = []
+    for tid in track_ids:
+        records.append(AnnouncementAudience(announcement_id=announcement_id, track_id=tid))
+    for rid in role_ids:
+        records.append(AnnouncementAudience(announcement_id=announcement_id, role_id=rid))
+
+    if records:
+        AnnouncementAudience.objects.bulk_create(records)
+
+    if track_ids and role_ids:
+        return "track_role_based"
+    if track_ids:
+        return "track_based"
+    if role_ids:
+        return "role_based"
+    return "global"
 
 
 # ─── queries ─────────────────────────────────────────────────────────────────
@@ -363,37 +347,31 @@ def create_announcement(
     input_data: CreateAnnouncementInput,
     author_user_id: int,
 ) -> AnnouncementResponseDict:
-    """
-    Create a new announcement.
-    
-    Args:
-        input_data: Announcement creation data
-        author_user_id: ID of the user creating the announcement
-        
-    Returns:
-        Dictionary with created announcement or error message
-    """
+    """Create a new announcement."""
     now = timezone.now()
-    
+
+    # Normalise track_ids: accept either track_ids (list) or legacy track_id (single)
+    raw_track_ids = input_data.get("track_ids") or []
+    if not raw_track_ids and input_data.get("track_id"):
+        raw_track_ids = [input_data["track_id"]]
+    role_ids = input_data.get("role_ids") or []
+
     announcement = Announcement.objects.create(
         title=input_data.get("title"),
         body=input_data.get("body"),
-        visibility_scope=input_data.get("visibility_scope", "public"),
+        visibility_scope="global",  # will be updated below
         published_at=now,
         author_user_id=author_user_id,
-        track_id=input_data.get("track_id"),
+        track_id=raw_track_ids[0] if raw_track_ids else None,
     )
-    
-    _sync_audience(
-        announcement.id,
-        input_data.get("visibility_scope", "public"),
-        input_data.get("track_id"),
-        input_data.get("role_ids"),
-    )
-    
+
+    resolved_scope = _sync_audience(announcement.id, raw_track_ids, role_ids)
+    announcement.visibility_scope = resolved_scope
+    announcement.save(update_fields=["visibility_scope"])
+
     if input_data.get("send_email"):
         send_announcement_email(announcement.id)
-    
+
     row = _fetch_announcement(announcement.id)
     return {"msg": "Announcement created successfully", "data": row}
 
@@ -403,53 +381,38 @@ def update_announcement(
     announcement_id: int,
     input_data: UpdateAnnouncementInput,
 ) -> AnnouncementResponseDict:
-    """
-    Update an existing announcement.
-    
-    Args:
-        announcement_id: Announcement ID
-        input_data: Update data
-        
-    Returns:
-        Dictionary with updated announcement or error message
-    """
+    """Update an existing announcement."""
     existing = _fetch_announcement(announcement_id)
     if not existing:
         return {"msg": "Announcement not found", "data": None}
-    
+
     try:
         announcement = Announcement.objects.get(id=announcement_id)
     except Announcement.DoesNotExist:
         return {"msg": "Announcement not found", "data": None}
-    
-    # Apply updates
+
     if "title" in input_data and input_data["title"] is not None:
         announcement.title = input_data["title"]
     if "body" in input_data and input_data["body"] is not None:
         announcement.body = input_data["body"]
-    if "visibility_scope" in input_data and input_data["visibility_scope"] is not None:
-        announcement.visibility_scope = input_data["visibility_scope"]
-    if "track_id" in input_data:
-        announcement.track_id = input_data["track_id"]
-    
-    if any(k in input_data for k in ["title", "body", "visibility_scope", "track_id"]):
-        announcement.save()
-    
-    # Sync audience if relevant fields changed
-    next_scope = input_data.get("visibility_scope", existing.get("visibilityScope"))
-    next_track_id = input_data.get("track_id", existing.get("trackId"))
-    
-    if any(k in input_data for k in ["visibility_scope", "track_id", "role_ids"]):
-        _sync_audience(
-            announcement_id,
-            next_scope,
-            next_track_id,
-            input_data.get("role_ids"),
-        )
-    
+
+    # Determine new track_ids from either track_ids or legacy track_id
+    audience_fields = {"track_ids", "track_id", "role_ids"}
+    if audience_fields.intersection(input_data.keys()):
+        raw_track_ids = input_data.get("track_ids") or []
+        if not raw_track_ids and input_data.get("track_id"):
+            raw_track_ids = [input_data["track_id"]]
+        role_ids = input_data.get("role_ids") or []
+
+        resolved_scope = _sync_audience(announcement_id, raw_track_ids, role_ids)
+        announcement.visibility_scope = resolved_scope
+        announcement.track_id = raw_track_ids[0] if raw_track_ids else None
+
+    announcement.save()
+
     if input_data.get("send_email"):
         send_announcement_email(announcement_id)
-    
+
     row = _fetch_announcement(announcement_id)
     return {"msg": "Announcement updated successfully", "data": row}
 
