@@ -3,8 +3,11 @@ from channels.layers import get_channel_layer
 from django.db import transaction
 from django.db.models import Q
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
+from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 
 from .management.permissions import (
@@ -15,10 +18,12 @@ from .management.permissions import (
 from .models import Messages
 from .og_extractor import extract_urls
 from .serializers import (
+    MessageAttachmentUploadSerializer,
     MessagePublicSerializer,
     MessageSerializer,
     MessageUpdateSerializer,
 )
+from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from .tasks import dispatch_og
 
 
@@ -60,6 +65,8 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == "partial_update":
             return MessageUpdateSerializer
+        if self.action == "upload":
+            return MessageAttachmentUploadSerializer
         return MessageSerializer
 
     def _message_queryset(self):
@@ -153,7 +160,11 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = self.get_serializer(items, many=True).data
+        # Public shape — caller never sees the internal `group` / `sender_user`
+        # FK fields, which match the contract documented in tests/_helpers.py.
+        data = MessagePublicSerializer(
+            items, many=True, context=self.get_serializer_context()
+        ).data
         next_after = items[0].id if items else None
 
         return Response(
@@ -165,8 +176,11 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-        _broadcast(gid, "message.created", MessageSerializer(msg).data)
+        _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
         self._dispatch_link_previews(msg)
+        # Stash the saved instance so ``create()`` can render the public shape
+        # without re-running the input serializer.
+        self._created_message = msg
 
     def _dispatch_link_previews(self, message: Messages) -> None:
         """Fire-and-forget OG unfurl for every URL in the message body.
@@ -195,9 +209,14 @@ class MessageViewSet(viewsets.ModelViewSet):
         transaction.on_commit(_enqueue)
 
     def create(self, request, *args, **kwargs):
-        resp = super().create(request, *args, **kwargs)
-        resp.status_code = status.HTTP_201_CREATED
-        return resp
+        # Use MessageSerializer for input validation (it knows about resources,
+        # reply_to, sanitisation rules), then render the public shape on the
+        # way out. This keeps the public contract free of internal FK fields.
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        public = self._serialize_public_message(self._created_message)
+        return Response(public, status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
     def partial_update(self, request, *args, **kwargs):
@@ -207,15 +226,100 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.save()
 
         _broadcast(
-            instance.group_id, "message.edited", MessageSerializer(instance).data
+            instance.group_id,
+            "message.edited",
+            self._serialize_broadcast_message(instance),
         )
-        return Response(MessageSerializer(instance).data)
+        return Response(self._serialize_public_message(instance))
 
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.soft_delete()
         _broadcast(
-            instance.group_id, "message.deleted", MessageSerializer(instance).data
+            instance.group_id,
+            "message.deleted",
+            self._serialize_broadcast_message(instance),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # POST /chat/groups/{gid}/messages/upload/
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="upload",
+        url_name="upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload(self, request, *args, **kwargs):
+        """Create an attachment-type message in one round trip.
+
+        Flow:
+
+        1. Validate the multipart payload (size / extension / MIME) before
+           touching storage — invalid uploads return 400 with no blob written.
+        2. Stream the file to managed storage. ``stored_chat_file`` is a
+           context manager that deletes the blob if anything later in the
+           ``with`` block raises, so a failed DB write or broadcast can't
+           leave orphaned bytes.
+        3. Inside ``transaction.atomic``, persist the Messages row + the
+           MessageAttachment row, then enqueue a ``message.created`` WS
+           broadcast (deferred until commit by ``_broadcast``). Any error
+           rolls back both DB rows AND triggers blob cleanup.
+        """
+        gid = int(self.kwargs["group_pk"])
+        serializer = MessageAttachmentUploadSerializer(
+            data=request.data,
+            context={"group_pk": gid, "request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        uploaded_file = serializer.validated_data["uploaded_file"]
+
+        with stored_chat_file(uploaded_file) as attachment_data:
+            with transaction.atomic():
+                serializer.context["attachment_data"] = attachment_data
+                message = serializer.save(
+                    sender_user=request.user,
+                    group_id=gid,
+                )
+                _broadcast(
+                    gid,
+                    "message.created",
+                    self._serialize_broadcast_message(message),
+                )
+                # Attachment captions can carry URLs too — keep unfurl behavior
+                # uniform with the plain-text POST path. Dispatch is on_commit,
+                # so a failed transaction still cleans up cleanly.
+                self._dispatch_link_previews(message)
+
+        return Response(
+            self._serialize_public_message(message),
+            status=status.HTTP_201_CREATED,
+        )
+
+    # GET /chat/groups/{gid}/messages/{pk}/attachments/{attachment_pk}/download/
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"attachments/(?P<attachment_pk>\d+)/download",
+        url_name="attachment-download",
+    )
+    def attachment_download(self, request, *args, attachment_pk=None, **kwargs):
+        # ``get_object()`` runs ``get_queryset()`` which already restricts to
+        # the current group + non-soft-deleted messages, so a mismatched
+        # message / group pair naturally returns 404 instead of leaking the
+        # existence of the row in another group.
+        message = self.get_object()
+        attachment = message.attachments.filter(pk=attachment_pk).first()
+        if attachment is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        return serve_managed_file(
+            resolve_url=CHAT_FILE_SERVICE.resolve_url,
+            open_file=CHAT_FILE_SERVICE.open,
+            storage_key=attachment.storage_key,
+            filename=attachment.attachment_filename,
+            mime_type=attachment.attachment_mime_type,
+            size=attachment.attachment_size,
+            as_attachment=True,
+        )
