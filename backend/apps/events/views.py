@@ -224,6 +224,14 @@ class EventRsvpSetView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
+        # Stable across every URL the dual-mount + legacy v1/ alias exposes
+        # this view at (``/events/<id>/rsvp/``, ``/events/v1/<id>/rsvp/``,
+        # ``/api/v1/events/<id>/rsvp/``, ``/api/v1/events/v1/<id>/rsvp/``).
+        # Without this, drf_spectacular auto-generates an id from the path,
+        # collides with EventInviteCreateView (same path prefix + POST), and
+        # disambiguates with ``_2`` / ``_3`` / ``_4`` suffixes that change
+        # whenever the urlconf order shifts.
+        operation_id="event_self_rsvp_set",
         request=EventRsvpSubmitSerializer,
         responses={
             200: None,
@@ -295,6 +303,9 @@ class EventInviteCreateView(APIView):
     permission_classes = [IsNotStudent]
 
     @extend_schema(
+        # Stable id across all four mount points (see EventRsvpSetView for the
+        # full rationale).
+        operation_id="event_invite_create",
         request=EventRsvpRequestSerializer,
         responses={200: EventRsvpUpsertSerializer},
     )

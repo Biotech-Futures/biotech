@@ -200,13 +200,12 @@ class MentionWireupTests(TestCase):
         self.assertEqual(ids, [unread.id])
 
     def test_inbox_hides_text_for_soft_deleted_parent(self):
-        from django.utils import timezone
         m = Messages.objects.create(
             group=self.group,
             sender_user=self.alice,
             message_text="leaked secret",
-            deleted_at=timezone.now(),
         )
+        m.soft_delete()
         MessageMention.objects.create(message=m, mentioned_user=self.bob)
         resp = self.client_bob.get(reverse("mentions-list"))
         self.assertEqual(resp.status_code, 200)

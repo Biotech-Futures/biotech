@@ -24,6 +24,7 @@ from .models import (
     MessageStatus,
     Messages,
 )
+from .og_extractor import extract_urls
 from .serializers import (
     MentionSerializer,
     MessageAttachmentUploadSerializer,
@@ -33,6 +34,7 @@ from .serializers import (
     aggregate_reactions,
 )
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
+from .tasks import dispatch_og
 from .utils import parse_mentions
 from apps.groups.models import Groups, GroupMembership
 
@@ -459,6 +461,32 @@ class MessageViewSet(viewsets.ModelViewSet):
         data["resource_ids"] = [r.resource_id for r in message.resources.all()]
         return data
 
+    def _dispatch_link_previews(self, message: Messages) -> None:
+        """Fire-and-forget OG unfurl for every URL in the message body.
+
+        We do NOT block the HTTP response on this — the user gets ``201``
+        immediately and the websocket later carries ``message.preview_ready``
+        per the worker contract documented in ``apps.chat.tasks``.
+
+        Why ``transaction.on_commit``:
+
+        1. If the surrounding DB write is rolled back (e.g. permissions
+           check fails late, signal raises), the unfurl never starts and
+           cannot hit a non-existent message id.
+        2. The worker thread opens its own DB connection — it must read a
+           **committed** row, otherwise it sees nothing.
+        """
+        urls = extract_urls(message.message_text)
+        if not urls:
+            return
+        msg_id = message.id
+
+        def _enqueue():
+            for url in urls:
+                dispatch_og(msg_id, url)
+
+        transaction.on_commit(_enqueue)
+
     def _get_group(self):
         group_pk = self.kwargs.get("group_pk")
         return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
@@ -541,6 +569,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
         apply_mentions(msg)
         _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
+        self._dispatch_link_previews(msg)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -578,6 +607,10 @@ class MessageViewSet(viewsets.ModelViewSet):
                 # _broadcast itself wraps in transaction.on_commit, so a rollback
                 # of this atomic block discards the WS event automatically.
                 _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
+                # Attachment captions can carry URLs too — keep unfurl behavior
+                # uniform with the plain-text POST path. Dispatch is on_commit,
+                # so a failed transaction still cleans up cleanly.
+                self._dispatch_link_previews(message)
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
