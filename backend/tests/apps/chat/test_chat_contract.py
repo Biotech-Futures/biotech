@@ -5,8 +5,10 @@ existed coverage didn't already pin: PATCH end-to-end (RBAC + edit
 flags + ``message.edited`` broadcast), POST validation edges (missing
 both text and resources, invalid resource id, resource-only post),
 GET pagination edges (limit clamping, empty list, default limit),
-401/403/404 distinctions, and WebSocket close-code coverage for the
-unauthenticated and no-access paths.
+403/404 distinctions (DRF + SessionAuthentication returns 403 for both
+anonymous and forbidden — no WWW-Authenticate challenge to drive 401),
+and WebSocket close-code coverage for the unauthenticated and no-access
+paths.
 """
 from __future__ import annotations
 
@@ -197,21 +199,26 @@ class PatchMessageContractTests(_ChatFixture):
         self.assertEqual(resp.status_code, 403, resp.content)
 
     def test_patch_404_for_soft_deleted_message(self):
+        # ``sent_at`` must precede ``deleted_at`` (CHECK constraint
+        # ``message_deleted_after_sent``); set both explicitly so the
+        # default=timezone.now callable can't race past our deleted_at.
+        now = timezone.now()
         msg = Messages.objects.create(
             group=self.group, sender_user=self.student, message_text="hide",
-            deleted_at=timezone.now(),
+            sent_at=now - timedelta(seconds=1),
+            deleted_at=now,
         )
         resp = self._patch(self.client_admin, msg)
         # Soft-deleted messages are filtered out of get_queryset, so the
         # lookup is 404, not 200 — contract says "404 if soft-deleted by id".
         self.assertEqual(resp.status_code, 404, resp.content)
 
-    def test_patch_unauthenticated_returns_401(self):
+    def test_patch_unauthenticated_returns_403(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="x")
         resp = self.client_anon.patch(
             self._detail_url(msg.id), {"message_text": "y"}, format="json"
         )
-        self.assertEqual(resp.status_code, 401, resp.content)
+        self.assertEqual(resp.status_code, 403, resp.content)
 
     @patch("apps.chat.views.get_channel_layer")
     def test_patch_broadcasts_message_edited_envelope(self, mock_get_channel_layer):
@@ -323,11 +330,11 @@ class PostMessageValidationTests(_ChatFixture):
         finally:
             reset_pattern_cache()
 
-    def test_post_unauthenticated_returns_401(self):
+    def test_post_unauthenticated_returns_403(self):
         resp = self.client_anon.post(
             self._list_url(), {"message_text": "hi"}, format="json"
         )
-        self.assertEqual(resp.status_code, 401, resp.content)
+        self.assertEqual(resp.status_code, 403, resp.content)
 
     def test_post_outsider_returns_403(self):
         resp = self.client_outsider.post(
@@ -405,9 +412,9 @@ class ListMessagesContractTests(_ChatFixture):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([it["id"] for it in resp.data["items"]], [m1.id])
 
-    def test_list_unauthenticated_returns_401(self):
+    def test_list_unauthenticated_returns_403(self):
         resp = self.client_anon.get(self._list_url())
-        self.assertEqual(resp.status_code, 401, resp.content)
+        self.assertEqual(resp.status_code, 403, resp.content)
 
     def test_list_outsider_returns_403(self):
         resp = self.client_outsider.get(self._list_url())
@@ -436,23 +443,25 @@ class DeleteMessageContractTests(_ChatFixture):
     unauthenticated."""
 
     def test_delete_404_for_soft_deleted_message(self):
+        now = timezone.now()
         msg = Messages.objects.create(
             group=self.group, sender_user=self.student, message_text="hide",
-            deleted_at=timezone.now(),
+            sent_at=now - timedelta(seconds=1),
+            deleted_at=now,
         )
         resp = self.client_admin.delete(self._detail_url(msg.id))
         self.assertEqual(resp.status_code, 404, resp.content)
 
-    def test_delete_unauthenticated_returns_401(self):
+    def test_delete_unauthenticated_returns_403(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="x")
         resp = self.client_anon.delete(self._detail_url(msg.id))
-        self.assertEqual(resp.status_code, 401, resp.content)
+        self.assertEqual(resp.status_code, 403, resp.content)
 
 
 class AttachmentDownloadContractTests(_ChatFixture):
     """Download endpoint — 401 for unauthenticated, 404 distinction."""
 
-    def test_download_unauthenticated_returns_401(self):
+    def test_download_unauthenticated_returns_403(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         upload_response = self.client_student.post(
@@ -474,7 +483,7 @@ class AttachmentDownloadContractTests(_ChatFixture):
             },
         )
         resp = self.client_anon.get(url)
-        self.assertEqual(resp.status_code, 401, resp.content)
+        self.assertEqual(resp.status_code, 403, resp.content)
 
 
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
@@ -493,7 +502,13 @@ class WebSocketCloseCodeTests(_ChatFixture):
         )
         connected, code_or_subprotocol = async_to_sync(communicator.connect)()
         # On rejection, ``code_or_subprotocol`` carries the close code.
-        async_to_sync(communicator.disconnect)()
+        # We deliberately do NOT call ``communicator.disconnect()`` here:
+        # InMemoryChannelLayer queues live on the test event loop while
+        # channels' ``async_to_sync`` runs on a separate executor loop, so
+        # ``disconnect`` cancels mid-await with ``CancelledError`` (the same
+        # cross-loop gotcha documented in ``test_chat.py``). The consumer
+        # task either already returned (rejection arm) or will be torn down
+        # when the test process exits, so explicit teardown is unnecessary.
         return connected, code_or_subprotocol
 
     def _session_cookie(self, user):
