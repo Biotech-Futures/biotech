@@ -3,26 +3,13 @@
   <div
     ref="dashboardShellRef"
     class="content-area dashboard-page-shell"
-    :class="[isDayMode ? 'is-day-mode' : 'is-night-mode', { 'is-fx-disabled': !isDashboardFxRunningAllowed }]"
+    :class="{ 'is-fx-disabled': !isDashboardFxRunningAllowed }"
     :style="dashboardThemeStyle"
   >
     <div class="dashboard-page-inner">
-      <canvas ref="dashboardFxCanvasRef" class="dashboard-fx-canvas" aria-hidden="true"></canvas>
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
       <section class="dashboard-hero-shell">
         <div class="dashboard-hero-card interactive-surface">
-          <div class="dashboard-theme-rail">
-            <button
-              type="button"
-              class="theme-rail-trigger"
-              :aria-pressed="isDayMode"
-              :title="isDayMode ? 'Switch to night mode' : 'Switch to day mode'"
-              @click.stop="toggleSurfaceMode"
-            >
-              <i :class="isDayMode ? 'fas fa-sun' : 'fas fa-moon'"></i>
-              <span>{{ currentSurfaceModeLabel }}</span>
-            </button>
-          </div>
           <div class="dashboard-hero-main">
             <div class="dashboard-hero-copy">
               <div class="hero-eyebrow-row">
@@ -63,93 +50,7 @@
 
 
             </div>
-
-
-            <div class="dashboard-hero-aside">
-
-
-              <div
-                v-if="activeShowcaseItem"
-                class="showcase-card interactive-surface"
-                @mouseenter="stopShowcaseAutoplay"
-                @mouseleave="startShowcaseAutoplay"
-              >
-
-
-
-                <div class="showcase-heading-row">
-                  <div>
-
-                    <div class="showcase-kicker">BIOTECH HIGHLIGHTS</div>
-
-
-                    <div class="showcase-mini-label">Official-style image and info rotation</div>
-                  </div>
-
-
-                  <div class="showcase-controls">
-                    <button type="button" class="showcase-nav-btn" @click="goToPrevShowcase">
-                      <i class="fas fa-chevron-left"></i>
-                    </button>
-                    <button type="button" class="showcase-nav-btn" @click="goToNextShowcase">
-                      <i class="fas fa-chevron-right"></i>
-                    </button>
-                  </div>
-                </div>
-
-
-                <transition name="showcase-fade" mode="out-in">
-
-
-                  <div :key="activeShowcaseItem.id" class="showcase-body">
-
-
-                    <div
-                      class="showcase-image"
-                      :style="{ backgroundImage: `url(${activeShowcaseItem.image})` }"
-                    >
-
-                      <div class="showcase-image-overlay"></div>
-                    </div>
-
-
-                    <div class="showcase-copy">
-
-
-                      <h3 class="showcase-title">{{ activeShowcaseItem.title }}</h3>
-
-
-                      <p class="showcase-summary">{{ activeShowcaseItem.summary }}</p>
-
-                      <div class="showcase-footer">
-
-
-                        <div class="showcase-dots">
-                          <button
-                            v-for="(item, index) in biotechShowcaseItems"
-                            :key="item.id || index"
-                            type="button"
-                            class="showcase-dot"
-                            :class="{ active: index === activeShowcaseIndex }"
-                            @click="goToShowcase(index)"
-                          ></button>
-                        </div>
-
-
-                        <button
-                          type="button"
-                          class="showcase-link-btn"
-                          @click="openShowcaseLink(activeShowcaseItem)"
-                        >
-                          Explore
-                          <i class="fas fa-arrow-right"></i>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </transition>
-              </div>
-            </div>
+            <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
           </div>
 
         </div>
@@ -210,17 +111,10 @@
               </select>
             </div>
 
-            <div class="progress-layout">
+              <div class="progress-layout">
 
 
               <div class="progress-ring-shell">
-                <div class="progress-ring-aura"></div>
-                <div class="progress-ring-track"></div>
-                <div class="progress-ring-orbit progress-ring-orbit--outer"></div>
-                <div class="progress-ring-orbit progress-ring-orbit--inner"></div>
-                <span class="progress-ring-marker" :style="progressMarkerStyle"></span>
-                <span class="progress-ring-spark progress-ring-spark--one"></span>
-                <span class="progress-ring-spark progress-ring-spark--two"></span>
                 <div class="progress-ring" :style="progressCircleStyle">
                   <div class="progress-ring-inner">
 
@@ -229,7 +123,6 @@
 
 
                     <div class="progress-label">Completion</div>
-                    <div class="progress-caption">{{ progressStatusCaption }}</div>
                   </div>
                 </div>
               </div>
@@ -259,11 +152,6 @@
                 <div class="progress-detail-row">
                   <span>Due</span>
                   <strong>{{ formatDateAU(progressSnapshot.nextTaskDate) || 'TBC' }}</strong>
-                </div>
-
-
-                <div class="progress-bar-shell">
-                  <div class="progress-bar-fill" :style="progressPercentStyle"></div>
                 </div>
               </div>
             </div>
@@ -500,26 +388,23 @@
 <script setup>
 // Dashboard page
 // Core imports
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 
 import { storeToRefs } from 'pinia'
 
 import { useAuthStore } from '@/stores/auth'
 import * as THREE from 'three'
 
-import { showcaseCarouselContent } from '@/data/showcaseCarouselContent'
-
 import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { useThemeStore } from '@/stores/theme'
 import { getAccentClass } from '@/utils/ui'
+import MiniCalendar from '@/components/MiniCalendar.vue'
 
-const router = useRouter()
 const auth = useAuthStore()
 const {
   isAdmin,
@@ -593,14 +478,6 @@ const nextEventDateParts = computed(() => {
   }
 })
 
-const themeStore = useThemeStore()
-const isDayMode = computed(() => themeStore.isDayMode)
-const currentSurfaceModeLabel = computed(() => themeStore.isDayMode ? 'Day' : 'Night')
-
-function toggleSurfaceMode() {
-  themeStore.toggleMode()
-}
-
 const dashboardShellRef = ref(null)
 const dashboardFxCanvasRef = ref(null)
 const prefersReducedMotion = ref(false)
@@ -617,100 +494,58 @@ const dashboardFxState = {
   clock: null
 }
 
-const nightPalette = {
-  textPrimary: '#edfff5',
-  textSecondary: '#9ac8b0',
-  textMuted: '#6a9a82',
-  textLink: '#7adfc8',
-  surfaceBase: 'rgba(6, 18, 12, 0.84)',
-  surfaceElevated: 'rgba(8, 22, 16, 0.92)',
-  surfaceSoft: 'rgba(255, 255, 255, 0.06)',
-  borderDefault: 'rgba(255, 255, 255, 0.10)',
-  borderStrong: 'rgba(255, 255, 255, 0.18)',
-  accentBlue: '#6cb6ff',
-  accentTeal: '#41d9c6',
-  accentViolet: '#b197ff',
-  accentAmber: '#ffc56e',
-  accentRose: '#ff8cab',
-  shadowLg: '0 24px 70px rgba(0, 6, 2, 0.48)',
-  shadowMd: '0 16px 40px rgba(0, 6, 2, 0.34)',
-  heroOverlayA: 'rgba(7, 22, 14, 0.86)',
-  heroOverlayB: 'rgba(6, 18, 11, 0.74)',
-  shellBackdrop: 'linear-gradient(180deg, #071410 0%, #091e17 55%, #0b2318 100%)',
-  pageGlowOne: 'rgba(48, 200, 120, 0.08)',
-  pageGlowTwo: 'rgba(168, 85, 247, 0.07)',
-  pageGlowThree: 'rgba(48, 200, 150, 0.06)',
-  fxOpacity: '0.90'
+const dashboardPalette = {
+  textPrimary: '#174243',
+  textSecondary: '#6c757d',
+  textMuted: '#8a949e',
+  textLink: '#4f5f6f',
+  surfaceBase: '#ffffff',
+  surfaceElevated: '#ffffff',
+  surfaceSoft: '#f8f9fa',
+  borderDefault: '#e0e0e0',
+  borderStrong: '#cfd6dc',
+  accentBlue: '#5f6f7f',
+  accentTeal: '#6f7c83',
+  accentViolet: '#70747c',
+  accentAmber: '#7a7568',
+  accentRose: '#7a6970',
+  shadowLg: '0 4px 12px rgba(0, 0, 0, 0.1)',
+  shadowMd: '0 2px 4px rgba(0, 0, 0, 0.1)',
+  heroOverlayA: '#ffffff',
+  heroOverlayB: '#ffffff',
+  shellBackdrop: '#f8f9fa',
+  pageGlowOne: 'transparent',
+  pageGlowTwo: 'transparent',
+  pageGlowThree: 'transparent',
+  fxOpacity: '0'
 }
-
-const dayPalette = {
-  textPrimary: '#1a3818',
-  textSecondary: '#3a5e2c',
-  textMuted: '#5e8040',
-  textLink: '#265c3c',
-  surfaceBase: 'rgba(182, 214, 142, 0.84)',
-  surfaceElevated: 'rgba(196, 226, 158, 0.94)',
-  surfaceSoft: 'rgba(80, 140, 40, 0.08)',
-  borderDefault: 'rgba(70, 120, 30, 0.16)',
-  borderStrong: 'rgba(70, 120, 30, 0.24)',
-  accentBlue: '#2a6048',
-  accentTeal: '#1f8a6a',
-  accentViolet: '#7450c6',
-  accentAmber: '#6a9820',
-  accentRose: '#b74d7e',
-  shadowLg: '0 26px 72px rgba(30, 70, 14, 0.16)',
-  shadowMd: '0 18px 42px rgba(30, 70, 14, 0.12)',
-  heroOverlayA: 'rgba(196, 222, 162, 0.96)',
-  heroOverlayB: 'rgba(180, 210, 144, 0.84)',
-  shellBackdrop: 'linear-gradient(180deg, #d4eac0 0%, #c8e0b2 52%, #bcd6a4 100%)',
-  pageGlowOne: 'rgba(80, 180, 50, 0.13)',
-  pageGlowTwo: 'rgba(100, 180, 80, 0.09)',
-  pageGlowThree: 'rgba(60, 160, 80, 0.08)',
-  fxOpacity: '0.12'
-}
-
-const dashboardPalette = computed(() => {
-  return isDayMode.value ? dayPalette : nightPalette
-})
 
 const dashboardThemeStyle = computed(() => {
   return {
-    '--text-primary': dashboardPalette.value.textPrimary,
-    '--text-secondary': dashboardPalette.value.textSecondary,
-    '--text-muted': dashboardPalette.value.textMuted,
-    '--text-link': dashboardPalette.value.textLink,
-    '--surface-base': dashboardPalette.value.surfaceBase,
-    '--surface-elevated': dashboardPalette.value.surfaceElevated,
-    '--surface-soft': dashboardPalette.value.surfaceSoft,
-    '--border-default': dashboardPalette.value.borderDefault,
-    '--border-strong': dashboardPalette.value.borderStrong,
-    '--accent-blue': dashboardPalette.value.accentBlue,
-    '--accent-teal': dashboardPalette.value.accentTeal,
-    '--accent-violet': dashboardPalette.value.accentViolet,
-    '--accent-amber': dashboardPalette.value.accentAmber,
-    '--accent-rose': dashboardPalette.value.accentRose,
-    '--shadow-lg': dashboardPalette.value.shadowLg,
-    '--shadow-md': dashboardPalette.value.shadowMd,
-    '--hero-overlay-a': dashboardPalette.value.heroOverlayA,
-    '--hero-overlay-b': dashboardPalette.value.heroOverlayB,
-    '--dashboard-shell-backdrop': dashboardPalette.value.shellBackdrop,
-    '--page-glow-one': dashboardPalette.value.pageGlowOne,
-    '--page-glow-two': dashboardPalette.value.pageGlowTwo,
-    '--page-glow-three': dashboardPalette.value.pageGlowThree,
-    '--dashboard-fx-opacity': dashboardPalette.value.fxOpacity
+    '--text-primary': dashboardPalette.textPrimary,
+    '--text-secondary': dashboardPalette.textSecondary,
+    '--text-muted': dashboardPalette.textMuted,
+    '--text-link': dashboardPalette.textLink,
+    '--surface-base': dashboardPalette.surfaceBase,
+    '--surface-elevated': dashboardPalette.surfaceElevated,
+    '--surface-soft': dashboardPalette.surfaceSoft,
+    '--border-default': dashboardPalette.borderDefault,
+    '--border-strong': dashboardPalette.borderStrong,
+    '--accent-blue': dashboardPalette.accentBlue,
+    '--accent-teal': dashboardPalette.accentTeal,
+    '--accent-violet': dashboardPalette.accentViolet,
+    '--accent-amber': dashboardPalette.accentAmber,
+    '--accent-rose': dashboardPalette.accentRose,
+    '--shadow-lg': dashboardPalette.shadowLg,
+    '--shadow-md': dashboardPalette.shadowMd,
+    '--hero-overlay-a': dashboardPalette.heroOverlayA,
+    '--hero-overlay-b': dashboardPalette.heroOverlayB,
+    '--dashboard-shell-backdrop': dashboardPalette.shellBackdrop,
+    '--page-glow-one': dashboardPalette.pageGlowOne,
+    '--page-glow-two': dashboardPalette.pageGlowTwo,
+    '--page-glow-three': dashboardPalette.pageGlowThree,
+    '--dashboard-fx-opacity': dashboardPalette.fxOpacity
   }
-})
-
-const biotechShowcaseItems = ref(
-  Array.isArray(showcaseCarouselContent) ? [...showcaseCarouselContent] : []
-)
-
-const activeShowcaseIndex = ref(0)
-let showcaseInterval = null
-
-const activeShowcaseItem = computed(() => {
-  if (!biotechShowcaseItems.value.length) return null
-  return biotechShowcaseItems.value[activeShowcaseIndex.value] || biotechShowcaseItems.value[0]
 })
 
 const currentDateText = computed(() => {
@@ -809,36 +644,11 @@ const progressGroupOptions = computed(() => {
     .filter(group => group.id)
 })
 
-const progressPercentStyle = computed(() => {
-  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
-  return {
-    width: `${value}%`
-  }
-})
-
 const progressCircleStyle = computed(() => {
   const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
   return {
     background: `conic-gradient(var(--accent-blue) 0deg ${value * 2.2}deg, var(--accent-teal) ${value * 2.2}deg ${value * 3.1}deg, var(--accent-violet) ${value * 3.1}deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`
   }
-})
-
-const progressMarkerStyle = computed(() => {
-  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
-  const angle = (value / 100) * Math.PI * 2 - Math.PI / 2
-  const radius = 86
-  const x = Math.cos(angle) * radius
-  const y = Math.sin(angle) * radius
-
-  return {
-    transform: `translate(${x}px, ${y}px)`
-  }
-})
-
-const progressStatusCaption = computed(() => {
-  if (progressSnapshot.value.completionRate >= 80) return 'Strong momentum'
-  if (progressSnapshot.value.completionRate >= 45) return 'On track'
-  return 'Early cycle'
 })
 
 const summaryWidgets = computed(() => {
@@ -1461,64 +1271,6 @@ async function loadProgress() {
   }
 }
 
-async function loadBiotechShowcase() {
-  restartShowcaseAutoplay()
-}
-
-
-function goToNextShowcase() {
-  if (!biotechShowcaseItems.value.length) return
-  activeShowcaseIndex.value = (activeShowcaseIndex.value + 1) % biotechShowcaseItems.value.length
-}
-
-function goToPrevShowcase() {
-  if (!biotechShowcaseItems.value.length) return
-  activeShowcaseIndex.value =
-    (activeShowcaseIndex.value - 1 + biotechShowcaseItems.value.length) % biotechShowcaseItems.value.length
-}
-
-function goToShowcase(index) {
-  if (index < 0 || index >= biotechShowcaseItems.value.length) return
-  activeShowcaseIndex.value = index
-  restartShowcaseAutoplay()
-}
-
-function startShowcaseAutoplay() {
-  stopShowcaseAutoplay()
-
-  if (biotechShowcaseItems.value.length <= 1) return
-
-  showcaseInterval = window.setInterval(() => {
-    goToNextShowcase()
-  }, 5000)
-}
-
-function stopShowcaseAutoplay() {
-  if (showcaseInterval) {
-    window.clearInterval(showcaseInterval)
-    showcaseInterval = null
-  }
-}
-
-function restartShowcaseAutoplay() {
-  stopShowcaseAutoplay()
-  startShowcaseAutoplay()
-}
-
-
-function openShowcaseLink(item) {
-  if (!item) return
-
-  if (typeof item.link === 'string' && item.link.startsWith('http')) {
-    window.open(item.link, '_blank', 'noopener')
-    return
-  }
-
-  if (typeof item.link === 'string' && item.link.startsWith('/')) {
-    router.push(item.link)
-  }
-}
-
 function getAnnouncementTitle(item) {
   return item?.title || item?.name || item?.subject || 'Untitled announcement'
 }
@@ -1801,19 +1553,8 @@ function disposeDashboardFx() {
   dashboardFxState.clock = null
 }
 
-watch(
-  () => biotechShowcaseItems.value.length,
-  () => {
-    if (activeShowcaseIndex.value >= biotechShowcaseItems.value.length) {
-      activeShowcaseIndex.value = 0
-    }
-    restartShowcaseAutoplay()
-  }
-)
-
 onMounted(async () => {
   await loadDashboardData()
-  await loadBiotechShowcase()
 
   window.addEventListener('resize', resizeDashboardFx)
 
@@ -1828,12 +1569,10 @@ onMounted(async () => {
 
   await nextTick()
   initDashboardFx()
-  startShowcaseAutoplay()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeDashboardFx)
-  stopShowcaseAutoplay()
   disposeDashboardFx()
 
   if (reduceMotionQuery) {
@@ -2008,39 +1747,6 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 6  THEME RAIL
    ────────────────────────────────────────────────────────────── */
-.dashboard-theme-rail {
-  position: absolute;
-  top: 1.1rem; right: 1.1rem;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.6rem;
-}
-
-.theme-rail-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  min-height: 40px;
-  padding: 0.48rem 1rem;
-  border-radius: var(--radius-chip);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(7, 13, 28, 0.76);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 0.86rem;
-  font-weight: 600;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  transition: border-color var(--t-fast), transform var(--t-fast), background var(--t-fast);
-}
-
-.theme-rail-trigger:hover {
-  transform: translateY(-2px);
-  border-color: var(--border-strong);
-  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 94%, transparent), color-mix(in srgb, var(--surface-base) 98%, transparent));
-}
 
 /* ──────────────────────────────────────────────────────────────
    § 7  HERO CONTENT
@@ -2056,7 +1762,7 @@ onBeforeUnmount(() => {
 }
 
 .dashboard-hero-copy,
-.dashboard-hero-aside {
+.dashboard-hero-calendar {
   min-width: 0;
   display: flex;
 }
@@ -2068,26 +1774,10 @@ onBeforeUnmount(() => {
   min-height: 100%;
   padding: 1.35rem 1.45rem 1.4rem;
   border-radius: 28px;
-  background:
-    linear-gradient(160deg, rgba(6, 20, 12, 0.62), rgba(5, 16, 10, 0.40)),
-    radial-gradient(circle at top left, rgba(60, 200, 110, 0.12), transparent 44%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 2px 4px var(--shadow);
   overflow: hidden;
-}
-
-.dashboard-hero-copy::before {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 28%, transparent 72%, rgba(125, 211, 252, 0.06));
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  padding: 1px;
 }
 
 .hero-eyebrow-row {
@@ -2109,26 +1799,16 @@ onBeforeUnmount(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   overflow: hidden;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .hero-eyebrow {
-  color: #d9ffed;
-  border-radius: 999px;
-  border: 1px solid rgba(60, 190, 110, 0.26);
-  background: linear-gradient(135deg, rgba(40, 150, 70, 0.18), rgba(10, 28, 16, 0.56));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 10px 24px rgba(30, 120, 60, 0.14);
-}
-
-.hero-eyebrow::after {
-  content: '';
-  position: absolute;
-  inset: -30% auto -30% -24%;
-  width: 42%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-  transform: skewX(-18deg);
-  animation: heroSheen 7s linear infinite;
+  color: #6c757d;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: #f8f9fa;
+  box-shadow: none;
 }
 
 .hero-title {
@@ -2137,9 +1817,9 @@ onBeforeUnmount(() => {
   line-height: 0.98;
   font-weight: 850;
   letter-spacing: -0.05em;
-  color: #f5fbff;
+  color: var(--charcoal);
   text-wrap: balance;
-  text-shadow: 0 10px 34px rgba(0, 0, 0, 0.24), 0 0 54px rgba(60, 200, 110, 0.18);
+  text-shadow: none;
 }
 
 .hero-meta-row {
@@ -2295,8 +1975,13 @@ onBeforeUnmount(() => {
 /* ──────────────────────────────────────────────────────────────
    § 8  SHOWCASE CAROUSEL
    ────────────────────────────────────────────────────────────── */
-.dashboard-hero-aside {
+.dashboard-hero-calendar {
   align-self: stretch;
+  margin-top: 0;
+}
+
+.dashboard-hero-calendar :deep(.mini-calendar) {
+  min-height: 100%;
 }
 
 .showcase-card {
@@ -2761,37 +2446,6 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   padding: 10px;
   box-shadow: 0 24px 52px rgba(0, 3, 18, 0.40), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  transition: transform var(--t-slow) var(--ease-out), box-shadow var(--t-base);
-}
-
-/* Radial halo — breathing */
-.progress-ring::before {
-  content: '';
-  position: absolute;
-  inset: -16px;
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(60, 200, 110, 0.16), rgba(167, 139, 250, 0.12) 52%, transparent 74%);
-  z-index: -1;
-  animation: halo-breath 6s ease-in-out infinite;
-}
-
-/* Orbiting arc */
-.progress-ring::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-  border-radius: 999px;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg, transparent 30deg,
-    rgba(60, 200, 110, 0.85) 46deg,
-    rgba(45, 212, 170, 0.70) 80deg,
-    transparent 118deg, transparent 360deg
-  );
-  -webkit-mask: radial-gradient(circle, transparent 58%, black 64%, black 73%, transparent 78%);
-  mask: radial-gradient(circle, transparent 58%, black 64%, black 73%, transparent 78%);
-  animation: orbit-spin 6s linear infinite;
-  opacity: 0.82;
 }
 
 .progress-ring-inner {
@@ -2804,8 +2458,6 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, rgba(5, 16, 10, 0.97), rgba(5, 14, 9, 0.97));
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
-
-.progress-card:hover .progress-ring { transform: scale(1.06); box-shadow: 0 32px 64px rgba(0, 3, 18, 0.46), 0 0 38px rgba(96, 165, 250, 0.12); }
 
 .progress-value { font-size: 1.85rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.04em; }
 .progress-label { margin-top: 0.14rem; color: var(--text-muted); font-size: 0.78rem; font-weight: 700; }
@@ -2824,31 +2476,6 @@ onBeforeUnmount(() => {
 
 .progress-detail-row:hover { transform: translateX(4px); background: rgba(255, 255, 255, 0.04); }
 .progress-detail-row strong { color: var(--text-primary); font-weight: 800; }
-
-.progress-bar-shell { margin-top: 0.9rem; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: visible; }
-
-.progress-bar-fill {
-  position: relative;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #38bdf8 0%, #2dd4bf 36%, #818cf8 74%, #f472b6 100%);
-  box-shadow: 0 0 16px rgba(96, 165, 250, 0.32);
-}
-
-/* Glowing end-dot */
-.progress-bar-fill::after {
-  content: '';
-  position: absolute;
-  right: -7px; top: 50%;
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  transform: translateY(-50%);
-  background: radial-gradient(circle, white, rgba(255, 255, 255, 0.12));
-  box-shadow: 0 0 12px rgba(103, 232, 249, 0.65), 0 0 4px rgba(255, 255, 255, 0.85);
-}
-
-@keyframes orbit-spin  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes halo-breath { 0%, 100% { transform: scale(0.95); opacity: 0.70; } 50% { transform: scale(1.07); opacity: 1; } }
 
 /* ──────────────────────────────────────────────────────────────
    § 14  EVENTS CARD  (calendar badge style)
@@ -3167,545 +2794,6 @@ onBeforeUnmount(() => {
   .groups-grid  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.dashboard-page-shell.is-day-mode .dashboard-hero-message {
-  color: rgba(74, 84, 100, 0.94);
-}
-
-.dashboard-page-shell.is-day-mode .dashboard-fx-canvas {
-  opacity: 0.12;
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip::before,
-.dashboard-page-shell.is-day-mode .showcase-card::before {
-  opacity: 0.42;
-}
-
-.dashboard-page-shell.is-day-mode .showcase-card::after {
-  background: linear-gradient(160deg, rgba(255, 248, 238, 0.94), rgba(246, 236, 216, 0.88));
-}
-
-.dashboard-page-shell.is-day-mode .showcase-controls,
-.dashboard-page-shell.is-day-mode .showcase-nav-btn,
-.dashboard-page-shell.is-day-mode .theme-rail-trigger,
-.dashboard-page-shell.is-day-mode .group-open-indicator,
-.dashboard-page-shell.is-day-mode .premium-row,
-.dashboard-page-shell.is-day-mode .progress-ring-inner {
-  box-shadow: 0 10px 26px rgba(137, 109, 53, 0.10);
-}
-
-.dashboard-page-shell.is-day-mode .group-avatar {
-  border-color: rgba(250, 245, 236, 0.92);
-  box-shadow: 0 10px 24px rgba(137, 109, 53, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(1) { color: #8a5f1f; }
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(2) { color: #1f7f70; }
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(3) { color: #7a4fc1; }
-
-.dashboard-page-shell.is-day-mode .showcase-kicker {
-  color: #8a5f1f;
-}
-
-.dashboard-page-shell.is-day-mode .announcement-icon { color: #a56418; }
-
-.dashboard-page-shell.is-day-mode .primary-chip {
-  color: #755019;
-  border-color: rgba(130, 100, 40, 0.18);
-  background: linear-gradient(135deg, rgba(175, 122, 22, 0.12), rgba(63, 108, 198, 0.08));
-}
-
-.dashboard-page-shell.is-day-mode .primary-chip:hover {
-  background: linear-gradient(135deg, rgba(175, 122, 22, 0.16), rgba(63, 108, 198, 0.12));
-  box-shadow: 0 12px 28px rgba(137, 109, 53, 0.14);
-}
-
-/* ──────────────────────────────────────────────────────────────
-   § 22  DAY MODE — COMPREHENSIVE INTERACTIVE & EFFECT OVERRIDES
-   Replaces neon / near-invisible dark-mode values with
-   yellow-green equivalents readable on the lime-cream background.
-   ────────────────────────────────────────────────────────────── */
-
-/* --- 22.1  Design tokens ------------------------------------ */
-.dashboard-page-shell.is-day-mode {
-  --text-primary:   #1a3818;
-  --text-secondary: #3a5e2c;
-  --text-muted:     #5e8040;
-  --text-link:      #265c3c;
-
-  --surface-base:     rgba(180, 212, 140, 0.88);
-  --surface-elevated: rgba(194, 224, 156, 0.94);
-
-  --border-default: rgba(80, 130, 40, 0.18);
-  --border-strong:  rgba(60, 110, 28, 0.28);
-
-  --accent-blue:   #2a6048;
-  --accent-teal:   #1f8a6a;
-  --accent-violet: #7c5cb0;
-  --accent-amber:  #6a9820;
-  --accent-rose:   #b05060;
-
-  --shadow-lg: 0 24px 64px rgba(30, 70, 14, 0.24);
-  --shadow-md: 0 14px 38px rgba(30, 70, 14, 0.18);
-  --shadow-sm: 0 8px  22px rgba(30, 70, 14, 0.12);
-}
-
-/* Backdrop grid — soften on yellow-green */
-.dashboard-page-shell.is-day-mode .dashboard-backdrop-grid {
-  opacity: 0.05;
-  background-image:
-    linear-gradient(rgba(60, 120, 30, 0.30) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(60, 120, 30, 0.30) 1px, transparent 1px);
-}
-
-/* --- 22.2  Hero card --------------------------------------- */
-.dashboard-page-shell.is-day-mode .dashboard-hero-card {
-  background: linear-gradient(145deg, rgba(210, 234, 174, 0.94), rgba(198, 222, 158, 0.82));
-  border-color: rgba(90, 148, 50, 0.22);
-  box-shadow: 0 24px 64px rgba(30, 70, 14, 0.18), inset 0 1px 0 rgba(240, 255, 220, 0.70);
-}
-
-.dashboard-page-shell.is-day-mode .hero-eyebrow {
-  color: #1e4010;
-  border-color: rgba(60, 110, 20, 0.24);
-  background: linear-gradient(135deg, rgba(100, 160, 40, 0.16), rgba(188, 216, 158, 0.60));
-  box-shadow: inset 0 0 0 1px rgba(120, 180, 60, 0.12), 0 8px 20px rgba(50, 100, 20, 0.12);
-}
-
-.dashboard-page-shell.is-day-mode .hero-title {
-  color: #0e2c08;
-  text-shadow: 0 6px 24px rgba(30, 70, 14, 0.12), 0 0 40px rgba(80, 180, 40, 0.10);
-}
-
-/* Hero meta chips — yellow-green variants */
-.dashboard-page-shell.is-day-mode .hero-meta-chip {
-  border-color: rgba(90, 140, 40, 0.18);
-  color: var(--text-primary);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip:hover {
-  box-shadow: 0 18px 42px rgba(30, 70, 14, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip--neutral {
-  background: linear-gradient(145deg, rgba(200, 228, 162, 0.86), rgba(186, 214, 146, 0.76));
-  border-color: rgba(90, 140, 40, 0.20);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip--neutral::after {
-  background: radial-gradient(circle at top left, rgba(120, 180, 60, 0.12), transparent 42%),
-              linear-gradient(145deg, rgba(100, 160, 50, 0.10), rgba(190, 220, 150, 0.06));
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip--cyan {
-  background: linear-gradient(135deg, rgba(30, 110, 70, 0.18), rgba(186, 214, 158, 0.72));
-  border-color: rgba(40, 150, 100, 0.28);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip--cyan::after {
-  background: radial-gradient(circle at top left, rgba(40, 150, 100, 0.18), transparent 38%),
-              linear-gradient(135deg, rgba(40, 150, 100, 0.08), transparent);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip--violet {
-  background: linear-gradient(135deg, rgba(90, 60, 160, 0.16), rgba(186, 214, 158, 0.72));
-  border-color: rgba(130, 100, 200, 0.28);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip--violet::after {
-  background: radial-gradient(circle at top left, rgba(140, 108, 210, 0.16), transparent 38%),
-              linear-gradient(135deg, rgba(130, 100, 200, 0.08), transparent);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip-label {
-  color: var(--text-secondary);
-}
-
-.dashboard-page-shell.is-day-mode .hero-meta-chip-value {
-  color: var(--text-primary);
-}
-
-/* Status pills on yellow-green */
-.dashboard-page-shell.is-day-mode .status-pill {
-  background: linear-gradient(145deg, rgba(140, 196, 90, 0.14), rgba(120, 180, 70, 0.08));
-}
-
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(1) {
-  border-color: rgba(40, 110, 60, 0.26);
-  color: #1a5c2a;
-}
-
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(2) {
-  border-color: rgba(30, 140, 100, 0.26);
-  color: #10603e;
-}
-
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(3) {
-  border-color: rgba(130, 80, 190, 0.22);
-  color: #5e3498;
-}
-
-/* --- 22.3  Showcase card ----------------------------------- */
-.dashboard-page-shell.is-day-mode .showcase-card {
-  background:
-    linear-gradient(160deg, rgba(206, 232, 168, 0.92), rgba(194, 220, 154, 0.82)),
-    radial-gradient(circle at top right,  rgba(40, 120, 60, 0.10), transparent 32%),
-    radial-gradient(circle at bottom left, rgba(124, 92, 176, 0.08), transparent 28%);
-  border-color: rgba(90, 148, 40, 0.20);
-  box-shadow: 0 14px 38px rgba(30, 70, 14, 0.14), inset 0 1px 0 rgba(230, 255, 200, 0.50);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-card:hover {
-  border-color: rgba(60, 160, 80, 0.28);
-  box-shadow: 0 28px 70px rgba(30, 70, 14, 0.22), 0 0 0 1px rgba(60, 160, 80, 0.06) inset;
-}
-
-/* Spinning border — forest green/sage/teal */
-.dashboard-page-shell.is-day-mode .showcase-card::before {
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg 40deg,
-    rgba(50, 140, 50, 0.50) 78deg,
-    transparent 126deg, transparent 185deg,
-    rgba(100, 60, 180, 0.38) 230deg,
-    transparent 286deg,
-    rgba(30, 140, 100, 0.38) 326deg,
-    transparent 360deg
-  );
-  opacity: 0.60;
-}
-
-.dashboard-page-shell.is-day-mode .showcase-controls {
-  background: linear-gradient(145deg, rgba(186, 216, 148, 0.70), rgba(172, 204, 132, 0.56));
-  border-color: rgba(90, 148, 40, 0.18);
-  box-shadow: inset 0 1px 0 rgba(220, 255, 190, 0.40);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-nav-btn {
-  background: rgba(100, 160, 50, 0.12);
-  color: var(--text-primary);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-nav-btn:hover {
-  background: rgba(100, 160, 50, 0.20);
-  box-shadow: 0 8px 20px rgba(30, 70, 14, 0.14);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-dot {
-  background: rgba(80, 140, 40, 0.28);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-dot.active {
-  background: linear-gradient(90deg, #2a6840, #7c5cb0);
-  box-shadow: 0 0 10px rgba(42, 104, 64, 0.40);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-link-btn {
-  border-color: rgba(40, 120, 60, 0.30);
-  background: linear-gradient(145deg, rgba(40, 120, 60, 0.14), rgba(30, 100, 48, 0.08));
-  color: #1a5028;
-}
-
-.dashboard-page-shell.is-day-mode .showcase-link-btn:hover {
-  background: linear-gradient(145deg, rgba(40, 120, 60, 0.22), rgba(30, 100, 48, 0.14));
-  border-color: rgba(60, 160, 80, 0.46);
-  box-shadow: 0 12px 26px rgba(30, 100, 48, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-image {
-  border-color: rgba(80, 148, 40, 0.14);
-  box-shadow: 0 16px 38px rgba(30, 70, 14, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .showcase-image-overlay {
-  background:
-    linear-gradient(180deg, rgba(120, 180, 70, 0.06), rgba(100, 160, 50, 0.24)),
-    radial-gradient(circle at top right, rgba(220, 255, 190, 0.18), transparent 28%);
-}
-
-/* --- 22.4  Summary cards ----------------------------------- */
-.dashboard-page-shell.is-day-mode .summary-card {
-  background: linear-gradient(160deg, rgba(202, 232, 162, 0.92), rgba(190, 220, 148, 0.80));
-  border-color: rgba(90, 148, 40, 0.16);
-  box-shadow: 0 14px 38px rgba(30, 70, 14, 0.14);
-}
-
-.dashboard-page-shell.is-day-mode .summary-icon-wrap {
-  background: rgba(100, 160, 50, 0.14);
-  border-color: rgba(80, 148, 40, 0.20);
-}
-
-/* Muted accents readable on yellow-green */
-.dashboard-page-shell.is-day-mode .accent-blue::before  { background: linear-gradient(90deg, transparent, #2a6848, #3a8860, transparent); opacity: 0.72; }
-.dashboard-page-shell.is-day-mode .accent-blue::after   { background: radial-gradient(circle, rgba(42, 104, 72, 0.64), transparent 70%); }
-.dashboard-page-shell.is-day-mode .accent-blue:hover    { border-color: rgba(42, 104, 72, 0.28); }
-.dashboard-page-shell.is-day-mode .accent-blue .summary-icon-wrap { color: #1e5438; }
-
-.dashboard-page-shell.is-day-mode .accent-violet::before { background: linear-gradient(90deg, transparent, #7c5cb0, #9058c0, transparent); opacity: 0.72; }
-.dashboard-page-shell.is-day-mode .accent-violet::after  { background: radial-gradient(circle, rgba(124, 92, 176, 0.62), transparent 70%); }
-.dashboard-page-shell.is-day-mode .accent-violet:hover   { border-color: rgba(124, 92, 176, 0.28); }
-.dashboard-page-shell.is-day-mode .accent-violet .summary-icon-wrap { color: #6a48a0; }
-
-.dashboard-page-shell.is-day-mode .accent-teal::before { background: linear-gradient(90deg, transparent, #1f8a6a, #2aaa82, transparent); opacity: 0.72; }
-.dashboard-page-shell.is-day-mode .accent-teal::after  { background: radial-gradient(circle, rgba(31, 138, 106, 0.66), transparent 70%); }
-.dashboard-page-shell.is-day-mode .accent-teal:hover   { border-color: rgba(31, 138, 106, 0.28); }
-.dashboard-page-shell.is-day-mode .accent-teal .summary-icon-wrap { color: #145c46; }
-
-.dashboard-page-shell.is-day-mode .accent-amber::before { background: linear-gradient(90deg, transparent, #6a9820, #88ba28, transparent); opacity: 0.72; }
-.dashboard-page-shell.is-day-mode .accent-amber::after  { background: radial-gradient(circle, rgba(106, 152, 32, 0.64), transparent 70%); }
-.dashboard-page-shell.is-day-mode .accent-amber:hover   { border-color: rgba(106, 152, 32, 0.28); }
-.dashboard-page-shell.is-day-mode .accent-amber .summary-icon-wrap { color: #4e7010; }
-
-.dashboard-page-shell.is-day-mode .accent-rose::before { background: linear-gradient(90deg, transparent, #b05060, #c06070, transparent); opacity: 0.72; }
-.dashboard-page-shell.is-day-mode .accent-rose::after  { background: radial-gradient(circle, rgba(176, 80, 96, 0.62), transparent 70%); }
-.dashboard-page-shell.is-day-mode .accent-rose:hover   { border-color: rgba(176, 80, 96, 0.28); }
-.dashboard-page-shell.is-day-mode .accent-rose .summary-icon-wrap { color: #923848; }
-
-/* --- 22.5  Surface cards ----------------------------------- */
-.dashboard-page-shell.is-day-mode .surface-card {
-  background: linear-gradient(160deg, rgba(196, 228, 156, 0.90), rgba(184, 216, 142, 0.76));
-  border-color: rgba(90, 148, 40, 0.16);
-  box-shadow: 0 14px 38px rgba(30, 70, 14, 0.14);
-}
-
-/* HUD kicker dot — forest green */
-.dashboard-page-shell.is-day-mode .surface-kicker {
-  color: #1e5c28;
-}
-
-.dashboard-page-shell.is-day-mode .surface-kicker::before {
-  background: #2a8040;
-  box-shadow: 0 0 6px rgba(42, 128, 64, 0.60);
-}
-
-@keyframes hud-pulse-day {
-  0%, 100% { opacity: 1;    box-shadow: 0 0 6px rgba(42, 128, 64, 0.60); }
-  50%       { opacity: 0.54; box-shadow: 0 0 3px rgba(42, 128, 64, 0.28); }
-}
-
-.dashboard-page-shell.is-day-mode .surface-kicker::before {
-  animation: hud-pulse-day 2.2s ease-in-out infinite;
-}
-
-.dashboard-page-shell.is-day-mode .surface-link {
-  background: rgba(100, 160, 50, 0.10);
-  color: #1e5c28;
-  border-color: rgba(60, 140, 40, 0.20);
-}
-
-.dashboard-page-shell.is-day-mode .surface-link:hover {
-  border-color: rgba(60, 140, 40, 0.36);
-  background: rgba(60, 140, 40, 0.12);
-}
-
-/* --- 22.7  Progress card ----------------------------------- */
-.dashboard-page-shell.is-day-mode .progress-card {
-  border-color: rgba(124, 92, 176, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .progress-ring-inner {
-  background: linear-gradient(180deg, rgba(202, 232, 162, 0.98), rgba(188, 218, 146, 0.98));
-  border-color: rgba(90, 148, 40, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .progress-ring {
-  box-shadow: 0 20px 46px rgba(30, 70, 14, 0.22), inset 0 0 0 1px rgba(120, 200, 60, 0.12);
-}
-
-.dashboard-page-shell.is-day-mode .progress-ring::before {
-  background: radial-gradient(circle,
-    rgba(80, 180, 50, 0.18),
-    rgba(124, 92, 176, 0.12) 52%,
-    transparent 74%
-  );
-}
-
-/* Orbiting arc — forest green/sage */
-.dashboard-page-shell.is-day-mode .progress-ring::after {
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg, transparent 30deg,
-    rgba(50, 160, 60, 0.80) 46deg,
-    rgba(30, 140, 100, 0.62) 80deg,
-    transparent 118deg, transparent 360deg
-  );
-}
-
-.dashboard-page-shell.is-day-mode .progress-detail-row:hover {
-  background: rgba(100, 160, 50, 0.10);
-  border-radius: 10px;
-}
-
-/* --- 22.8  Events / date badge ----------------------------- */
-.dashboard-page-shell.is-day-mode .event-date-badge {
-  background: linear-gradient(145deg, rgba(30, 140, 90, 0.22), rgba(30, 150, 100, 0.12));
-  border-color: rgba(30, 150, 100, 0.28);
-  box-shadow: 0 0 20px rgba(30, 140, 90, 0.14);
-}
-
-.dashboard-page-shell.is-day-mode .event-date-day  { color: #0a4020; }
-.dashboard-page-shell.is-day-mode .event-date-rest { color: rgba(16, 70, 40, 0.82); }
-
-/* --- 22.9  Lists (announcements) --------------------------- */
-.dashboard-page-shell.is-day-mode .premium-row {
-  border-color: rgba(90, 148, 40, 0.14);
-  background: rgba(140, 196, 90, 0.08);
-}
-
-.dashboard-page-shell.is-day-mode .premium-row:hover {
-  border-color: rgba(100, 160, 40, 0.28);
-  background: rgba(100, 160, 40, 0.10);
-}
-
-.dashboard-page-shell.is-day-mode .announcement-icon {
-  background: rgba(100, 160, 40, 0.14);
-  color: #4a7010;
-  border-color: rgba(80, 140, 30, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .premium-row:hover .announcement-icon {
-  box-shadow: 0 8px 18px rgba(100, 160, 40, 0.22);
-}
-
-/* --- 22.10  Groups grid ------------------------------------ */
-.dashboard-page-shell.is-day-mode .group-card-link:nth-child(1) .group-card-surface {
-  background: linear-gradient(150deg, rgba(40, 130, 60, 0.22), rgba(194, 224, 158, 0.88) 50%);
-  border-color: rgba(40, 130, 60, 0.22);
-}
-
-.dashboard-page-shell.is-day-mode .group-card-link:nth-child(2) .group-card-surface {
-  background: linear-gradient(150deg, rgba(124, 92, 176, 0.22), rgba(194, 224, 158, 0.88) 50%);
-  border-color: rgba(124, 92, 176, 0.20);
-}
-
-.dashboard-page-shell.is-day-mode .group-card-link:nth-child(3) .group-card-surface {
-  background: linear-gradient(150deg, rgba(30, 140, 100, 0.22), rgba(194, 224, 158, 0.88) 50%);
-  border-color: rgba(30, 140, 100, 0.20);
-}
-
-.dashboard-page-shell.is-day-mode .group-card-link:nth-child(4) .group-card-surface {
-  background: linear-gradient(150deg, rgba(184, 90, 20, 0.18), rgba(194, 224, 158, 0.88) 50%);
-  border-color: rgba(184, 90, 20, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .group-card-link:hover .group-card-surface {
-  box-shadow: 0 24px 52px rgba(30, 70, 14, 0.22);
-}
-
-.dashboard-page-shell.is-day-mode .group-card-surface::after {
-  background: linear-gradient(90deg, transparent, rgba(220, 255, 200, 0.82), transparent);
-}
-
-.dashboard-page-shell.is-day-mode .group-avatar {
-  border-color: rgba(210, 240, 180, 0.92);
-}
-
-.dashboard-page-shell.is-day-mode .group-open-indicator {
-  background: rgba(100, 160, 50, 0.14);
-  color: #1e5828;
-  border-color: rgba(80, 148, 40, 0.18);
-}
-
-/* --- 22.11  Resources grid --------------------------------- */
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(1) .resource-card-surface {
-  background: linear-gradient(155deg, rgba(40, 130, 60, 0.16), rgba(188, 220, 152, 0.84) 50%);
-  border-color: rgba(40, 130, 60, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(2) .resource-card-surface {
-  background: linear-gradient(155deg, rgba(124, 92, 176, 0.16), rgba(188, 220, 152, 0.84) 50%);
-  border-color: rgba(124, 92, 176, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(3) .resource-card-surface {
-  background: linear-gradient(155deg, rgba(30, 140, 100, 0.16), rgba(188, 220, 152, 0.84) 50%);
-  border-color: rgba(30, 140, 100, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(4) .resource-card-surface {
-  background: linear-gradient(155deg, rgba(176, 80, 96, 0.14), rgba(188, 220, 152, 0.84) 50%);
-  border-color: rgba(176, 80, 96, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(5) .resource-card-surface {
-  background: linear-gradient(155deg, rgba(106, 152, 32, 0.16), rgba(188, 220, 152, 0.84) 50%);
-  border-color: rgba(106, 152, 32, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(6) .resource-card-surface {
-  background: linear-gradient(155deg, rgba(30, 150, 80, 0.16), rgba(188, 220, 152, 0.84) 50%);
-  border-color: rgba(30, 150, 80, 0.16);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:hover .resource-card-surface {
-  box-shadow: 0 20px 46px rgba(30, 70, 14, 0.22);
-}
-
-.dashboard-page-shell.is-day-mode .resource-icon {
-  background: rgba(100, 160, 50, 0.14);
-  color: #1e5828;
-  border-color: rgba(80, 148, 40, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:hover .resource-icon {
-  box-shadow: 0 12px 24px rgba(40, 130, 60, 0.18);
-}
-
-/* --- 22.13  Alert / loading / empty state ------------------ */
-.dashboard-page-shell.is-day-mode .dashboard-alert {
-  background: rgba(100, 160, 40, 0.10);
-  border-color: rgba(100, 160, 40, 0.28);
-  color: #3a6010;
-}
-
-.dashboard-page-shell.is-day-mode .dashboard-loading {
-  background: linear-gradient(160deg, rgba(200, 232, 160, 0.94), rgba(184, 218, 144, 0.90));
-  border-color: rgba(80, 148, 40, 0.22);
-  color: var(--text-primary);
-  box-shadow: 0 20px 50px rgba(30, 70, 14, 0.18);
-}
-
-.dashboard-page-shell.is-day-mode .loading-ring {
-  border-top-color:    #1f8a6a;
-  border-right-color:  #7c5cb0;
-  border-bottom-color: #6a9820;
-}
-
-.dashboard-page-shell.is-day-mode .empty-state {
-  border-color: rgba(80, 148, 40, 0.22);
-  background: rgba(120, 180, 70, 0.06);
-  color: var(--text-secondary);
-}
-
-.dashboard-page-shell.is-day-mode .empty-state i {
-  color: var(--text-muted);
-}
-
-/* Hero copy section overlay — yellow-green */
-.dashboard-page-shell.is-day-mode .dashboard-hero-copy {
-  background: linear-gradient(155deg, rgba(210, 238, 172, 0.90), rgba(196, 226, 156, 0.78));
-  border-color: rgba(90, 148, 40, 0.18);
-  box-shadow: inset 0 1px 0 rgba(220, 255, 190, 0.60);
-}
-
-.dashboard-page-shell.is-day-mode .dashboard-subtext {
-  color: #2a5018;
-}
-
-.dashboard-page-shell.is-night-mode .showcase-card::after {
-  background: linear-gradient(160deg, rgba(6, 18, 11, 0.96), rgba(7, 16, 10, 0.90));
-}
-
-.dashboard-page-shell.is-night-mode .theme-rail-trigger:hover,
-.dashboard-page-shell.is-night-mode .showcase-nav-btn:hover,
-.dashboard-page-shell.is-night-mode .showcase-link-btn:hover,
-.dashboard-page-shell.is-night-mode .primary-chip:hover {
-  box-shadow: 0 12px 28px rgba(60, 200, 120, 0.16);
-}
-
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(1) { color: #8fffcc; }
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(2) { color: #41d9c6; }
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(3) { color: #ff8cab; }
-
 @media (max-width: 1180px) {
   .dashboard-hero-main { grid-template-columns: 1fr; padding-top: 3rem; }
   .dashboard-hero-copy { padding: 1.2rem 1.15rem 1.22rem; }
@@ -3718,11 +2806,9 @@ onBeforeUnmount(() => {
   .summary-grid, .groups-grid, .resource-grid { grid-template-columns: 1fr; }
   .event-detail-card { flex-direction: column; }
   .event-date-badge { width: 100%; min-height: 72px; flex-direction: row; justify-content: flex-start; align-items: center; gap: 0.72rem; }
-  .dashboard-theme-rail { position: static; flex-direction: column; align-items: stretch; margin-bottom: 1rem; }
-  .theme-rail-trigger { width: 100%; justify-content: center; }
   .dashboard-hero-main { padding-top: 0; }
   .dashboard-hero-copy,
-  .dashboard-hero-aside { display: block; }
+  .dashboard-hero-calendar { display: block; }
   .showcase-footer { flex-direction: column; align-items: stretch; }
   .showcase-image { aspect-ratio: 16 / 9; }
 }
@@ -3744,12 +2830,10 @@ onBeforeUnmount(() => {
   .summary-card:hover,
   .hero-meta-chip:hover,
   .event-detail-card:hover .event-date-badge,
-  .event-detail-card:hover .event-content,
-  .progress-card:hover .progress-ring { transform: none; }
+  .event-detail-card:hover .event-content { transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .progress-ring::before, .progress-ring::after,
   .surface-kicker::before { animation: none !important; }
 
   .group-card-link:hover .group-card-surface,
@@ -3758,7 +2842,6 @@ onBeforeUnmount(() => {
   .hero-meta-chip:hover,
   .event-detail-card:hover .event-date-badge,
   .event-detail-card:hover .event-content,
-  .progress-card:hover .progress-ring,
   .showcase-card:hover { transform: none !important; }
 }
 
@@ -3812,7 +2895,6 @@ onBeforeUnmount(() => {
 .list-row-meta,
 .list-row-description,
 .surface-link,
-.theme-rail-trigger,
 .showcase-mini-label,
 .event-meta-row,
 .empty-state,
@@ -3834,7 +2916,6 @@ onBeforeUnmount(() => {
 .group-card-surface,
 .resource-card-surface,
 .list-row,
-.theme-rail-trigger,
 .dashboard-loading {
   border-color: var(--border-default);
 }
@@ -3847,7 +2928,6 @@ onBeforeUnmount(() => {
 .list-row,
 .hero-meta-chip,
 .status-pill,
-.theme-rail-trigger,
 .hero-eyebrow {
   background: linear-gradient(165deg, color-mix(in srgb, var(--surface-elevated) 88%, transparent), color-mix(in srgb, var(--surface-base) 94%, transparent));
   backdrop-filter: blur(24px);
@@ -3874,70 +2954,6 @@ onBeforeUnmount(() => {
   position: relative;
   isolation: isolate;
 }
-
-.progress-ring-aura,
-.progress-ring-track,
-.progress-ring-orbit,
-.progress-ring-marker,
-.progress-ring-spark {
-  position: absolute;
-  border-radius: 999px;
-  pointer-events: none;
-}
-
-.progress-ring-aura {
-  width: 198px;
-  height: 198px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent-blue) 22%, transparent), transparent 66%);
-  filter: blur(22px);
-  opacity: 0.95;
-}
-
-.progress-ring-track {
-  width: 192px;
-  height: 192px;
-  border: 1px dashed color-mix(in srgb, var(--text-link) 28%, transparent);
-  opacity: 0.42;
-}
-
-.progress-ring-orbit {
-  animation: orbitFloat 10s linear infinite;
-}
-
-.progress-ring-orbit--outer {
-  width: 210px;
-  height: 210px;
-  border: 1px solid color-mix(in srgb, var(--accent-teal) 18%, transparent);
-}
-
-.progress-ring-orbit--inner {
-  width: 160px;
-  height: 160px;
-  border: 1px solid color-mix(in srgb, var(--accent-violet) 16%, transparent);
-  animation-direction: reverse;
-  animation-duration: 12s;
-}
-
-.progress-ring-marker {
-  left: calc(50% - 7px);
-  top: calc(50% - 7px);
-  width: 14px;
-  height: 14px;
-  background: linear-gradient(135deg, var(--accent-amber), var(--accent-violet));
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--surface-elevated) 74%, transparent), 0 0 18px color-mix(in srgb, var(--accent-blue) 40%, transparent);
-}
-
-.progress-ring-spark {
-  width: 8px;
-  height: 8px;
-  background: var(--text-link);
-  opacity: 0.64;
-  filter: blur(1px);
-  animation: sparkleOrbit 7s ease-in-out infinite;
-}
-
-.progress-ring-spark--one { top: 32px; left: 42px; }
-.progress-ring-spark--two { right: 34px; bottom: 42px; animation-delay: -2.6s; }
 
 .progress-ring {
   width: 172px;
@@ -3977,16 +2993,6 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
   color: var(--text-link);
   font-weight: 700;
-}
-
-@keyframes orbitFloat {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes sparkleOrbit {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.44; }
-  50% { transform: translate3d(6px, -8px, 0) scale(1.5); opacity: 0.92; }
 }
 
 .summary-card:nth-child(1) { border-radius: 28px 18px 24px 18px; }
@@ -4034,23 +3040,6 @@ onBeforeUnmount(() => {
   font-family: var(--font-body);
 }
 
-.dashboard-page-shell.is-night-mode {
-  --text-primary: #f2fff7;
-  --text-secondary: #b8d8c8;
-  --text-muted: #84a997;
-  --text-link: #8ee7c0;
-  --text-hero-accent: #b6fff1;
-  --text-card-accent: #f1ce82;
-}
-
-.dashboard-page-shell.is-day-mode {
-  --text-primary: #18311e;
-  --text-secondary: #496652;
-  --text-muted: #708b78;
-  --text-link: #305f48;
-  --text-hero-accent: #214533;
-  --text-card-accent: #7e6233;
-}
 
 .dashboard-page-shell,
 .dashboard-page-shell * {
@@ -4105,8 +3094,7 @@ onBeforeUnmount(() => {
 .status-pill,
 .showcase-mini-label,
 .list-row-meta,
-.event-date-rest,
-.theme-rail-trigger {
+.event-date-rest {
   font-family: var(--font-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -4151,7 +3139,6 @@ onBeforeUnmount(() => {
 .group-card-surface,
 .resource-card-surface,
 .list-row,
-.theme-rail-trigger,
 .event-detail-card,
 .dashboard-alert,
 .dashboard-loading {
@@ -4164,15 +3151,7 @@ onBeforeUnmount(() => {
   border-color: var(--border-strong);
 }
 
-.dashboard-page-shell.is-day-mode .dashboard-hero-copy {
-  background: linear-gradient(155deg, rgba(243, 250, 236, 0.94), rgba(232, 243, 223, 0.90));
-}
 
-.dashboard-page-shell.is-night-mode .dashboard-hero-copy {
-  background: linear-gradient(155deg, rgba(13, 30, 20, 0.94), rgba(9, 23, 16, 0.88));
-}
-
-.theme-rail-trigger,
 .showcase-nav-btn,
 .showcase-link-btn,
 .primary-chip,
@@ -4183,8 +3162,7 @@ onBeforeUnmount(() => {
 }
 
 .showcase-link-btn,
-.primary-chip,
-.theme-rail-trigger {
+.primary-chip {
   border-color: color-mix(in srgb, var(--accent-blue) 18%, var(--border-default));
 }
 
@@ -4214,43 +3192,12 @@ onBeforeUnmount(() => {
   background: var(--accent-teal);
 }
 
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(1) { color: #9df6cf; }
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(2) { color: #7db8ff; }
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(3) { color: #f3c977; }
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(1) { color: #3c6e54; }
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(2) { color: #587fbc; }
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(3) { color: #9f7240; }
 
-.dashboard-page-shell.is-day-mode .event-date-badge {
-  background: rgba(93, 131, 188, 0.08);
-}
 
-.dashboard-page-shell.is-night-mode .event-date-badge {
-  background: rgba(125, 184, 255, 0.10);
-}
 
-.dashboard-page-shell.is-day-mode .summary-card,
-.dashboard-page-shell.is-day-mode .surface-card,
-.dashboard-page-shell.is-day-mode .showcase-card,
-.dashboard-page-shell.is-day-mode .group-card-surface,
-.dashboard-page-shell.is-day-mode .resource-card-surface,
-.dashboard-page-shell.is-day-mode .list-row {
-  box-shadow: 0 16px 36px rgba(18, 31, 21, 0.08);
-}
 
-.dashboard-page-shell.is-night-mode .summary-card,
-.dashboard-page-shell.is-night-mode .surface-card,
-.dashboard-page-shell.is-night-mode .showcase-card,
-.dashboard-page-shell.is-night-mode .group-card-surface,
-.dashboard-page-shell.is-night-mode .resource-card-surface,
-.dashboard-page-shell.is-night-mode .list-row {
-  box-shadow: 0 18px 42px rgba(0, 8, 3, 0.26);
-}
-
-/* Clean white/grey dashboard theme, aligned with Events and Resources pages. */
-.dashboard-page-shell,
-.dashboard-page-shell.is-day-mode,
-.dashboard-page-shell.is-night-mode {
+/* Clean white/grey dashboard palette, aligned with Events and Resources pages. */
+.dashboard-page-shell {
   --text-primary: var(--charcoal) !important;
   --text-secondary: #6c757d !important;
   --text-muted: #8a949e !important;
@@ -4287,13 +3234,6 @@ onBeforeUnmount(() => {
 
 .dashboard-fx-canvas,
 .dashboard-backdrop-grid,
-.progress-ring-aura,
-.progress-ring-orbit,
-.progress-ring-marker,
-.progress-ring-spark {
-  display: none !important;
-}
-
 .dashboard-page-inner {
   position: relative;
   z-index: 1;
@@ -4310,7 +3250,6 @@ onBeforeUnmount(() => {
 .hero-meta-chip,
 .status-pill,
 .event-detail-card,
-.theme-rail-trigger,
 .dashboard-alert,
 .dashboard-loading {
   background: var(--white) !important;
@@ -4377,11 +3316,6 @@ onBeforeUnmount(() => {
   padding-top: 3rem;
 }
 
-.dashboard-theme-rail {
-  gap: 0.5rem;
-}
-
-.theme-rail-trigger,
 .showcase-nav-btn,
 .showcase-link-btn,
 .primary-chip,
@@ -4392,7 +3326,6 @@ onBeforeUnmount(() => {
   box-shadow: none !important;
 }
 
-.theme-rail-trigger:hover,
 .showcase-nav-btn:hover,
 .showcase-link-btn:hover,
 .primary-chip:hover,
@@ -4469,18 +3402,6 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px var(--border-light), 0 2px 4px var(--shadow) !important;
 }
 
-.progress-ring-track {
-  border-color: var(--border-light) !important;
-}
-
-.progress-bar-shell {
-  background: #eef1f3 !important;
-}
-
-.progress-bar-fill {
-  background: #6c757d !important;
-}
-
 .showcase-image {
   border-radius: 8px;
   border-color: var(--border-light) !important;
@@ -4499,19 +3420,6 @@ onBeforeUnmount(() => {
 .showcase-dot.active {
   background: #6c757d !important;
   box-shadow: none !important;
-}
-
-.dashboard-page-shell.is-day-mode .resource-card-link:nth-child(n) .resource-card-surface,
-.dashboard-page-shell.is-day-mode .group-card-link:nth-child(n) .group-card-surface,
-.dashboard-page-shell.is-night-mode .resource-card-link:nth-child(n) .resource-card-surface,
-.dashboard-page-shell.is-night-mode .group-card-link:nth-child(n) .group-card-surface {
-  background: var(--white) !important;
-  border-color: var(--border-light) !important;
-}
-
-.dashboard-page-shell.is-day-mode .status-pill:nth-child(n),
-.dashboard-page-shell.is-night-mode .status-pill:nth-child(n) {
-  color: #6c757d !important;
 }
 
 @media (max-width: 880px) {
@@ -4538,7 +3446,6 @@ onBeforeUnmount(() => {
 }
 
 .summary-card:hover .summary-icon-wrap,
-.progress-card:hover .progress-ring,
 .event-detail-card:hover .event-date-badge,
 .event-detail-card:hover .event-content,
 .premium-row:hover .announcement-icon,
