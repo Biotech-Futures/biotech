@@ -7,6 +7,7 @@ from datetime import timedelta
 from django.urls import reverse
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection, models
 from django.conf import settings
 
@@ -23,7 +24,9 @@ from apps.chat.models import Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
 from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
+from apps.common.storage import get_chat_storage
 from apps.users.models import AdminScope
+from tests.apps._helpers import StorageCleanupMixin, assert_public_message_shape
 
 
 # Create your tests here.
@@ -36,7 +39,7 @@ CHANNEL_TEST_SETTINGS = {
 
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-class ChatFeatureTests(TestCase):
+class ChatFeatureTests(StorageCleanupMixin, TestCase):
     """
     Integration tests for chat:
       - POST /chat/groups/{id}/messages/
@@ -45,6 +48,8 @@ class ChatFeatureTests(TestCase):
       - WebSocket broadcasts (message.created / message.deleted)
       - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
     """
+    storage_attr = "chat_storage"
+    storage_keys_attr = "created_chat_storage_keys"
 
     def setUp(self):
         User = get_user_model()
@@ -119,6 +124,8 @@ class ChatFeatureTests(TestCase):
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
         self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
+        self.chat_storage = get_chat_storage()
+        self.created_chat_storage_keys = []
 
 
     # --------- helpers ---------
@@ -140,6 +147,7 @@ class ChatFeatureTests(TestCase):
         }
         resp = self.client_student.post(url, payload, format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
+        assert_public_message_shape(self, resp.data)
 
         msg_id = resp.data["id"]
         msg = Messages.objects.get(pk=msg_id)
@@ -160,6 +168,7 @@ class ChatFeatureTests(TestCase):
         self.assertEqual(resp.status_code, 200, resp.content)
         items = resp.data["items"]
         self.assertEqual(len(items), 2)
+        assert_public_message_shape(self, items[0])
         # order should be m3, m2
         returned_ids = [it["id"] for it in items]
         self.assertEqual(returned_ids, [m3.id, m2.id])
@@ -362,6 +371,467 @@ class ChatFeatureTests(TestCase):
 
         fake_layer.group_send.assert_not_called()
 
+    @patch("apps.chat.views.get_channel_layer")
+    def test_attachment_upload_broadcasts_message_created_with_download_url_and_legacy_aliases(
+        self,
+        mock_get_channel_layer,
+    ):
+        fake_layer = MagicMock()
+        fake_layer.group_send = AsyncMock()
+        mock_get_channel_layer.return_value = fake_layer
+
+        upload = SimpleUploadedFile(
+            "group-plan.pdf",
+            b"group plan bytes",
+            content_type="application/pdf",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            response = self.client_student.post(
+                reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+                {
+                    "message_text": "See attached",
+                    "uploaded_file": upload,
+                },
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(len(callbacks), 1)
+        assert_public_message_shape(self, response.data)
+        self.assertEqual(response.data["message_type"], "attachment")
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        self.created_chat_storage_keys.append(message.attachments.get().storage_key)
+
+        fake_layer.group_send.assert_called_once()
+        group_name, envelope = fake_layer.group_send.call_args.args
+        self.assertEqual(group_name, f"group_{self.group.id}")
+        self.assertEqual(envelope["type"], "chat.message")
+
+        payload = envelope["payload"]
+        self.assertEqual(payload["event"], "message.created")
+        self.assertEqual(payload["group_id"], self.group.id)
+        self.assertEqual(payload["message"]["message_type"], "attachment")
+        self.assertEqual(payload["message"]["sender_id"], self.student.id)
+        self.assertEqual(payload["message"]["text"], "See attached")
+        self.assertEqual(payload["message"]["resource_ids"], [])
+        self.assertEqual(len(payload["message"]["attachments"]), 1)
+        self.assertTrue(
+            payload["message"]["attachments"][0]["download_url"].endswith(
+                f"/chat/groups/{self.group.id}/messages/{payload['message']['id']}/attachments/"
+                f"{payload['message']['attachments'][0]['id']}/download/"
+            )
+        )
+
+    @patch("apps.chat.views.get_channel_layer")
+    def test_attachment_upload_broadcast_is_deferred_until_commit(self, mock_get_channel_layer):
+        fake_layer = MagicMock()
+        fake_layer.group_send = AsyncMock()
+        mock_get_channel_layer.return_value = fake_layer
+
+        upload = SimpleUploadedFile(
+            "group-plan.pdf",
+            b"group plan bytes",
+            content_type="application/pdf",
+        )
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            response = self.client_student.post(
+                reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+                {
+                    "message_text": "See attached",
+                    "uploaded_file": upload,
+                },
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(len(callbacks), 1)
+        assert_public_message_shape(self, response.data)
+        fake_layer.group_send.assert_not_called()
+
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        attachment = message.attachments.get()
+        self.created_chat_storage_keys.append(attachment.storage_key)
+        self.assertEqual(message.message_type, "attachment")
+        self.assertEqual(attachment.attachment_filename, "group-plan.pdf")
+
+        callbacks[0]()
+
+        fake_layer.group_send.assert_called_once()
+
+    def test_rest_attachment_upload_creates_message_and_streams_download(self):
+        upload = SimpleUploadedFile(
+            "group-plan.pdf",
+            b"group plan bytes",
+            content_type="application/pdf",
+        )
+        response = self.client_student.post(
+            reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+            {
+                "message_text": "See attached",
+                "uploaded_file": upload,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        assert_public_message_shape(self, response.data)
+        self.assertEqual(response.data["message_type"], "attachment")
+        self.assertEqual(response.data["message_text"], "See attached")
+        self.assertEqual(len(response.data["attachments"]), 1)
+
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        attachment = message.attachments.get()
+        self.created_chat_storage_keys.append(attachment.storage_key)
+        self.assertTrue(self.chat_storage.exists(attachment.storage_key))
+
+        download_response = self.client_mentor.get(
+            reverse(
+                "group-messages-attachment-download",
+                kwargs={
+                    "group_pk": self.group.id,
+                    "pk": message.id,
+                    "attachment_pk": attachment.id,
+                },
+            )
+        )
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response["Content-Type"], "application/pdf")
+        self.assertIn("attachment;", download_response["Content-Disposition"])
+        self.assertEqual(b"".join(download_response.streaming_content), b"group plan bytes")
+
+    def test_attachment_download_requires_group_membership(self):
+        upload = SimpleUploadedFile(
+            "group-plan.pdf",
+            b"group plan bytes",
+            content_type="application/pdf",
+        )
+        response = self.client_student.post(
+            reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+            {
+                "uploaded_file": upload,
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        attachment = message.attachments.get()
+        self.created_chat_storage_keys.append(attachment.storage_key)
+
+        outsider = get_user_model().objects.create_user(email="outsider@test.com", password="pw")
+        outsider_client = APIClient()
+        outsider_client.force_authenticate(user=outsider)
+        download_response = outsider_client.get(
+            reverse(
+                "group-messages-attachment-download",
+                kwargs={
+                    "group_pk": self.group.id,
+                    "pk": message.id,
+                    "attachment_pk": attachment.id,
+                },
+            )
+        )
+        self.assertEqual(download_response.status_code, 403)
+
+
+class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
+    storage_attr = "chat_storage"
+    storage_keys_attr = "created_chat_storage_keys"
+
+    def setUp(self):
+        User = get_user_model()
+        self.client = APIClient()
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.primary_track = Tracks.objects.create(track_name="Primary", state=self.state)
+        self.secondary_track = Tracks.objects.create(track_name="Secondary", state=self.state)
+
+        self.primary_group = Groups.objects.create(group_name="Primary Group", track=self.primary_track)
+        self.secondary_group = Groups.objects.create(group_name="Secondary Group", track=self.secondary_track)
+
+        self.global_admin = User.objects.create_user(email="global-admin@test.com", password="pw")
+        self.track_admin = User.objects.create_user(email="track-admin@test.com", password="pw")
+        self.mentor = User.objects.create_user(email="mentor@test.com", password="pw")
+        self.supervisor = User.objects.create_user(email="supervisor@test.com", password="pw")
+        self.student = User.objects.create_user(email="student@test.com", password="pw")
+        self.secondary_student = User.objects.create_user(email="secondary-student@test.com", password="pw")
+        self.outsider = User.objects.create_user(email="outsider@test.com", password="pw")
+
+        AdminScope.objects.create(user=self.global_admin, is_global=True)
+        AdminScope.objects.create(user=self.track_admin, track=self.primary_track, is_global=False)
+
+        self.role_admin = Roles.objects.create(role_name="admin")
+        self.role_mentor = Roles.objects.create(role_name="mentor")
+        self.role_supervisor = Roles.objects.create(role_name="supervisor")
+        self.role_student = Roles.objects.create(role_name="student")
+
+        now = timezone.now()
+        future = now + timedelta(days=365)
+        RoleAssignmentHistory.objects.create(user=self.global_admin, role=self.role_admin, valid_from=now, valid_to=future)
+        RoleAssignmentHistory.objects.create(user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=future)
+        RoleAssignmentHistory.objects.create(user=self.supervisor, role=self.role_supervisor, valid_from=now, valid_to=future)
+        RoleAssignmentHistory.objects.create(user=self.student, role=self.role_student, valid_from=now, valid_to=future)
+        RoleAssignmentHistory.objects.create(user=self.secondary_student, role=self.role_student, valid_from=now, valid_to=future)
+
+        GroupMembership.objects.create(user=self.mentor, group=self.primary_group, membership_role="mentor")
+        GroupMembership.objects.create(user=self.supervisor, group=self.primary_group, membership_role="supervisor")
+        GroupMembership.objects.create(user=self.student, group=self.primary_group, membership_role="student")
+        GroupMembership.objects.create(user=self.secondary_student, group=self.secondary_group, membership_role="student")
+
+        self.client_global_admin = APIClient(); self.client_global_admin.force_authenticate(user=self.global_admin)
+        self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
+        self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
+        self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
+        self.client_student = APIClient(); self.client_student.force_authenticate(user=self.student)
+        self.client_secondary_student = APIClient(); self.client_secondary_student.force_authenticate(user=self.secondary_student)
+        self.client_outsider = APIClient(); self.client_outsider.force_authenticate(user=self.outsider)
+
+        self.chat_storage = get_chat_storage()
+        self.created_chat_storage_keys = []
+
+    def _upload_url(self, group):
+        return reverse("group-messages-upload", kwargs={"group_pk": group.id})
+
+    def _download_url(self, group, message, attachment):
+        return reverse(
+            "group-messages-attachment-download",
+            kwargs={
+                "group_pk": group.id,
+                "pk": message.id,
+                "attachment_pk": attachment.id,
+            },
+        )
+
+    def _upload_attachment(
+        self,
+        client,
+        group,
+        *,
+        message_text="See attached",
+        filename="group-plan.pdf",
+        payload=b"group plan bytes",
+        content_type="application/pdf",
+    ):
+        response = client.post(
+            self._upload_url(group),
+            {
+                "message_text": message_text,
+                "uploaded_file": SimpleUploadedFile(filename, payload, content_type=content_type),
+            },
+            format="multipart",
+        )
+        message = None
+        attachment = None
+        if response.status_code == 201:
+            message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+            attachment = message.attachments.get()
+            self.created_chat_storage_keys.append(attachment.storage_key)
+        return response, message, attachment
+
+    def test_global_admin_can_download_any_chat_attachment(self):
+        _, message, attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
+
+        response = self.client_global_admin.get(self._download_url(self.secondary_group, message, attachment))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b"".join(response.streaming_content), b"group plan bytes")
+
+    def test_track_admin_can_download_chat_attachment_within_assigned_track(self):
+        _, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
+
+        response = self.client_track_admin.get(self._download_url(self.primary_group, message, attachment))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b"".join(response.streaming_content), b"group plan bytes")
+
+    def test_track_admin_cannot_download_chat_attachment_outside_assigned_track(self):
+        _, message, attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
+
+        response = self.client_track_admin.get(self._download_url(self.secondary_group, message, attachment))
+        self.assertEqual(response.status_code, 403)
+
+    def test_track_admin_can_upload_chat_attachment_only_within_assigned_track(self):
+        allowed_response, _, _ = self._upload_attachment(self.client_track_admin, self.primary_group)
+        self.assertEqual(allowed_response.status_code, 201)
+        self.assertIn("download_url", allowed_response.data["attachments"][0])
+
+        blocked_response, _, _ = self._upload_attachment(self.client_track_admin, self.secondary_group)
+        self.assertEqual(blocked_response.status_code, 403)
+
+    @override_settings(CHAT_ATTACHMENT_MAX_UPLOAD_SIZE=4)
+    def test_chat_attachment_upload_rejects_files_above_max_size(self):
+        response, _, _ = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            payload=b"12345",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("maximum allowed size", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_chat_attachment_upload_rejects_disallowed_extension(self):
+        response, _, _ = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            filename="payload.exe",
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("allowed file extension", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_chat_attachment_upload_rejects_disallowed_mime_type(self):
+        response, _, _ = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            filename="payload.pdf",
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("fields", response.data)
+        self.assertIn("uploaded_file", response.data["fields"])
+        self.assertIn("allowed content type", str(response.data["fields"]["uploaded_file"][0]))
+
+    def test_mentor_can_upload_download_only_in_their_group(self):
+        text_response = self.client_mentor.post(
+            reverse("group-messages-list", kwargs={"group_pk": self.primary_group.id}),
+            {"message_text": "plain message", "resources": []},
+            format="json",
+        )
+        upload_response, message, attachment = self._upload_attachment(self.client_mentor, self.primary_group)
+        self.assertEqual(text_response.status_code, 201)
+        assert_public_message_shape(self, text_response.data)
+        self.assertEqual(upload_response.status_code, 201)
+        assert_public_message_shape(self, upload_response.data)
+        self.assertEqual(set(upload_response.data.keys()), set(text_response.data.keys()))
+        self.assertIn("download_url", upload_response.data["attachments"][0])
+
+        download_response = self.client_mentor.get(self._download_url(self.primary_group, message, attachment))
+        self.assertEqual(download_response.status_code, 200)
+
+        blocked_upload, _, _ = self._upload_attachment(self.client_mentor, self.secondary_group)
+        self.assertEqual(blocked_upload.status_code, 403)
+
+        _, other_message, other_attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
+        blocked_download = self.client_mentor.get(self._download_url(self.secondary_group, other_message, other_attachment))
+        self.assertEqual(blocked_download.status_code, 403)
+
+    def test_supervisor_can_upload_download_only_in_their_group(self):
+        upload_response, message, attachment = self._upload_attachment(self.client_supervisor, self.primary_group)
+        self.assertEqual(upload_response.status_code, 201)
+        assert_public_message_shape(self, upload_response.data)
+        self.assertIn("download_url", upload_response.data["attachments"][0])
+
+        download_response = self.client_supervisor.get(self._download_url(self.primary_group, message, attachment))
+        self.assertEqual(download_response.status_code, 200)
+
+        blocked_upload, _, _ = self._upload_attachment(self.client_supervisor, self.secondary_group)
+        self.assertEqual(blocked_upload.status_code, 403)
+
+        _, other_message, other_attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
+        blocked_download = self.client_supervisor.get(self._download_url(self.secondary_group, other_message, other_attachment))
+        self.assertEqual(blocked_download.status_code, 403)
+
+    def test_student_can_upload_download_only_in_their_group(self):
+        upload_response, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
+        self.assertEqual(upload_response.status_code, 201)
+        assert_public_message_shape(self, upload_response.data)
+        self.assertIn("download_url", upload_response.data["attachments"][0])
+
+        download_response = self.client_student.get(self._download_url(self.primary_group, message, attachment))
+        self.assertEqual(download_response.status_code, 200)
+
+        blocked_upload, _, _ = self._upload_attachment(self.client_student, self.secondary_group)
+        self.assertEqual(blocked_upload.status_code, 403)
+
+        _, other_message, other_attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
+        blocked_download = self.client_student.get(self._download_url(self.secondary_group, other_message, other_attachment))
+        self.assertEqual(blocked_download.status_code, 403)
+
+    def test_non_member_cannot_upload_chat_attachment(self):
+        response, _, _ = self._upload_attachment(self.client_outsider, self.primary_group)
+        self.assertEqual(response.status_code, 403)
+
+    def test_non_member_cannot_download_chat_attachment(self):
+        _, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
+
+        response = self.client_outsider.get(self._download_url(self.primary_group, message, attachment))
+        self.assertEqual(response.status_code, 403)
+
+    def test_attachment_download_fails_if_message_does_not_belong_to_group(self):
+        _, message, attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
+
+        response = self.client_global_admin.get(
+            reverse(
+                "group-messages-attachment-download",
+                kwargs={
+                    "group_pk": self.primary_group.id,
+                    "pk": message.id,
+                    "attachment_pk": attachment.id,
+                },
+            )
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_attachment_download_fails_if_attachment_does_not_belong_to_message(self):
+        _, message_one, _ = self._upload_attachment(self.client_student, self.primary_group, filename="one.pdf", payload=b"one bytes")
+        _, message_two, attachment_two = self._upload_attachment(self.client_student, self.primary_group, filename="two.pdf", payload=b"two bytes")
+
+        response = self.client_global_admin.get(
+            reverse(
+                "group-messages-attachment-download",
+                kwargs={
+                    "group_pk": self.primary_group.id,
+                    "pk": message_one.id,
+                    "attachment_pk": attachment_two.id,
+                },
+            )
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertNotEqual(message_one.id, message_two.id)
+
+    def test_signed_blob_url_is_not_generated_before_permission_passes(self):
+        _, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
+
+        with patch("apps.chat.views.CHAT_FILE_SERVICE.resolve_url") as resolve_storage_url:
+            with patch("apps.chat.views.CHAT_FILE_SERVICE.open") as open_storage_file:
+                response = self.client_outsider.get(self._download_url(self.primary_group, message, attachment))
+
+        self.assertEqual(response.status_code, 403)
+        resolve_storage_url.assert_not_called()
+        open_storage_file.assert_not_called()
+
+    @override_settings(CHAT_SANITIZER_BLACKLIST=["badword*"])
+    def test_chat_serializer_returns_sanitized_attachment_filename(self):
+        response, message, attachment = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            filename="<script>badword.PDF",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["attachments"][0]["attachment_filename"], "redacted.pdf")
+        self.assertTrue(attachment.storage_key.endswith("/redacted.pdf"))
+        self.assertEqual(message.attachments.get().attachment_filename, "redacted.pdf")
+
+    @override_settings(CHAT_SANITIZER_BLACKLIST=["badword*"])
+    def test_chat_download_uses_sanitized_content_disposition(self):
+        _, message, attachment = self._upload_attachment(
+            self.client_student,
+            self.primary_group,
+            filename="<script>badword.PDF",
+        )
+
+        response = self.client_student.get(self._download_url(self.primary_group, message, attachment))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('filename="redacted.pdf"', response["Content-Disposition"])
+
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
@@ -518,3 +988,198 @@ class ChatProfanitySanitisationTests(TestCase):
         # (apps/chat/views.py::perform_create).
         broadcast_text = msg.message_text
         self.assertEqual(broadcast_text, "this is ***")
+
+
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+@unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
+class ChatQuotedReplyTests(TestCase):
+    """Integration + unit tests for the quoted-reply feature.
+
+    Covers the invariants the feature has to uphold:
+
+    * Happy path: write-only ``reply_to_id`` accepted, read-side
+      ``reply_to`` embedded as ``{id, text, user_id, deleted}``.
+    * Recursion bound: the embedded parent never itself contains a
+      ``reply_to`` field, no matter how deep the underlying chain.
+    * Same-group invariant: a reply cannot point at a parent in a
+      different group — enforced by ``ReplyToIdField.get_queryset``.
+    * Soft-delete invariant: a soft-deleted parent cannot be referenced
+      on creation, and any *existing* reply that already references one
+      surfaces ``text: null, deleted: true`` instead of leaking the
+      moderated content.
+    * Fail-closed: when the serializer is used outside a view context
+      (no ``group_pk``), every ``reply_to_id`` is rejected.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.student = User.objects.create_user(email="qr_student@test.com", password="pw")
+        self.role_student = Roles.objects.create(role_name="basic_student_qr")
+
+        now = timezone.now()
+        future = now.replace(year=2099)
+        RoleAssignmentHistory.objects.create(
+            user=self.student, role=self.role_student, valid_from=now, valid_to=future,
+        )
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="AUS-NSW-QR", state=self.state)
+
+        self.group = Groups.objects.create(group_name="QR-G1", track=self.track)
+        self.other_group = Groups.objects.create(group_name="QR-G2", track=self.track)
+        GroupMembership.objects.create(user=self.student, group=self.group)
+        GroupMembership.objects.create(user=self.student, group=self.other_group)
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.student)
+
+    def _list_url(self, group=None):
+        return reverse(
+            "group-messages-list",
+            kwargs={"group_pk": (group or self.group).id},
+        )
+
+    # --- happy path ---------------------------------------------------
+
+    def test_post_quoted_reply_via_api(self):
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="parent text",
+        )
+        resp = self.client.post(
+            self._list_url(),
+            {"message_text": "child text", "reply_to_id": parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["reply_to"]["id"], parent.id)
+        self.assertEqual(resp.data["reply_to"]["text"], "parent text")
+        self.assertEqual(resp.data["reply_to"]["user_id"], self.student.id)
+        self.assertFalse(resp.data["reply_to"]["deleted"])
+
+    # --- recursion-depth structural guard -----------------------------
+
+    def test_reply_to_nesting_serialization(self):
+        """The embedded parent dict must never contain its own
+        ``reply_to`` key, even when the parent is itself a quoted reply.
+        That is the structural recursion guard for the API."""
+        from apps.chat.serializers import MessageSerializer
+
+        grandparent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="g",
+        )
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="p",
+            reply_to=grandparent,
+        )
+        child = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="c",
+            reply_to=parent,
+        )
+
+        data = MessageSerializer(child).data
+        self.assertEqual(data["reply_to"]["id"], parent.id)
+        self.assertEqual(data["reply_to"]["text"], "p")
+        # The recursion guard: the embedded parent has *no* nested
+        # reply_to field of its own, so the response is flat at exactly
+        # one level no matter how deep the chain runs.
+        self.assertNotIn("reply_to", data["reply_to"])
+
+    # --- same-group invariant ----------------------------------------
+
+    def test_reply_to_id_rejected_across_groups(self):
+        """A reply in group B cannot point at a parent in group A.
+
+        With the field-level queryset filter, the cross-group PK simply
+        is not in the queryset and DRF rejects with the standard
+        ``"Invalid pk \\"X\\" - object does not exist."`` envelope.
+        That is also a small security improvement — it does not leak
+        the existence of messages in other groups.
+        """
+        parent_in_group_a = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="a",
+        )
+        resp = self.client.post(
+            self._list_url(self.other_group),
+            {"message_text": "leak attempt", "reply_to_id": parent_in_group_a.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        # The custom exception handler wraps DRF errors as
+        # ``{error, fields, code, request_id}``; tests pin to that shape.
+        self.assertIn("fields", resp.data)
+        self.assertIn("reply_to_id", resp.data["fields"])
+
+    # --- soft-delete invariant: write side ---------------------------
+
+    def test_reply_to_id_rejects_soft_deleted_parent(self):
+        """A reply cannot be created against a soft-deleted parent.
+
+        The field's queryset filters on ``deleted_at__isnull=True`` so
+        soft-deleted PKs vanish from the writable set and DRF rejects
+        with the standard 400.
+        """
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="x",
+        )
+        parent.soft_delete()
+        resp = self.client.post(
+            self._list_url(),
+            {"message_text": "y", "reply_to_id": parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("fields", resp.data)
+        self.assertIn("reply_to_id", resp.data["fields"])
+
+    # --- soft-delete invariant: read side ----------------------------
+
+    def test_reply_to_serializer_handles_soft_deleted_parent(self):
+        """When a parent is soft-deleted *after* its replies were
+        posted, the read payload must surface ``id`` and ``user_id``
+        (so the FE can attribute the placeholder) but null out
+        ``text`` and set ``deleted: true``. Any other behaviour would
+        let moderated content leak through every child that quoted it.
+        """
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="moderated content",
+        )
+        child = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="child",
+            reply_to=parent,
+        )
+        parent.soft_delete()
+
+        resp = self.client.get(self._list_url())
+        self.assertEqual(resp.status_code, 200, resp.content)
+        items = resp.data["items"]
+        child_payload = next(i for i in items if i["id"] == child.id)
+        self.assertEqual(child_payload["reply_to"]["id"], parent.id)
+        self.assertEqual(child_payload["reply_to"]["user_id"], self.student.id)
+        self.assertIsNone(child_payload["reply_to"]["text"])
+        self.assertTrue(child_payload["reply_to"]["deleted"])
+
+    # --- fail-closed: no view context --------------------------------
+
+    def test_reply_to_id_fails_closed_without_view_context(self):
+        """If the serializer is instantiated outside a view (management
+        command, signal handler, future bulk import), it has no way to
+        know which group to scope to. The field's queryset returns
+        ``Messages.objects.none()`` in that case, so any ``reply_to_id``
+        is rejected with the standard 400. Skipping the cross-group
+        check on missing context would be the opposite of what a
+        security-relevant validator should do.
+        """
+        from apps.chat.serializers import MessageSerializer
+
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="p",
+        )
+        # No ``context={"view": ...}`` — this is the failure mode we're
+        # pinning.
+        ser = MessageSerializer(
+            data={"message_text": "child", "reply_to_id": parent.id},
+        )
+        self.assertFalse(ser.is_valid())
+        self.assertIn("reply_to_id", ser.errors)

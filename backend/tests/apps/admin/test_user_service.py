@@ -1,12 +1,13 @@
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 from unittest.mock import patch
 
-from apps.admin.services.user import update_user
-from apps.groups.models import Countries, CountryStates, Tracks
-from apps.resources.models import RoleAssignmentHistory
-from apps.users.models import AdminProfile, User
+from apps.admin.services.user import query_users, update_user
+from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.users.models import AdminProfile, StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
 
 
@@ -21,6 +22,13 @@ class AdminUserServiceTests(TestCase):
             last_name="Supervisor",
             password="testpass",
         )
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            first_name="Ada",
+            last_name="Admin",
+            password="testpass",
+        )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
 
     def test_update_user_assigns_incoming_role_when_current_role_is_missing(self):
         result = update_user(
@@ -50,6 +58,91 @@ class AdminUserServiceTests(TestCase):
         self.assertTrue(
             AdminScope.objects.filter(user=self.user, track=self.track).exists()
         )
+
+    def test_query_users_filters_students_with_active_group(self):
+        grouped_student = self._create_student("grouped@example.com", "Grouped")
+        ungrouped_student = self._create_student("ungrouped@example.com", "Ungrouped")
+        left_student = self._create_student("left@example.com", "Left")
+        deleted_group_student = self._create_student("deleted@example.com", "Deleted")
+        now = timezone.now()
+        group = Groups.objects.create(group_name="Active Group", track=self.track)
+        deleted_group = Groups.objects.create(
+            group_name="Deleted Group",
+            track=self.track,
+            created_at=now,
+            deleted_at=now,
+        )
+        GroupMembership.objects.create(
+            user=grouped_student,
+            group=group,
+            membership_role="student",
+        )
+        GroupMembership.objects.create(
+            user=left_student,
+            group=group,
+            membership_role="student",
+            joined_at=now,
+            left_at=now,
+        )
+        GroupMembership.objects.create(
+            user=deleted_group_student,
+            group=deleted_group,
+            membership_role="student",
+        )
+
+        result = query_users(
+            role="student",
+            in_group="yes",
+            requesting_user=self.admin_user,
+        )
+
+        self.assertEqual(result["data"]["total"], 1)
+        self.assertEqual(
+            [item["email"] for item in result["data"]["items"]],
+            [grouped_student.email],
+        )
+        self.assertEqual(result["data"]["items"][0]["groupName"], group.group_name)
+
+        no_group_result = query_users(
+            role="student",
+            in_group="no",
+            requesting_user=self.admin_user,
+        )
+
+        self.assertEqual(no_group_result["data"]["total"], 3)
+        self.assertCountEqual(
+            [item["email"] for item in no_group_result["data"]["items"]],
+            [
+                ungrouped_student.email,
+                left_student.email,
+                deleted_group_student.email,
+            ],
+        )
+
+    def _create_student(self, email, last_name):
+        user = User.objects.create_user(
+            email=email,
+            first_name="Student",
+            last_name=last_name,
+            password="testpass",
+            track=self.track,
+        )
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(
+            user=user,
+            role=role,
+            valid_from=timezone.now(),
+        )
+        StudentProfile.objects.create(
+            user=user,
+            pg_first_name="Parent",
+            pg_last_name=last_name,
+            parent_guardian_flag=True,
+            school_name="Test School",
+            year_lvl="10",
+            has_join_permission=True,
+        )
+        return user
 
 
 class AdminUserBulkCreateViewTests(TestCase):

@@ -4,7 +4,7 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from typing import List, Dict, Any, Optional
 
 # Import models
@@ -316,17 +316,17 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     if active is not None:
         filters &= Q(is_active=active)
 
-    if in_group == "yes":
-        filters &= Q(groupmembership__left_at__isnull=True)
-    elif in_group == "no":
-        filters &= ~Q(groupmembership__left_at__isnull=True)
-
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         filters &= (Q(track_id__in=track_ids) | Q(track__isnull=True))
 
+    queryset = _filter_by_active_group_membership(
+        User.objects.filter(filters),
+        in_group,
+    )
+
     # Get total count
-    total = User.objects.filter(filters).values('id').distinct().count()
+    total = queryset.values('id').distinct().count()
 
     # Determine sort order
     order_by = []
@@ -340,7 +340,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     # Get paginated user IDs
     user_ids = list(
-        User.objects.filter(filters)
+        queryset
         .values_list('id', flat=True)
         .distinct()
         .order_by(*order_by)[offset:offset + limit]
@@ -483,6 +483,24 @@ def query_tracks(requesting_user=None) -> Dict[str, Any]:
     return {"msg": "Tracks retrieved successfully", "data": items}
 
 
+def _filter_by_active_group_membership(queryset, in_group: Optional[str]):
+    active_membership = GroupMembership.objects.filter(
+        user_id=OuterRef("pk"),
+        left_at__isnull=True,
+        group__deleted_at__isnull=True,
+    )
+
+    if in_group == "yes":
+        return queryset.annotate(has_active_group=Exists(active_membership)).filter(
+            has_active_group=True
+        )
+    if in_group == "no":
+        return queryset.annotate(has_active_group=Exists(active_membership)).filter(
+            has_active_group=False
+        )
+    return queryset
+
+
 # ============================================================================
 # STUDENT QUERY FUNCTIONS (student.ts logic)
 # ============================================================================
@@ -521,17 +539,17 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
             userinterest__interest__interest_desc__icontains=interest
         )
     
-    if in_group == "yes":
-        filters &= Q(groupmembership__left_at__isnull=True)
-    elif in_group == "no":
-        filters &= ~Q(groupmembership__left_at__isnull=True)
+    queryset = _filter_by_active_group_membership(
+        User.objects.filter(filters),
+        in_group,
+    )
     
     # Get total count
-    total = User.objects.filter(filters).values('id').distinct().count()
+    total = queryset.values('id').distinct().count()
     
     # Get paginated user IDs
     user_ids = (
-        User.objects.filter(filters)
+        queryset
         .values_list('id', flat=True)
         .distinct()
         .order_by('last_name', 'first_name', 'id')[offset:offset + limit]

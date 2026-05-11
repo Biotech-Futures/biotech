@@ -10,6 +10,7 @@ SELF_ACTION_WINDOW = timedelta(minutes=10)
 
 class MessageType(models.TextChoices):
     TEXT = "text", "Text"
+    ATTACHMENT = "attachment", "Attachment"
     RESOURCE = "resource", "Resource Link"
     SYSTEM = "system", "System Message"
 
@@ -26,6 +27,17 @@ class Messages(models.Model):
         max_length=20,
         choices=MessageType.choices,
         default=MessageType.TEXT,
+    )
+    # Self-referential FK enables "quoted reply" threading. SET_NULL keeps
+    # a reply visible if its parent is hard-deleted; soft-deletion of the
+    # parent is handled at the serializer layer (text nulled, deleted=True)
+    # so moderated content never leaks through children that quoted it.
+    reply_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="replies",
     )
 
     class Meta:
@@ -53,6 +65,7 @@ class Messages(models.Model):
             models.Index(fields=["group", "sent_at"]),
             models.Index(fields=["sender_user"]),
             models.Index(fields=["deleted_at"]),
+            models.Index(fields=["reply_to"]),
         ]
 
     @property

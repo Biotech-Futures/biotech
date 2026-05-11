@@ -1,6 +1,5 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
@@ -45,12 +44,12 @@ class PermissionClassesTests(TestCase):
             first_name="Adm",
             last_name="User",
             track=track,
-            is_staff=True  # Make admin a staff user for IsAdminUser permission
         )
 
-        # Attach admin to Django group "Admin"
-        admin_group = Group.objects.create(name="Admin")
-        self.admin.groups.add(admin_group)
+        # IsResourceAdmin (used by RoleViewSet.create) checks
+        # ``apps.common.rbac.is_global_admin``, which is AdminScope-only.
+        AdminScope = dj_apps.get_model("users", "AdminScope")
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
         # Keep references for clarity (same as regular/admin now)
         self.biz_regular = self.regular

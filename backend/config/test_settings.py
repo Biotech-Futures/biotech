@@ -8,6 +8,10 @@ DATABASES = {
     }
 }
 
+# CI has no Azure credentials; route managed-file uploads to the local backend.
+USE_AZURE_BLOB_STORAGE = False
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+
 # Skip problematic app migrations entirely during tests
 MIGRATION_MODULES = {
     'chat': None,

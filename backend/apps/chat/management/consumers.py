@@ -22,8 +22,8 @@ For deletes the embedded message has ``is_deleted=true`` and a non-null
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from apps.groups.models import GroupMembership, Groups
-from apps.users.utils.admin_scope import can_admin_track
+from apps.chat.rbac import can_access_chat_group
+from apps.groups.models import Groups
 
 
 class GroupChatConsumer(AsyncJsonWebsocketConsumer):
@@ -42,7 +42,7 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4403)
             return
 
-        if not await self._can_read_group(user, self.group_id):
+        if not await self._can_access_group(user):
             await self.close(code=4403)
             return
 
@@ -50,17 +50,9 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         await self.accept()
 
     @database_sync_to_async
-    def _can_read_group(self, user, group_id):
-        if GroupMembership.objects.filter(
-            user=user, group_id=group_id, left_at__isnull=True
-        ).exists():
-            return True
-        track_id = (
-            Groups.objects.filter(pk=group_id)
-            .values_list("track_id", flat=True)
-            .first()
-        )
-        return can_admin_track(user, track_id)
+    def _can_access_group(self, user):
+        group = Groups.objects.only("id", "track_id").filter(pk=self.group_id).first()
+        return can_access_chat_group(user, group)
 
     async def chat_message(self, event):
         await self.send_json(event["payload"])
