@@ -45,7 +45,7 @@ jobs:
         working-directory: ./backend
         # Run tests under tests/ package + in-app tests for users and resources.
         # Skips matching/tests/ (pytest-format, requires separate runner).
-        run: coverage run manage.py test tests apps.users apps.resources --settings=config.test_settings --noinput
+        run: coverage run manage.py test tests apps.users apps.resources --settings=config.settings_test --noinput
 
       - name: Enforce coverage threshold (>= 60%)
         working-directory: ./backend
@@ -131,3 +131,4 @@ jobs:
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E877ED0DA3F94A06807A257E92B3A1B1 }}
           package: .
+

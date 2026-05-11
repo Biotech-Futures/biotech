@@ -381,3 +381,37 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
+# --- Link previews -----------------------------------------------------------
+# OG metadata cache lives in Redis under ``cache:og:<md5(url)>``. The 24h TTL
+# matches the requirement to dedupe a globally-previewed URL across users.
+#
+# Unfurling runs in-process on a daemon thread spawned from the request handler
+# after ``transaction.on_commit`` — no Celery/broker required. See
+# ``apps/chat/tasks.py`` for the dispatcher and ``apps/chat/og_extractor.py``
+# for the parser.
+LINK_PREVIEW_CACHE_TTL_SECONDS = config(
+    "LINK_PREVIEW_CACHE_TTL_SECONDS", default=60 * 60 * 24, cast=int,
+)
+# Hard cap on outbound HTTP fetch — keeps a slow target site from pinning a
+# worker thread for too long. Connection timeout is intentionally tighter than
+# the read timeout so unreachable hosts fail fast.
+LINK_PREVIEW_FETCH_CONNECT_TIMEOUT = config(
+    "LINK_PREVIEW_FETCH_CONNECT_TIMEOUT", default=3.0, cast=float,
+)
+LINK_PREVIEW_FETCH_READ_TIMEOUT = config(
+    "LINK_PREVIEW_FETCH_READ_TIMEOUT", default=5.0, cast=float,
+)
+# Cap response body size before parsing. Anything larger almost certainly
+# isn't an HTML page worth unfurling and would blow worker memory.
+LINK_PREVIEW_MAX_BYTES = config(
+    "LINK_PREVIEW_MAX_BYTES", default=512 * 1024, cast=int,
+)
+LINK_PREVIEW_USER_AGENT = config(
+    "LINK_PREVIEW_USER_AGENT",
+    default="BiotechFuturesBot/1.0 (+https://biotechfutures.org)",
+)
+# Synchronous dispatch (used by tests) runs the unfurl inline instead of on a
+# thread, so assertions can observe the DB row and broadcast immediately.
+LINK_PREVIEW_DISPATCH_SYNC = config(
+    "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
+)

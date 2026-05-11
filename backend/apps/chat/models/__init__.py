@@ -4,6 +4,7 @@ from .message_mention import MessageMention
 from .message_reaction import MessageReaction
 from .message_resource import MessageResource
 from .message_status import MessageStatus
+from .message_preview import MessagePreview
 
 __all__ = [
     'Messages',
@@ -12,5 +13,6 @@ __all__ = [
     'MessageMention',
     'MessageReaction',
     'MessageResource',
-    'MessageStatus'
+    'MessageStatus',
+    'MessagePreview',
 ]
