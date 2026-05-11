@@ -36,22 +36,19 @@
  * Modified By: CS17-1 Frontend Team
  */
 
-
 // DASHBOARD_BACKGROUND_KEY
 // LOGIN_LANGUAGE_KEY
 // safeLocalStorageGet(key,fallback)
 // safeLocalStorageSet(key,value)
 // safeLocalStorageRemove(key)
 
-
 export const DASHBOARD_BACKGROUND_KEY = 'dashboard-background-key'
 export const LOGIN_LANGUAGE_KEY = 'login-language'
 
 export function safeLocalStorageGet(key: string, fallback: string | null = null): string | null {
   try {
-
     return window.localStorage.getItem(key) ?? fallback
-  } catch (error) {
+  } catch {
     return fallback
   }
 }
@@ -59,13 +56,11 @@ export function safeLocalStorageGet(key: string, fallback: string | null = null)
 export function safeLocalStorageSet(key: string, value: string): void {
   try {
     window.localStorage.setItem(key, value)
-  } catch (error) {
-  }
+  } catch {}
 }
 
 export function safeLocalStorageRemove(key: string): void {
   try {
     window.localStorage.removeItem(key)
-  } catch (error) {
-  }
+  } catch {}
 }
