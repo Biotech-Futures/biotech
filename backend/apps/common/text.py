@@ -1,10 +1,5 @@
 """Lightweight text sanitisation, shared across chat messages and upload filenames.
 
-Originally lived under ``apps.chat.utils``; promoted to ``apps.common.text`` so
-``apps.common.filenames`` can reuse it without creating a ``common -> chat``
-import cycle. ``apps.chat.utils`` still re-exports these names for callers that
-imported via the old path.
-
 Single Responsibility: this module owns the blacklist + replacement logic and
 nothing else. The public ``sanitize_text`` function is a pure function that can
 be unit-tested without Django/DRF/Channels. Django settings are consulted only

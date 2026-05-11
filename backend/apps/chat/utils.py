@@ -1,10 +1,4 @@
-"""Backwards-compatible shim — sanitize_text now lives in apps.common.text.
-
-The text-sanitization helpers were promoted to ``apps.common`` so
-``apps.common.filenames`` could reuse them without depending on the chat app
-(which would have created a common -> chat import cycle). Existing imports
-from ``apps.chat.utils`` keep working via this re-export.
-"""
+"""Re-export shim. Real implementation lives in ``apps.common.text``."""
 
 from apps.common.text import (  # noqa: F401
     DEFAULT_BLACKLIST,

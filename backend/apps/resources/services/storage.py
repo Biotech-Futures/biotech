@@ -15,9 +15,7 @@ def is_managed_storage_key(storage_key: str | None) -> bool:
 
 
 def stored_resource_file(uploaded_file):
-    # Resource files keep their own container/backend even though the low-level
-    # save/delete/open/url mechanics are shared in common.storage. Returns a context
-    # manager that deletes the blob if the caller raises before commit.
+    # Context manager: deletes blob on caller-side error.
     return RESOURCE_FILE_SERVICE.stored_file(
         uploaded_file,
         content_type_field="file_mime_type",
