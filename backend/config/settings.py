@@ -358,3 +358,11 @@ CHAT_SANITIZER_BLACKLIST = config(
 )
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
+
+# Shared secret for POST /events/v1/admin/send-rsvp-reminders/. The
+# hourly GitHub Actions workflow sends this in the X-Reminder-Token
+# header; the endpoint returns 503 if it's unset, so a misconfigured
+# deploy fails loud instead of silently exposing an unauthenticated
+# trigger.
+RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
+

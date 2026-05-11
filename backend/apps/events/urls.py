@@ -8,6 +8,7 @@ from .views import (
     EventInviteListMeHTMLView,
     EventRsvpSetView,
     EventViewSet,
+    RsvpReminderTriggerView,
 )
 
 router = SimpleRouter()
@@ -22,4 +23,11 @@ urlpatterns = [
     path("v1/<int:id>/rsvp/<int:uid>/", EventInviteCreateView.as_view(), name="create-event-rsvp"),
     path("v1/<int:id>/rsvps/", EventInviteListHTMLView.as_view(), name="list-event-rsvp"),
     path("v1/rsvps/me/", EventInviteListMeHTMLView.as_view(), name="list-event-rsvp-me"),
+    # Cron-trigger for the 24h RSVP reminder dispatcher. Hit hourly by
+    # .github/workflows/rsvp-reminders.yml with a shared-secret header.
+    path(
+        "v1/admin/send-rsvp-reminders/",
+        RsvpReminderTriggerView.as_view(),
+        name="rsvp-reminder-trigger",
+    ),
 ]
