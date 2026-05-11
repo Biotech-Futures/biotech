@@ -12,7 +12,6 @@
         </div>
 
         <div class="header-nav">
-          <input type="text" class="search-bar" placeholder="Search Program" />
           <div class="user-menu">
             <button
               class="user-avatar"
@@ -349,27 +348,6 @@ select {
 .header-nav {
   display: flex;
   align-items: center;
-  gap: 2rem;
-}
-
-.search-bar {
-  width: 300px;
-  padding: 0.5rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.1);
-  color: var(--white);
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
-
-.search-bar::placeholder {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.search-bar:focus {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.4);
-  outline: none;
 }
 
 .user-menu {
@@ -822,16 +800,8 @@ select {
   }
 
   .header-nav {
-    width: 100%;
     margin-left: 0;
-    justify-content: space-between;
-    gap: 0.6rem;
-  }
-
-  .search-bar {
-    flex: 1;
-    min-width: 0;
-    width: auto;
+    justify-content: flex-end;
   }
 
   .main-layout {
