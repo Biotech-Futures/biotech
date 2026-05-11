@@ -1,39 +1,37 @@
-"""Celery tasks for chat-side background work.
+"""Chat-side background work — no Celery, no extra service.
 
-Currently a single task: ``fetch_og_data``. The contract is fire-and-forget
-from the view's perspective:
+Public surface:
 
-    fetch_og_data.delay(message_id, url)
+- ``fetch_og_data(message_id, url)`` — synchronous worker that does the actual
+  Redis cache lookup, HTTP fetch, OG parse, DB write and WS broadcast.
+- ``dispatch_og(message_id, url)`` — fire-and-forget dispatcher used by the
+  view layer. Spawns a daemon thread so the request returns immediately. In
+  tests (or when ``LINK_PREVIEW_DISPATCH_SYNC`` is true) it runs inline.
 
-The worker:
+Why not Celery? The platform already runs Daphne (ASGI) + Redis + Django. A
+chat link preview is a small, fault-tolerant piece of UX — if it never lands
+the user simply sees a plain link. Spending a broker, a scheduler and a worker
+fleet on this would be overkill. The Redis cache (``cache:og:<md5(url)>``)
+still dedupes fetches across users, and the WebSocket broadcast still surfaces
+the preview when it's ready.
 
-1. Looks up ``cache:og:<md5(url)>`` in Redis. If present, the URL was unfurled
-   in the last 24h by *some* user — reuse the metadata, write it through to
-   this message's preview row, and broadcast immediately. No outbound HTTP.
-
-2. Otherwise, fetch the URL with a tight timeout, parse OG meta, persist a
-   ``MessagePreview`` row, populate the cache (``setex`` with the 24h TTL),
-   and broadcast.
-
-Failures are swallowed and logged: a missing preview is a UX downgrade, never
-an error visible to the user. Celery retries are deliberately *not* used —
-most OG failures (404, blocked bot UA, malformed HTML) won't get better with
-a retry, and the cost of pinning a worker on retry backoff outweighs the
-recovery rate.
+Trade-off acknowledged: if the Daphne process restarts mid-fetch, that one
+preview is lost. The message itself is already committed, so the user is
+never blocked.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import Any
 
 import requests
 from asgiref.sync import async_to_sync
-from celery import shared_task
 from channels.layers import get_channel_layer
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 
 from .og_extractor import cache_key_for, parse_og_metadata
 from .redis_client import get_redis
@@ -48,10 +46,10 @@ _PREVIEW_EVENT = "message.preview_ready"
 def _broadcast_preview(group_id: int, message_id: int, preview: dict[str, str]) -> None:
     """Fan a preview-ready event out to every consumer for ``group_id``.
 
-    Mirrors ``apps.chat.views._broadcast`` but uses the dedicated event name
-    so the front end can render previews without interpreting it as a brand
-    new message. The envelope ``type`` stays ``chat.message`` because that's
-    the consumer handler the existing ``GroupChatConsumer`` dispatches on.
+    Envelope shape matches the existing ``chat.message`` handler in
+    ``apps.chat.management.consumers.GroupChatConsumer`` so we reuse the same
+    plumbing; the inner ``type`` discriminates ``message.preview_ready`` from
+    the regular ``message.created`` / ``message.edited`` events.
     """
     channel_layer = get_channel_layer()
     if channel_layer is None:  # pragma: no cover - misconfig
@@ -110,8 +108,8 @@ def _fetch_html(url: str) -> tuple[str, str] | None:
     """Download ``url`` and return ``(final_url, html)``.
 
     Returns ``None`` for any non-2xx, non-HTML, oversized, or transport-error
-    response. The OG fetcher follows redirects so we hand the *final* URL back
-    for relative-image resolution.
+    response. Follows redirects so we hand the *final* URL back for relative
+    image resolution.
     """
     headers = {
         "User-Agent": getattr(
@@ -142,9 +140,6 @@ def _fetch_html(url: str) -> tuple[str, str] | None:
                 return None
             body = resp.raw.read(max_bytes + 1, decode_content=True)
             if len(body) > max_bytes:
-                # Truncate rather than reject — the <head> with OG tags is
-                # almost always within the first few KB, and a giant single
-                # <body> (image gallery, etc.) shouldn't cost us the preview.
                 body = body[:max_bytes]
             try:
                 html = body.decode(resp.encoding or "utf-8", errors="replace")
@@ -191,12 +186,11 @@ def _persist_and_broadcast(
         )
 
 
-@shared_task(name="apps.chat.tasks.fetch_og_data", ignore_result=True)
 def fetch_og_data(message_id: int, url: str) -> dict[str, Any]:
     """Resolve OG metadata for ``url`` and attach it to ``message_id``.
 
-    Returns a small status dict mostly for the eager-mode unit tests; live
-    callers ignore the return value.
+    Returns a status dict so callers (and tests) can verify which branch ran:
+    ``cache_hit``, ``fetched``, or ``fetch_failed``.
     """
     cached = _read_cached(url)
     if cached is not None:
@@ -212,3 +206,45 @@ def fetch_og_data(message_id: int, url: str) -> dict[str, Any]:
     _write_cached(url, payload)
     _persist_and_broadcast(message_id, url, payload)
     return {"status": "fetched", "message_id": message_id}
+
+
+def _run_in_thread(message_id: int, url: str) -> None:
+    """Thread target — runs the unfurl and closes the DB connection.
+
+    Each thread gets its own implicit Django connection on first ORM call. We
+    close it on exit so we don't leak connections under bursty link traffic.
+    """
+    try:
+        fetch_og_data(message_id, url)
+    except Exception:
+        logger.exception(
+            "link preview worker crashed for message=%s url=%s",
+            message_id, url,
+        )
+    finally:
+        try:
+            connection.close()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
+def dispatch_og(message_id: int, url: str) -> threading.Thread | None:
+    """Fire-and-forget the OG fetch.
+
+    In production this spawns a daemon thread inside the ASGI worker so the
+    HTTP response returns immediately. In tests
+    (``LINK_PREVIEW_DISPATCH_SYNC=True``) it runs inline, so assertions on the
+    resulting DB row / WS broadcast don't have to race a thread.
+    """
+    if getattr(settings, "LINK_PREVIEW_DISPATCH_SYNC", False):
+        fetch_og_data(message_id, url)
+        return None
+
+    thread = threading.Thread(
+        target=_run_in_thread,
+        args=(message_id, url),
+        name=f"og-preview-{message_id}",
+        daemon=True,
+    )
+    thread.start()
+    return thread

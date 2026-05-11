@@ -66,27 +66,9 @@ AZURE_CUSTOM_DOMAIN = config(
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Auto-enable Azure storage when credentials look configured, so a missing
-# ``USE_AZURE_BLOB_STORAGE`` env var in production never silently downgrades
-# user uploads to the container's ephemeral disk. An explicit value (true or
-# false) still wins.
-_AZURE_LOOKS_CONFIGURED = bool(AZURE_CONNECTION_STRING) or (
-    bool(AZURE_ACCOUNT_NAME) and bool(AZURE_ACCOUNT_KEY)
-)
-USE_AZURE_BLOB_STORAGE = config(
-    "USE_AZURE_BLOB_STORAGE",
-    default="true" if _AZURE_LOOKS_CONFIGURED else "false",
-    cast=env_bool,
-)
-
-# Keep Django's global default storage aligned with the deployment backend so any
-# future/default_storage callers outside the managed chat/resource path do not
-# silently fall back to local disk in Azure environments.
-DEFAULT_FILE_STORAGE = (
-    "storages.backends.azure_storage.AzureStorage"
-    if USE_AZURE_BLOB_STORAGE
-    else "django.core.files.storage.FileSystemStorage"
-)
+# Azure Blob is the only supported file backend.
+USE_AZURE_BLOB_STORAGE = True
+DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
@@ -205,39 +187,14 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database — PostgreSQL (local Homebrew / Docker / managed cloud)
-#
-# ``DB_SSLMODE`` is passed to libpq/psycopg. If you **do not** set it in ``.env``,
-# we pick a default from ``DB_HOST`` so local Postgres without TLS does not hit
-# "server does not support SSL, but SSL was required":
-#   - loopback / unix-socket style host → ``disable``
-#   - anything else → ``prefer`` (use TLS when the server offers it; otherwise
-#     plain TCP — works for Docker ``db`` hostnames and still encrypts to Azure)
-# Override explicitly for compliance, e.g. ``DB_SSLMODE=require`` or
-# ``verify-full`` in production.
-def _default_postgres_sslmode(host: str) -> str:
-    h = (host or "").strip().lower()
-    if not h or h in ("127.0.0.1", "localhost", "::1"):
-        return "disable"
-    return "prefer"
-
-
-DB_HOST = config("DB_HOST", default="127.0.0.1").strip()
-_default_sslmode = _default_postgres_sslmode(DB_HOST)
-_raw_sslmode = config("DB_SSLMODE", default=_default_sslmode)
-DB_SSLMODE = (
-    _raw_sslmode.strip().lower()
-    if isinstance(_raw_sslmode, str) and _raw_sslmode.strip()
-    else _default_sslmode
-)
-
+# Database — local PostgreSQL for development
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": config("DB_NAME", default="postgres"),
         "USER": config("DB_USER", default="postgres"),
         "PASSWORD": config("DB_PASSWORD", default=""),
-        "HOST": DB_HOST,
+        "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
             "sslmode": "require",
@@ -402,34 +359,27 @@ CHAT_SANITIZER_BLACKLIST = config(
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
-# --- Celery ------------------------------------------------------------------
-# Background workers (link previews, future fan-out jobs) share Redis with the
-# Channels layer by default. Override ``CELERY_BROKER_URL`` if you want to
-# isolate the broker from the websocket pub/sub traffic. ``ALWAYS_EAGER`` is
-# left off in real environments and flipped on per-test in ``settings_test``.
-CELERY_BROKER_URL = config(
-    "CELERY_BROKER_URL", default=REDIS_URL or "memory://"
-)
-CELERY_RESULT_BACKEND = config(
-    "CELERY_RESULT_BACKEND", default=REDIS_URL or "cache+memory://"
-)
-CELERY_TASK_ALWAYS_EAGER = config(
-    "CELERY_TASK_ALWAYS_EAGER", default="false", cast=env_bool
-)
-CELERY_TASK_EAGER_PROPAGATES = True
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE
+# Shared secret for POST /events/v1/admin/send-rsvp-reminders/. The
+# hourly GitHub Actions workflow sends this in the X-Reminder-Token
+# header; the endpoint returns 503 if it's unset, so a misconfigured
+# deploy fails loud instead of silently exposing an unauthenticated
+# trigger.
+RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
+
 
 # --- Link previews -----------------------------------------------------------
 # OG metadata cache lives in Redis under ``cache:og:<md5(url)>``. The 24h TTL
 # matches the requirement to dedupe a globally-previewed URL across users.
+#
+# Unfurling runs in-process on a daemon thread spawned from the request handler
+# after ``transaction.on_commit`` — no Celery/broker required. See
+# ``apps/chat/tasks.py`` for the dispatcher and ``apps/chat/og_extractor.py``
+# for the parser.
 LINK_PREVIEW_CACHE_TTL_SECONDS = config(
     "LINK_PREVIEW_CACHE_TTL_SECONDS", default=60 * 60 * 24, cast=int,
 )
 # Hard cap on outbound HTTP fetch — keeps a slow target site from pinning a
-# Celery worker for too long. Connection timeout is intentionally tighter than
+# worker thread for too long. Connection timeout is intentionally tighter than
 # the read timeout so unreachable hosts fail fast.
 LINK_PREVIEW_FETCH_CONNECT_TIMEOUT = config(
     "LINK_PREVIEW_FETCH_CONNECT_TIMEOUT", default=3.0, cast=float,
@@ -445,4 +395,9 @@ LINK_PREVIEW_MAX_BYTES = config(
 LINK_PREVIEW_USER_AGENT = config(
     "LINK_PREVIEW_USER_AGENT",
     default="BiotechFuturesBot/1.0 (+https://biotechfutures.org)",
+)
+# Synchronous dispatch (used by tests) runs the unfurl inline instead of on a
+# thread, so assertions can observe the DB row and broadcast immediately.
+LINK_PREVIEW_DISPATCH_SYNC = config(
+    "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )

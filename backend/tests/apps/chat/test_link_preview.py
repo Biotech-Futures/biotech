@@ -1,20 +1,18 @@
 """Tests for the link-preview unfurl pipeline.
 
-Covers the two cases called out in the spec:
+Covers the two spec cases:
 
-1. ``test_celery_task_dispatches_on_url`` — POST a chat message containing a
-   real URL, assert that ``fetch_og_data.delay`` is invoked with
-   ``(message_id, url)`` *after* the request transaction commits.
+1. ``test_dispatch_on_url`` — POST a chat message containing a real URL,
+   assert that ``dispatch_og`` is invoked with ``(message_id, url)`` *after*
+   the request transaction commits.
 
-2. ``test_celery_og_extraction`` — drive the Celery task function directly
-   with an HTML fixture (HTTP mocked), assert the ``MessagePreview`` row is
-   written and a ``message.preview_ready`` envelope is fanned out over the
-   channel layer.
+2. ``test_og_extraction_worker`` — drive ``fetch_og_data`` directly with an
+   HTML fixture (HTTP / Redis / channel layer mocked), assert the
+   ``MessagePreview`` row is written and a ``message.preview_ready``
+   envelope is fanned out over the channel layer.
 
-A handful of supporting tests cover: the no-URL short-circuit, the Redis
-cache-hit path, and the URL-extraction helper. The unit-level extractor
-tests live alongside the integration ones because they are cheap and
-exercise the same regex contract the view depends on.
+Supporting tests cover the no-URL short-circuit, the Redis cache-hit path,
+fetch failure handling, and the URL-extraction helper.
 """
 
 from __future__ import annotations
@@ -27,7 +25,6 @@ from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from apps.chat import og_extractor
 from apps.chat.models import MessagePreview, Messages
 from apps.chat.og_extractor import (
     cache_key_for,
@@ -121,13 +118,13 @@ class LinkPreviewDispatchTests(TestCase):
             "group-messages-list", kwargs={"group_pk": self.group.id}
         )
 
-    def test_celery_task_dispatches_on_url(self):
-        """POST a message containing https:// — assert the worker is enqueued.
+    def test_dispatch_on_url(self):
+        """POST a message containing https:// — assert the dispatcher fires.
 
-        We patch ``apps.chat.views.fetch_og_data`` (the *imported* binding)
-        so the real task body never runs and we can inspect ``.delay``
-        directly. Eager-mode Celery is irrelevant here: ``.delay`` is the
-        boundary we care about.
+        We patch ``apps.chat.views.dispatch_og`` (the *imported* binding) so
+        no thread is actually spawned. The dispatcher is what the view layer
+        calls; whether it threads, queues, or runs inline is an internal
+        detail tested elsewhere.
         """
         url = "https://example.com/article/42"
         payload = {
@@ -135,21 +132,21 @@ class LinkPreviewDispatchTests(TestCase):
             "resources": [],
         }
 
-        with patch("apps.chat.views.fetch_og_data") as mock_task:
+        with patch("apps.chat.views.dispatch_og") as mock_dispatch:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client_student.post(
                     self._list_url(), payload, format="json"
                 )
 
             self.assertEqual(resp.status_code, 201, resp.content)
-            mock_task.delay.assert_called_once()
-            args, kwargs = mock_task.delay.call_args
+            mock_dispatch.assert_called_once()
+            args, kwargs = mock_dispatch.call_args
             self.assertEqual(args[0], resp.data["id"])
             self.assertEqual(args[1], url)
 
     def test_no_dispatch_without_url(self):
         """Plain text messages must not enqueue any unfurl work."""
-        with patch("apps.chat.views.fetch_og_data") as mock_task:
+        with patch("apps.chat.views.dispatch_og") as mock_dispatch:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client_student.post(
                     self._list_url(),
@@ -157,16 +154,16 @@ class LinkPreviewDispatchTests(TestCase):
                     format="json",
                 )
             self.assertEqual(resp.status_code, 201, resp.content)
-            mock_task.delay.assert_not_called()
+            mock_dispatch.assert_not_called()
 
     def test_dispatch_only_after_commit(self):
-        """If the request transaction is rolled back, no task is enqueued.
+        """If the request transaction is rolled back, no dispatch occurs.
 
         Without ``execute=True`` ``captureOnCommitCallbacks`` *captures* but
         does not run the on_commit callbacks, so we can assert the queue
         snapshot before deciding whether to flush.
         """
-        with patch("apps.chat.views.fetch_og_data") as mock_task:
+        with patch("apps.chat.views.dispatch_og") as mock_dispatch:
             with self.captureOnCommitCallbacks(execute=False):
                 resp = self.client_student.post(
                     self._list_url(),
@@ -177,7 +174,7 @@ class LinkPreviewDispatchTests(TestCase):
                     format="json",
                 )
                 self.assertEqual(resp.status_code, 201, resp.content)
-                mock_task.delay.assert_not_called()
+                mock_dispatch.assert_not_called()
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
@@ -224,7 +221,7 @@ class FetchOGDataWorkerTests(TestCase):
         ctx.__exit__.return_value = False
         return ctx
 
-    def test_celery_og_extraction(self):
+    def test_og_extraction_worker(self):
         """Worker writes preview row + emits ``message.preview_ready``.
 
         The HTTP transport, the channel layer, and the Redis client are all

@@ -33,10 +33,7 @@ class _DisableMigrations:
 
 MIGRATION_MODULES = _DisableMigrations()
 
-# Run Celery tasks inline so worker behaviour can be asserted without an
-# external broker. Individual tests still mock ``.delay`` when they only care
-# about dispatch.
-CELERY_TASK_ALWAYS_EAGER = True
-CELERY_TASK_EAGER_PROPAGATES = True
-CELERY_BROKER_URL = "memory://"
-CELERY_RESULT_BACKEND = "cache+memory://"
+# Run link-preview unfurls inline so tests can observe the DB row and the
+# websocket broadcast immediately — no background thread spun up. The
+# dispatcher reads this flag at call time (see apps/chat/tasks.dispatch_og).
+LINK_PREVIEW_DISPATCH_SYNC = True
