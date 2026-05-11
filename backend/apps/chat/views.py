@@ -7,6 +7,8 @@ from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from .services.gif import search_gifs, trending_gifs
+from .serializers import GifItemSerializer
 
 from apps.common.storage import serve_managed_file
 from .management.permissions import (
@@ -250,3 +252,35 @@ class MessageViewSet(viewsets.ModelViewSet):
             as_attachment=True,
             on_open_failure_detail="The attachment could not be opened for download.",
         )
+class GifViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    # GET /chat/gifs/search?q={query}&limit=20
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request):
+        query = request.query_params.get("q", "").strip()
+        if not query:
+            return Response(
+                {"detail": "Query parameter 'q' is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            limit = int(request.query_params.get("limit", 20))
+            limit = max(1, min(limit, 50))
+        except ValueError:
+            limit = 20
+
+        results = search_gifs(query=query, limit=limit)
+        return Response({"data": GifItemSerializer(results, many=True).data})
+
+    # GET /chat/gifs/trending?limit=20
+    @action(detail=False, methods=["get"], url_path="trending")
+    def trending(self, request):
+        try:
+            limit = int(request.query_params.get("limit", 20))
+            limit = max(1, min(limit, 50))
+        except ValueError:
+            limit = 20
+
+        results = trending_gifs(limit=limit)
+        return Response({"data": GifItemSerializer(results, many=True).data})

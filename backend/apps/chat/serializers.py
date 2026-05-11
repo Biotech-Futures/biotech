@@ -202,3 +202,12 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
+
+class GifItemSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    url = serializers.CharField()
+    preview = serializers.CharField()
+
+
+class GifResponseSerializer(serializers.Serializer):
+    data = GifItemSerializer(many=True)
