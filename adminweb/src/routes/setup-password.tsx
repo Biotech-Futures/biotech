@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,8 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { myFetch } from "@/lib/myFetch";
 import { useQueryClient } from "@tanstack/react-query";
+import { PRODUCT_LOGIN_URL, isProductBuild } from "@/lib/authConfig";
 
 export const Route = createFileRoute("/setup-password")({
+  beforeLoad: () => {
+    if (isProductBuild) {
+      throw redirect({ href: PRODUCT_LOGIN_URL });
+    }
+  },
   component: SetupPasswordPage,
 });
 

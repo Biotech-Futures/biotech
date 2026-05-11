@@ -988,3 +988,198 @@ class ChatProfanitySanitisationTests(TestCase):
         # (apps/chat/views.py::perform_create).
         broadcast_text = msg.message_text
         self.assertEqual(broadcast_text, "this is ***")
+
+
+@override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
+@unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
+class ChatQuotedReplyTests(TestCase):
+    """Integration + unit tests for the quoted-reply feature.
+
+    Covers the invariants the feature has to uphold:
+
+    * Happy path: write-only ``reply_to_id`` accepted, read-side
+      ``reply_to`` embedded as ``{id, text, user_id, deleted}``.
+    * Recursion bound: the embedded parent never itself contains a
+      ``reply_to`` field, no matter how deep the underlying chain.
+    * Same-group invariant: a reply cannot point at a parent in a
+      different group — enforced by ``ReplyToIdField.get_queryset``.
+    * Soft-delete invariant: a soft-deleted parent cannot be referenced
+      on creation, and any *existing* reply that already references one
+      surfaces ``text: null, deleted: true`` instead of leaking the
+      moderated content.
+    * Fail-closed: when the serializer is used outside a view context
+      (no ``group_pk``), every ``reply_to_id`` is rejected.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+
+        self.student = User.objects.create_user(email="qr_student@test.com", password="pw")
+        self.role_student = Roles.objects.create(role_name="basic_student_qr")
+
+        now = timezone.now()
+        future = now.replace(year=2099)
+        RoleAssignmentHistory.objects.create(
+            user=self.student, role=self.role_student, valid_from=now, valid_to=future,
+        )
+
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="AUS-NSW-QR", state=self.state)
+
+        self.group = Groups.objects.create(group_name="QR-G1", track=self.track)
+        self.other_group = Groups.objects.create(group_name="QR-G2", track=self.track)
+        GroupMembership.objects.create(user=self.student, group=self.group)
+        GroupMembership.objects.create(user=self.student, group=self.other_group)
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.student)
+
+    def _list_url(self, group=None):
+        return reverse(
+            "group-messages-list",
+            kwargs={"group_pk": (group or self.group).id},
+        )
+
+    # --- happy path ---------------------------------------------------
+
+    def test_post_quoted_reply_via_api(self):
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="parent text",
+        )
+        resp = self.client.post(
+            self._list_url(),
+            {"message_text": "child text", "reply_to_id": parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["reply_to"]["id"], parent.id)
+        self.assertEqual(resp.data["reply_to"]["text"], "parent text")
+        self.assertEqual(resp.data["reply_to"]["user_id"], self.student.id)
+        self.assertFalse(resp.data["reply_to"]["deleted"])
+
+    # --- recursion-depth structural guard -----------------------------
+
+    def test_reply_to_nesting_serialization(self):
+        """The embedded parent dict must never contain its own
+        ``reply_to`` key, even when the parent is itself a quoted reply.
+        That is the structural recursion guard for the API."""
+        from apps.chat.serializers import MessageSerializer
+
+        grandparent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="g",
+        )
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="p",
+            reply_to=grandparent,
+        )
+        child = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="c",
+            reply_to=parent,
+        )
+
+        data = MessageSerializer(child).data
+        self.assertEqual(data["reply_to"]["id"], parent.id)
+        self.assertEqual(data["reply_to"]["text"], "p")
+        # The recursion guard: the embedded parent has *no* nested
+        # reply_to field of its own, so the response is flat at exactly
+        # one level no matter how deep the chain runs.
+        self.assertNotIn("reply_to", data["reply_to"])
+
+    # --- same-group invariant ----------------------------------------
+
+    def test_reply_to_id_rejected_across_groups(self):
+        """A reply in group B cannot point at a parent in group A.
+
+        With the field-level queryset filter, the cross-group PK simply
+        is not in the queryset and DRF rejects with the standard
+        ``"Invalid pk \\"X\\" - object does not exist."`` envelope.
+        That is also a small security improvement — it does not leak
+        the existence of messages in other groups.
+        """
+        parent_in_group_a = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="a",
+        )
+        resp = self.client.post(
+            self._list_url(self.other_group),
+            {"message_text": "leak attempt", "reply_to_id": parent_in_group_a.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        # The custom exception handler wraps DRF errors as
+        # ``{error, fields, code, request_id}``; tests pin to that shape.
+        self.assertIn("fields", resp.data)
+        self.assertIn("reply_to_id", resp.data["fields"])
+
+    # --- soft-delete invariant: write side ---------------------------
+
+    def test_reply_to_id_rejects_soft_deleted_parent(self):
+        """A reply cannot be created against a soft-deleted parent.
+
+        The field's queryset filters on ``deleted_at__isnull=True`` so
+        soft-deleted PKs vanish from the writable set and DRF rejects
+        with the standard 400.
+        """
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="x",
+        )
+        parent.soft_delete()
+        resp = self.client.post(
+            self._list_url(),
+            {"message_text": "y", "reply_to_id": parent.id},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("fields", resp.data)
+        self.assertIn("reply_to_id", resp.data["fields"])
+
+    # --- soft-delete invariant: read side ----------------------------
+
+    def test_reply_to_serializer_handles_soft_deleted_parent(self):
+        """When a parent is soft-deleted *after* its replies were
+        posted, the read payload must surface ``id`` and ``user_id``
+        (so the FE can attribute the placeholder) but null out
+        ``text`` and set ``deleted: true``. Any other behaviour would
+        let moderated content leak through every child that quoted it.
+        """
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="moderated content",
+        )
+        child = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="child",
+            reply_to=parent,
+        )
+        parent.soft_delete()
+
+        resp = self.client.get(self._list_url())
+        self.assertEqual(resp.status_code, 200, resp.content)
+        items = resp.data["items"]
+        child_payload = next(i for i in items if i["id"] == child.id)
+        self.assertEqual(child_payload["reply_to"]["id"], parent.id)
+        self.assertEqual(child_payload["reply_to"]["user_id"], self.student.id)
+        self.assertIsNone(child_payload["reply_to"]["text"])
+        self.assertTrue(child_payload["reply_to"]["deleted"])
+
+    # --- fail-closed: no view context --------------------------------
+
+    def test_reply_to_id_fails_closed_without_view_context(self):
+        """If the serializer is instantiated outside a view (management
+        command, signal handler, future bulk import), it has no way to
+        know which group to scope to. The field's queryset returns
+        ``Messages.objects.none()`` in that case, so any ``reply_to_id``
+        is rejected with the standard 400. Skipping the cross-group
+        check on missing context would be the opposite of what a
+        security-relevant validator should do.
+        """
+        from apps.chat.serializers import MessageSerializer
+
+        parent = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="p",
+        )
+        # No ``context={"view": ...}`` — this is the failure mode we're
+        # pinning.
+        ser = MessageSerializer(
+            data={"message_text": "child", "reply_to_id": parent.id},
+        )
+        self.assertFalse(ser.is_valid())
+        self.assertIn("reply_to_id", ser.errors)

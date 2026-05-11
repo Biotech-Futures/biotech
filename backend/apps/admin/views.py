@@ -297,8 +297,9 @@ class EventListCreateView(APIView):
 
     """POST /api/v1/event - Create event"""
     def post(self, request):
-        result = create_event(request.data)
-        return Response(result, status=status.HTTP_201_CREATED)
+        result = create_event(request.data, requesting_user=request.user)
+        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class EventDetailView(APIView):

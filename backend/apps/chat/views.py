@@ -5,6 +5,8 @@ from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
+from apps.groups.models import Groups
+
 from .management.permissions import (
     CanEditMessage,
     CanModerateMessage,
@@ -12,7 +14,11 @@ from .management.permissions import (
 )
 from .models import Messages
 from .og_extractor import extract_urls
-from .serializers import MessageSerializer, MessageUpdateSerializer
+from .serializers import (
+    MessagePublicSerializer,
+    MessageSerializer,
+    MessageUpdateSerializer,
+)
 from .tasks import dispatch_og
 
 
@@ -56,13 +62,73 @@ class MessageViewSet(viewsets.ModelViewSet):
             return MessageUpdateSerializer
         return MessageSerializer
 
+    def _message_queryset(self):
+        # ``reply_to`` is select_related so the embedded parent context
+        # does not issue an extra query per row. The join is intentionally
+        # one level deep — mirroring ReplyToSerializer's bounded shape —
+        # so a long chain of quotes still costs exactly one extra JOIN.
+        return (
+            Messages.objects.filter(deleted_at__isnull=True)
+            .select_related("sender_user", "reply_to")
+            .prefetch_related("attachments", "resources__resource")
+        )
+
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        return (
-            Messages.objects.filter(group_id=gid, deleted_at__isnull=True)
-            .select_related("sender_user")
-            .prefetch_related("resources__resource")
-        )
+        return self._message_queryset().filter(group_id=gid)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["group_pk"] = self.kwargs.get("group_pk")
+        return context
+
+    def _serialize_public_message(self, message):
+        # Re-fetch only when the prefetch cache is missing. The standard
+        # queryset filters out soft-deleted rows, so for soft-deleted messages
+        # we keep the raw instance. ``get_object()``-derived instances already
+        # have attachments+resources prefetched.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = self._message_queryset().get(pk=message.pk)
+            except Messages.DoesNotExist:
+                pass
+        return MessagePublicSerializer(message, context=self.get_serializer_context()).data
+
+    def _serialize_broadcast_message(self, message):
+        # Re-fetch only when the prefetch cache is empty — get_object()-derived
+        # instances (partial_update, destroy) already have attachments+resources
+        # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
+        # created instances from serializer.save() do need the fetch.
+        cache = getattr(message, "_prefetched_objects_cache", None) or {}
+        if "attachments" not in cache or "resources" not in cache:
+            try:
+                message = (
+                    Messages.objects.select_related("sender_user", "reply_to")
+                    .prefetch_related("attachments", "resources__resource")
+                    .get(pk=message.pk)
+                )
+            except Messages.DoesNotExist:
+                pass
+
+        context = self.get_serializer_context()
+        data = MessageSerializer(message, context=context).data
+        # MessageSerializer's nested attachments lack download_url; rebuild from
+        # the public shape that does include it.
+        data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
+        # Legacy aliases kept for the existing frontend / tests; preserved
+        # alongside MessageSerializer's canonical fields so both new and old
+        # clients can read the same payload without a protocol migration.
+        # ``message.resources.all()`` walks the prefetch cache instead of issuing
+        # a fresh query.
+        data["sender_id"] = message.sender_user_id
+        data["text"] = data.get("message_text", "")
+        data["resource_ids"] = [r.resource_id for r in message.resources.all()]
+        return data
+
+    def _get_group(self):
+        group_pk = self.kwargs.get("group_pk")
+        return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
 
     # GET /chat/groups/{gid}/messages/
     def list(self, request, *args, **kwargs):

@@ -1,3 +1,6 @@
+import hmac
+
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -31,6 +34,7 @@ from .serializers import (
 )
 from .services import (
     get_request_accepted_event_ids,
+    send_due_rsvp_reminders,
     set_user_rsvp,
     visible_events_queryset,
 )
@@ -416,6 +420,50 @@ class EventBulkInviteView(APIView):
                 "created": created_ids,
                 "updated": updated_ids,
                 "not_found": not_found,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RsvpReminderTriggerView(APIView):
+    """Cron-trigger endpoint for the 24h RSVP reminder dispatcher.
+
+    Called hourly by ``.github/workflows/rsvp-reminders.yml`` (no
+    in-process scheduler / Celery worker). Auth is a shared secret
+    header rather than a user session — there is no human caller. To
+    keep the surface small:
+
+    * ``RSVP_REMINDER_TOKEN`` must be set in the environment; if blank
+      the endpoint returns 503 so a misconfigured deploy fails loud
+      instead of silently exposing an unauthenticated trigger.
+    * The header value is compared with ``hmac.compare_digest`` for
+      constant-time matching.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        expected = getattr(settings, "RSVP_REMINDER_TOKEN", "") or ""
+        if not expected:
+            return Response(
+                {"detail": "RSVP reminder trigger is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        provided = request.headers.get("X-Reminder-Token", "")
+        if not hmac.compare_digest(provided, expected):
+            return Response(
+                {"detail": "Invalid token."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        events_processed, sent, failed = send_due_rsvp_reminders()
+        return Response(
+            {
+                "events_processed": events_processed,
+                "emails_sent": sent,
+                "emails_failed": failed,
             },
             status=status.HTTP_200_OK,
         )

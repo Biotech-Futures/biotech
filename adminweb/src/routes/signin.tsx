@@ -1,8 +1,14 @@
 import { LoginForm } from "@/components/login-form";
 import { Card, CardContent } from "@/components/ui/card";
-import { createFileRoute } from "@tanstack/react-router";
+import { PRODUCT_LOGIN_URL, isProductBuild } from "@/lib/authConfig";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/signin")({
+  beforeLoad: () => {
+    if (isProductBuild) {
+      throw redirect({ href: PRODUCT_LOGIN_URL });
+    }
+  },
   component: RouteComponent,
 });
 

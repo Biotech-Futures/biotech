@@ -366,7 +366,6 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
-
 # --- Link previews -----------------------------------------------------------
 # OG metadata cache lives in Redis under ``cache:og:<md5(url)>``. The 24h TTL
 # matches the requirement to dedupe a globally-previewed URL across users.

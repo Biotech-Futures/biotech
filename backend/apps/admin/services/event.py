@@ -136,8 +136,24 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     # Get total count
     total = queryset.count()
 
-    # Fetch paginated items and convert to camelCase
-    raw_items = list(queryset.order_by("start_datetime")[offset:offset + limit].values())
+    # Fetch only fields used by the admin list. Calling values() with no
+    # field list selects every model column, so a newly added unrelated column
+    # can break this endpoint before production migrations have caught up.
+    raw_items = list(
+        queryset.order_by("start_datetime")[offset:offset + limit].values(
+            "id",
+            "event_name",
+            "description",
+            "start_datetime",
+            "ends_datetime",
+            "location",
+            "deleted_at",
+            "event_image",
+            "is_virtual",
+            "host_user_id",
+            "location_link",
+        )
+    )
     items = [_event_to_camel(e) for e in raw_items]
 
     has_more = offset + len(items) < total
@@ -263,7 +279,7 @@ def _sync_targets(
 
 
 @transaction.atomic
-def create_event(data: Dict[str, Any]) -> EventResponseDict:
+def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDict:
     """
     Create a new event.
 
@@ -274,22 +290,38 @@ def create_event(data: Dict[str, Any]) -> EventResponseDict:
         Dictionary with created event or error message
     """
     host_user_id = data.get("hostUserId") or data.get("host_user_id")
-    if not host_user_id:
-        raise ValueError("hostUserId is required")
+    if not host_user_id and requesting_user and requesting_user.is_authenticated:
+        host_user_id = requesting_user.id
 
     # Parse dates
     start_at = data.get("startAt") or data.get("start_at")
     ends_at = data.get("endsAt") or data.get("ends_at")
-    start_datetime = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
-    ends_datetime = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+    if not start_at or not ends_at:
+        return {"msg": "startAt and endsAt are required", "data": None}
+
+    try:
+        start_datetime = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
+        ends_datetime = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return {"msg": "startAt and endsAt must be valid ISO datetimes", "data": None}
+
+    if ends_datetime <= start_datetime:
+        return {"msg": "endsAt must be after startAt", "data": None}
+
+    event_name = data.get("eventName") or data.get("event_name")
+    if not event_name:
+        return {"msg": "eventName is required", "data": None}
 
     location = data.get("location", "").strip() if data.get("location") else None
+    is_virtual = data.get("isVirtual") or data.get("is_virtual") or False
+    if is_virtual:
+        location = None
 
     event = Events.objects.create(
-        event_name=data.get("eventName") or data.get("event_name"),
+        event_name=event_name,
         description=data.get("description"),
         location=location,
-        is_virtual=data.get("isVirtual") or data.get("is_virtual") or False,
+        is_virtual=is_virtual,
         host_user_id=host_user_id,
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,

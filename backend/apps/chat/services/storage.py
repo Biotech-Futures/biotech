@@ -7,9 +7,7 @@ CHAT_FILE_SERVICE = ManagedFileService(get_chat_storage)
 
 
 def stored_chat_file(uploaded_file):
-    # Chat attachments stay isolated from resource files at the storage backend level;
-    # only the repeated mechanics are shared. Use as a context manager so a DB rollback
-    # after the upload deletes the orphan blob.
+    # Context manager: deletes blob on caller-side error.
     return CHAT_FILE_SERVICE.stored_file(
         uploaded_file,
         original_filename_field="attachment_filename",
