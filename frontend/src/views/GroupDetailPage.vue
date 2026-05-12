@@ -470,11 +470,23 @@
             <!-- Discussion header -->
             <div class="chat-header">
               <h3 style="margin: 0">Discussion Board</h3>
-              <span class="chat-status">
-                <template v-if="isLoadingMessages">Loading...</template>
-                <template v-else-if="wsConnectionState === 'connected'">Live</template>
-                <template v-else>Offline</template>
-              </span>
+              <div class="chat-header-actions">
+                <button
+                  type="button"
+                  class="mentions-toggle"
+                  :class="{ active: showMentionInbox }"
+                  title="Mentions"
+                  @click="toggleMentionInbox"
+                >
+                  <i class="fas fa-at"></i>
+                  <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
+                </button>
+                <span class="chat-status">
+                  <template v-if="isLoadingMessages">Loading...</template>
+                  <template v-else-if="wsConnectionState === 'connected'">Live</template>
+                  <template v-else>Offline</template>
+                </span>
+              </div>
             </div>
 
             <div v-if="chatError" class="chat-alert">
@@ -482,6 +494,38 @@
             </div>
             <div v-if="chatNotice" class="chat-notice">
               {{ chatNotice }}
+            </div>
+            <div v-if="showMentionInbox" class="mention-inbox">
+              <div class="mention-inbox-header">
+                <strong>Mentions</strong>
+                <button
+                  type="button"
+                  class="message-action-btn"
+                  :disabled="!mentionUnreadCount || isUpdatingMentions"
+                  @click="markAllMentionsRead"
+                >
+                  Mark all read
+                </button>
+              </div>
+              <div v-if="mentionInboxError" class="gif-status">{{ mentionInboxError }}</div>
+              <div v-if="isLoadingMentions" class="gif-status">Loading mentions...</div>
+              <div v-else class="mention-list">
+                <button
+                  v-for="mention in mentionItems"
+                  :key="mention.id"
+                  type="button"
+                  class="mention-row"
+                  :class="{ unread: !mention.read_at }"
+                  @click="openMention(mention)"
+                >
+                  <span>{{ mention.sender_name || `User ${mention.sender_user_id}` }}</span>
+                  <strong>{{ mention.message_text || 'Message was deleted.' }}</strong>
+                  <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
+                </button>
+                <div v-if="!mentionItems.length && !mentionInboxError" class="gif-status">
+                  No mentions yet.
+                </div>
+              </div>
             </div>
 
             <div class="chat-messages" ref="msgList" @scroll="handleMessagesScroll">
@@ -520,7 +564,15 @@
                     class="message-gif"
                   />
                   <div v-else-if="editingMessageId !== message.id" class="message-text">
-                    {{ message.text }}
+                    <template
+                      v-for="(segment, segmentIndex) in getMessageTextSegments(message.text)"
+                      :key="`${message.id}-segment-${segmentIndex}`"
+                    >
+                      <span v-if="segment.type === 'mention'" class="mention-token">{{
+                        segment.text
+                      }}</span>
+                      <span v-else>{{ segment.text }}</span>
+                    </template>
                   </div>
                   <form v-else class="message-edit-form" @submit.prevent="saveMessageEdit(message)">
                     <textarea
@@ -768,9 +820,23 @@
                   class="chat-input-field"
                   placeholder="Type your message..."
                   rows="2"
-                  @keydown.enter.exact.prevent="sendMessage"
+                  @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
                 ></textarea>
+                <div v-if="showMentionSuggestions" class="mention-suggestions">
+                  <button
+                    v-for="(member, index) in mentionSuggestions"
+                    :key="member.userId"
+                    type="button"
+                    class="mention-suggestion"
+                    :class="{ active: index === activeMentionSuggestionIndex }"
+                    @mousedown.prevent="insertMention(member)"
+                  >
+                    <i class="fas fa-at"></i>
+                    <span>{{ member.label }}</span>
+                    <small>{{ member.role }}</small>
+                  </button>
+                </div>
                 <div class="chat-actions">
                   <button
                     class="chat-btn"
@@ -939,6 +1005,16 @@ const chatResourceOptions = ref([])
 const selectedChatResources = ref([])
 const isLoadingResources = ref(false)
 const resourcePickerError = ref('')
+const mentionQuery = ref('')
+const mentionStartIndex = ref(-1)
+const activeMentionSuggestionIndex = ref(0)
+const mentionItems = ref([])
+const mentionUnreadCount = ref(0)
+const mentionNextBefore = ref(null)
+const showMentionInbox = ref(false)
+const isLoadingMentions = ref(false)
+const isUpdatingMentions = ref(false)
+const mentionInboxError = ref('')
 const typingUsers = ref([])
 const wsConnectionState = ref('offline')
 const nextMessagesBefore = ref(null)
@@ -1049,6 +1125,15 @@ const buildChatReadUrl = (groupId, messageId) =>
 const buildChatDeliveredUrl = (groupId, messageId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/delivered/`
 
+const buildMentionInboxUrl = (suffix = '') =>
+  `${API_BASE_URL}/api/v1/chat/mentions/${suffix}`
+
+const buildMentionReadUrl = (mentionId) =>
+  `${API_BASE_URL}/api/v1/chat/mentions/${mentionId}/read/`
+
+const buildMentionMarkAllReadUrl = () =>
+  `${API_BASE_URL}/api/v1/chat/mentions/mark-all-read/`
+
 const buildGifSearchUrl = (query) =>
   `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
 
@@ -1127,6 +1212,16 @@ const normalizeMembership = (item) => ({
   joinedAt: item?.joined_at || '',
   leftAt: item?.left_at || '',
 })
+
+const normalizeMentionMember = (item) => {
+  const userId = Number(item?.userId || item?.user || item?.id || 0)
+  const role = formatTaskStatus(item?.role || item?.membership_role || 'member') || 'Member'
+  return {
+    userId,
+    role,
+    label: userId === currentUserId.value ? 'You' : `User ${userId}`,
+  }
+}
 
 const normalizeGroupOption = (item, memberCount = 0) => ({
   id: String(item?.id || ''),
@@ -1777,6 +1872,34 @@ const getReplyText = (reply) => {
   return reply.text || 'Attachment message'
 }
 
+const getMentionLabel = (userId) => {
+  const member = mentionMembers.value.find((item) => Number(item.userId) === Number(userId))
+  return member?.label || `User ${userId}`
+}
+
+const getMessageTextSegments = (text) => {
+  const source = String(text || '')
+  const segments = []
+  const pattern = /<@(\d+)>/g
+  let cursor = 0
+  let match = pattern.exec(source)
+
+  while (match) {
+    if (match.index > cursor) {
+      segments.push({ type: 'text', text: source.slice(cursor, match.index) })
+    }
+    segments.push({ type: 'mention', text: `@${getMentionLabel(match[1])}` })
+    cursor = match.index + match[0].length
+    match = pattern.exec(source)
+  }
+
+  if (cursor < source.length) {
+    segments.push({ type: 'text', text: source.slice(cursor) })
+  }
+
+  return segments.length ? segments : [{ type: 'text', text: source }]
+}
+
 const normalizeChatResource = (resource) => ({
   id: Number(resource?.id || resource?.resource_id || 0),
   resource_name: resource?.resource_name || resource?.name || 'Untitled resource',
@@ -2046,6 +2169,31 @@ const canSendChatMessage = computed(
   () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
 )
 
+const mentionMembers = computed(() =>
+  groupMemberships.value
+    .filter((item) => !item.leftAt)
+    .map(normalizeMentionMember)
+    .filter((member) => member.userId && member.userId !== currentUserId.value),
+)
+
+const mentionSuggestions = computed(() => {
+  const query = mentionQuery.value.toLowerCase()
+  return mentionMembers.value
+    .filter((member) => {
+      if (!query) return true
+      return (
+        member.label.toLowerCase().includes(query) ||
+        member.role.toLowerCase().includes(query) ||
+        String(member.userId).includes(query)
+      )
+    })
+    .slice(0, 6)
+})
+
+const showMentionSuggestions = computed(
+  () => mentionStartIndex.value >= 0 && mentionSuggestions.value.length > 0,
+)
+
 const applyMessageUpdate = (messageId, updater) => {
   const index = messages.value.findIndex((message) => String(message.id) === String(messageId))
   if (index === -1) return
@@ -2163,6 +2311,8 @@ const scheduleTypingStop = () => {
 }
 
 const handleComposerInput = () => {
+  updateMentionQuery()
+
   if (!supportsChatClientSocketActions) return
 
   if (!newMessage.value.trim()) {
@@ -2178,6 +2328,75 @@ const handleComposerInput = () => {
   }
 
   scheduleTypingStop()
+}
+
+const updateMentionQuery = () => {
+  const cursor = composer.value?.selectionStart ?? newMessage.value.length
+  const beforeCursor = newMessage.value.slice(0, cursor)
+  const match = beforeCursor.match(/(^|\s)@([A-Za-z0-9_]*)$/)
+
+  if (!match) {
+    mentionStartIndex.value = -1
+    mentionQuery.value = ''
+    activeMentionSuggestionIndex.value = 0
+    return
+  }
+
+  mentionStartIndex.value = beforeCursor.length - match[2].length - 1
+  mentionQuery.value = match[2]
+  activeMentionSuggestionIndex.value = 0
+}
+
+const insertMention = (member) => {
+  if (mentionStartIndex.value < 0 || !member?.userId) return
+
+  const cursor = composer.value?.selectionStart ?? newMessage.value.length
+  const prefix = newMessage.value.slice(0, mentionStartIndex.value)
+  const suffix = newMessage.value.slice(cursor)
+  const spacer = suffix.startsWith(' ') || !suffix ? '' : ' '
+  newMessage.value = `${prefix}<@${member.userId}> ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
+  mentionStartIndex.value = -1
+  mentionQuery.value = ''
+  activeMentionSuggestionIndex.value = 0
+
+  nextTick(() => {
+    composer.value?.focus()
+    const position = `${prefix}<@${member.userId}> `.length
+    composer.value?.setSelectionRange(position, position)
+  })
+}
+
+const handleComposerKeydown = (event) => {
+  if (showMentionSuggestions.value) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      activeMentionSuggestionIndex.value =
+        (activeMentionSuggestionIndex.value + 1) % mentionSuggestions.value.length
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      activeMentionSuggestionIndex.value =
+        (activeMentionSuggestionIndex.value - 1 + mentionSuggestions.value.length) %
+        mentionSuggestions.value.length
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      insertMention(mentionSuggestions.value[activeMentionSuggestionIndex.value])
+      return
+    }
+    if (event.key === 'Escape') {
+      mentionStartIndex.value = -1
+      mentionQuery.value = ''
+      return
+    }
+  }
+
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void sendMessage()
+  }
 }
 
 const applyReadCursor = (readerId, upToId) => {
@@ -2450,6 +2669,21 @@ const handleSocketPayload = async (payload) => {
   if (eventName === 'mention.created') {
     const currentGroupId = Number(getBackendGroupId() || 0)
     const mentionedGroupId = Number(payload.group_id || 0)
+    mentionUnreadCount.value += 1
+    mentionItems.value = [
+      {
+        id: payload.id || `live-${Date.now()}`,
+        group_id: payload.group_id,
+        message_id: payload.message_id,
+        message_text: payload.preview || '',
+        sender_user_id: payload.sender_user_id,
+        sender_name: payload.sender_name || `User ${payload.sender_user_id || ''}`,
+        sent_at: payload.sent_at || new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        read_at: null,
+      },
+      ...mentionItems.value,
+    ].slice(0, 20)
     if (mentionedGroupId && mentionedGroupId !== currentGroupId) {
       chatNotice.value = `You were mentioned in group ${mentionedGroupId}.`
     } else {
@@ -2917,6 +3151,86 @@ const toggleResourcePanel = async () => {
   }
 }
 
+const loadMentions = async (unreadOnly = false) => {
+  isLoadingMentions.value = true
+  mentionInboxError.value = ''
+
+  const params = new URLSearchParams({ limit: '20' })
+  if (unreadOnly) params.set('unread', 'true')
+
+  try {
+    const data = await requestJson(buildMentionInboxUrl(`?${params.toString()}`))
+    mentionItems.value = extractCollectionItems(data)
+    mentionNextBefore.value = data?.next_before || null
+    mentionUnreadCount.value = Number(data?.unread_count || 0)
+  } catch (error) {
+    mentionInboxError.value = error instanceof Error ? error.message : 'Mentions could not be loaded.'
+  } finally {
+    isLoadingMentions.value = false
+  }
+}
+
+const toggleMentionInbox = async () => {
+  showMentionInbox.value = !showMentionInbox.value
+  if (showMentionInbox.value) {
+    await loadMentions()
+  }
+}
+
+const markMentionRead = async (mentionId) => {
+  if (!mentionId) return null
+  const updated = await requestJson(buildMentionReadUrl(mentionId), {
+    method: 'POST',
+  })
+  mentionItems.value = mentionItems.value.map((mention) =>
+    Number(mention.id) === Number(mentionId) ? updated : mention,
+  )
+  mentionUnreadCount.value = Math.max(0, mentionUnreadCount.value - 1)
+  return updated
+}
+
+const markAllMentionsRead = async () => {
+  if (isUpdatingMentions.value) return
+  isUpdatingMentions.value = true
+  mentionInboxError.value = ''
+
+  try {
+    const data = await requestJson(buildMentionMarkAllReadUrl(), {
+      method: 'POST',
+    })
+    mentionUnreadCount.value = Number(data?.unread_count || 0)
+    mentionItems.value = mentionItems.value.map((mention) => ({
+      ...mention,
+      read_at: mention.read_at || new Date().toISOString(),
+    }))
+  } catch (error) {
+    mentionInboxError.value =
+      error instanceof Error ? error.message : 'Mentions could not be marked read.'
+  } finally {
+    isUpdatingMentions.value = false
+  }
+}
+
+const openMention = async (mention) => {
+  if (!mention?.id) return
+  mentionInboxError.value = ''
+
+  try {
+    const numericMentionId = Number(mention.id)
+    if (!mention.read_at && Number.isFinite(numericMentionId)) {
+      await markMentionRead(mention.id)
+    }
+    showMentionInbox.value = false
+    if (mention.group_id && String(mention.group_id) !== String(getBackendGroupId())) {
+      await router.push(`/groups/${mention.group_id}`)
+      return
+    }
+    await scrollMessagesToBottomAfterRender()
+  } catch (error) {
+    mentionInboxError.value = error instanceof Error ? error.message : 'Mention could not be opened.'
+  }
+}
+
 const reactToMessage = async (messageId, emoji) => {
   if (!supportsMessageReactions) {
     chatError.value = 'Message reactions are not available in the backend yet.'
@@ -2986,6 +3300,7 @@ const reloadGroupDetail = async () => {
 
 watch(routeGroupId, async () => {
   await reloadGroupDetail()
+  await loadMentions()
 })
 
 watch(
@@ -3005,6 +3320,7 @@ onMounted(async () => {
   await ensureAuthUser()
   await loadGroupOptions()
   if (!routeGroupId.value && availableGroups.value.length) {
+    await loadMentions()
     await router.replace(`/groups/${availableGroups.value[0].id}`)
     return
   }
@@ -3659,6 +3975,102 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.chat-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.mentions-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--dark-green);
+  cursor: pointer;
+}
+
+.mentions-toggle.active,
+.mentions-toggle:hover {
+  border-color: var(--dark-green);
+  background: #eef7f3;
+}
+
+.mention-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--white);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0 0.25rem;
+}
+
+.mention-inbox {
+  border-bottom: 1px solid var(--border-light);
+  background: var(--white);
+  padding: 0.85rem;
+}
+
+.mention-inbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.mention-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.mention-row {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.mention-row.unread {
+  border-color: var(--dark-green);
+  background: #eef7f3;
+}
+
+.mention-row span,
+.mention-row small {
+  color: #6c757d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.mention-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
 .selected-resource-strip {
   display: flex;
   align-items: center;
@@ -3747,6 +4159,77 @@ onBeforeUnmount(() => {
   border-color: var(--dark-green);
   background: #eef7f3;
   color: var(--dark-green);
+}
+
+.chat-input-group {
+  position: relative;
+}
+
+.mention-suggestions {
+  position: absolute;
+  left: 0;
+  right: 3.5rem;
+  bottom: calc(100% + 0.45rem);
+  z-index: 5;
+  display: grid;
+  gap: 0.25rem;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  padding: 0.35rem;
+}
+
+.mention-suggestion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+
+.mention-suggestion.active,
+.mention-suggestion:hover {
+  background: #eef7f3;
+  color: var(--dark-green);
+}
+
+.mention-suggestion span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.mention-suggestion small {
+  color: #6c757d;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.mention-token {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #eef7f3;
+  color: var(--dark-green);
+  font-weight: 700;
+  padding: 0.05rem 0.35rem;
+}
+
+.message.own .mention-token {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--white);
 }
 
 .gif-panel {
