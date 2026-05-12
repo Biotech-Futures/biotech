@@ -132,7 +132,7 @@ class RsvpStatusFilterTests(TestCase):
     def setUp(self):
         self.event = _make_event()
 
-    def test_only_accepted_status_receives_reminder(self):
+    def test_accepted_and_pending_receive_reminders_tentative_and_declined_do_not(self):
         accepted = User.objects.create_user(
             email="accepted@example.com", password="pw"
         )
@@ -152,9 +152,14 @@ class RsvpStatusFilterTests(TestCase):
 
         events, sent, _ = send_due_rsvp_reminders()
 
-        self.assertEqual((events, sent), (1, 1))
-        self.assertEqual([m.to for m in mail.outbox], [["accepted@example.com"]])
-
+        # 24h window sends reminder to ACCEPTED + nudge to PENDING.
+        # TENTATIVE and DECLINED do not receive emails.
+        self.assertEqual((events, sent), (1, 2))
+        sent_to = sorted([m.to[0] for m in mail.outbox])
+        self.assertIn("accepted@example.com", sent_to)
+        self.assertIn("pending@example.com", sent_to)
+        self.assertNotIn("tentative@example.com", sent_to)
+        self.assertNotIn("declined@example.com", sent_to)
 
 class ReminderBodyTests(TestCase):
     """Body template covers virtual / in-person / null-location cases."""

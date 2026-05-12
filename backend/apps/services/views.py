@@ -1,3 +1,4 @@
+import logging
 from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.views import APIView
@@ -31,6 +32,17 @@ from config.errors import (
     WeakPassword,
 )
 
+logger = logging.getLogger(__name__)
+
+# --- Login code send rate limits -------------------------------------------
+LOGIN_SEND_PER_EMAIL_LIMIT = 5
+LOGIN_SEND_PER_IP_LIMIT = 20
+LOGIN_SEND_WINDOW_SECONDS = 900  # 15 min
+
+# --- OTP verify rate limits -------------------------------------------------
+OTP_ATTEMPT_LIMIT = 5
+OTP_ATTEMPT_WINDOW_SECONDS = 300  # 5 min
+OTP_IP_ATTEMPT_MULTIPLIER = 4     # IP cap = 20
 
 @ensure_csrf_cookie
 @require_http_methods(["GET"])
@@ -82,16 +94,26 @@ class SendLoginCodeView(APIView):
     )
     def post(self, request):
         email = request.data.get("email")
-        # edbert: Added redirect_url parameter to support frontend callback
         redirect_url = request.data.get("redirect_url")
         if not email:
             raise EmailRequired()
 
-        # edbert: Pass redirect_url to auth service
+        ip = _client_ip(request)
+        _check_login_send_throttle(email, ip)
+        _bump_login_send_counters(email, ip)
+
         sent = auth_service.send_login_code(email, redirect_url)
-        if sent:
-            return Response({"message": "Login code sent"}, status=status.HTTP_200_OK)
-        raise UserNotFound()
+
+        if not sent:
+            logger.warning(
+                "send_login_code: no user found — enumeration attempt suppressed ip=%s",
+                ip,
+            )
+
+        return Response(
+            {"message": "If an account exists for that email, a login code has been sent."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class VerifyLoginCodeView(APIView):
@@ -111,24 +133,38 @@ class VerifyLoginCodeView(APIView):
         if not email or not code:
             raise EmailAndCodeRequired()
 
+        ip = _client_ip(request)
         cache_key = f"otp_attempts:{email}"
+        ip_key = f"otp_attempts_ip:{ip}"
+
         attempts = cache.get(cache_key, 0)
-        if attempts >= 5:
+        ip_attempts = cache.get(ip_key, 0)
+
+        if attempts >= OTP_ATTEMPT_LIMIT or ip_attempts >= OTP_ATTEMPT_LIMIT * OTP_IP_ATTEMPT_MULTIPLIER:
+            logger.warning(
+                "verify_login_code: rate limit hit email=%s ip=%s attempts=%s ip_attempts=%s",
+                email, ip, attempts, ip_attempts,
+            )
             raise TooManyFailedAttempts()
 
         valid = auth_service.verify_login_code(email, code)
         if not valid:
-            cache.set(cache_key, attempts + 1, 300)
+            cache.set(cache_key, attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
+            cache.set(ip_key, ip_attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
+            logger.warning(
+                "verify_login_code: invalid code email=%s ip=%s attempt=%s",
+                email, ip, attempts + 1,
+            )
             raise InvalidOrExpiredCode()
 
-        # At this point user is authenticated
         user = User.objects.get(email=email)
 
         if user.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
-            
-        login(request, user)  # Creates session cookie
+
+        login(request, user)
         cache.delete(cache_key)
+        cache.delete(ip_key)
 
         return Response(
             {
@@ -142,7 +178,7 @@ class VerifyLoginCodeView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
+    
 class MagicLoginView(APIView):
     """Handle magic link authentication. Errors flow through custom_exception_handler;
     success returns a 302 redirect to the frontend callback."""
@@ -163,7 +199,27 @@ class MagicLoginView(APIView):
         if not email or not code:
             raise EmailAndCodeRequired()
 
+        ip = _client_ip(request)
+        cache_key = f"otp_attempts:{email}"
+        ip_key = f"otp_attempts_ip:{ip}"
+
+        attempts = cache.get(cache_key, 0)
+        ip_attempts = cache.get(ip_key, 0)
+
+        if attempts >= OTP_ATTEMPT_LIMIT or ip_attempts >= OTP_ATTEMPT_LIMIT * OTP_IP_ATTEMPT_MULTIPLIER:
+            logger.warning(
+                "magic_login: rate limit hit email=%s ip=%s attempts=%s ip_attempts=%s",
+                email, ip, attempts, ip_attempts,
+            )
+            raise TooManyFailedAttempts()
+
         if not auth_service.verify_login_code(email, code):
+            cache.set(cache_key, attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
+            cache.set(ip_key, ip_attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
+            logger.warning(
+                "magic_login: invalid code email=%s ip=%s attempt=%s",
+                email, ip, attempts + 1,
+            )
             raise InvalidOrExpiredCode()
 
         try:
@@ -175,6 +231,8 @@ class MagicLoginView(APIView):
             raise AccountInactive()
 
         login(request, user)
+        cache.delete(cache_key)
+        cache.delete(ip_key)
 
         # Admins land on the admin portal; everyone else on the user app.
         if is_operational_admin(user):
@@ -295,20 +353,6 @@ def _client_ip(request) -> str:
         return xff.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR", "") or ""
 
-
-def _check_request_throttle(email: str, ip: str) -> None:
-    if cache.get(_email_request_key(email), 0) >= PWRESET_REQUEST_PER_EMAIL_LIMIT:
-        raise PasswordResetRateLimited()
-    if cache.get(_ip_request_key(ip), 0) >= PWRESET_REQUEST_PER_IP_LIMIT:
-        raise PasswordResetRateLimited()
-
-
-def _bump_request_counters(email: str, ip: str) -> None:
-    e_key, i_key = _email_request_key(email), _ip_request_key(ip)
-    cache.set(e_key, cache.get(e_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
-    cache.set(i_key, cache.get(i_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
-
-
 def _email_request_key(email: str) -> str:
     return f"pwreset_req_email:{email}"
 
@@ -324,6 +368,38 @@ def _confirm_attempt_key(token: str) -> str:
 def _confirm_ip_key(ip: str) -> str:
     return f"pwreset_confirm_ip:{ip}"
 
+def _check_request_throttle(email: str, ip: str) -> None:
+    if cache.get(_email_request_key(email), 0) >= PWRESET_REQUEST_PER_EMAIL_LIMIT:
+        raise PasswordResetRateLimited()
+    if cache.get(_ip_request_key(ip), 0) >= PWRESET_REQUEST_PER_IP_LIMIT:
+        raise PasswordResetRateLimited()
+
+
+def _bump_request_counters(email: str, ip: str) -> None:
+    e_key, i_key = _email_request_key(email), _ip_request_key(ip)
+    cache.set(e_key, cache.get(e_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
+    cache.set(i_key, cache.get(i_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
+
+def _check_login_send_throttle(email: str, ip: str) -> None:
+    if cache.get(_login_send_email_key(email), 0) >= LOGIN_SEND_PER_EMAIL_LIMIT:
+        raise TooManyFailedAttempts()
+    if cache.get(_login_send_ip_key(ip), 0) >= LOGIN_SEND_PER_IP_LIMIT:
+        raise TooManyFailedAttempts()
+
+
+def _bump_login_send_counters(email: str, ip: str) -> None:
+    e_key = _login_send_email_key(email)
+    i_key = _login_send_ip_key(ip)
+    cache.set(e_key, cache.get(e_key, 0) + 1, LOGIN_SEND_WINDOW_SECONDS)
+    cache.set(i_key, cache.get(i_key, 0) + 1, LOGIN_SEND_WINDOW_SECONDS)
+
+
+def _login_send_email_key(email: str) -> str:
+    return f"login_send_email:{email}"
+
+
+def _login_send_ip_key(ip: str) -> str:
+    return f"login_send_ip:{ip}"
 
 class LogoutView(APIView):
     """Logout endpoint - destroys Django session"""
