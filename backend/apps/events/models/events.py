@@ -33,7 +33,7 @@ class Events(models.Model):
     # `send_due_rsvp_reminders`, so a mid-run crash drops the tail of
     # un-mailed attendees rather than re-spamming the ones who already
     # got their reminder on restart.
-    reminder_sent = models.BooleanField(default=False)
+    reminder_1h_sent = models.BooleanField(default=False)
 
     class Meta:
         db_table = "events"
