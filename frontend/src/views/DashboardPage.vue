@@ -458,7 +458,13 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import * as THREE from 'three'
 
-import { formatDateAU, formatLongDateAU, formatAnnouncementDateAU } from '@/utils/date'
+import {
+  formatAnnouncementDateAU,
+  formatDateAU,
+  formatEventDateUTC,
+  formatEventTimeRangeUTC,
+  formatLongDateAU,
+} from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
@@ -523,7 +529,7 @@ const progressSnapshot = ref({
 const selectedProgressGroupId = ref('')
 
 const nextEventDateParts = computed(() => {
-  const formatted = formatDateAU(nextEvent.value?.date || '') || 'TBC'
+  const formatted = formatEventDateUTC(nextEvent.value?.date || '') || 'TBC'
   const parts = formatted.split(' ')
   return {
     day: parts[0] || 'TBC',
@@ -988,27 +994,8 @@ function getAnnouncementBody(announcement) {
   )
 }
 
-function isValidDate(value) {
-  if (!value) return false
-  const date = value instanceof Date ? value : new Date(value)
-  return !Number.isNaN(date.getTime())
-}
-
 function formatEventTime(startValue, endValue) {
-  if (!isValidDate(startValue)) return ''
-
-  const options = {
-    hour: 'numeric',
-    minute: '2-digit',
-  }
-  const start = new Date(startValue).toLocaleTimeString('en-AU', options)
-
-  if (!isValidDate(endValue)) {
-    return start
-  }
-
-  const end = new Date(endValue).toLocaleTimeString('en-AU', options)
-  return `${start} - ${end}`
+  return formatEventTimeRangeUTC(startValue, endValue)
 }
 
 function resolveResourceIconType(value) {

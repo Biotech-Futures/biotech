@@ -37,9 +37,7 @@
  * Modified By: CS17-1 Frontend Team
  */
 
-
 export function formatDateAU(value: string | Date): string {
-
   const date = value instanceof Date ? value : new Date(value)
 
   if (Number.isNaN(date.getTime())) return ''
@@ -47,7 +45,7 @@ export function formatDateAU(value: string | Date): string {
   return date.toLocaleDateString('en-AU', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
   })
 }
 
@@ -70,7 +68,6 @@ export function formatDateAU(value: string | Date): string {
  */
 
 export function formatLongDateAU(value: string | Date, withWeekday = false): string {
-
   const date = value instanceof Date ? value : new Date(value)
 
   if (Number.isNaN(date.getTime())) return ''
@@ -79,7 +76,7 @@ export function formatLongDateAU(value: string | Date, withWeekday = false): str
     weekday: withWeekday ? 'long' : undefined,
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
   })
 }
 
@@ -106,6 +103,57 @@ export function formatAnnouncementDateAU(value: string | Date): string {
   return date.toLocaleDateString('en-AU', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
   })
+}
+
+const EVENT_TIME_ZONE = 'UTC'
+
+const toValidDate = (value: string | Date | null | undefined): Date | null => {
+  if (!value) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+export function formatEventDateUTC(value: string | Date | null | undefined): string {
+  const date = toValidDate(value)
+  if (!date) return ''
+
+  return date.toLocaleDateString('en-AU', {
+    timeZone: EVENT_TIME_ZONE,
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+export function formatEventTimeRangeUTC(
+  startValue: string | Date | null | undefined,
+  endValue?: string | Date | null,
+): string {
+  const start = toValidDate(startValue)
+  if (!start) return ''
+
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: EVENT_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }
+  const formatter = new Intl.DateTimeFormat('en-AU', options)
+  const startText = formatter.format(start)
+  const end = toValidDate(endValue)
+
+  if (!end) return `${startText} UTC`
+  return `${startText} - ${formatter.format(end)} UTC`
+}
+
+export function toUTCDateKey(value: string | Date | null | undefined): string {
+  const date = toValidDate(value)
+  if (!date) return ''
+
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
