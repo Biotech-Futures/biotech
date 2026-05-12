@@ -5351,6 +5351,10 @@ components:
           type: integer
         user:
           type: integer
+        user_name:
+          type: string
+          readOnly: true
+          nullable: true
         membership_role:
           oneOf:
             - $ref: "#/components/schemas/MembershipRoleEnum"
@@ -5370,6 +5374,7 @@ components:
         - joined_at
         - left_at
         - user
+        - user_name
     JoinPermissionBody:
       type: object
       properties:
@@ -6171,6 +6176,10 @@ components:
           type: integer
         user:
           type: integer
+        user_name:
+          type: string
+          readOnly: true
+          nullable: true
         membership_role:
           oneOf:
             - $ref: "#/components/schemas/MembershipRoleEnum"
