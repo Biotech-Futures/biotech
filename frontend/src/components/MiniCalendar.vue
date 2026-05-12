@@ -1,8 +1,5 @@
 <template>
-  <div
-    class="mini-calendar-shell"
-    :class="`mini-calendar-shell--${placement}`"
-  >
+  <div class="mini-calendar-shell" :class="`mini-calendar-shell--${placement}`">
     <div class="mini-calendar">
       <div class="mini-calendar-topbar">
         <button
@@ -54,7 +51,7 @@
             'is-today': cell.isToday,
             'is-holiday': cell.hasHoliday,
             'is-event': cell.hasEvent,
-            'is-clickable': cell.clickable
+            'is-clickable': cell.clickable,
           }"
           :disabled="!cell.day"
           @click="openDayDetails(cell.dateKey)"
@@ -107,9 +104,7 @@
             </div>
           </template>
 
-          <div v-else class="overlay-empty-state">
-            No special information for this date.
-          </div>
+          <div v-else class="overlay-empty-state">No special information for this date.</div>
         </div>
       </div>
     </transition>
@@ -120,12 +115,16 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { fetchEvents, type BackendEvent } from '@/utils/eventsAPI'
+import { formatEventTimeRangeUTC, toUTCDateKey } from '@/utils/date'
 
-withDefaults(defineProps<{
-  placement?: 'sidebar' | 'hero'
-}>(), {
-  placement: 'sidebar'
-})
+withDefaults(
+  defineProps<{
+    placement?: 'sidebar' | 'hero'
+  }>(),
+  {
+    placement: 'sidebar',
+  },
+)
 
 type ItemType = 'holiday' | 'event'
 
@@ -147,13 +146,13 @@ const toDateKey = (year: number, month: number, day: number) => {
 
 const parseDateKey = (dateKey: string) => {
   const [year, month, day] = dateKey.split('-').map(Number)
-  return new Date(year, month - 1, day)
+  return new Date(Date.UTC(year, month - 1, day))
 }
 
-const monthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1)
+const monthStart = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
 
 const addMonths = (date: Date, delta: number) => {
-  return new Date(date.getFullYear(), date.getMonth() + delta, 1)
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + delta, 1))
 }
 
 const currentMonthStart = monthStart(today)
@@ -161,27 +160,23 @@ const minAllowedMonth = addMonths(currentMonthStart, -1)
 const maxAllowedMonth = addMonths(currentMonthStart, 1)
 
 const minAllowedDate = computed(() =>
-  toDateKey(minAllowedMonth.getFullYear(), minAllowedMonth.getMonth(), 1)
+  toDateKey(minAllowedMonth.getUTCFullYear(), minAllowedMonth.getUTCMonth(), 1),
 )
 
 const maxAllowedDate = computed(() => {
   const lastDay = new Date(
-    maxAllowedMonth.getFullYear(),
-    maxAllowedMonth.getMonth() + 1,
-    0
+    Date.UTC(maxAllowedMonth.getUTCFullYear(), maxAllowedMonth.getUTCMonth() + 1, 0),
   )
 
-  return toDateKey(
-    lastDay.getFullYear(),
-    lastDay.getMonth(),
-    lastDay.getDate()
-  )
+  return toDateKey(lastDay.getUTCFullYear(), lastDay.getUTCMonth(), lastDay.getUTCDate())
 })
 
-const calendarYear = ref(today.getFullYear())
-const calendarMonth = ref(today.getMonth())
+const calendarYear = ref(today.getUTCFullYear())
+const calendarMonth = ref(today.getUTCMonth())
 
-const calendarMonthStart = computed(() => new Date(calendarYear.value, calendarMonth.value, 1))
+const calendarMonthStart = computed(
+  () => new Date(Date.UTC(calendarYear.value, calendarMonth.value, 1)),
+)
 
 const canGoPrevMonth = computed(() => {
   return calendarMonthStart.value.getTime() > minAllowedMonth.getTime()
@@ -193,24 +188,27 @@ const canGoNextMonth = computed(() => {
 
 const isCurrentMonth = computed(() => {
   return (
-    calendarYear.value === currentMonthStart.getFullYear() &&
-    calendarMonth.value === currentMonthStart.getMonth()
+    calendarYear.value === currentMonthStart.getUTCFullYear() &&
+    calendarMonth.value === currentMonthStart.getUTCMonth()
   )
 })
 
 const calendarTitle = computed(() => {
   return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'UTC',
     month: 'long',
-    year: 'numeric'
+    year: 'numeric',
   }).format(calendarMonthStart.value)
 })
 
 const todayLabel = computed(() => {
-  return new Intl.DateTimeFormat('en-AU', {
+  const label = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'UTC',
     weekday: 'short',
     day: '2-digit',
-    month: 'short'
+    month: 'short',
   }).format(today)
+  return `${label} UTC`
 })
 
 const eventSource = ref<CalendarItem[]>([])
@@ -225,24 +223,24 @@ const visibleHolidays = computed(() => {
   const end = parseDateKey(maxAllowedDate.value)
 
   while (cursor.getTime() <= end.getTime()) {
-    const weekday = cursor.getDay()
+    const weekday = cursor.getUTCDay()
     if (weekday === 0 || weekday === 6) {
-      const date = toDateKey(cursor.getFullYear(), cursor.getMonth(), cursor.getDate())
+      const date = toDateKey(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate())
       items.push({
         id: -Number(date.replace(/-/g, '')),
         date,
         type: 'holiday',
-        title: weekday === 6 ? 'Saturday' : 'Sunday'
+        title: weekday === 6 ? 'Saturday' : 'Sunday',
       })
     }
-    cursor.setDate(cursor.getDate() + 1)
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
   }
 
   return items
 })
 
 const visibleEvents = computed(() => {
-  return eventSource.value.filter(item => isDateWithinAllowedWindow(item.date))
+  return eventSource.value.filter((item) => isDateWithinAllowedWindow(item.date))
 })
 
 const itemMap = computed(() => {
@@ -259,9 +257,9 @@ const itemMap = computed(() => {
 const calendarDays = computed(() => {
   const year = calendarYear.value
   const month = calendarMonth.value
-  const firstDay = new Date(year, month, 1)
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const firstWeekday = (firstDay.getDay() + 6) % 7
+  const firstDay = new Date(Date.UTC(year, month, 1))
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+  const firstWeekday = (firstDay.getUTCDay() + 6) % 7
 
   const cells: Array<{
     key: string
@@ -281,7 +279,7 @@ const calendarDays = computed(() => {
       isToday: false,
       hasHoliday: false,
       hasEvent: false,
-      clickable: false
+      clickable: false,
     })
   }
 
@@ -294,12 +292,12 @@ const calendarDays = computed(() => {
       day,
       dateKey,
       isToday:
-        year === today.getFullYear() &&
-        month === today.getMonth() &&
-        day === today.getDate(),
-      hasHoliday: items.some(item => item.type === 'holiday'),
-      hasEvent: items.some(item => item.type === 'event'),
-      clickable: items.length > 0
+        year === today.getUTCFullYear() &&
+        month === today.getUTCMonth() &&
+        day === today.getUTCDate(),
+      hasHoliday: items.some((item) => item.type === 'holiday'),
+      hasEvent: items.some((item) => item.type === 'event'),
+      clickable: items.length > 0,
     })
   }
 
@@ -311,7 +309,7 @@ const calendarDays = computed(() => {
       isToday: false,
       hasHoliday: false,
       hasEvent: false,
-      clickable: false
+      clickable: false,
     })
   }
 
@@ -331,10 +329,11 @@ const selectedOverlayTitle = computed(() => {
   if (!selectedDateKey.value) return 'Date details'
   const selectedDate = parseDateKey(selectedDateKey.value)
   return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'UTC',
     weekday: 'short',
     day: '2-digit',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
   }).format(selectedDate)
 })
 
@@ -355,22 +354,22 @@ const openDayDetails = (dateKey: string | null) => {
 const goPrevMonth = () => {
   if (!canGoPrevMonth.value) return
   const prev = addMonths(calendarMonthStart.value, -1)
-  calendarYear.value = prev.getFullYear()
-  calendarMonth.value = prev.getMonth()
+  calendarYear.value = prev.getUTCFullYear()
+  calendarMonth.value = prev.getUTCMonth()
   closeCalendarOverlay()
 }
 
 const goNextMonth = () => {
   if (!canGoNextMonth.value) return
   const next = addMonths(calendarMonthStart.value, 1)
-  calendarYear.value = next.getFullYear()
-  calendarMonth.value = next.getMonth()
+  calendarYear.value = next.getUTCFullYear()
+  calendarMonth.value = next.getUTCMonth()
   closeCalendarOverlay()
 }
 
 const goToCurrentMonth = () => {
-  calendarYear.value = currentMonthStart.getFullYear()
-  calendarMonth.value = currentMonthStart.getMonth()
+  calendarYear.value = currentMonthStart.getUTCFullYear()
+  calendarMonth.value = currentMonthStart.getUTCMonth()
   closeCalendarOverlay()
 }
 
@@ -381,27 +380,21 @@ const extractEventItems = (data: BackendEvent[] | { results?: BackendEvent[] }) 
 }
 
 const formatEventTime = (event: BackendEvent) => {
-  const start = event.start_datetime ? new Date(event.start_datetime) : null
-  const end = event.ends_datetime ? new Date(event.ends_datetime) : null
-  if (!start || Number.isNaN(start.getTime())) return ''
-  const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
-  const startText = start.toLocaleTimeString([], timeOptions)
-  if (!end || Number.isNaN(end.getTime())) return startText
-  return `${startText} - ${end.toLocaleTimeString([], timeOptions)}`
+  return formatEventTimeRangeUTC(event.start_datetime, event.ends_datetime)
 }
 
 const normalizeCalendarEvent = (event: BackendEvent): CalendarItem | null => {
   if (!event.start_datetime) return null
-  const start = new Date(event.start_datetime)
-  if (Number.isNaN(start.getTime())) return null
+  const dateKey = toUTCDateKey(event.start_datetime)
+  if (!dateKey) return null
   const time = formatEventTime(event)
   const name = event.event_name || 'Untitled event'
 
   return {
     id: event.id,
-    date: toDateKey(start.getFullYear(), start.getMonth(), start.getDate()),
+    date: dateKey,
     type: 'event',
-    title: time ? `${name} ${time}` : name
+    title: time ? `${name} ${time}` : name,
   }
 }
 
@@ -466,7 +459,10 @@ onMounted(() => {
   background: #f8f9fa;
   color: var(--calendar-text-main);
   cursor: pointer;
-  transition: transform 180ms ease, background 180ms ease, color 180ms ease;
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
 }
 
 .calendar-nav-button:hover:not(:disabled) {
@@ -577,7 +573,10 @@ onMounted(() => {
   justify-content: center;
   border-radius: 50%;
   line-height: 1;
-  transition: background 180ms ease, color 180ms ease, outline-color 180ms ease;
+  transition:
+    background 180ms ease,
+    color 180ms ease,
+    outline-color 180ms ease;
 }
 
 .cell-dots {
@@ -698,7 +697,9 @@ onMounted(() => {
   background: #f8f9fa;
   color: var(--calendar-text-main);
   cursor: pointer;
-  transition: transform 180ms ease, background 180ms ease;
+  transition:
+    transform 180ms ease,
+    background 180ms ease;
 }
 
 .calendar-close-button:hover {
@@ -755,7 +756,9 @@ onMounted(() => {
 
 .calendar-fade-enter-active,
 .calendar-fade-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
 }
 
 .calendar-fade-enter-from,

@@ -480,6 +480,9 @@
             <div v-if="chatError" class="chat-alert">
               {{ chatError }}
             </div>
+            <div v-if="chatNotice" class="chat-notice">
+              {{ chatNotice }}
+            </div>
 
             <div class="chat-messages" ref="msgList">
               <div
@@ -541,6 +544,15 @@
                         message.reactions[emoji]
                       }}</span>
                     </button>
+                  </div>
+
+                  <div
+                    v-if="message.isOwn && (message.readCount || message.deliveredCount)"
+                    class="message-receipt"
+                  >
+                    <i class="fas fa-check-double"></i>
+                    <span v-if="message.readCount">Read by {{ message.readCount }}</span>
+                    <span v-else>Delivered to {{ message.deliveredCount }}</span>
                   </div>
                 </div>
               </div>
@@ -654,8 +666,8 @@ const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const supportsGifs = false
 const supportsAttachments = false
-const supportsMessageReactions = false
-const supportsChatClientSocketActions = false
+const supportsMessageReactions = true
+const supportsChatClientSocketActions = true
 const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
 const routeGroupId = computed(() => (route.params.id ? String(route.params.id) : ''))
 const group = ref({
@@ -733,6 +745,7 @@ const isSendingMessage = ref(false)
 const isUploadingFile = ref(false)
 const isLoadingGifs = ref(false)
 const chatError = ref('')
+const chatNotice = ref('')
 const gifError = ref('')
 const showGifPanel = ref(false)
 const gifQuery = ref('')
@@ -743,6 +756,8 @@ const wsConnectionState = ref('offline')
 let chatSocket = null
 let typingStopTimer = null
 let hasSentTypingStart = false
+let lastTypingSentAt = 0
+const typingUserTimers = new Map()
 
 const getInitials = (name) =>
   String(name || 'U')
@@ -824,6 +839,9 @@ const buildChatUploadUrl = (groupId) =>
 
 const buildChatReactionUrl = (groupId, messageId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`
+
+const buildChatReadUrl = (groupId, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/read/`
 
 const buildGifSearchUrl = (query) =>
   `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
@@ -1036,7 +1054,13 @@ const normalizeReactionMap = (reactions) => {
 
   return Object.fromEntries(
     Object.entries(reactions)
-      .map(([emoji, count]) => [emoji, Number(count) || 0])
+      .map(([emoji, value]) => {
+        const count =
+          value && typeof value === 'object' && !Array.isArray(value)
+            ? Number(value.count)
+            : Number(value)
+        return [emoji, count || 0]
+      })
       .filter(([, count]) => count > 0),
   )
 }
@@ -1442,6 +1466,7 @@ const normalizeMessage = (item) => {
 
   return {
     id: raw?.id || `${senderId}-${sentAt}`,
+    senderId,
     author,
     text: messageText,
     time: formatTime(sentAt),
@@ -1453,7 +1478,12 @@ const normalizeMessage = (item) => {
     reactions: normalizeReactionMap(raw?.reactions),
     preview: raw?.preview || null,
     editedAt: raw?.edited_at || null,
+    readCount: Number(raw?.read_count || raw?.readCount || 0),
+    deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
+    isReadByMe: Boolean(raw?.is_read_by_me || raw?.isReadByMe),
+    isDeliveredToMe: Boolean(raw?.is_delivered_to_me || raw?.isDeliveredToMe),
     readBy: Array.isArray(raw?.read_by) ? raw.read_by : [],
+    deliveredTo: Array.isArray(raw?.delivered_to) ? raw.delivered_to : [],
     isLocalOnly: Boolean(raw?.isLocalOnly),
   }
 }
@@ -1747,7 +1777,27 @@ const upsertMessage = (message) => {
 }
 
 const removeTypingUser = (name) => {
+  const timer = typingUserTimers.get(name)
+  if (timer) {
+    clearTimeout(timer)
+    typingUserTimers.delete(name)
+  }
   typingUsers.value = typingUsers.value.filter((item) => item !== name)
+}
+
+const addTypingUser = (name) => {
+  if (!typingUsers.value.includes(name)) {
+    typingUsers.value = [...typingUsers.value, name]
+  }
+
+  const existingTimer = typingUserTimers.get(name)
+  if (existingTimer) clearTimeout(existingTimer)
+  typingUserTimers.set(
+    name,
+    setTimeout(() => {
+      removeTypingUser(name)
+    }, 4500),
+  )
 }
 
 const sendSocketAction = (payload) => {
@@ -1757,6 +1807,14 @@ const sendSocketAction = (payload) => {
   return true
 }
 
+const sendTypingState = (typing) => {
+  const sent = sendSocketAction({ type: 'typing', typing })
+  if (sent) {
+    lastTypingSentAt = Date.now()
+  }
+  return sent
+}
+
 const stopTypingIndicator = () => {
   clearTimeout(typingStopTimer)
   if (!supportsChatClientSocketActions) {
@@ -1764,7 +1822,7 @@ const stopTypingIndicator = () => {
     return
   }
   if (hasSentTypingStart) {
-    sendSocketAction({ action: 'client.typing', status: 'stopped' })
+    sendTypingState(false)
     hasSentTypingStart = false
   }
 }
@@ -1773,7 +1831,7 @@ const scheduleTypingStop = () => {
   clearTimeout(typingStopTimer)
   typingStopTimer = setTimeout(() => {
     stopTypingIndicator()
-  }, 1400)
+  }, 2600)
 }
 
 const handleComposerInput = () => {
@@ -1785,18 +1843,96 @@ const handleComposerInput = () => {
   }
 
   if (!hasSentTypingStart) {
-    sendSocketAction({ action: 'client.typing', status: 'started' })
+    sendTypingState(true)
     hasSentTypingStart = true
+  } else if (Date.now() - lastTypingSentAt > 2200) {
+    sendTypingState(true)
   }
 
   scheduleTypingStop()
 }
 
-const markMessagesAsRead = (messageIds) => {
-  if (!supportsChatClientSocketActions) return
+const applyReadCursor = (readerId, upToId) => {
+  const numericReaderId = Number(readerId)
+  const numericUpToId = Number(upToId)
+  if (!Number.isFinite(numericReaderId) || !Number.isFinite(numericUpToId)) return
+
+  const currentUserId = Number(auth.user?.id || 0)
+  messages.value = messages.value.map((message) => {
+    const messageId = Number(message.id)
+    if (
+      !Number.isFinite(messageId) ||
+      messageId > numericUpToId ||
+      Number(message.senderId || 0) === numericReaderId
+    ) {
+      return message
+    }
+
+    const readBy = Array.from(new Set([...(message.readBy || []), numericReaderId]))
+    const readCount =
+      readBy.length > (message.readBy || []).length
+        ? Number(message.readCount || 0) + 1
+        : Number(message.readCount || 0)
+
+    return {
+      ...message,
+      readBy,
+      readCount,
+      deliveredCount: Math.max(Number(message.deliveredCount || 0), readCount),
+      isReadByMe: numericReaderId === currentUserId ? true : message.isReadByMe,
+      isDeliveredToMe: numericReaderId === currentUserId ? true : message.isDeliveredToMe,
+    }
+  })
+}
+
+const applyDeliveredCursor = (userId, upToId) => {
+  const numericUserId = Number(userId)
+  const numericUpToId = Number(upToId)
+  if (!Number.isFinite(numericUserId) || !Number.isFinite(numericUpToId)) return
+
+  const currentUserId = Number(auth.user?.id || 0)
+  messages.value = messages.value.map((message) => {
+    const messageId = Number(message.id)
+    if (
+      !Number.isFinite(messageId) ||
+      messageId > numericUpToId ||
+      Number(message.senderId || 0) === numericUserId
+    ) {
+      return message
+    }
+
+    const deliveredTo = Array.from(new Set([...(message.deliveredTo || []), numericUserId]))
+    const deliveredCount =
+      deliveredTo.length > (message.deliveredTo || []).length
+        ? Number(message.deliveredCount || 0) + 1
+        : Number(message.deliveredCount || 0)
+
+    return {
+      ...message,
+      deliveredTo,
+      deliveredCount: Math.max(deliveredCount, Number(message.readCount || 0)),
+      isDeliveredToMe:
+        numericUserId === currentUserId ? true : message.isDeliveredToMe,
+    }
+  })
+}
+
+const markMessagesAsRead = async (messageIds) => {
   const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
   if (!ids.length) return
-  sendSocketAction({ action: 'client.mark_read', message_ids: ids })
+
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) return
+
+  const upToId = Math.max(...ids)
+  try {
+    const data = await requestJson(buildChatReadUrl(backendGroupId, upToId), {
+      method: 'POST',
+    })
+    applyReadCursor(auth.user?.id, data?.up_to_id || upToId)
+  } catch (error) {
+    console.error('Failed to mark messages as read:', error)
+  }
 }
 
 const scrollMessagesToBottom = async () => {
@@ -1805,27 +1941,27 @@ const scrollMessagesToBottom = async () => {
 }
 
 const disconnectChatSocket = () => {
+  stopTypingIndicator()
   if (chatSocket) {
     chatSocket.close()
     chatSocket = null
   }
   wsConnectionState.value = 'offline'
+  typingUserTimers.forEach((timer) => clearTimeout(timer))
+  typingUserTimers.clear()
   typingUsers.value = []
-  stopTypingIndicator()
 }
 
 const handleSocketPayload = async (payload) => {
   if (!payload || typeof payload !== 'object') return
 
-  if (payload.type === 'typing.updated') {
+  if (payload.type === 'user.typing' || payload.event === 'user.typing') {
     const currentUserId = Number(auth.user?.id || 0)
     if (Number(payload.user_id) === currentUserId) return
 
     const displayName = payload.user_name || `User ${payload.user_id}`
-    if (payload.status === 'started') {
-      if (!typingUsers.value.includes(displayName)) {
-        typingUsers.value = [...typingUsers.value, displayName]
-      }
+    if (payload.typing) {
+      addTypingUser(displayName)
     } else {
       removeTypingUser(displayName)
     }
@@ -1840,14 +1976,16 @@ const handleSocketPayload = async (payload) => {
     return
   }
 
-  if (payload.type === 'message.read') {
-    const ids = Array.isArray(payload.message_ids) ? payload.message_ids : []
-    ids.forEach((id) => {
-      applyMessageUpdate(id, (message) => ({
-        ...message,
-        readBy: Array.from(new Set([...(message.readBy || []), payload.read_by])),
-      }))
-    })
+  if (payload.type === 'message.read_updated' || payload.event === 'message.read_updated') {
+    applyReadCursor(payload.reader_id, payload.up_to_id)
+    return
+  }
+
+  if (
+    payload.type === 'message.delivered_updated' ||
+    payload.event === 'message.delivered_updated'
+  ) {
+    applyDeliveredCursor(payload.user_id, payload.up_to_id)
     return
   }
 
@@ -1860,6 +1998,17 @@ const handleSocketPayload = async (payload) => {
   }
 
   const eventName = payload.event
+  if (eventName === 'mention.created') {
+    const currentGroupId = Number(getBackendGroupId() || 0)
+    const mentionedGroupId = Number(payload.group_id || 0)
+    if (mentionedGroupId && mentionedGroupId !== currentGroupId) {
+      chatNotice.value = `You were mentioned in group ${mentionedGroupId}.`
+    } else {
+      chatNotice.value = 'You were mentioned in this discussion.'
+    }
+    return
+  }
+
   const socketMessage =
     payload.message && typeof payload.message === 'object' ? payload.message : null
   const socketMessageId = socketMessage?.id ?? payload.message_id
@@ -1872,7 +2021,7 @@ const handleSocketPayload = async (payload) => {
       Number(socketMessage.sender_user || socketMessage.sender_id || 0) !==
       Number(auth.user?.id || 0)
     ) {
-      markMessagesAsRead([socketMessage.id])
+      await markMessagesAsRead([socketMessage.id])
     }
     return
   }
@@ -1915,7 +2064,7 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
-    markMessagesAsRead(
+    void markMessagesAsRead(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
   })
@@ -1931,6 +2080,8 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('close', () => {
     wsConnectionState.value = 'offline'
+    typingUserTimers.forEach((timer) => clearTimeout(timer))
+    typingUserTimers.clear()
     typingUsers.value = []
   })
 
@@ -1963,7 +2114,7 @@ const loadMessages = async () => {
   } finally {
     isLoadingMessages.value = false
     await scrollMessagesToBottom()
-    markMessagesAsRead(
+    await markMessagesAsRead(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
   }
@@ -2162,23 +2313,19 @@ const reactToMessage = async (messageId, emoji) => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) return
 
-  applyMessageUpdate(messageId, (message) => ({
-    ...message,
-    reactions: {
-      ...(message.reactions || {}),
-      [emoji]: Number(message.reactions?.[emoji] || 0) + 1,
-    },
-  }))
-
   try {
-    await requestJson(buildChatReactionUrl(backendGroupId, messageId), {
+    const data = await requestJson(buildChatReactionUrl(backendGroupId, messageId), {
       method: 'POST',
       body: JSON.stringify({
         emoji_string: emoji,
       }),
     })
-  } catch {
-    chatError.value = 'Reaction endpoint is not available yet.'
+    applyMessageUpdate(messageId, (message) => ({
+      ...message,
+      reactions: normalizeReactionMap(data?.reactions),
+    }))
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Reaction could not be updated.'
   }
 }
 
@@ -2199,6 +2346,7 @@ const reloadGroupDetail = async () => {
   messages.value = []
   taskError.value = ''
   chatError.value = ''
+  chatNotice.value = ''
 
   try {
     await loadGroup()
@@ -2677,6 +2825,15 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
+.chat-notice {
+  padding: 0.65rem 0.9rem;
+  color: var(--air-force-blue);
+  background: #eef7f9;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 .typing-indicator,
 .gif-status {
   padding: 0.55rem 0.9rem;
@@ -2899,6 +3056,20 @@ onBeforeUnmount(() => {
 .reaction-count {
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.message-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.message.own .message-receipt {
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .hidden-file-input {
@@ -3297,6 +3468,12 @@ onBeforeUnmount(() => {
   color: #6c4b00;
   background: #fff7d6;
   border-bottom: 1px solid #f1dd97;
+}
+
+.chat-notice {
+  color: var(--air-force-blue);
+  background: #eef7f9;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .pane--discussion .chat-messages {
