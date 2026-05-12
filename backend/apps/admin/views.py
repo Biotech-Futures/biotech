@@ -727,7 +727,25 @@ class MentorMatchBulkReplaceInactiveView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = bulk_replace_inactive_mentors()
+        raw_days = request.data.get("inactiveDays")
+        if raw_days is not None:
+            # Strict: only accept a JSON integer. Reject floats (3.14, 3.0),
+            # strings ("30"), booleans, etc. ``bool`` is a subclass of
+            # ``int`` in Python so we exclude it explicitly.
+            if isinstance(raw_days, bool) or not isinstance(raw_days, int):
+                return Response(
+                    {"msg": "inactiveDays must be an integer"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            inactive_days = raw_days
+            if inactive_days < 1:
+                return Response(
+                    {"msg": "inactiveDays must be at least 1"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            result = bulk_replace_inactive_mentors(inactive_days)
+        else:
+            result = bulk_replace_inactive_mentors()
         return Response({"msg": "Inactive mentors replaced successfully", "data": result})
 
 

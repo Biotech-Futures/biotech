@@ -85,8 +85,12 @@ export function useMutationReplaceMentor() {
 
 export function useMutationBulkReplaceInactive() {
   return useMutation({
-    mutationFn: async () => {
-      const res = await myFetch.post("mentor-match/bulk-replace-inactive", {});
+    mutationFn: async (inactiveDays?: number) => {
+      const body =
+        typeof inactiveDays === "number" && Number.isFinite(inactiveDays)
+          ? { inactiveDays }
+          : {};
+      const res = await myFetch.post("mentor-match/bulk-replace-inactive", body);
       return bulkReplaceInactiveResponseSchema.parse(res.data);
     },
   });

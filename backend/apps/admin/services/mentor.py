@@ -3,6 +3,7 @@ from datetime import datetime
 from django.db.models import Q, Count, F, Max, Value, CharField
 from django.db.models.functions import Concat
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile
@@ -166,3 +167,72 @@ def set_mentor_active(mentor_id: int, is_active: bool) -> Dict[str, Any]:
     """
     User.objects.filter(id=mentor_id).update(is_active=is_active)
     return {'mentorId': mentor_id, 'isActive': is_active}
+
+
+def count_current_assigned_groups(mentor_id: int) -> int:
+    """Count the number of groups currently assigned to a mentor (active memberships only)."""
+    return (
+        GroupMembership.objects
+        .filter(
+            user_id=mentor_id,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .count()
+    )
+
+
+def validate_max_group_count_against_assigned(
+    mentor_id: int, max_group_count: Any
+) -> int:
+    """
+    Spec §2.6: a mentor's max group count cannot be set below the number of
+    groups they are currently assigned to. Raises rest_framework ValidationError
+    if the input is invalid or violates the floor.
+
+    Returns the validated integer value on success.
+    """
+    if isinstance(max_group_count, bool) or not isinstance(max_group_count, int):
+        try:
+            max_group_count = int(max_group_count)
+        except (TypeError, ValueError):
+            raise ValidationError({
+                "mentorMaxGroupCount": "Max group count must be an integer.",
+            })
+
+    if max_group_count < 0:
+        raise ValidationError({
+            "mentorMaxGroupCount": "Max group count cannot be negative.",
+        })
+
+    current_assigned = count_current_assigned_groups(mentor_id)
+    if max_group_count < current_assigned:
+        raise ValidationError({
+            "mentorMaxGroupCount": (
+                f"Max group count ({max_group_count}) cannot be below the "
+                f"mentor's current assigned group count ({current_assigned})."
+            ),
+            "currentAssignedCount": current_assigned,
+        })
+
+    return max_group_count
+
+
+def set_mentor_max_group_count(mentor_id: int, max_group_count: Any) -> Dict[str, Any]:
+    """
+    Update a mentor's max group count. Rejects values below the mentor's
+    current assigned group count (Spec §2.6).
+    """
+    validated = validate_max_group_count_against_assigned(mentor_id, max_group_count)
+    updated = MentorProfile.objects.filter(user_id=mentor_id).update(
+        max_group_count=validated,
+    )
+    if updated == 0:
+        raise ValidationError({"mentor": "Mentor profile not found."})
+    current_assigned = count_current_assigned_groups(mentor_id)
+    return {
+        "mentorId": mentor_id,
+        "maxGroupCount": validated,
+        "currentAssignedCount": current_assigned,
+        "remainingCapacity": validated - current_assigned,
+    }

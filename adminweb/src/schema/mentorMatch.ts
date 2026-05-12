@@ -122,6 +122,9 @@ export const replaceMentorResponseSchema = z.object({
 
 export const bulkReplaceInactiveResponseSchema = z.object({
   msg: z.string(),
-  data: z.object({ removedCount: z.number().int().nonnegative() }),
+  data: z.object({
+    removedCount: z.number().int().nonnegative(),
+    inactiveDays: z.number().int().positive().optional(),
+  }),
 });
 

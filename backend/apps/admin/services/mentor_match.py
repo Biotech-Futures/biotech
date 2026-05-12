@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional, Set
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
 from django.db.models.functions import Concat
 from django.utils import timezone
@@ -9,10 +9,14 @@ from rest_framework.exceptions import ValidationError
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
+from apps.chat.models import Messages
 from apps.matching_runtime.models import MatchRun
 from apps.admin.algorithms.mentor import match_mentors
 from apps.admin.services.mentor import get_mentor_list
 from apps.admin.scope_utils import get_admin_track_ids
+
+
+DEFAULT_INACTIVE_DAYS = 30
 
 
 def _group_interests_by_key(rows: List[Dict], key_field: str, interest_field: str) -> Dict[Any, List[str]]:
@@ -434,81 +438,104 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
     Returns:
         Dictionary with 'replaced' count
     """
-    new_mentor_id = input_data['newMentorUserId']
-    group_id = input_data['groupId']
-
-    profile = (
-        MentorProfile.objects
-        .filter(user_id=new_mentor_id)
-        .values('max_group_count')
-        .first()
-    )
-    if profile is None:
-        raise ValidationError({'newMentorUserId': 'User is not a mentor.'})
-
-    surviving_count = (
-        GroupMembership.objects
-        .filter(
-            user_id=new_mentor_id,
-            left_at__isnull=True,
-            user__mentorprofile__isnull=False,
-        )
-        .exclude(group_id=group_id)
-        .count()
-    )
-    if surviving_count >= profile['max_group_count']:
-        raise ValidationError({
-            'newMentorUserId': (
-                f'Mentor is at capacity '
-                f'({surviving_count}/{profile["max_group_count"]}).'
-            ),
-        })
-
     # Mark old mentor as left
     GroupMembership.objects.filter(
         id=input_data['membershipId'],
-        group_id=group_id,
+        group_id=input_data['groupId'],
         left_at__isnull=True,
     ).update(left_at=timezone.now())
 
     # Add new mentor
     GroupMembership.objects.create(
-        group_id=group_id,
-        user_id=new_mentor_id,
+        group_id=input_data['groupId'],
+        user_id=input_data['newMentorUserId'],
         membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         joined_at=timezone.now(),
     )
-
+    
     return {'replaced': 1}
 
 
-def bulk_replace_inactive_mentors() -> Dict[str, int]:
+def _coerce_inactive_days(inactive_days: Any) -> int:
     """
-    Replace all inactive mentors with removal from groups.
+    Coerce a user-supplied threshold into a positive integer. Falls back to
+    DEFAULT_INACTIVE_DAYS when the value is missing or unparseable.
+    """
+    if inactive_days is None:
+        return DEFAULT_INACTIVE_DAYS
+    try:
+        value = int(inactive_days)
+    except (TypeError, ValueError):
+        return DEFAULT_INACTIVE_DAYS
+    return value if value >= 1 else DEFAULT_INACTIVE_DAYS
 
-    Returns:
-        Dictionary with 'removedCount' of inactive mentor assignments
+
+def get_inactive_mentor_membership_ids(
+    inactive_days: int = DEFAULT_INACTIVE_DAYS,
+) -> List[int]:
     """
-    # Find inactive mentors in groups
-    inactive_rows = (
+    Identify active mentor group memberships whose mentor is "effectively inactive":
+
+      - the user account is deactivated (`is_active=False`), OR
+      - the mentor has not sent a non-deleted chat message within
+        `inactive_days` days (mentors who never sent a message count as
+        inactive by this engagement signal).
+
+    Returns the membership ids that should be replaced.
+    """
+    cutoff = timezone.now() - timedelta(days=inactive_days)
+
+    recent_message_subquery = Messages.objects.filter(
+        sender_user_id=OuterRef('user_id'),
+        deleted_at__isnull=True,
+        sent_at__gte=cutoff,
+    )
+
+    rows = (
         GroupMembership.objects
         .filter(
             left_at__isnull=True,
-            user__is_active=False,
-            user__mentorprofile__isnull=False
+            user__mentorprofile__isnull=False,
         )
-        .values('id')
+        .annotate(has_recent_message=Exists(recent_message_subquery))
+        .filter(
+            Q(user__is_active=False) | Q(has_recent_message=False),
+        )
+        .values_list('id', flat=True)
     )
-    
-    if not inactive_rows:
-        return {'removedCount': 0}
+    return list(rows)
 
-    # Mark as left
+
+def bulk_replace_inactive_mentors(
+    inactive_days: Any = DEFAULT_INACTIVE_DAYS,
+) -> Dict[str, int]:
+    """
+    Clear group assignments for mentors that have gone quiet or been
+    deactivated. A mentor is considered inactive when either:
+
+      - `user.is_active = False`, or
+      - they have not sent a non-deleted message within `inactive_days` days
+        (mentors who have never messaged count as inactive).
+
+    Args:
+        inactive_days: Engagement window threshold in days. Values below 1 or
+            that fail to parse are coerced to DEFAULT_INACTIVE_DAYS.
+
+    Returns:
+        Dictionary with 'removedCount' of cleared mentor memberships and the
+        'inactiveDays' threshold that was applied.
+    """
+    window_days = _coerce_inactive_days(inactive_days)
+
+    membership_ids = get_inactive_mentor_membership_ids(window_days)
+    if not membership_ids:
+        return {'removedCount': 0, 'inactiveDays': window_days}
+
     count = GroupMembership.objects.filter(
-        id__in=[r['id'] for r in inactive_rows],
+        id__in=membership_ids,
     ).update(left_at=timezone.now())
 
-    return {'removedCount': count}
+    return {'removedCount': count, 'inactiveDays': window_days}
 
 
 def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
@@ -535,60 +562,12 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
         {'group_id': gid, 'mentor_user_id': mid}
         for gid, mid in unique_by_group.items()
     ]
-
+    
     group_ids = [a['group_id'] for a in assignments]
 
-    # Capacity check: surviving live assignments (outside group_ids) + new
-    # assignments must not exceed each mentor's max_group_count.
-    mentor_ids = list({a['mentor_user_id'] for a in assignments})
-
-    max_counts = {
-        row['user_id']: row['max_group_count']
-        for row in MentorProfile.objects
-            .filter(user_id__in=mentor_ids)
-            .values('user_id', 'max_group_count')
-    }
-    missing = [mid for mid in mentor_ids if mid not in max_counts]
-    if missing:
-        raise ValidationError({
-            'assignments': f'Not a mentor: user IDs {missing}.',
-        })
-
-    surviving_counts = dict.fromkeys(mentor_ids, 0)
-    for row in (
-        GroupMembership.objects
-        .filter(
-            user_id__in=mentor_ids,
-            left_at__isnull=True,
-            user__mentorprofile__isnull=False,
-        )
-        .exclude(group_id__in=group_ids)
-        .values('user_id')
-        .annotate(count=Count('id'))
-    ):
-        surviving_counts[row['user_id']] = row['count']
-
-    new_counts = {}
-    for a in assignments:
-        mid = a['mentor_user_id']
-        new_counts[mid] = new_counts.get(mid, 0) + 1
-
-    over_capacity = [
-        {
-            'mentorUserId': mid,
-            'requested': surviving_counts[mid] + new_counts[mid],
-            'maxGroupCount': max_counts[mid],
-        }
-        for mid in mentor_ids
-        if surviving_counts[mid] + new_counts[mid] > max_counts[mid]
-    ]
-    if over_capacity:
-        raise ValidationError({
-            'assignments': {
-                'message': 'One or more mentors would exceed max_group_count.',
-                'overCapacity': over_capacity,
-            },
-        })
+    # Spec §2.6: enforce mentor capacity. A confirm cannot push a mentor's
+    # active group assignments beyond their configured maxGroupCount.
+    _assert_assignments_within_capacity(assignments, group_ids)
 
     # Remove existing mentor assignments
     existing_mentor_rows = (
@@ -621,6 +600,75 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
     GroupMembership.objects.bulk_create(memberships)
 
     return {'confirmedCount': len(assignments)}
+
+
+def _assert_assignments_within_capacity(
+    assignments: List[Dict[str, Any]],
+    group_ids_being_reassigned: List[int],
+) -> None:
+    """
+    Reject the confirm operation if any mentor would end up with more active
+    group memberships than their maxGroupCount (Spec §2.6).
+
+    Mentor memberships in `group_ids_being_reassigned` are not counted toward
+    the existing load, because the confirm replaces those memberships.
+    """
+    mentor_ids = sorted({a['mentor_user_id'] for a in assignments})
+    if not mentor_ids:
+        return
+
+    caps_by_mentor = {
+        row['user_id']: row['max_group_count']
+        for row in MentorProfile.objects.filter(user_id__in=mentor_ids).values(
+            'user_id', 'max_group_count',
+        )
+    }
+
+    # Active mentor memberships outside the groups being reassigned in this call.
+    other_assignment_rows = (
+        GroupMembership.objects
+        .filter(
+            user_id__in=mentor_ids,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .exclude(group_id__in=group_ids_being_reassigned)
+        .values('user_id')
+        .annotate(count=Count('id'))
+    )
+    other_count_by_mentor = {row['user_id']: row['count'] for row in other_assignment_rows}
+
+    new_count_by_mentor: Dict[int, int] = {}
+    for a in assignments:
+        new_count_by_mentor[a['mentor_user_id']] = (
+            new_count_by_mentor.get(a['mentor_user_id'], 0) + 1
+        )
+
+    over_capacity: List[Dict[str, Any]] = []
+    missing_profiles: List[int] = []
+    for mentor_id, new_count in new_count_by_mentor.items():
+        cap = caps_by_mentor.get(mentor_id)
+        if cap is None:
+            missing_profiles.append(mentor_id)
+            continue
+        existing = other_count_by_mentor.get(mentor_id, 0)
+        projected = existing + new_count
+        if projected > cap:
+            over_capacity.append({
+                "mentorUserId": mentor_id,
+                "maxGroupCount": cap,
+                "currentAssignedCount": existing,
+                "requested": new_count,
+                "wouldAssign": projected,
+            })
+
+    errors: Dict[str, Any] = {}
+    if missing_profiles:
+        errors["missingMentorProfiles"] = sorted(missing_profiles)
+    if over_capacity:
+        errors["overCapacity"] = over_capacity
+    if errors:
+        raise ValidationError({"assignments": errors})
 
 
 def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:

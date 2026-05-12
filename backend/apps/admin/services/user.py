@@ -5,6 +5,7 @@ Literal translation from admin/apps/server/src/module/user/
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Exists, OuterRef, Q
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from typing import List, Dict, Any, Optional
 
 # Import models
@@ -143,9 +144,15 @@ def upsert_mentor_profile(
 ) -> None:
     """
     Create or update mentor profile.
+
+    Spec §2.6: when `max_group_count` is provided, it must not be below the
+    mentor's currently assigned group count.
     """
+    # Local import avoids a circular dependency between user and mentor services.
+    from apps.admin.services.mentor import validate_max_group_count_against_assigned
+
     values = {**DEFAULT_MENTOR_PROFILE}
-    
+
     if background is not None:
         values["background"] = background.strip() if background else None
     if institution is not None:
@@ -153,8 +160,10 @@ def upsert_mentor_profile(
     if mentor_reason is not None:
         values["mentor_reason"] = (mentor_reason or "").strip()
     if max_group_count is not None:
-        values["max_group_count"] = max_group_count
-    
+        values["max_group_count"] = validate_max_group_count_against_assigned(
+            user_id, max_group_count,
+        )
+
     MentorProfile.objects.update_or_create(
         user_id=user_id,
         defaults=values
@@ -888,6 +897,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 if role in ["student", "mentor"]:
                     sync_user_interests(new_user_id, input_data.get("interests"))
         
+        except DRFValidationError:
+            # Let structured ValidationErrors (e.g. Spec §2.6 capacity guardrail)
+            # propagate so DRF returns a clean 400 with the structured detail.
+            raise
         except Exception as e:
             results.append({
                 "input": input_data,
@@ -1156,6 +1169,11 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 delete_user_interests(user_id)
     
+    except DRFValidationError:
+        # Let structured ValidationErrors (e.g. Spec §2.6 capacity guardrail)
+        # propagate so DRF returns a clean 400 with the structured detail
+        # rather than a stringified ErrorDetail blob inside `msg`.
+        raise
     except Exception as e:
         return {
             "msg": f"Unable to update user: {str(e)}",
