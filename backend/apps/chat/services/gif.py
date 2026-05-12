@@ -10,7 +10,7 @@ from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
-_TENOR_BASE = "https://tenor.googleapis.com/v2"
+_TENOR_BASE = "https://g.tenor.com/v1"
 _CACHE_TTL = 60 * 60  # 1 hour
 
 
@@ -22,8 +22,9 @@ def _cache_key(prefix: str, **kwargs) -> str:
 
 
 def _map_tenor_result(result: dict) -> dict:
-    """Map a single Tenor result to our internal DTO — API key never included."""
-    media = result.get("media_formats", {})
+    """Map a single Tenor v1 result to our internal DTO — API key never included."""
+    media_list = result.get("media", [])
+    media = media_list[0] if media_list else {}
     gif = media.get("gif", {})
     tinygif = media.get("tinygif", {})
     return {
@@ -70,7 +71,7 @@ def trending_gifs(limit: int = 20) -> list[dict]:
 
     try:
         response = requests.get(
-            f"{_TENOR_BASE}/featured",
+            f"{_TENOR_BASE}/trending",
             params={
                 "limit": limit,
                 "key": settings.TENOR_API_KEY,
