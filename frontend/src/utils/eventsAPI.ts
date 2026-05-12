@@ -1,7 +1,8 @@
 import { buildSessionHeaders } from './csrf'
 import { apiErrorFromResponse } from './apiError'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 export interface BackendEvent {
   id: number
@@ -16,23 +17,44 @@ export interface BackendEvent {
 }
 
 export interface EventListResponse {
-  results?: BackendEvent[]
   count?: number
+  next?: string | null
+  previous?: string | null
+  results?: BackendEvent[]
 }
 
-export const fetchEvents = async (): Promise<BackendEvent[] | EventListResponse> => {
-  const res = await fetch(`${API_BASE_URL}/events/v1/?page_size=100`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: buildSessionHeaders({
+export const fetchEvents = async (
+  when: 'upcoming' | 'past' | 'all' = 'upcoming'
+): Promise<EventListResponse> => {
+
+  const token = localStorage.getItem('access_token')
+
+  const res = await fetch(
+    `${API_BASE_URL}/events/v1/?when=${when}&page_size=100`,
+    {
+      method: 'GET',
+
+      credentials: 'include',
+
       headers: {
-        Accept: 'application/json'
+        ...buildSessionHeaders({
+          headers: {
+            Accept: 'application/json'
+          }
+        }),
+
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : {})
       }
-    })
-  })
+    }
+  )
 
   if (!res.ok) {
-    throw await apiErrorFromResponse(res, 'Failed to fetch events')
+    throw await apiErrorFromResponse(
+      res,
+      'Failed to fetch events'
+    )
   }
 
   return res.json()
