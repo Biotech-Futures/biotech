@@ -1,19 +1,26 @@
 from typing import TypedDict, Optional, List, Dict, Any
 from datetime import datetime
 import html as html_lib
+import logging
 import re
 
 from django.db.models import Q, Exists, OuterRef, F
 from django.utils import timezone
 from django.db import transaction
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.conf import settings
 
-from apps.announcements.models import Announcement, AnnouncementAudience
+from apps.announcements.models import (
+    Announcement,
+    AnnouncementAudience,
+    AnnouncementDelivery,
+)
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks
 from apps.users.models import User
 from apps.admin.scope_utils import get_admin_track_ids
+
+logger = logging.getLogger(__name__)
 
 
 # Type definitions
@@ -346,6 +353,7 @@ def get_announcement_by_id(announcement_id: int) -> AnnouncementResponseDict:
 def create_announcement(
     input_data: CreateAnnouncementInput,
     author_user_id: int,
+    initiated_by: Optional[Any] = None,
 ) -> AnnouncementResponseDict:
     """Create a new announcement."""
     now = timezone.now()
@@ -370,7 +378,10 @@ def create_announcement(
     announcement.save(update_fields=["visibility_scope"])
 
     if input_data.get("send_email"):
-        send_announcement_email(announcement.id)
+        send_announcement_email(
+            announcement.id,
+            initiated_by=initiated_by or User.objects.filter(pk=author_user_id).first(),
+        )
 
     row = _fetch_announcement(announcement.id)
     return {"msg": "Announcement created successfully", "data": row}
@@ -380,6 +391,7 @@ def create_announcement(
 def update_announcement(
     announcement_id: int,
     input_data: UpdateAnnouncementInput,
+    initiated_by: Optional[Any] = None,
 ) -> AnnouncementResponseDict:
     """Update an existing announcement."""
     existing = _fetch_announcement(announcement_id)
@@ -411,7 +423,7 @@ def update_announcement(
     announcement.save()
 
     if input_data.get("send_email"):
-        send_announcement_email(announcement_id)
+        send_announcement_email(announcement_id, initiated_by=initiated_by)
 
     row = _fetch_announcement(announcement_id)
     return {"msg": "Announcement updated successfully", "data": row}
@@ -445,46 +457,221 @@ def archive_announcement(announcement_id: int) -> AnnouncementResponseDict:
     return {"msg": "Announcement archived successfully", "data": row}
 
 
-def send_announcement_email(announcement_id: int) -> Dict[str, Any]:
+def send_announcement_email(
+    announcement_id: int,
+    initiated_by: Optional[Any] = None,
+) -> Dict[str, Any]:
     """
-    Send announcement via email to recipients.
-    
+    Send an announcement to its resolved audience and persist a delivery row.
+
+    Replaces the previous one-shot ``send_mail(..., fail_silently=True)``
+    which silently swallowed SMTP errors and lied about success. This version:
+
+      * Opens a single SMTP connection with ``fail_silently=False`` so the
+        backend surfaces real errors instead of returning 0/1 booleans.
+      * Sends per recipient so a single bad address doesn't poison the batch
+        and so we can report which addresses failed.
+      * Logs failures via ``logging`` and persists an
+        :class:`AnnouncementDelivery` row holding attempted / success / failure
+        counts and the (capped) list of failed recipients.
+
     Args:
-        announcement_id: Announcement ID
-        
+        announcement_id: Announcement ID.
+        initiated_by:    The user triggering the send (typically
+                         ``request.user``). May be ``None`` when called from a
+                         background context.
+
     Returns:
-        Dictionary with send status and count
+        Dictionary with::
+
+            {
+                "msg":               <human readable summary>,
+                "deliveryId":        <AnnouncementDelivery PK or None>,
+                "status":            "success" | "partial" | "failed" | "skipped",
+                "attempted":         <int>,
+                "succeeded":         <int>,
+                "failed":            <int>,
+                "failedRecipients":  [<email>, ...],   # capped
+                "sent":              <int>,            # legacy alias for `succeeded`
+            }
     """
     row = _fetch_announcement(announcement_id)
     if not row:
-        return {"msg": "Announcement not found", "sent": 0}
-    
-    # Note: Original is async, but send_mail is synchronous in Django
-    # If you need async, use Celery or similar
-    emails = _resolve_recipient_emails(announcement_id, row.get("visibilityScope", "global"))
-    
+        return {
+            "msg": "Announcement not found",
+            "deliveryId": None,
+            "status": "skipped",
+            "attempted": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "failedRecipients": [],
+            "sent": 0,
+        }
+
+    emails = _resolve_recipient_emails(
+        announcement_id, row.get("visibilityScope", "global"),
+    )
+
     if not emails:
-        return {"msg": "No recipients found", "sent": 0}
-    
+        return {
+            "msg": "No recipients found",
+            "deliveryId": None,
+            "status": "skipped",
+            "attempted": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "failedRecipients": [],
+            "sent": 0,
+        }
+
     excerpt = _build_excerpt(row.get("body", ""))
-    
     platform_url = getattr(settings, "PLATFORM_URL", "")
     detail_url = f"{platform_url}/announcements/{announcement_id}"
-    
-    send_mail(
-        subject=f"[BioTech] {row.get('title')}",
-        message=f"{row.get('title')}\n\n{excerpt}\n\nView on the platform: {detail_url}",
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=emails,
-        html_message=_render_announcement_email_html(
-            row.get("title", ""),
-            excerpt,
-            detail_url,
-        ),
-        fail_silently=True,
+    subject = f"[BioTech] {row.get('title')}"
+    text_body = (
+        f"{row.get('title')}\n\n{excerpt}\n\n"
+        f"View on the platform: {detail_url}"
     )
-    
-    return {"msg": "Email sent successfully", "sent": len(emails)}
+    html_body = _render_announcement_email_html(
+        row.get("title", ""), excerpt, detail_url,
+    )
+
+    delivery = AnnouncementDelivery.objects.create(
+        announcement_id=announcement_id,
+        initiated_by=initiated_by if getattr(initiated_by, "pk", None) else None,
+        status=AnnouncementDelivery.Status.FAILED,  # pessimistic; updated below
+        recipient_count=len(emails),
+    )
+
+    failed: List[Dict[str, str]] = []
+    succeeded = 0
+    connection_error: Optional[str] = None
+
+    try:
+        # ``fail_silently=False`` ensures SMTP / DNS / auth errors raise instead
+        # of being swallowed. We catch them ourselves so we can still persist
+        # a useful delivery row.
+        connection = get_connection(fail_silently=False)
+        try:
+            connection.open()
+        except Exception as exc:  # network / TLS / auth failure
+            connection_error = f"{type(exc).__name__}: {exc}"
+            logger.exception(
+                "announcement_email.connection_failed announcement_id=%s",
+                announcement_id,
+            )
+            # Mark every recipient as failed since none could be attempted.
+            for addr in emails:
+                failed.append({"email": addr, "error": connection_error})
+        else:
+            try:
+                for addr in emails:
+                    message = EmailMultiAlternatives(
+                        subject=subject,
+                        body=text_body,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        to=[addr],
+                        connection=connection,
+                    )
+                    message.attach_alternative(html_body, "text/html")
+                    try:
+                        # ``send()`` returns the number of successfully
+                        # delivered messages (1 on success). With
+                        # ``fail_silently=False`` it raises on SMTP errors.
+                        result = message.send(fail_silently=False)
+                    except Exception as exc:
+                        failed.append({
+                            "email": addr,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        })
+                        logger.warning(
+                            "announcement_email.send_failed "
+                            "announcement_id=%s recipient=%s error=%s",
+                            announcement_id, addr, exc,
+                        )
+                    else:
+                        if result:
+                            succeeded += 1
+                        else:
+                            # Backend reported 0 sent without raising — treat
+                            # as a soft failure for tracking purposes.
+                            failed.append({
+                                "email": addr,
+                                "error": "Mail backend reported 0 sent",
+                            })
+                            logger.warning(
+                                "announcement_email.send_zero "
+                                "announcement_id=%s recipient=%s",
+                                announcement_id, addr,
+                            )
+            finally:
+                try:
+                    connection.close()
+                except Exception:
+                    logger.exception(
+                        "announcement_email.connection_close_failed "
+                        "announcement_id=%s",
+                        announcement_id,
+                    )
+    except Exception as exc:  # belt-and-braces — anything truly unexpected
+        connection_error = f"{type(exc).__name__}: {exc}"
+        logger.exception(
+            "announcement_email.unexpected_failure announcement_id=%s",
+            announcement_id,
+        )
+
+    failure_count = len(failed)
+    if succeeded == 0:
+        status_value = AnnouncementDelivery.Status.FAILED
+        msg = (
+            "Announcement send failed — no recipients accepted the message"
+            if failure_count
+            else "Announcement send failed"
+        )
+    elif failure_count == 0:
+        status_value = AnnouncementDelivery.Status.SUCCESS
+        msg = "Announcement email sent successfully"
+    else:
+        status_value = AnnouncementDelivery.Status.PARTIAL
+        msg = (
+            f"Announcement email partially sent "
+            f"({succeeded}/{len(emails)} delivered)"
+        )
+
+    capped_failed = failed[: AnnouncementDelivery.FAILED_RECIPIENTS_CAP]
+    overflow = failure_count - len(capped_failed)
+    error_summary_parts: List[str] = []
+    if connection_error:
+        error_summary_parts.append(f"connection: {connection_error}")
+    if overflow > 0:
+        error_summary_parts.append(
+            f"+{overflow} more failed recipients omitted from list"
+        )
+    error_summary = "\n".join(error_summary_parts)
+
+    delivery.status = status_value
+    delivery.success_count = succeeded
+    delivery.failure_count = failure_count
+    delivery.failed_recipients = capped_failed
+    delivery.error_summary = error_summary
+    delivery.completed_at = timezone.now()
+    delivery.save(update_fields=[
+        "status", "success_count", "failure_count",
+        "failed_recipients", "error_summary", "completed_at",
+    ])
+
+    return {
+        "msg": msg,
+        "deliveryId": delivery.pk,
+        "status": status_value,
+        "attempted": len(emails),
+        "succeeded": succeeded,
+        "failed": failure_count,
+        "failedRecipients": [item["email"] for item in capped_failed],
+        # Legacy alias kept so existing callers / tests that read ``sent``
+        # keep working.
+        "sent": succeeded,
+    }
 
 
 def list_announcement_tracks(requesting_user=None) -> Dict[str, Any]:
