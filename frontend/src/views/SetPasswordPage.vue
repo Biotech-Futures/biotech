@@ -178,9 +178,7 @@ onMounted(async () => {
   display: grid;
   place-items: center;
   padding: 32px;
-  background:
-    linear-gradient(135deg, rgba(1, 113, 81, 0.94), rgba(57, 104, 123, 0.9)),
-    url('@/assets/login/login-bg-3.jpg') center / cover;
+  background: #e8f3ee;
 }
 
 .set-password-panel {
