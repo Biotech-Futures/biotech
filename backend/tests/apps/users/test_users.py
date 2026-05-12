@@ -190,9 +190,7 @@ class AuthUnificationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_password_login_fails_inactive_account(self):
-        self.target_user.account_status = User.AccountStatus.DEACTIVATED
-        self.target_user.is_active = False
-        self.target_user.save(update_fields=["account_status", "is_active"])
+        self.target_user.deactivate()
 
         response = self.client.post(
             reverse("password-login"),

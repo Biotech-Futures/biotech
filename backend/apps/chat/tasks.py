@@ -46,10 +46,12 @@ _PREVIEW_EVENT = "message.preview_ready"
 def _broadcast_preview(group_id: int, message_id: int, preview: dict[str, str]) -> None:
     """Fan a preview-ready event out to every consumer for ``group_id``.
 
-    Envelope shape matches the existing ``chat.message`` handler in
-    ``apps.chat.management.consumers.GroupChatConsumer`` so we reuse the same
-    plumbing; the inner ``type`` discriminates ``message.preview_ready`` from
-    the regular ``message.created`` / ``message.edited`` events.
+    Payload mirrors the contract every other chat event obeys:
+    ``event`` + ``type`` (duplicated mirror), ``group_id``, ``message_id``,
+    and the event-specific data. The duplication of ``event``/``type`` and
+    the always-present ``group_id`` let the FE branch on a single key
+    consistently across the whole taxonomy — see the wire-protocol block
+    in ``apps.chat.management.consumers``.
     """
     channel_layer = get_channel_layer()
     if channel_layer is None:  # pragma: no cover - misconfig
@@ -62,7 +64,9 @@ def _broadcast_preview(group_id: int, message_id: int, preview: dict[str, str]) 
     envelope = {
         "type": "chat.message",
         "payload": {
+            "event": _PREVIEW_EVENT,
             "type": _PREVIEW_EVENT,
+            "group_id": group_id,
             "message_id": message_id,
             "preview": preview,
         },

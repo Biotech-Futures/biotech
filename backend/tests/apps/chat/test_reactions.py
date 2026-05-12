@@ -77,7 +77,7 @@ class MessageReactionTests(TestCase):
 
     def test_add_reaction_creates_row_and_returns_aggregate(self):
         resp = self.client_alice.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         self.assertEqual(resp.status_code, 200, resp.content)
         reactions = resp.data["reactions"]
@@ -92,10 +92,10 @@ class MessageReactionTests(TestCase):
 
     def test_same_emoji_twice_toggles_off(self):
         self.client_alice.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         resp = self.client_alice.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.data["reactions"], {})
@@ -103,10 +103,10 @@ class MessageReactionTests(TestCase):
 
     def test_two_users_same_emoji_aggregates(self):
         self.client_alice.post(
-            self._react_url(), {"emoji_string": self.HEART}, format="json"
+            self._react_url(), {"emoji": self.HEART}, format="json"
         )
         resp = self.client_bob.post(
-            self._react_url(), {"emoji_string": self.HEART}, format="json"
+            self._react_url(), {"emoji": self.HEART}, format="json"
         )
         self.assertEqual(resp.status_code, 200)
         entry = resp.data["reactions"][self.HEART]
@@ -116,10 +116,10 @@ class MessageReactionTests(TestCase):
 
     def test_user_can_have_multiple_distinct_emojis_on_same_message(self):
         self.client_alice.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         resp = self.client_alice.post(
-            self._react_url(), {"emoji_string": self.HEART}, format="json"
+            self._react_url(), {"emoji": self.HEART}, format="json"
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data["reactions"][self.THUMBS_UP]["count"], 1)
@@ -133,7 +133,7 @@ class MessageReactionTests(TestCase):
 
     def test_list_includes_reactions_field(self):
         self.client_alice.post(
-            self._react_url(), {"emoji_string": self.PARTY}, format="json"
+            self._react_url(), {"emoji": self.PARTY}, format="json"
         )
         resp = self.client_bob.get(self._list_url())
         self.assertEqual(resp.status_code, 200)
@@ -144,7 +144,7 @@ class MessageReactionTests(TestCase):
 
     def test_admin_can_react_in_any_group(self):
         resp = self.client_admin.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         self.assertEqual(resp.status_code, 200, resp.content)
 
@@ -152,20 +152,20 @@ class MessageReactionTests(TestCase):
 
     def test_unsupported_emoji_rejected(self):
         resp = self.client_alice.post(
-            self._react_url(), {"emoji_string": self.UNSUPPORTED}, format="json"
+            self._react_url(), {"emoji": self.UNSUPPORTED}, format="json"
         )
         self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn("emoji_string", resp.data)
+        self.assertIn("emoji", resp.data)
         self.assertFalse(MessageReaction.objects.exists())
 
     def test_missing_emoji_rejected(self):
         resp = self.client_alice.post(self._react_url(), {}, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("emoji_string", resp.data)
+        self.assertIn("emoji", resp.data)
 
     def test_non_string_emoji_rejected(self):
         resp = self.client_alice.post(
-            self._react_url(), {"emoji_string": 123}, format="json"
+            self._react_url(), {"emoji": 123}, format="json"
         )
         self.assertEqual(resp.status_code, 400)
 
@@ -173,20 +173,20 @@ class MessageReactionTests(TestCase):
 
     def test_non_member_forbidden(self):
         resp = self.client_outsider.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         self.assertEqual(resp.status_code, 403)
 
     def test_unauthenticated_forbidden(self):
         resp = APIClient().post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         self.assertIn(resp.status_code, (401, 403))
 
     def test_soft_deleted_message_not_reactable(self):
         self.message.soft_delete()
         resp = self.client_alice.post(
-            self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+            self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
         self.assertEqual(resp.status_code, 404)
 
@@ -200,7 +200,7 @@ class MessageReactionTests(TestCase):
 
         with self.captureOnCommitCallbacks(execute=True):
             resp = self.client_alice.post(
-                self._react_url(), {"emoji_string": self.THUMBS_UP}, format="json"
+                self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
             )
             self.assertEqual(resp.status_code, 200, resp.content)
 

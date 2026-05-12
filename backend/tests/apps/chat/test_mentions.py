@@ -231,6 +231,31 @@ class MentionWireupTests(TestCase):
         mention_for_carol.refresh_from_db()
         self.assertIsNone(mention_for_carol.read_at)
 
+    def test_mark_all_read_clears_only_caller_inbox(self):
+        m1 = Messages.objects.create(group=self.group, sender_user=self.alice, message_text="m1")
+        m2 = Messages.objects.create(group=self.group, sender_user=self.alice, message_text="m2")
+        m3 = Messages.objects.create(group=self.group, sender_user=self.alice, message_text="m3")
+        bob_unread = MessageMention.objects.create(message=m1, mentioned_user=self.bob)
+        bob_unread2 = MessageMention.objects.create(message=m2, mentioned_user=self.bob)
+        carol_unread = MessageMention.objects.create(message=m3, mentioned_user=self.carol)
+
+        resp = self.client_bob.post(reverse("mentions-mark-all-read"))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.data["marked_count"], 2)
+        self.assertEqual(resp.data["unread_count"], 0)
+
+        bob_unread.refresh_from_db(); bob_unread2.refresh_from_db()
+        self.assertIsNotNone(bob_unread.read_at)
+        self.assertIsNotNone(bob_unread2.read_at)
+        carol_unread.refresh_from_db()
+        self.assertIsNone(carol_unread.read_at)  # not touched
+
+    def test_mark_all_read_is_idempotent(self):
+        resp = self.client_bob.post(reverse("mentions-mark-all-read"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["marked_count"], 0)
+        self.assertEqual(resp.data["unread_count"], 0)
+
     def test_inbox_requires_authentication(self):
         anon = APIClient()
         resp = anon.get(reverse("mentions-list"))
