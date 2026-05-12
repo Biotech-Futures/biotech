@@ -552,8 +552,7 @@
                       :key="attachment.id || attachment.attachment_filename"
                       :href="getAttachmentHref(attachment)"
                       class="attachment-chip"
-                      target="_blank"
-                      rel="noopener"
+                      @click.prevent="downloadAttachment(attachment)"
                     >
                       <i class="fas fa-paperclip"></i>
                       {{ getAttachmentLabel(attachment) }}
@@ -1652,6 +1651,53 @@ const getAttachmentHref = (attachment) => {
   const url = String(attachment?.download_url || attachment?.url || '#')
   if (url.startsWith('/')) return `${API_BASE_URL}${url}`
   return url
+}
+
+const getFilenameFromDisposition = (disposition) => {
+  if (!disposition) return ''
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/"/g, ''))
+
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i)
+  return plainMatch?.[1] ? plainMatch[1].trim() : ''
+}
+
+const triggerBrowserDownload = (blob, filename) => {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename || 'attachment'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+const downloadAttachment = async (attachment) => {
+  const url = getAttachmentHref(attachment)
+  if (!url || url === '#') return
+
+  chatError.value = ''
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
+    }
+
+    const blob = await response.blob()
+    const filename =
+      getFilenameFromDisposition(response.headers.get('Content-Disposition')) ||
+      getAttachmentLabel(attachment)
+    triggerBrowserDownload(blob, filename)
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Attachment could not be downloaded.'
+    window.open(url, '_blank', 'noopener')
+  }
 }
 
 const getResourceLabel = (resource) =>
