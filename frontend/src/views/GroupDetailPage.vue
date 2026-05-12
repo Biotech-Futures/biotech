@@ -484,11 +484,20 @@
               {{ chatNotice }}
             </div>
 
-            <div class="chat-messages" ref="msgList">
+            <div class="chat-messages" ref="msgList" @scroll="handleMessagesScroll">
+              <button
+                v-if="nextMessagesBefore"
+                type="button"
+                class="load-older-messages"
+                :disabled="isLoadingOlderMessages"
+                @click="loadOlderMessages"
+              >
+                {{ isLoadingOlderMessages ? 'Loading...' : 'Load older messages' }}
+              </button>
               <div
                 v-for="message in messages"
                 :key="message.id"
-                :class="['message', { own: message.isOwn }]"
+                :class="['message', { own: message.isOwn, pending: message.isLocalOnly }]"
               >
                 <div class="message-avatar">{{ getInitials(message.author) }}</div>
                 <div class="message-content">
@@ -500,32 +509,92 @@
                       <span class="message-time">{{ message.time }}</span>
                     </span>
                   </div>
+                  <div v-if="message.replyTo" class="message-reply">
+                    <span>{{ getReplyLabel(message.replyTo) }}</span>
+                    <strong>{{ getReplyText(message.replyTo) }}</strong>
+                  </div>
                   <img
                     v-if="message.messageType === 'gif' && message.gifUrl"
                     :src="message.gifUrl"
                     :alt="message.text || 'GIF message'"
                     class="message-gif"
                   />
-                  <div v-else class="message-text">{{ message.text }}</div>
+                  <div v-else-if="editingMessageId !== message.id" class="message-text">
+                    {{ message.text }}
+                  </div>
+                  <form v-else class="message-edit-form" @submit.prevent="saveMessageEdit(message)">
+                    <textarea
+                      v-model="editingMessageText"
+                      class="chat-input-field"
+                      rows="2"
+                    ></textarea>
+                    <div class="message-edit-actions">
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-sm message-edit-cancel"
+                        @click="cancelMessageEdit"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        class="btn btn-primary btn-sm message-edit-save"
+                        :disabled="isUpdatingMessage"
+                      >
+                        {{ isUpdatingMessage ? 'Saving...' : 'Save' }}
+                      </button>
+                    </div>
+                  </form>
 
                   <div v-if="message.attachments?.length" class="message-attachments">
                     <a
                       v-for="attachment in message.attachments"
                       :key="attachment.id || attachment.attachment_filename"
-                      href="#"
+                      :href="getAttachmentHref(attachment)"
                       class="attachment-chip"
-                      @click.prevent
+                      target="_blank"
+                      rel="noopener"
                     >
                       <i class="fas fa-paperclip"></i>
                       {{ getAttachmentLabel(attachment) }}
                     </a>
                   </div>
 
-                  <div v-if="message.preview?.title" class="message-preview">
-                    <strong>{{ message.preview.title }}</strong>
+                  <div v-if="message.resources?.length" class="message-attachments">
+                    <RouterLink
+                      v-for="resource in message.resources"
+                      :key="resource.resource_id || resource.id"
+                      :to="`/resources/${resource.resource_id || resource.id}`"
+                      class="attachment-chip"
+                    >
+                      <i class="fas fa-book-open"></i>
+                      {{ getResourceLabel(resource) }}
+                    </RouterLink>
                   </div>
 
-                  <div class="message-reactions">
+                  <div v-if="message.preview" class="message-preview">
+                    <img v-if="message.preview.img" :src="message.preview.img" alt="" />
+                    <strong v-if="message.preview.title">{{ message.preview.title }}</strong>
+                    <span v-if="message.preview.desc">{{ message.preview.desc }}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="reaction-picker-toggle"
+                    :class="{ active: activeReactionPickerMessageId === message.id }"
+                    :disabled="!supportsMessageReactions"
+                    title="Add reaction"
+                    aria-label="Add reaction"
+                    @click="toggleReactionPicker(message.id)"
+                  >
+                    <i class="fas fa-smile"></i>
+                  </button>
+
+                  <div
+                    v-if="activeReactionPickerMessageId === message.id"
+                    class="reaction-picker"
+                    role="menu"
+                  >
                     <button
                       v-for="emoji in CHAT_REACTION_OPTIONS"
                       :key="`${message.id}-${emoji}`"
@@ -540,9 +609,21 @@
                       @click="reactToMessage(message.id, emoji)"
                     >
                       <span>{{ emoji }}</span>
-                      <span v-if="message.reactions?.[emoji]" class="reaction-count">{{
-                        message.reactions[emoji]
-                      }}</span>
+                    </button>
+                  </div>
+
+                  <div v-if="hasMessageReactions(message)" class="message-reactions">
+                    <button
+                      v-for="[emoji, count] in Object.entries(message.reactions)"
+                      :key="`${message.id}-${emoji}-summary`"
+                      type="button"
+                      class="reaction-summary-btn"
+                      :title="supportsMessageReactions ? 'Toggle reaction' : 'Reactions unavailable'"
+                      :disabled="!supportsMessageReactions"
+                      @click="reactToMessage(message.id, emoji)"
+                    >
+                      <span>{{ emoji }}</span>
+                      <span class="reaction-count">{{ count }}</span>
                     </button>
                   </div>
 
@@ -554,15 +635,57 @@
                     <span v-if="message.readCount">Read by {{ message.readCount }}</span>
                     <span v-else>Delivered to {{ message.deliveredCount }}</span>
                   </div>
+                  <div class="message-actions">
+                    <button type="button" class="message-action-btn" @click="setReplyTarget(message)">
+                      Reply
+                    </button>
+                    <button
+                      v-if="canManageMessage(message)"
+                      type="button"
+                      class="message-action-btn"
+                      @click="startMessageEdit(message)"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      v-if="canManageMessage(message)"
+                      type="button"
+                      class="message-action-btn"
+                      :disabled="isDeletingMessageId === message.id"
+                      @click="deleteMessage(message)"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <button
+              v-if="showScrollToBottomButton"
+              type="button"
+              class="scroll-bottom-btn"
+              title="Jump to latest message"
+              aria-label="Jump to latest message"
+              @click="scrollMessagesToBottom"
+            >
+              <i class="fas fa-arrow-down"></i>
+            </button>
 
             <div v-if="typingIndicatorText" class="typing-indicator">
               {{ typingIndicatorText }}
             </div>
 
             <div class="chat-input">
+              <div v-if="replyTarget" class="reply-composer">
+                <div>
+                  <span>Replying to {{ replyTarget.author }}</span>
+                  <strong>{{ replyTarget.text || 'Attachment message' }}</strong>
+                </div>
+                <button type="button" class="message-action-btn" @click="clearReplyTarget">
+                  Cancel
+                </button>
+              </div>
               <div v-if="supportsGifs && showGifPanel" class="gif-panel">
                 <div class="gif-panel-header">
                   <input
@@ -624,6 +747,7 @@
                   <input
                     ref="fileInputRef"
                     type="file"
+                    accept=".pdf,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
                     class="hidden-file-input"
                     @change="uploadAttachment"
                   />
@@ -665,10 +789,10 @@ const router = useRouter()
 const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const supportsGifs = false
-const supportsAttachments = false
+const supportsAttachments = true
 const supportsMessageReactions = true
 const supportsChatClientSocketActions = true
-const CHAT_REACTION_OPTIONS = ['👍', '❤️', '🎉']
+const CHAT_REACTION_OPTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F389}']
 const routeGroupId = computed(() => (route.params.id ? String(route.params.id) : ''))
 const group = ref({
   id: routeGroupId.value || null,
@@ -741,8 +865,11 @@ const composer = ref(null)
 const msgList = ref(null)
 const fileInputRef = ref(null)
 const isLoadingMessages = ref(false)
+const isLoadingOlderMessages = ref(false)
 const isSendingMessage = ref(false)
 const isUploadingFile = ref(false)
+const isUpdatingMessage = ref(false)
+const isDeletingMessageId = ref(null)
 const isLoadingGifs = ref(false)
 const chatError = ref('')
 const chatNotice = ref('')
@@ -752,12 +879,23 @@ const gifQuery = ref('')
 const gifResults = ref([])
 const typingUsers = ref([])
 const wsConnectionState = ref('offline')
+const nextMessagesBefore = ref(null)
+const nextMessagesAfter = ref(null)
+const replyTarget = ref(null)
+const editingMessageId = ref(null)
+const editingMessageText = ref('')
+const manageWindowNow = ref(Date.now())
+const activeReactionPickerMessageId = ref(null)
+const isChatAwayFromBottom = ref(false)
+const hasScrollableMessages = ref(false)
 
 let chatSocket = null
 let typingStopTimer = null
+let manageWindowTimer = null
 let hasSentTypingStart = false
 let lastTypingSentAt = 0
 const typingUserTimers = new Map()
+const SCROLL_BOTTOM_THRESHOLD = 96
 
 const getInitials = (name) =>
   String(name || 'U')
@@ -840,8 +978,14 @@ const buildChatUploadUrl = (groupId) =>
 const buildChatReactionUrl = (groupId, messageId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/react/`
 
+const buildChatMessageUrl = (groupId, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/`
+
 const buildChatReadUrl = (groupId, messageId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/read/`
+
+const buildChatDeliveredUrl = (groupId, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/delivered/`
 
 const buildGifSearchUrl = (query) =>
   `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
@@ -1453,13 +1597,16 @@ const normalizeMessage = (item) => {
   const sentAt = raw?.sent_at || raw?.sent_datetime || raw?.created_at || new Date().toISOString()
   const senderId = Number(raw?.sender_user || raw?.sender_id || raw?.sender_user_id || 0)
   const currentUserId = Number(auth.user?.id || 0)
-  const isOwn = raw?.isOwn === true || (currentUserId > 0 && senderId === currentUserId)
+  const displayName = auth.displayName || ''
+  const senderName = raw?.sender_name || raw?.author || ''
+  const isOwn =
+    raw?.isOwn === true ||
+    (currentUserId > 0 && senderId === currentUserId) ||
+    (senderName && displayName && senderName === displayName)
   const messageText = raw?.message_text || raw?.text || ''
   const messageType = raw?.message_type || 'text'
-  const attachments = [
-    ...(Array.isArray(raw?.attachments) ? raw.attachments : []),
-    ...(Array.isArray(raw?.resources) ? raw.resources : []),
-  ]
+  const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
+  const resources = Array.isArray(raw?.resources) ? raw.resources : []
   const author = isOwn
     ? 'You'
     : raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member')
@@ -1475,9 +1622,14 @@ const normalizeMessage = (item) => {
     messageType,
     gifUrl: messageType === 'gif' ? messageText : '',
     attachments,
+    resources,
     reactions: normalizeReactionMap(raw?.reactions),
     preview: raw?.preview || null,
+    replyTo: raw?.reply_to || null,
     editedAt: raw?.edited_at || null,
+    deletedAt: raw?.deleted_at || null,
+    isEdited: Boolean(raw?.is_edited || raw?.isEdited || raw?.edited_at),
+    isDeleted: Boolean(raw?.is_deleted || raw?.isDeleted || raw?.deleted_at),
     readCount: Number(raw?.read_count || raw?.readCount || 0),
     deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
     isReadByMe: Boolean(raw?.is_read_by_me || raw?.isReadByMe),
@@ -1491,10 +1643,29 @@ const normalizeMessage = (item) => {
 const getAttachmentLabel = (attachment) => {
   return (
     attachment?.attachment_filename ||
-    attachment?.resource_name ||
     attachment?.name ||
-    (attachment?.resource_id ? `Resource ${attachment.resource_id}` : 'Attachment')
+    'Attachment'
   )
+}
+
+const getAttachmentHref = (attachment) => {
+  const url = String(attachment?.download_url || attachment?.url || '#')
+  if (url.startsWith('/')) return `${API_BASE_URL}${url}`
+  return url
+}
+
+const getResourceLabel = (resource) =>
+  resource?.resource_name || resource?.name || `Resource ${resource?.resource_id || resource?.id || ''}`
+
+const getReplyLabel = (reply) => {
+  if (!reply) return ''
+  return reply.deleted ? 'Deleted message' : `Reply to User ${reply.user_id || ''}`.trim()
+}
+
+const getReplyText = (reply) => {
+  if (!reply) return ''
+  if (reply.deleted) return 'Original message was deleted.'
+  return reply.text || 'Attachment message'
 }
 
 const getBackendGroupId = () => {
@@ -1732,6 +1903,10 @@ const typingIndicatorText = computed(() => {
   return `${typingUsers.value[0]} and others are typing...`
 })
 
+const showScrollToBottomButton = computed(
+  () => hasScrollableMessages.value && isChatAwayFromBottom.value,
+)
+
 const applyMessageUpdate = (messageId, updater) => {
   const index = messages.value.findIndex((message) => String(message.id) === String(messageId))
   if (index === -1) return
@@ -1758,6 +1933,11 @@ const findMatchingPendingMessageIndex = (message) => {
 
 const upsertMessage = (message) => {
   const normalized = normalizeMessage(message)
+  const normalizedId = Number(normalized.id)
+  if (Number.isFinite(normalizedId)) {
+    const currentAfter = Number(nextMessagesAfter.value || 0)
+    nextMessagesAfter.value = Math.max(currentAfter, normalizedId)
+  }
   const index = messages.value.findIndex((item) => String(item.id) === String(normalized.id))
   if (index === -1) {
     const pendingIndex = findMatchingPendingMessageIndex(normalized)
@@ -1798,6 +1978,15 @@ const addTypingUser = (name) => {
       removeTypingUser(name)
     }, 4500),
   )
+}
+
+const hasMessageReactions = (message) =>
+  Object.values(message?.reactions || {}).some((count) => Number(count) > 0)
+
+const toggleReactionPicker = (messageId) => {
+  if (!supportsMessageReactions) return
+  activeReactionPickerMessageId.value =
+    activeReactionPickerMessageId.value === messageId ? null : messageId
 }
 
 const sendSocketAction = (payload) => {
@@ -1935,9 +2124,124 @@ const markMessagesAsRead = async (messageIds) => {
   }
 }
 
+const markMessagesAsDelivered = async (messageIds) => {
+  const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
+  if (!ids.length) return
+
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) return
+
+  const upToId = Math.max(...ids)
+  try {
+    const data = await requestJson(buildChatDeliveredUrl(backendGroupId, upToId), {
+      method: 'POST',
+    })
+    applyDeliveredCursor(auth.user?.id, data?.up_to_id || upToId)
+  } catch (error) {
+    console.error('Failed to mark messages as delivered:', error)
+  }
+}
+
+const updateScrollToBottomState = () => {
+  const element = msgList.value
+  if (!element) {
+    hasScrollableMessages.value = false
+    isChatAwayFromBottom.value = false
+    return
+  }
+
+  const scrollableDistance = element.scrollHeight - element.clientHeight
+  const distanceFromBottom = scrollableDistance - element.scrollTop
+  hasScrollableMessages.value = scrollableDistance > SCROLL_BOTTOM_THRESHOLD
+  isChatAwayFromBottom.value =
+    hasScrollableMessages.value && distanceFromBottom > SCROLL_BOTTOM_THRESHOLD
+}
+
+const handleMessagesScroll = () => {
+  updateScrollToBottomState()
+}
+
 const scrollMessagesToBottom = async () => {
   await nextTick()
-  if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+  if (msgList.value) {
+    msgList.value.scrollTop = msgList.value.scrollHeight
+    updateScrollToBottomState()
+  }
+}
+
+const setReplyTarget = (message) => {
+  if (!message || isPendingMessage(message)) return
+  replyTarget.value = message
+  composer.value?.focus()
+}
+
+const clearReplyTarget = () => {
+  replyTarget.value = null
+}
+
+const canManageMessage = (message) => {
+  if (!message || isPendingMessage(message) || message.isDeleted) return false
+  if (auth.isAdmin) return true
+  if (!message.isOwn) return false
+
+  const sentAt = new Date(message.date).getTime()
+  if (!Number.isFinite(sentAt)) return false
+  return manageWindowNow.value - sentAt <= 10 * 60 * 1000
+}
+
+const startMessageEdit = (message) => {
+  if (!canManageMessage(message)) return
+  editingMessageId.value = message.id
+  editingMessageText.value = message.text || ''
+  nextTick(() => composer.value?.blur())
+}
+
+const cancelMessageEdit = () => {
+  editingMessageId.value = null
+  editingMessageText.value = ''
+}
+
+const saveMessageEdit = async (message) => {
+  const backendGroupId = getBackendGroupId()
+  const text = editingMessageText.value.trim()
+  if (!backendGroupId || !message?.id || !text || isUpdatingMessage.value) return
+
+  isUpdatingMessage.value = true
+  chatError.value = ''
+
+  try {
+    const updated = await requestJson(buildChatMessageUrl(backendGroupId, message.id), {
+      method: 'PATCH',
+      body: JSON.stringify({ message_text: text }),
+    })
+    upsertMessage(updated)
+    cancelMessageEdit()
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Message could not be edited.'
+  } finally {
+    isUpdatingMessage.value = false
+  }
+}
+
+const deleteMessage = async (message) => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId || !message?.id || isDeletingMessageId.value) return
+  const confirmed = window.confirm('Delete this message?')
+  if (!confirmed) return
+
+  isDeletingMessageId.value = message.id
+  chatError.value = ''
+
+  try {
+    await requestJson(buildChatMessageUrl(backendGroupId, message.id), {
+      method: 'DELETE',
+    })
+    messages.value = messages.value.filter((item) => String(item.id) !== String(message.id))
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Message could not be deleted.'
+  } finally {
+    isDeletingMessageId.value = null
+  }
 }
 
 const disconnectChatSocket = () => {
@@ -1954,8 +2258,9 @@ const disconnectChatSocket = () => {
 
 const handleSocketPayload = async (payload) => {
   if (!payload || typeof payload !== 'object') return
+  const eventName = payload.event || payload.type
 
-  if (payload.type === 'user.typing' || payload.event === 'user.typing') {
+  if (eventName === 'user.typing') {
     const currentUserId = Number(auth.user?.id || 0)
     if (Number(payload.user_id) === currentUserId) return
 
@@ -1968,7 +2273,7 @@ const handleSocketPayload = async (payload) => {
     return
   }
 
-  if (payload.type === 'message.reaction_updated') {
+  if (eventName === 'message.reaction_updated') {
     applyMessageUpdate(payload.message_id, (message) => ({
       ...message,
       reactions: normalizeReactionMap(payload.reactions),
@@ -1976,20 +2281,17 @@ const handleSocketPayload = async (payload) => {
     return
   }
 
-  if (payload.type === 'message.read_updated' || payload.event === 'message.read_updated') {
+  if (eventName === 'message.read_updated') {
     applyReadCursor(payload.reader_id, payload.up_to_id)
     return
   }
 
-  if (
-    payload.type === 'message.delivered_updated' ||
-    payload.event === 'message.delivered_updated'
-  ) {
+  if (eventName === 'message.delivered_updated') {
     applyDeliveredCursor(payload.user_id, payload.up_to_id)
     return
   }
 
-  if (payload.type === 'message.preview_ready') {
+  if (eventName === 'message.preview_ready') {
     applyMessageUpdate(payload.message_id, (message) => ({
       ...message,
       preview: payload.preview || null,
@@ -1997,7 +2299,6 @@ const handleSocketPayload = async (payload) => {
     return
   }
 
-  const eventName = payload.event
   if (eventName === 'mention.created') {
     const currentGroupId = Number(getBackendGroupId() || 0)
     const mentionedGroupId = Number(payload.group_id || 0)
@@ -2041,6 +2342,17 @@ const handleSocketPayload = async (payload) => {
 
   if (eventName === 'message.deleted') {
     if (!socketMessageId) return
+    messages.value = messages.value.map((message) => {
+      if (String(message.replyTo?.id) !== String(socketMessageId)) return message
+      return {
+        ...message,
+        replyTo: {
+          ...message.replyTo,
+          text: null,
+          deleted: true,
+        },
+      }
+    })
     messages.value = messages.value.filter(
       (message) => String(message.id) !== String(socketMessageId),
     )
@@ -2064,6 +2376,7 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
+    void loadNewerMessages()
     void markMessagesAsRead(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
@@ -2107,16 +2420,80 @@ const loadMessages = async () => {
     const liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
 
     messages.value = liveMessages.length ? liveMessages : []
+    nextMessagesAfter.value = data?.next_after || null
+    nextMessagesBefore.value = data?.next_before || null
   } catch (error) {
     chatError.value =
       error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
     messages.value = []
+    nextMessagesAfter.value = null
+    nextMessagesBefore.value = null
   } finally {
     isLoadingMessages.value = false
     await scrollMessagesToBottom()
+    await markMessagesAsDelivered(
+      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
+    )
     await markMessagesAsRead(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
+  }
+}
+
+const loadOlderMessages = async () => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId || !nextMessagesBefore.value || isLoadingOlderMessages.value) return
+
+  isLoadingOlderMessages.value = true
+  chatError.value = ''
+
+  try {
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(
+        backendGroupId,
+        `?limit=50&before=${encodeURIComponent(nextMessagesBefore.value)}`,
+      ),
+    )
+    const olderMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    const existingIds = new Set(messages.value.map((message) => String(message.id)))
+    messages.value = [
+      ...olderMessages.filter((message) => !existingIds.has(String(message.id))),
+      ...messages.value,
+    ]
+    nextMessagesBefore.value = data?.next_before || null
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Older messages could not be loaded.'
+  } finally {
+    isLoadingOlderMessages.value = false
+  }
+}
+
+const loadNewerMessages = async () => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId || !nextMessagesAfter.value) return
+
+  try {
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(
+        backendGroupId,
+        `?limit=100&after=${encodeURIComponent(nextMessagesAfter.value)}`,
+      ),
+    )
+    const newerMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    if (newerMessages.length) {
+      const existingIds = new Set(messages.value.map((message) => String(message.id)))
+      messages.value = [
+        ...messages.value,
+        ...newerMessages.filter((message) => !existingIds.has(String(message.id))),
+      ]
+      await scrollMessagesToBottom()
+      await markMessagesAsRead(
+        newerMessages.filter((message) => !message.isOwn).map((message) => message.id),
+      )
+    }
+    nextMessagesAfter.value = data?.next_after || nextMessagesAfter.value
+  } catch (error) {
+    console.error('Failed to backfill newer chat messages:', error)
   }
 }
 
@@ -2202,10 +2579,20 @@ const sendMessage = async () => {
     date: now.toISOString(),
     isOwn: true,
     message_type: 'text',
+    reply_to: replyTarget.value
+      ? {
+          id: replyTarget.value.id,
+          text: replyTarget.value.text,
+          user_id: replyTarget.value.senderId,
+          deleted: false,
+        }
+      : null,
   }
 
   messages.value.push(normalizeMessage(draftMessage))
+  const currentReplyTarget = replyTarget.value
   newMessage.value = ''
+  clearReplyTarget()
   stopTypingIndicator()
   await scrollMessagesToBottom()
 
@@ -2218,12 +2605,13 @@ const sendMessage = async () => {
         method: 'POST',
         body: JSON.stringify({
           message_text: text,
-          message_type: 'text',
+          ...(currentReplyTarget?.id ? { reply_to_id: currentReplyTarget.id } : {}),
         }),
       },
     })
   } catch {
     newMessage.value = text
+    replyTarget.value = currentReplyTarget
   } finally {
     isSendingMessage.value = false
     composer.value?.focus()
@@ -2254,8 +2642,38 @@ const uploadAttachment = async (event) => {
   const input = event?.target
   const file = input?.files?.[0]
   if (!file || isUploadingFile.value) return
-  chatError.value = `Upload for ${file.name} is not available in the backend yet.`
-  if (input) input.value = ''
+  if (replyTarget.value) {
+    chatError.value = 'Attachment replies are not supported by the upload endpoint yet.'
+    if (input) input.value = ''
+    return
+  }
+  const caption = newMessage.value.trim()
+  const formData = new FormData()
+  formData.append('uploaded_file', file)
+  if (caption) formData.append('message_text', caption)
+
+  isUploadingFile.value = true
+  chatError.value = ''
+
+  try {
+    const savedMessage = await sendMessagePayload({
+      body: 'upload',
+      requestOptions: {
+        method: 'POST',
+        body: formData,
+      },
+    })
+    if (savedMessage) {
+      newMessage.value = ''
+      clearReplyTarget()
+    }
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : `Upload for ${file.name} failed.`
+  } finally {
+    isUploadingFile.value = false
+    if (input) input.value = ''
+    composer.value?.focus()
+  }
 }
 
 const fetchGifResults = async (mode = 'trending') => {
@@ -2317,13 +2735,14 @@ const reactToMessage = async (messageId, emoji) => {
     const data = await requestJson(buildChatReactionUrl(backendGroupId, messageId), {
       method: 'POST',
       body: JSON.stringify({
-        emoji_string: emoji,
+        emoji,
       }),
     })
     applyMessageUpdate(messageId, (message) => ({
       ...message,
       reactions: normalizeReactionMap(data?.reactions),
     }))
+    activeReactionPickerMessageId.value = null
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Reaction could not be updated.'
   }
@@ -2347,6 +2766,7 @@ const reloadGroupDetail = async () => {
   taskError.value = ''
   chatError.value = ''
   chatNotice.value = ''
+  activeReactionPickerMessageId.value = null
 
   try {
     await loadGroup()
@@ -2380,6 +2800,10 @@ watch(
 )
 
 onMounted(async () => {
+  manageWindowTimer = window.setInterval(() => {
+    manageWindowNow.value = Date.now()
+  }, 30000)
+
   await ensureAuthUser()
   await loadGroupOptions()
   if (!routeGroupId.value && availableGroups.value.length) {
@@ -2393,6 +2817,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   disconnectChatSocket()
   clearTimeout(typingStopTimer)
+  if (manageWindowTimer) {
+    clearInterval(manageWindowTimer)
+    manageWindowTimer = null
+  }
 })
 </script>
 
@@ -2841,6 +3269,198 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
 }
 
+.scroll-bottom-btn {
+  position: absolute;
+  right: 1rem;
+  bottom: 5.9rem;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--dark-green);
+  color: var(--white);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.scroll-bottom-btn:hover {
+  background: #015f45;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+  transform: translateY(-1px);
+}
+
+.load-older-messages {
+  align-self: center;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--air-force-blue);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.45rem 0.8rem;
+}
+
+.load-older-messages:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.message.pending {
+  opacity: 0.72;
+}
+
+.message-reply,
+.reply-composer {
+  border-left: 3px solid var(--air-force-blue);
+  background: rgba(57, 104, 123, 0.08);
+}
+
+.message-reply {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0.4rem 0 0.55rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+}
+
+.message-reply span,
+.reply-composer span {
+  color: #6c757d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.message-reply strong,
+.reply-composer strong {
+  color: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.message.own .message-reply {
+  border-left-color: var(--white);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.message.own .message-reply span {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.message.own .message-reply strong {
+  color: var(--white);
+}
+
+.message-edit-form {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+}
+
+.message-edit-actions,
+.message-actions,
+.reply-composer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.message-edit-actions {
+  justify-content: flex-end;
+}
+
+.message-edit-actions .message-edit-cancel {
+  background: var(--white);
+  border-color: #b9c4ca;
+  color: var(--charcoal);
+}
+
+.message-edit-actions .message-edit-cancel:hover {
+  background: #eef3f5;
+  border-color: var(--dark-green);
+  color: var(--dark-green);
+}
+
+.message-edit-actions .message-edit-save {
+  background: var(--dark-green);
+  border: 1px solid var(--dark-green);
+  color: var(--white);
+}
+
+.message-edit-actions .message-edit-save:hover {
+  background: #015f45;
+  border-color: #015f45;
+}
+
+.message.own .message-edit-actions .message-edit-cancel {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.72);
+  color: var(--white);
+}
+
+.message.own .message-edit-actions .message-edit-cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--white);
+  color: var(--white);
+}
+
+.message.own .message-edit-actions .message-edit-save {
+  background: var(--white);
+  border-color: var(--white);
+  color: var(--dark-green);
+}
+
+.message.own .message-edit-actions .message-edit-save:hover {
+  background: #eef7f3;
+  border-color: #eef7f3;
+  color: var(--dark-green);
+}
+
+.message-actions {
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+
+.message-action-btn {
+  border: 0;
+  background: transparent;
+  color: var(--air-force-blue);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.1rem 0;
+}
+
+.message-action-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.reply-composer {
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+}
+
+.reply-composer > div {
+  display: grid;
+  min-width: 0;
+}
+
+.reply-composer strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gif-panel {
   border-top: 1px solid var(--border-default);
   border-bottom: 1px solid var(--border-default);
@@ -3018,12 +3638,26 @@ onBeforeUnmount(() => {
 }
 
 .message-preview {
+  display: grid;
+  gap: 0.35rem;
   margin-top: 0.7rem;
   padding: 0.75rem 0.85rem;
   border-radius: 16px;
   border: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-base) 86%, transparent);
   color: var(--text-primary);
+}
+
+.message-preview img {
+  width: 100%;
+  max-height: 160px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.message-preview span {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
 }
 
 .message-reactions {
@@ -3033,7 +3667,8 @@ onBeforeUnmount(() => {
   margin-top: 0.75rem;
 }
 
-.reaction-btn {
+.reaction-btn,
+.reaction-summary-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -3049,7 +3684,8 @@ onBeforeUnmount(() => {
     background 0.18s ease;
 }
 
-.reaction-btn:hover {
+.reaction-btn:hover,
+.reaction-summary-btn:hover {
   border-color: var(--border-strong);
 }
 
@@ -3531,6 +4167,7 @@ onBeforeUnmount(() => {
 .message-preview,
 .attachment-chip,
 .reaction-btn,
+.reaction-summary-btn,
 .gif-card {
   border: 1px solid var(--border-light);
   background: var(--white);
@@ -3538,16 +4175,25 @@ onBeforeUnmount(() => {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
+.message-content {
+  position: relative;
+}
+
+.message-header {
+  padding-right: 2.2rem;
+}
+
 .message.own .message-content {
-  background: var(--air-force-blue);
+  background: var(--dark-green);
   color: var(--white);
-  border-color: var(--air-force-blue);
+  border-color: var(--dark-green);
 }
 
 .message.own .message-author,
 .message.own .message-time,
 .message.own .message-date,
-.pane--discussion .message.own .message-text {
+.pane--discussion .message.own .message-text,
+.message.own .message-action-btn {
   color: var(--white) !important;
 }
 
@@ -3556,7 +4202,78 @@ onBeforeUnmount(() => {
   color: var(--air-force-blue);
 }
 
-.reaction-btn:hover {
+.reaction-picker-toggle {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--air-force-blue);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.message-content:hover .reaction-picker-toggle,
+.message-content:focus-within .reaction-picker-toggle,
+.reaction-picker-toggle.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.reaction-picker-toggle:hover,
+.reaction-picker-toggle.active {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+}
+
+.message.own .reaction-picker-toggle {
+  border-color: rgba(255, 255, 255, 0.56);
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--white);
+}
+
+.message.own .reaction-picker-toggle:hover,
+.message.own .reaction-picker-toggle.active {
+  border-color: var(--white);
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.reaction-picker {
+  position: absolute;
+  top: 2.55rem;
+  right: 0.55rem;
+  z-index: 2;
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+}
+
+.reaction-picker .reaction-btn {
+  width: 2rem;
+  height: 2rem;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: none;
+}
+
+.reaction-btn:hover,
+.reaction-summary-btn:hover {
   border-color: var(--air-force-blue);
   background: #f8f9fa;
 }
