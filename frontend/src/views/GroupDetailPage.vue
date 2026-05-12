@@ -2308,6 +2308,15 @@ const scrollMessagesToBottom = async () => {
   }
 }
 
+const scrollMessagesToBottomAfterRender = async () => {
+  await scrollMessagesToBottom()
+  await new Promise((resolve) => window.requestAnimationFrame(resolve))
+  await scrollMessagesToBottom()
+  window.setTimeout(() => {
+    void scrollMessagesToBottom()
+  }, 120)
+}
+
 const setReplyTarget = (message) => {
   if (!message || isPendingMessage(message)) return
   replyTarget.value = message
@@ -2569,7 +2578,7 @@ const loadMessages = async () => {
     nextMessagesBefore.value = null
   } finally {
     isLoadingMessages.value = false
-    await scrollMessagesToBottom()
+    await scrollMessagesToBottomAfterRender()
     await markMessagesAsDelivered(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
@@ -2962,6 +2971,9 @@ const reloadGroupDetail = async () => {
     if (sequence !== loadSequence) return
 
     await Promise.all([loadTasks(), loadMessages()])
+    if (sequence !== loadSequence) return
+
+    await scrollMessagesToBottomAfterRender()
     if (sequence !== loadSequence) return
 
     connectChatSocket()
