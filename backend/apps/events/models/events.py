@@ -34,7 +34,8 @@ class Events(models.Model):
     # un-mailed attendees rather than re-spamming the ones who already
     # got their reminder on restart.
     reminder_1h_sent = models.BooleanField(default=False)
-
+    reminder_sent = models.BooleanField(default=False)
+    
     class Meta:
         db_table = "events"
         verbose_name = "Event"
