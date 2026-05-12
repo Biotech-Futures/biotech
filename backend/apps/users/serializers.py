@@ -53,9 +53,14 @@ class UserSerializer(serializers.ModelSerializer):
     ment_reason = serializers.SerializerMethodField()
     ment_max_groups = serializers.SerializerMethodField()
 
+    # Onboarding gate: tells the FE whether the user is still on their
+    # invited/default-password state and must complete the password set/change
+    # flow before they're allowed into the dashboard. See `get_must_change_password`.
+    must_change_password = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups"]
+        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups", "must_change_password"]
         read_only_fields = ["id"]
 
     def _active_assignment(self, user):
@@ -143,6 +148,21 @@ class UserSerializer(serializers.ModelSerializer):
     def get_ment_max_groups(self, obj):
         mp = self._mentor_profile(obj)
         return None if mp is None else mp.max_group_count
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_must_change_password(self, obj) -> bool:
+        # Source of truth is Django's `has_usable_password()`. Users created via
+        # the admin bulk-create / self-registration paths start with an unusable
+        # password (they onboard via OTP / magic link), so this returns True
+        # until they complete `AdminSetPasswordView`, `confirm_password_reset`,
+        # or any other code path that calls `set_password(...)`. As soon as a
+        # usable password exists this flips to False — exactly the contract the
+        # FE asked for ("becomes false after they successfully update their
+        # password"). This mirrors the signal already exposed to the admin
+        # portal via `AdminPasswordStatusView.hasPassword` and so requires no
+        # new schema / migration.
+        return not obj.has_usable_password()
+
 
 class UserStatusPatchSerializer(serializers.ModelSerializer):
     class Meta:
