@@ -172,7 +172,7 @@ const handleLogout = async () => {
 }
 
 const isLoginPage = computed(() =>
-  ['/login', '/auth/callback', '/auth/reset-password'].includes(route.path),
+  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
 )
 
 const showUserMenu = ref(false)
