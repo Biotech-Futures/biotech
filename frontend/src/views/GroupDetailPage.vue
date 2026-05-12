@@ -685,6 +685,53 @@
                   Cancel
                 </button>
               </div>
+              <div v-if="selectedChatResources.length" class="selected-resource-strip">
+                <span>Resources</span>
+                <button
+                  v-for="resource in selectedChatResources"
+                  :key="resource.id"
+                  type="button"
+                  class="selected-resource-chip"
+                  @click="toggleSelectedResource(resource)"
+                >
+                  <i class="fas fa-book-open"></i>
+                  {{ resource.resource_name }}
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <div v-if="showResourcePanel" class="resource-panel">
+                <div class="resource-panel-header">
+                  <input
+                    v-model.trim="resourceQuery"
+                    type="search"
+                    class="gif-search-input"
+                    placeholder="Search resources"
+                    @keydown.enter.prevent="loadChatResources"
+                  />
+                  <button type="button" class="btn btn-outline btn-sm" @click="loadChatResources">
+                    Search
+                  </button>
+                </div>
+                <div v-if="resourcePickerError" class="gif-status">{{ resourcePickerError }}</div>
+                <div v-if="isLoadingResources" class="gif-status">Loading resources...</div>
+                <div v-else class="resource-picker-list">
+                  <button
+                    v-for="resource in chatResourceOptions"
+                    :key="resource.id"
+                    type="button"
+                    class="resource-picker-row"
+                    :class="{ selected: isResourceSelected(resource.id) }"
+                    @click="toggleSelectedResource(resource)"
+                  >
+                    <i class="fas fa-book-open"></i>
+                    <span>{{ resource.resource_name }}</span>
+                    <i v-if="isResourceSelected(resource.id)" class="fas fa-check"></i>
+                  </button>
+                  <div v-if="!chatResourceOptions.length && !resourcePickerError" class="gif-status">
+                    No resources found.
+                  </div>
+                </div>
+              </div>
               <div v-if="supportsGifs && showGifPanel" class="gif-panel">
                 <div class="gif-panel-header">
                   <input
@@ -743,6 +790,15 @@
                   >
                     <i class="fas fa-paperclip"></i>
                   </button>
+                  <button
+                    class="chat-btn"
+                    type="button"
+                    title="Attach resource"
+                    :disabled="isLoadingResources"
+                    @click="toggleResourcePanel"
+                  >
+                    <i class="fas fa-book-open"></i>
+                  </button>
                   <input
                     ref="fileInputRef"
                     type="file"
@@ -752,7 +808,7 @@
                   />
                   <button
                     class="chat-btn"
-                    :disabled="isSendingMessage || !newMessage.trim()"
+                    :disabled="isSendingMessage || !canSendChatMessage"
                     @click="sendMessage"
                     title="Send"
                   >
@@ -774,6 +830,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { fetchResources } from '@/utils/resourcesAPI'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -876,6 +933,12 @@ const gifError = ref('')
 const showGifPanel = ref(false)
 const gifQuery = ref('')
 const gifResults = ref([])
+const showResourcePanel = ref(false)
+const resourceQuery = ref('')
+const chatResourceOptions = ref([])
+const selectedChatResources = ref([])
+const isLoadingResources = ref(false)
+const resourcePickerError = ref('')
 const typingUsers = ref([])
 const wsConnectionState = ref('offline')
 const nextMessagesBefore = ref(null)
@@ -1714,6 +1777,32 @@ const getReplyText = (reply) => {
   return reply.text || 'Attachment message'
 }
 
+const normalizeChatResource = (resource) => ({
+  id: Number(resource?.id || resource?.resource_id || 0),
+  resource_name: resource?.resource_name || resource?.name || 'Untitled resource',
+})
+
+const isResourceSelected = (resourceId) =>
+  selectedChatResources.value.some((resource) => Number(resource.id) === Number(resourceId))
+
+const toggleSelectedResource = (resource) => {
+  const normalized = normalizeChatResource(resource)
+  if (!normalized.id) return
+
+  if (isResourceSelected(normalized.id)) {
+    selectedChatResources.value = selectedChatResources.value.filter(
+      (item) => Number(item.id) !== Number(normalized.id),
+    )
+    return
+  }
+
+  selectedChatResources.value = [...selectedChatResources.value, normalized]
+}
+
+const clearSelectedResources = () => {
+  selectedChatResources.value = []
+}
+
 const getBackendGroupId = () => {
   const id = group.value?.id || routeGroupId.value
   return /^\d+$/.test(String(id || '')) ? String(id) : ''
@@ -1951,6 +2040,10 @@ const typingIndicatorText = computed(() => {
 
 const showScrollToBottomButton = computed(
   () => hasScrollableMessages.value && isChatAwayFromBottom.value,
+)
+
+const canSendChatMessage = computed(
+  () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
 )
 
 const applyMessageUpdate = (messageId, updater) => {
@@ -2609,7 +2702,7 @@ const sendMessagePayload = async ({
 
 const sendMessage = async () => {
   const text = newMessage.value.trim()
-  if (!text || isSendingMessage.value) return
+  if (!canSendChatMessage.value || isSendingMessage.value) return
   if (!getBackendGroupId()) {
     chatError.value = 'Live discussion needs a backend numeric group id.'
     return
@@ -2617,6 +2710,7 @@ const sendMessage = async () => {
 
   const now = new Date()
   const pendingId = `pending-${Date.now()}`
+  const selectedResources = selectedChatResources.value.map((resource) => ({ ...resource }))
   const draftMessage = {
     id: pendingId,
     author: 'You',
@@ -2625,6 +2719,10 @@ const sendMessage = async () => {
     date: now.toISOString(),
     isOwn: true,
     message_type: 'text',
+    resources: selectedResources.map((resource) => ({
+      resource_id: resource.id,
+      resource_name: resource.resource_name,
+    })),
     reply_to: replyTarget.value
       ? {
           id: replyTarget.value.id,
@@ -2639,6 +2737,8 @@ const sendMessage = async () => {
   const currentReplyTarget = replyTarget.value
   newMessage.value = ''
   clearReplyTarget()
+  clearSelectedResources()
+  showResourcePanel.value = false
   stopTypingIndicator()
   await scrollMessagesToBottom()
 
@@ -2651,6 +2751,9 @@ const sendMessage = async () => {
         method: 'POST',
         body: JSON.stringify({
           message_text: text,
+          ...(selectedResources.length
+            ? { resources: selectedResources.map((resource) => ({ resource_id: resource.id })) }
+            : {}),
           ...(currentReplyTarget?.id ? { reply_to_id: currentReplyTarget.id } : {}),
         }),
       },
@@ -2658,6 +2761,7 @@ const sendMessage = async () => {
   } catch {
     newMessage.value = text
     replyTarget.value = currentReplyTarget
+    selectedChatResources.value = selectedResources
   } finally {
     isSendingMessage.value = false
     composer.value?.focus()
@@ -2690,6 +2794,11 @@ const uploadAttachment = async (event) => {
   if (!file || isUploadingFile.value) return
   if (replyTarget.value) {
     chatError.value = 'Attachment replies are not supported by the upload endpoint yet.'
+    if (input) input.value = ''
+    return
+  }
+  if (selectedChatResources.value.length) {
+    chatError.value = 'Send selected resources as a chat message before uploading a local file.'
     if (input) input.value = ''
     return
   }
@@ -2754,6 +2863,7 @@ const toggleGifPanel = async () => {
     return
   }
   showGifPanel.value = !showGifPanel.value
+  if (showGifPanel.value) showResourcePanel.value = false
   if (showGifPanel.value) {
     await fetchGifResults('trending')
   }
@@ -2766,6 +2876,36 @@ const searchGifs = async () => {
   }
 
   await fetchGifResults('search')
+}
+
+const loadChatResources = async () => {
+  isLoadingResources.value = true
+  resourcePickerError.value = ''
+
+  try {
+    const data = await fetchResources({
+      search: resourceQuery.value.trim(),
+      page_size: 20,
+      order: 'newest',
+    })
+    chatResourceOptions.value = extractCollectionItems(data)
+      .map(normalizeChatResource)
+      .filter((resource) => resource.id)
+  } catch (error) {
+    chatResourceOptions.value = []
+    resourcePickerError.value =
+      error instanceof Error ? error.message : 'Resources could not be loaded.'
+  } finally {
+    isLoadingResources.value = false
+  }
+}
+
+const toggleResourcePanel = async () => {
+  showResourcePanel.value = !showResourcePanel.value
+  if (showResourcePanel.value) showGifPanel.value = false
+  if (showResourcePanel.value && !chatResourceOptions.value.length) {
+    await loadChatResources()
+  }
 }
 
 const reactToMessage = async (messageId, emoji) => {
@@ -3505,6 +3645,96 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.selected-resource-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  border-top: 1px solid var(--border-light);
+  background: #f8f9fa;
+}
+
+.selected-resource-strip > span {
+  color: #6c757d;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.selected-resource-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: min(100%, 260px);
+  border: 1px solid var(--dark-green);
+  border-radius: 999px;
+  background: #eef7f3;
+  color: var(--dark-green);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem;
+}
+
+.selected-resource-chip i:first-child,
+.resource-picker-row i:first-child {
+  flex: 0 0 auto;
+}
+
+.selected-resource-chip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-panel {
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+  background: var(--white);
+  padding: 0.85rem;
+}
+
+.resource-panel-header {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.resource-picker-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.resource-picker-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.resource-picker-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-picker-row:hover,
+.resource-picker-row.selected {
+  border-color: var(--dark-green);
+  background: #eef7f3;
+  color: var(--dark-green);
 }
 
 .gif-panel {
