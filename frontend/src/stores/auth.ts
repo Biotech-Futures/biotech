@@ -11,6 +11,7 @@ interface User {
   email: string
   first_name: string
   last_name: string
+  must_change_password?: boolean
   status?: boolean
   current_role_id?: number | null
   current_role_name?: string | null
@@ -129,6 +130,8 @@ export const useAuthStore = defineStore('auth', {
 
     isTeacher: (state) => ['mentor', 'supervisor'].includes(resolveNormalizedRole(state.user)),
 
+    mustChangePassword: (state) => state.user?.must_change_password === true,
+
     displayName: (state) => {
       const fullName = `${state.user?.first_name || ''} ${state.user?.last_name || ''}`.trim()
       return fullName || state.user?.email || 'User'
@@ -233,6 +236,45 @@ export const useAuthStore = defineStore('auth', {
       try {
         localStorage.setItem('auth.user', JSON.stringify(userData))
       } catch {}
+    },
+
+    async setInitialPassword(password: string) {
+      const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+      if (!csrfReady) {
+        throw new Error('Could not initialize a secure session. Please refresh and try again.')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/auth/set-password/`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: buildSessionHeaders({
+          includeCSRF: true
+        }),
+        body: JSON.stringify({
+          password
+        })
+      })
+
+      const data = await parseResponseJson(response)
+
+      if (!response.ok) {
+        throw new ApiError(
+          normalizeApiErrorBody(
+            data,
+            data?.msg || 'Could not set your password. Please try again.',
+            response.headers.get('X-Request-ID') || undefined,
+            response.status
+          ),
+          response.status
+        )
+      }
+
+      const user = await this.fetchUserData()
+      if (!user) {
+        throw new Error('Password was set, but the current user profile could not be loaded.')
+      }
+
+      return user
     },
 
     async logout() {
