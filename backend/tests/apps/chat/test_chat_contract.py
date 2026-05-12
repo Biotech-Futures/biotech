@@ -246,12 +246,16 @@ class PatchMessageContractTests(_ChatFixture):
         self.assertEqual(payload["group_id"], self.group.id)
         self.assertEqual(payload["message"]["id"], msg.id)
         self.assertEqual(payload["message"]["message_text"], "new")
-        # Legacy aliases included on broadcast shape.
-        self.assertEqual(payload["message"]["text"], "new")
-        self.assertEqual(payload["message"]["sender_id"], self.student.id)
-        self.assertEqual(payload["message"]["resource_ids"], [])
+        self.assertEqual(payload["message"]["sender_user"], self.student.id)
+        self.assertEqual(
+            [r["resource_id"] for r in payload["message"]["resources"]], []
+        )
         self.assertTrue(payload["message"]["is_edited"])
         self.assertFalse(payload["message"]["is_deleted"])
+        # Legacy aliases dropped — FE reads canonical fields only.
+        self.assertNotIn("text", payload["message"])
+        self.assertNotIn("sender_id", payload["message"])
+        self.assertNotIn("resource_ids", payload["message"])
 
     @override_settings(
         CHAT_SANITIZER_BLACKLIST=["shit*"],

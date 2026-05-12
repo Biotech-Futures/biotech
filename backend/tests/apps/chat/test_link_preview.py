@@ -176,6 +176,96 @@ class LinkPreviewDispatchTests(TestCase):
                 self.assertEqual(resp.status_code, 201, resp.content)
                 mock_dispatch.assert_not_called()
 
+    # ---- edit-path symmetry with create ----
+
+    def _detail_url(self, mid):
+        return reverse(
+            "group-messages-detail",
+            kwargs={"group_pk": self.group.id, "pk": mid},
+        )
+
+    def test_edit_adds_url_dispatches_preview(self):
+        """An edit that introduces a URL must fire the worker — symmetric
+        with the create path; otherwise FE users who fix a typo by adding
+        a link would never see the unfurl."""
+        message = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="hi"
+        )
+        with patch("apps.chat.views.dispatch_og") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client_student.patch(
+                    self._detail_url(message.id),
+                    {"message_text": "hi https://example.com/new"},
+                    format="json",
+                )
+            self.assertEqual(resp.status_code, 200, resp.content)
+            mock_dispatch.assert_called_once_with(message.id, "https://example.com/new")
+
+    def test_edit_removes_last_url_clears_stale_preview(self):
+        """If the edit strips out the only URL, the stale preview row
+        must be deleted so list/detail and the broadcast surface
+        ``preview:null`` — no zombie cards."""
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="see https://example.com/post",
+        )
+        MessagePreview.objects.create(
+            message=message,
+            url="https://example.com/post",
+            title="Cached title",
+            description="d",
+            image_url="https://example.com/i.png",
+        )
+
+        with patch("apps.chat.views.dispatch_og") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client_student.patch(
+                    self._detail_url(message.id),
+                    {"message_text": "no link anymore"},
+                    format="json",
+                )
+            self.assertEqual(resp.status_code, 200, resp.content)
+            mock_dispatch.assert_not_called()
+
+        self.assertFalse(
+            MessagePreview.objects.filter(message_id=message.id).exists()
+        )
+        # REST response also surfaces the cleared state.
+        self.assertIsNone(resp.data["preview"])
+
+    def test_edit_keeping_url_does_not_clear_existing_preview(self):
+        """Editing surrounding text while the URL stays must NOT drop the
+        preview row — the dispatcher's ``update_or_create`` will refresh
+        it if the worker finds something new, but in the meantime the
+        cached card stays visible."""
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.student,
+            message_text="check https://example.com/post",
+        )
+        MessagePreview.objects.create(
+            message=message,
+            url="https://example.com/post",
+            title="t",
+            description="d",
+            image_url="",
+        )
+
+        with patch("apps.chat.views.dispatch_og") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client_student.patch(
+                    self._detail_url(message.id),
+                    {"message_text": "please check https://example.com/post"},
+                    format="json",
+                )
+            self.assertEqual(resp.status_code, 200, resp.content)
+            mock_dispatch.assert_called_once()
+
+        self.assertTrue(
+            MessagePreview.objects.filter(message_id=message.id).exists()
+        )
+
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
 class FetchOGDataWorkerTests(TestCase):
@@ -282,7 +372,11 @@ class FetchOGDataWorkerTests(TestCase):
         self.assertEqual(group_name, f"group_{self.group.id}")
         self.assertEqual(envelope["type"], "chat.message")
         payload = envelope["payload"]
+        # Envelope must match the chat taxonomy contract:
+        # event+type duplicated, group_id present, message_id at top level.
+        self.assertEqual(payload["event"], "message.preview_ready")
         self.assertEqual(payload["type"], "message.preview_ready")
+        self.assertEqual(payload["group_id"], self.group.id)
         self.assertEqual(payload["message_id"], self.message.id)
         self.assertEqual(
             payload["preview"],

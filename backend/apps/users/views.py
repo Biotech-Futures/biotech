@@ -121,8 +121,7 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         user = self.get_object()
         data=request.data
         if "account_status" in data:
-            user.account_status = data["account_status"]
-            user.save(update_fields=["account_status"])
+            user.apply_account_status(data["account_status"])
 
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
@@ -133,7 +132,7 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
                 RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=104))
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
-    
+
 #issue 40
 class MeRetrieveView(generics.RetrieveAPIView):
     serializer_class = UserSerializer
@@ -143,13 +142,12 @@ class MeRetrieveView(generics.RetrieveAPIView):
     def get_object(self):
         obj = self.request.user
         return obj
-    
+
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data=request.data
         if "account_status" in data:
-            user.account_status = data["account_status"]
-            user.save(update_fields=["account_status"])
+            user.apply_account_status(data["account_status"])
 
         #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
         if "role_id" in data:
@@ -336,19 +334,11 @@ class BulkUserStatusView(APIView):
         if missing_ids:
             raise MissingUsers(missing_ids)
 
-        now = timezone.now()
+        target_status = serializer.validated_data["account_status"]
         for user in users:
             if user.track_id and not can_admin_track(request.user, user.track_id):
                 raise AdminScopeForUserRequired(user.id)
-            user.account_status = serializer.validated_data["account_status"]
-            update_fields = {"account_status", "is_active"}
-            if user.account_status == User.AccountStatus.ACTIVE and user.activated_at is None:
-                user.activated_at = now
-                update_fields.add("activated_at")
-            if user.account_status == User.AccountStatus.INVITED and user.invited_at is None:
-                user.invited_at = now
-                update_fields.add("invited_at")
-            user.save(update_fields=list(update_fields))
+            user.apply_account_status(target_status)
 
         return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)
 

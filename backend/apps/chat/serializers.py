@@ -288,6 +288,10 @@ class MessagePublicSerializer(serializers.ModelSerializer):
     # MessageSerializer's ``reply_to`` — see ``ReplyToSerializer`` for
     # the recursion-bound rationale.
     reply_to = ReplyToSerializer(read_only=True)
+    # Persisted OG preview — same wire shape as the ``message.preview_ready``
+    # WS event so the FE renderer can be one code path. ``None`` when the
+    # message has no URL or the worker hasn't completed yet.
+    preview = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
@@ -307,11 +311,20 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             "is_read_by_me",
             "is_delivered_to_me",
             "reply_to",
+            "preview",
         ]
         read_only_fields = fields
 
     def get_reactions(self, obj):
         return aggregate_reactions(obj)
+
+    def get_preview(self, obj):
+        # Reverse OneToOne raises DoesNotExist when no row — guard so
+        # missing previews surface as ``None`` instead of an exception.
+        preview = getattr(obj, "preview", None)
+        if preview is None:
+            return None
+        return preview.to_payload()
 
 
 class MessageAttachmentUploadSerializer(serializers.Serializer):
