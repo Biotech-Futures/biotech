@@ -155,19 +155,20 @@ class MessageReactionTests(TestCase):
             self._react_url(), {"emoji": self.UNSUPPORTED}, format="json"
         )
         self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn("emoji", resp.data)
+        self.assertIn("emoji", resp.data.get("fields", {}))
         self.assertFalse(MessageReaction.objects.exists())
 
     def test_missing_emoji_rejected(self):
         resp = self.client_alice.post(self._react_url(), {}, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("emoji", resp.data)
+        self.assertIn("emoji", resp.data.get("fields", {}))
 
     def test_non_string_emoji_rejected(self):
         resp = self.client_alice.post(
             self._react_url(), {"emoji": 123}, format="json"
         )
         self.assertEqual(resp.status_code, 400)
+        self.assertIn("emoji", resp.data.get("fields", {}))
 
     # ---- authorization ----
 

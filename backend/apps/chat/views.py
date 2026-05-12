@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import serializers as drf_serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -752,17 +752,11 @@ class MessageViewSet(viewsets.ModelViewSet):
         message = self.get_object()
         emoji = request.data.get("emoji")
         if not isinstance(emoji, str):
-            return Response(
-                {"emoji": ["This field is required."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise drf_serializers.ValidationError({"emoji": ["This field is required."]})
         emoji = emoji.strip()
         allowed = getattr(settings, "CHAT_REACTION_EMOJIS", ())
         if emoji not in allowed:
-            return Response(
-                {"emoji": ["Unsupported emoji."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise drf_serializers.ValidationError({"emoji": ["Unsupported emoji."]})
 
         with transaction.atomic():
             existing = (
