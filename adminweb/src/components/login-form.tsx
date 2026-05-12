@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,7 +121,16 @@ export function LoginForm({
               control={control}
               render={({ field }) => (
                 <Field>
-                  <FieldLabel htmlFor="password">Password</FieldLabel>
+                  <div className="flex items-center justify-between">
+                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    <Link
+                      to="/reset-password"
+                      search={{ token: undefined }}
+                      className="text-xs text-muted-foreground hover:text-primary hover:underline"
+                    >
+                      Forgot your password?
+                    </Link>
+                  </div>
                   <Input
                     id="password"
                     type="password"
