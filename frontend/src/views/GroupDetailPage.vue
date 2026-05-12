@@ -470,11 +470,23 @@
             <!-- Discussion header -->
             <div class="chat-header">
               <h3 style="margin: 0">Discussion Board</h3>
-              <span class="chat-status">
-                <template v-if="isLoadingMessages">Loading...</template>
-                <template v-else-if="wsConnectionState === 'connected'">Live</template>
-                <template v-else>Offline</template>
-              </span>
+              <div class="chat-header-actions">
+                <button
+                  type="button"
+                  class="mentions-toggle"
+                  :class="{ active: showMentionInbox }"
+                  title="Mentions"
+                  @click="toggleMentionInbox"
+                >
+                  <i class="fas fa-at"></i>
+                  <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
+                </button>
+                <span class="chat-status">
+                  <template v-if="isLoadingMessages">Loading...</template>
+                  <template v-else-if="wsConnectionState === 'connected'">Live</template>
+                  <template v-else>Offline</template>
+                </span>
+              </div>
             </div>
 
             <div v-if="chatError" class="chat-alert">
@@ -482,6 +494,38 @@
             </div>
             <div v-if="chatNotice" class="chat-notice">
               {{ chatNotice }}
+            </div>
+            <div v-if="showMentionInbox" class="mention-inbox">
+              <div class="mention-inbox-header">
+                <strong>Mentions</strong>
+                <button
+                  type="button"
+                  class="message-action-btn"
+                  :disabled="!mentionUnreadCount || isUpdatingMentions"
+                  @click="markAllMentionsRead"
+                >
+                  Mark all read
+                </button>
+              </div>
+              <div v-if="mentionInboxError" class="gif-status">{{ mentionInboxError }}</div>
+              <div v-if="isLoadingMentions" class="gif-status">Loading mentions...</div>
+              <div v-else class="mention-list">
+                <button
+                  v-for="mention in mentionItems"
+                  :key="mention.id"
+                  type="button"
+                  class="mention-row"
+                  :class="{ unread: !mention.read_at }"
+                  @click="openMention(mention)"
+                >
+                  <span>{{ mention.sender_name || `User ${mention.sender_user_id}` }}</span>
+                  <strong>{{ mention.message_text || 'Message was deleted.' }}</strong>
+                  <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
+                </button>
+                <div v-if="!mentionItems.length && !mentionInboxError" class="gif-status">
+                  No mentions yet.
+                </div>
+              </div>
             </div>
 
             <div class="chat-messages" ref="msgList" @scroll="handleMessagesScroll">
@@ -520,7 +564,15 @@
                     class="message-gif"
                   />
                   <div v-else-if="editingMessageId !== message.id" class="message-text">
-                    {{ message.text }}
+                    <template
+                      v-for="(segment, segmentIndex) in getMessageTextSegments(message.text)"
+                      :key="`${message.id}-segment-${segmentIndex}`"
+                    >
+                      <span v-if="segment.type === 'mention'" class="mention-token">{{
+                        segment.text
+                      }}</span>
+                      <span v-else>{{ segment.text }}</span>
+                    </template>
                   </div>
                   <form v-else class="message-edit-form" @submit.prevent="saveMessageEdit(message)">
                     <textarea
@@ -552,8 +604,7 @@
                       :key="attachment.id || attachment.attachment_filename"
                       :href="getAttachmentHref(attachment)"
                       class="attachment-chip"
-                      target="_blank"
-                      rel="noopener"
+                      @click.prevent="downloadAttachment(attachment)"
                     >
                       <i class="fas fa-paperclip"></i>
                       {{ getAttachmentLabel(attachment) }}
@@ -686,6 +737,53 @@
                   Cancel
                 </button>
               </div>
+              <div v-if="selectedChatResources.length" class="selected-resource-strip">
+                <span>Resources</span>
+                <button
+                  v-for="resource in selectedChatResources"
+                  :key="resource.id"
+                  type="button"
+                  class="selected-resource-chip"
+                  @click="toggleSelectedResource(resource)"
+                >
+                  <i class="fas fa-book-open"></i>
+                  {{ resource.resource_name }}
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <div v-if="showResourcePanel" class="resource-panel">
+                <div class="resource-panel-header">
+                  <input
+                    v-model.trim="resourceQuery"
+                    type="search"
+                    class="gif-search-input"
+                    placeholder="Search resources"
+                    @keydown.enter.prevent="loadChatResources"
+                  />
+                  <button type="button" class="btn btn-outline btn-sm" @click="loadChatResources">
+                    Search
+                  </button>
+                </div>
+                <div v-if="resourcePickerError" class="gif-status">{{ resourcePickerError }}</div>
+                <div v-if="isLoadingResources" class="gif-status">Loading resources...</div>
+                <div v-else class="resource-picker-list">
+                  <button
+                    v-for="resource in chatResourceOptions"
+                    :key="resource.id"
+                    type="button"
+                    class="resource-picker-row"
+                    :class="{ selected: isResourceSelected(resource.id) }"
+                    @click="toggleSelectedResource(resource)"
+                  >
+                    <i class="fas fa-book-open"></i>
+                    <span>{{ resource.resource_name }}</span>
+                    <i v-if="isResourceSelected(resource.id)" class="fas fa-check"></i>
+                  </button>
+                  <div v-if="!chatResourceOptions.length && !resourcePickerError" class="gif-status">
+                    No resources found.
+                  </div>
+                </div>
+              </div>
               <div v-if="supportsGifs && showGifPanel" class="gif-panel">
                 <div class="gif-panel-header">
                   <input
@@ -722,9 +820,23 @@
                   class="chat-input-field"
                   placeholder="Type your message..."
                   rows="2"
-                  @keydown.enter.exact.prevent="sendMessage"
+                  @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
                 ></textarea>
+                <div v-if="showMentionSuggestions" class="mention-suggestions">
+                  <button
+                    v-for="(member, index) in mentionSuggestions"
+                    :key="member.userId"
+                    type="button"
+                    class="mention-suggestion"
+                    :class="{ active: index === activeMentionSuggestionIndex }"
+                    @mousedown.prevent="insertMention(member)"
+                  >
+                    <i class="fas fa-at"></i>
+                    <span>{{ member.label }}</span>
+                    <small>{{ member.role }}</small>
+                  </button>
+                </div>
                 <div class="chat-actions">
                   <button
                     class="chat-btn"
@@ -744,6 +856,15 @@
                   >
                     <i class="fas fa-paperclip"></i>
                   </button>
+                  <button
+                    class="chat-btn"
+                    type="button"
+                    title="Attach resource"
+                    :disabled="isLoadingResources"
+                    @click="toggleResourcePanel"
+                  >
+                    <i class="fas fa-book-open"></i>
+                  </button>
                   <input
                     ref="fileInputRef"
                     type="file"
@@ -753,7 +874,7 @@
                   />
                   <button
                     class="chat-btn"
-                    :disabled="isSendingMessage || !newMessage.trim()"
+                    :disabled="isSendingMessage || !canSendChatMessage"
                     @click="sendMessage"
                     title="Send"
                   >
@@ -775,6 +896,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { fetchResources } from '@/utils/resourcesAPI'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -877,6 +999,22 @@ const gifError = ref('')
 const showGifPanel = ref(false)
 const gifQuery = ref('')
 const gifResults = ref([])
+const showResourcePanel = ref(false)
+const resourceQuery = ref('')
+const chatResourceOptions = ref([])
+const selectedChatResources = ref([])
+const isLoadingResources = ref(false)
+const resourcePickerError = ref('')
+const mentionQuery = ref('')
+const mentionStartIndex = ref(-1)
+const activeMentionSuggestionIndex = ref(0)
+const mentionItems = ref([])
+const mentionUnreadCount = ref(0)
+const mentionNextBefore = ref(null)
+const showMentionInbox = ref(false)
+const isLoadingMentions = ref(false)
+const isUpdatingMentions = ref(false)
+const mentionInboxError = ref('')
 const typingUsers = ref([])
 const wsConnectionState = ref('offline')
 const nextMessagesBefore = ref(null)
@@ -987,6 +1125,15 @@ const buildChatReadUrl = (groupId, messageId) =>
 const buildChatDeliveredUrl = (groupId, messageId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${messageId}/delivered/`
 
+const buildMentionInboxUrl = (suffix = '') =>
+  `${API_BASE_URL}/api/v1/chat/mentions/${suffix}`
+
+const buildMentionReadUrl = (mentionId) =>
+  `${API_BASE_URL}/api/v1/chat/mentions/${mentionId}/read/`
+
+const buildMentionMarkAllReadUrl = () =>
+  `${API_BASE_URL}/api/v1/chat/mentions/mark-all-read/`
+
 const buildGifSearchUrl = (query) =>
   `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
 
@@ -1065,6 +1212,16 @@ const normalizeMembership = (item) => ({
   joinedAt: item?.joined_at || '',
   leftAt: item?.left_at || '',
 })
+
+const normalizeMentionMember = (item) => {
+  const userId = Number(item?.userId || item?.user || item?.id || 0)
+  const role = formatTaskStatus(item?.role || item?.membership_role || 'member') || 'Member'
+  return {
+    userId,
+    role,
+    label: userId === currentUserId.value ? 'You' : `User ${userId}`,
+  }
+}
 
 const normalizeGroupOption = (item, memberCount = 0) => ({
   id: String(item?.id || ''),
@@ -1654,6 +1811,53 @@ const getAttachmentHref = (attachment) => {
   return url
 }
 
+const getFilenameFromDisposition = (disposition) => {
+  if (!disposition) return ''
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1].replace(/"/g, ''))
+
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i)
+  return plainMatch?.[1] ? plainMatch[1].trim() : ''
+}
+
+const triggerBrowserDownload = (blob, filename) => {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename || 'attachment'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+const downloadAttachment = async (attachment) => {
+  const url = getAttachmentHref(attachment)
+  if (!url || url === '#') return
+
+  chatError.value = ''
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
+    }
+
+    const blob = await response.blob()
+    const filename =
+      getFilenameFromDisposition(response.headers.get('Content-Disposition')) ||
+      getAttachmentLabel(attachment)
+    triggerBrowserDownload(blob, filename)
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'Attachment could not be downloaded.'
+    window.open(url, '_blank', 'noopener')
+  }
+}
+
 const getResourceLabel = (resource) =>
   resource?.resource_name || resource?.name || `Resource ${resource?.resource_id || resource?.id || ''}`
 
@@ -1666,6 +1870,60 @@ const getReplyText = (reply) => {
   if (!reply) return ''
   if (reply.deleted) return 'Original message was deleted.'
   return reply.text || 'Attachment message'
+}
+
+const getMentionLabel = (userId) => {
+  const member = mentionMembers.value.find((item) => Number(item.userId) === Number(userId))
+  return member?.label || `User ${userId}`
+}
+
+const getMessageTextSegments = (text) => {
+  const source = String(text || '')
+  const segments = []
+  const pattern = /<@(\d+)>/g
+  let cursor = 0
+  let match = pattern.exec(source)
+
+  while (match) {
+    if (match.index > cursor) {
+      segments.push({ type: 'text', text: source.slice(cursor, match.index) })
+    }
+    segments.push({ type: 'mention', text: `@${getMentionLabel(match[1])}` })
+    cursor = match.index + match[0].length
+    match = pattern.exec(source)
+  }
+
+  if (cursor < source.length) {
+    segments.push({ type: 'text', text: source.slice(cursor) })
+  }
+
+  return segments.length ? segments : [{ type: 'text', text: source }]
+}
+
+const normalizeChatResource = (resource) => ({
+  id: Number(resource?.id || resource?.resource_id || 0),
+  resource_name: resource?.resource_name || resource?.name || 'Untitled resource',
+})
+
+const isResourceSelected = (resourceId) =>
+  selectedChatResources.value.some((resource) => Number(resource.id) === Number(resourceId))
+
+const toggleSelectedResource = (resource) => {
+  const normalized = normalizeChatResource(resource)
+  if (!normalized.id) return
+
+  if (isResourceSelected(normalized.id)) {
+    selectedChatResources.value = selectedChatResources.value.filter(
+      (item) => Number(item.id) !== Number(normalized.id),
+    )
+    return
+  }
+
+  selectedChatResources.value = [...selectedChatResources.value, normalized]
+}
+
+const clearSelectedResources = () => {
+  selectedChatResources.value = []
 }
 
 const getBackendGroupId = () => {
@@ -1907,6 +2165,35 @@ const showScrollToBottomButton = computed(
   () => hasScrollableMessages.value && isChatAwayFromBottom.value,
 )
 
+const canSendChatMessage = computed(
+  () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
+)
+
+const mentionMembers = computed(() =>
+  groupMemberships.value
+    .filter((item) => !item.leftAt)
+    .map(normalizeMentionMember)
+    .filter((member) => member.userId && member.userId !== currentUserId.value),
+)
+
+const mentionSuggestions = computed(() => {
+  const query = mentionQuery.value.toLowerCase()
+  return mentionMembers.value
+    .filter((member) => {
+      if (!query) return true
+      return (
+        member.label.toLowerCase().includes(query) ||
+        member.role.toLowerCase().includes(query) ||
+        String(member.userId).includes(query)
+      )
+    })
+    .slice(0, 6)
+})
+
+const showMentionSuggestions = computed(
+  () => mentionStartIndex.value >= 0 && mentionSuggestions.value.length > 0,
+)
+
 const applyMessageUpdate = (messageId, updater) => {
   const index = messages.value.findIndex((message) => String(message.id) === String(messageId))
   if (index === -1) return
@@ -2024,6 +2311,8 @@ const scheduleTypingStop = () => {
 }
 
 const handleComposerInput = () => {
+  updateMentionQuery()
+
   if (!supportsChatClientSocketActions) return
 
   if (!newMessage.value.trim()) {
@@ -2039,6 +2328,75 @@ const handleComposerInput = () => {
   }
 
   scheduleTypingStop()
+}
+
+const updateMentionQuery = () => {
+  const cursor = composer.value?.selectionStart ?? newMessage.value.length
+  const beforeCursor = newMessage.value.slice(0, cursor)
+  const match = beforeCursor.match(/(^|\s)@([A-Za-z0-9_]*)$/)
+
+  if (!match) {
+    mentionStartIndex.value = -1
+    mentionQuery.value = ''
+    activeMentionSuggestionIndex.value = 0
+    return
+  }
+
+  mentionStartIndex.value = beforeCursor.length - match[2].length - 1
+  mentionQuery.value = match[2]
+  activeMentionSuggestionIndex.value = 0
+}
+
+const insertMention = (member) => {
+  if (mentionStartIndex.value < 0 || !member?.userId) return
+
+  const cursor = composer.value?.selectionStart ?? newMessage.value.length
+  const prefix = newMessage.value.slice(0, mentionStartIndex.value)
+  const suffix = newMessage.value.slice(cursor)
+  const spacer = suffix.startsWith(' ') || !suffix ? '' : ' '
+  newMessage.value = `${prefix}<@${member.userId}> ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
+  mentionStartIndex.value = -1
+  mentionQuery.value = ''
+  activeMentionSuggestionIndex.value = 0
+
+  nextTick(() => {
+    composer.value?.focus()
+    const position = `${prefix}<@${member.userId}> `.length
+    composer.value?.setSelectionRange(position, position)
+  })
+}
+
+const handleComposerKeydown = (event) => {
+  if (showMentionSuggestions.value) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      activeMentionSuggestionIndex.value =
+        (activeMentionSuggestionIndex.value + 1) % mentionSuggestions.value.length
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      activeMentionSuggestionIndex.value =
+        (activeMentionSuggestionIndex.value - 1 + mentionSuggestions.value.length) %
+        mentionSuggestions.value.length
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault()
+      insertMention(mentionSuggestions.value[activeMentionSuggestionIndex.value])
+      return
+    }
+    if (event.key === 'Escape') {
+      mentionStartIndex.value = -1
+      mentionQuery.value = ''
+      return
+    }
+  }
+
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    void sendMessage()
+  }
 }
 
 const applyReadCursor = (readerId, upToId) => {
@@ -2167,6 +2525,15 @@ const scrollMessagesToBottom = async () => {
     msgList.value.scrollTop = msgList.value.scrollHeight
     updateScrollToBottomState()
   }
+}
+
+const scrollMessagesToBottomAfterRender = async () => {
+  await scrollMessagesToBottom()
+  await new Promise((resolve) => window.requestAnimationFrame(resolve))
+  await scrollMessagesToBottom()
+  window.setTimeout(() => {
+    void scrollMessagesToBottom()
+  }, 120)
 }
 
 const setReplyTarget = (message) => {
@@ -2302,6 +2669,21 @@ const handleSocketPayload = async (payload) => {
   if (eventName === 'mention.created') {
     const currentGroupId = Number(getBackendGroupId() || 0)
     const mentionedGroupId = Number(payload.group_id || 0)
+    mentionUnreadCount.value += 1
+    mentionItems.value = [
+      {
+        id: payload.id || `live-${Date.now()}`,
+        group_id: payload.group_id,
+        message_id: payload.message_id,
+        message_text: payload.preview || '',
+        sender_user_id: payload.sender_user_id,
+        sender_name: payload.sender_name || `User ${payload.sender_user_id || ''}`,
+        sent_at: payload.sent_at || new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        read_at: null,
+      },
+      ...mentionItems.value,
+    ].slice(0, 20)
     if (mentionedGroupId && mentionedGroupId !== currentGroupId) {
       chatNotice.value = `You were mentioned in group ${mentionedGroupId}.`
     } else {
@@ -2430,7 +2812,7 @@ const loadMessages = async () => {
     nextMessagesBefore.value = null
   } finally {
     isLoadingMessages.value = false
-    await scrollMessagesToBottom()
+    await scrollMessagesToBottomAfterRender()
     await markMessagesAsDelivered(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
@@ -2563,7 +2945,7 @@ const sendMessagePayload = async ({
 
 const sendMessage = async () => {
   const text = newMessage.value.trim()
-  if (!text || isSendingMessage.value) return
+  if (!canSendChatMessage.value || isSendingMessage.value) return
   if (!getBackendGroupId()) {
     chatError.value = 'Live discussion needs a backend numeric group id.'
     return
@@ -2571,6 +2953,7 @@ const sendMessage = async () => {
 
   const now = new Date()
   const pendingId = `pending-${Date.now()}`
+  const selectedResources = selectedChatResources.value.map((resource) => ({ ...resource }))
   const draftMessage = {
     id: pendingId,
     author: 'You',
@@ -2579,6 +2962,10 @@ const sendMessage = async () => {
     date: now.toISOString(),
     isOwn: true,
     message_type: 'text',
+    resources: selectedResources.map((resource) => ({
+      resource_id: resource.id,
+      resource_name: resource.resource_name,
+    })),
     reply_to: replyTarget.value
       ? {
           id: replyTarget.value.id,
@@ -2593,6 +2980,8 @@ const sendMessage = async () => {
   const currentReplyTarget = replyTarget.value
   newMessage.value = ''
   clearReplyTarget()
+  clearSelectedResources()
+  showResourcePanel.value = false
   stopTypingIndicator()
   await scrollMessagesToBottom()
 
@@ -2605,6 +2994,9 @@ const sendMessage = async () => {
         method: 'POST',
         body: JSON.stringify({
           message_text: text,
+          ...(selectedResources.length
+            ? { resources: selectedResources.map((resource) => ({ resource_id: resource.id })) }
+            : {}),
           ...(currentReplyTarget?.id ? { reply_to_id: currentReplyTarget.id } : {}),
         }),
       },
@@ -2612,6 +3004,7 @@ const sendMessage = async () => {
   } catch {
     newMessage.value = text
     replyTarget.value = currentReplyTarget
+    selectedChatResources.value = selectedResources
   } finally {
     isSendingMessage.value = false
     composer.value?.focus()
@@ -2644,6 +3037,11 @@ const uploadAttachment = async (event) => {
   if (!file || isUploadingFile.value) return
   if (replyTarget.value) {
     chatError.value = 'Attachment replies are not supported by the upload endpoint yet.'
+    if (input) input.value = ''
+    return
+  }
+  if (selectedChatResources.value.length) {
+    chatError.value = 'Send selected resources as a chat message before uploading a local file.'
     if (input) input.value = ''
     return
   }
@@ -2708,6 +3106,7 @@ const toggleGifPanel = async () => {
     return
   }
   showGifPanel.value = !showGifPanel.value
+  if (showGifPanel.value) showResourcePanel.value = false
   if (showGifPanel.value) {
     await fetchGifResults('trending')
   }
@@ -2720,6 +3119,116 @@ const searchGifs = async () => {
   }
 
   await fetchGifResults('search')
+}
+
+const loadChatResources = async () => {
+  isLoadingResources.value = true
+  resourcePickerError.value = ''
+
+  try {
+    const data = await fetchResources({
+      search: resourceQuery.value.trim(),
+      page_size: 20,
+      order: 'newest',
+    })
+    chatResourceOptions.value = extractCollectionItems(data)
+      .map(normalizeChatResource)
+      .filter((resource) => resource.id)
+  } catch (error) {
+    chatResourceOptions.value = []
+    resourcePickerError.value =
+      error instanceof Error ? error.message : 'Resources could not be loaded.'
+  } finally {
+    isLoadingResources.value = false
+  }
+}
+
+const toggleResourcePanel = async () => {
+  showResourcePanel.value = !showResourcePanel.value
+  if (showResourcePanel.value) showGifPanel.value = false
+  if (showResourcePanel.value && !chatResourceOptions.value.length) {
+    await loadChatResources()
+  }
+}
+
+const loadMentions = async (unreadOnly = false) => {
+  isLoadingMentions.value = true
+  mentionInboxError.value = ''
+
+  const params = new URLSearchParams({ limit: '20' })
+  if (unreadOnly) params.set('unread', 'true')
+
+  try {
+    const data = await requestJson(buildMentionInboxUrl(`?${params.toString()}`))
+    mentionItems.value = extractCollectionItems(data)
+    mentionNextBefore.value = data?.next_before || null
+    mentionUnreadCount.value = Number(data?.unread_count || 0)
+  } catch (error) {
+    mentionInboxError.value = error instanceof Error ? error.message : 'Mentions could not be loaded.'
+  } finally {
+    isLoadingMentions.value = false
+  }
+}
+
+const toggleMentionInbox = async () => {
+  showMentionInbox.value = !showMentionInbox.value
+  if (showMentionInbox.value) {
+    await loadMentions()
+  }
+}
+
+const markMentionRead = async (mentionId) => {
+  if (!mentionId) return null
+  const updated = await requestJson(buildMentionReadUrl(mentionId), {
+    method: 'POST',
+  })
+  mentionItems.value = mentionItems.value.map((mention) =>
+    Number(mention.id) === Number(mentionId) ? updated : mention,
+  )
+  mentionUnreadCount.value = Math.max(0, mentionUnreadCount.value - 1)
+  return updated
+}
+
+const markAllMentionsRead = async () => {
+  if (isUpdatingMentions.value) return
+  isUpdatingMentions.value = true
+  mentionInboxError.value = ''
+
+  try {
+    const data = await requestJson(buildMentionMarkAllReadUrl(), {
+      method: 'POST',
+    })
+    mentionUnreadCount.value = Number(data?.unread_count || 0)
+    mentionItems.value = mentionItems.value.map((mention) => ({
+      ...mention,
+      read_at: mention.read_at || new Date().toISOString(),
+    }))
+  } catch (error) {
+    mentionInboxError.value =
+      error instanceof Error ? error.message : 'Mentions could not be marked read.'
+  } finally {
+    isUpdatingMentions.value = false
+  }
+}
+
+const openMention = async (mention) => {
+  if (!mention?.id) return
+  mentionInboxError.value = ''
+
+  try {
+    const numericMentionId = Number(mention.id)
+    if (!mention.read_at && Number.isFinite(numericMentionId)) {
+      await markMentionRead(mention.id)
+    }
+    showMentionInbox.value = false
+    if (mention.group_id && String(mention.group_id) !== String(getBackendGroupId())) {
+      await router.push(`/groups/${mention.group_id}`)
+      return
+    }
+    await scrollMessagesToBottomAfterRender()
+  } catch (error) {
+    mentionInboxError.value = error instanceof Error ? error.message : 'Mention could not be opened.'
+  }
 }
 
 const reactToMessage = async (messageId, emoji) => {
@@ -2778,6 +3287,9 @@ const reloadGroupDetail = async () => {
     await Promise.all([loadTasks(), loadMessages()])
     if (sequence !== loadSequence) return
 
+    await scrollMessagesToBottomAfterRender()
+    if (sequence !== loadSequence) return
+
     connectChatSocket()
   } finally {
     if (sequence === loadSequence) {
@@ -2788,6 +3300,7 @@ const reloadGroupDetail = async () => {
 
 watch(routeGroupId, async () => {
   await reloadGroupDetail()
+  await loadMentions()
 })
 
 watch(
@@ -2807,6 +3320,7 @@ onMounted(async () => {
   await ensureAuthUser()
   await loadGroupOptions()
   if (!routeGroupId.value && availableGroups.value.length) {
+    await loadMentions()
     await router.replace(`/groups/${availableGroups.value[0].id}`)
     return
   }
@@ -3459,6 +3973,263 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.mentions-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--dark-green);
+  cursor: pointer;
+}
+
+.mentions-toggle.active,
+.mentions-toggle:hover {
+  border-color: var(--dark-green);
+  background: #eef7f3;
+}
+
+.mention-badge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--white);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0 0.25rem;
+}
+
+.mention-inbox {
+  border-bottom: 1px solid var(--border-light);
+  background: var(--white);
+  padding: 0.85rem;
+}
+
+.mention-inbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.mention-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.mention-row {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.mention-row.unread {
+  border-color: var(--dark-green);
+  background: #eef7f3;
+}
+
+.mention-row span,
+.mention-row small {
+  color: #6c757d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.mention-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.selected-resource-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  border-top: 1px solid var(--border-light);
+  background: #f8f9fa;
+}
+
+.selected-resource-strip > span {
+  color: #6c757d;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.selected-resource-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: min(100%, 260px);
+  border: 1px solid var(--dark-green);
+  border-radius: 999px;
+  background: #eef7f3;
+  color: var(--dark-green);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem;
+}
+
+.selected-resource-chip i:first-child,
+.resource-picker-row i:first-child {
+  flex: 0 0 auto;
+}
+
+.selected-resource-chip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-panel {
+  border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+  background: var(--white);
+  padding: 0.85rem;
+}
+
+.resource-panel-header {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.resource-picker-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.resource-picker-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.resource-picker-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-picker-row:hover,
+.resource-picker-row.selected {
+  border-color: var(--dark-green);
+  background: #eef7f3;
+  color: var(--dark-green);
+}
+
+.chat-input-group {
+  position: relative;
+}
+
+.mention-suggestions {
+  position: absolute;
+  left: 0;
+  right: 3.5rem;
+  bottom: calc(100% + 0.45rem);
+  z-index: 5;
+  display: grid;
+  gap: 0.25rem;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  padding: 0.35rem;
+}
+
+.mention-suggestion {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}
+
+.mention-suggestion.active,
+.mention-suggestion:hover {
+  background: #eef7f3;
+  color: var(--dark-green);
+}
+
+.mention-suggestion span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.mention-suggestion small {
+  color: #6c757d;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.mention-token {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #eef7f3;
+  color: var(--dark-green);
+  font-weight: 700;
+  padding: 0.05rem 0.35rem;
+}
+
+.message.own .mention-token {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--white);
 }
 
 .gif-panel {
