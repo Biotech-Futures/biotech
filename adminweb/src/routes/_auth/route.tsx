@@ -1,7 +1,6 @@
 import Layout from "@/components/layout";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { myFetch } from "@/lib/myFetch";
-import { isProductBuild } from "@/lib/authConfig";
 
 export const Route = createFileRoute("/_auth")({
   beforeLoad: async ({ context, location }) => {
@@ -15,7 +14,7 @@ export const Route = createFileRoute("/_auth")({
     }
 
     // On first visit per session, check if admin needs to set a password.
-    if (!isProductBuild && !sessionStorage.getItem("pwChecked")) {
+    if (!sessionStorage.getItem("pwChecked")) {
       try {
         const res = await myFetch.get<{
           data: { hasPassword: boolean };
@@ -25,11 +24,7 @@ export const Route = createFileRoute("/_auth")({
         }
       } catch (e) {
         // Re-throw redirects; silently ignore other errors (network, non-admin user).
-        if (
-          e != null &&
-          typeof e === "object" &&
-          "href" in (e as object)
-        ) {
+        if (e != null && typeof e === "object" && "href" in (e as object)) {
           throw e;
         }
       }

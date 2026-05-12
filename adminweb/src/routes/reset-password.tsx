@@ -1,19 +1,10 @@
-import {
-  createFileRoute,
-  redirect,
-  Link,
-  useNavigate,
-} from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PRODUCT_LOGIN_URL, isProductBuild } from "@/lib/authConfig";
-import {
-  useRequestPasswordReset,
-  useConfirmPasswordReset,
-} from "@/fetch/auth";
+import { useRequestPasswordReset, useConfirmPasswordReset } from "@/fetch/auth";
 import { resetCsrfToken } from "@/util/csrf";
 import { AxiosError } from "axios";
 import { CheckCircle, ArrowLeft, Eye, EyeOff } from "lucide-react";
@@ -22,11 +13,6 @@ export const Route = createFileRoute("/reset-password")({
   validateSearch: (search: Record<string, unknown>) => ({
     token: search.token as string | undefined,
   }),
-  beforeLoad: () => {
-    if (isProductBuild) {
-      throw redirect({ href: PRODUCT_LOGIN_URL });
-    }
-  },
   component: ResetPasswordPage,
 });
 
@@ -118,7 +104,10 @@ function ResetPasswordPage() {
           );
         } else {
           setRequestError(
-            extractDetail(error, "Could not send the reset link. Please try again."),
+            extractDetail(
+              error,
+              "Could not send the reset link. Please try again.",
+            ),
           );
         }
       },
@@ -180,12 +169,13 @@ function ResetPasswordPage() {
             );
           } else if (code === "weak_password" || code === "WeakPassword") {
             setFieldErrors(errs);
-            setPasswordError(
-              extractDetail(error, "Password is too weak."),
-            );
+            setPasswordError(extractDetail(error, "Password is too weak."));
           } else {
             setPasswordError(
-              extractDetail(error, "Could not reset your password. Please try again."),
+              extractDetail(
+                error,
+                "Could not reset your password. Please try again.",
+              ),
             );
           }
         },
