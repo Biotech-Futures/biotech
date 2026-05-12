@@ -20,13 +20,23 @@ Wire protocol — every payload received by the client over the socket
 has the same envelope:
 
     {
-      "event": "message.created" | "message.edited" | "message.deleted"
-             | "message.read_updated" | "message.delivered_updated"
-             | "message.reaction_updated" | "user.typing"
-             | "mention.created",
+      "event": <one of below>,
+      "type":  <same as event>,           # duplicated for FE convenience
       "group_id": <int>,
+      "message_id": <int|null>,           # set on every message-scoped event
       ...event-specific fields...
     }
+
+Event taxonomy:
+  message.created              embeds  message: {...}
+  message.edited               embeds  message: {...}  (is_edited=true)
+  message.deleted              embeds  message: {...}  (is_deleted=true)
+  message.reaction_updated     flat:   reactions: {...}
+  message.read_updated         flat:   reader_id, up_to_id
+  message.delivered_updated    flat:   user_id, up_to_id
+  message.preview_ready        flat:   preview: {title, desc, img}
+  user.typing                  flat:   user_id, user_name, typing
+  mention.created              flat:   sender_user_id, preview (text snippet)
 
 ``mention.created`` is published to a per-user channel ``user_{id}``
 that every authenticated connection joins on ``connect``. This means a
@@ -161,7 +171,7 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
         if payload.get("event") == "message.created":
             user = self.scope.get("user")
             msg = payload.get("message") or {}
-            sender_id = msg.get("sender_user") or msg.get("sender_id")
+            sender_id = msg.get("sender_user")
             mid = msg.get("id")
             if (
                 user is not None

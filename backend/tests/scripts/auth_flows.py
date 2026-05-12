@@ -22,8 +22,8 @@ def run_tests():
     
     user, created = User.objects.get_or_create(email=email)
     user.set_password(password)
-    user.account_status = User.AccountStatus.ACTIVE
     user.save()
+    user.activate()
     print(f"Mock User Provisioned: {email}")
     
     client = Client()

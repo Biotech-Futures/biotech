@@ -68,6 +68,33 @@ export function usePasswordSignIn() {
   });
 }
 
+export function useRequestPasswordReset() {
+  return useMutation({
+    mutationFn: async (email: string) => {
+      const { data } = await authFetch.post(
+        "/services/password-reset/request/",
+        { email },
+      );
+      return data;
+    },
+  });
+}
+
+export function useConfirmPasswordReset() {
+  return useMutation({
+    mutationFn: async (params: {
+      token: string;
+      new_password: string;
+    }) => {
+      const { data } = await authFetch.post(
+        "/services/password-reset/confirm/",
+        params,
+      );
+      return data;
+    },
+  });
+}
+
 export function useSignOut() {
   return useMutation({
     mutationFn: async () => {

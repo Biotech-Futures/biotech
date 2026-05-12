@@ -143,8 +143,7 @@ class SendPasswordResetServiceTest(TestCase):
 
     def test_blocked_statuses_silent_no_op(self, mock_mail):
         for status_value in ('invited', 'pending', 'suspended', 'deactivated'):
-            self.user.account_status = status_value
-            self.user.save(update_fields=['account_status'])
+            self.user.apply_account_status(status_value)
 
             auth_service.send_password_reset(self.user.email)
 

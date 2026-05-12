@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import serializers as drf_serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -20,6 +20,7 @@ from .rbac import can_access_chat_group
 from .models import (
     MessageAttachment,
     MessageMention,
+    MessagePreview,
     MessageReaction,
     MessageStatus,
     Messages,
@@ -40,19 +41,28 @@ from apps.groups.models import Groups, GroupMembership
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
-    """Fan a chat event out to every consumer subscribed to ``group_id``.
+    """Fan a message-scoped chat event out to every consumer subscribed
+    to ``group_id``.
 
     Wrapped in ``transaction.on_commit`` so a rolled-back DB write never
     produces a phantom WebSocket event. Envelope shape is the single
     contract documented at the top of
     ``apps/chat/management/consumers.py``.
+
+    The wire payload always carries: ``event``, ``type`` (mirror of
+    event), ``group_id``, ``message_id``, and ``message`` (full
+    serializer output). The duplicated ``type``/``event`` matches the
+    other (non-message) broadcasts so clients can branch on a single
+    key consistently.
     """
     channel_layer = get_channel_layer()
     envelope = {
         "type": "chat.message",
         "payload": {
             "event": event,
+            "type": event,
             "group_id": group_id,
+            "message_id": message_payload.get("id"),
             "message": message_payload,
         },
     }
@@ -328,7 +338,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         user_id = getattr(user_id, "id", None)
         return (
             Messages.objects.filter(deleted_at__isnull=True)
-            .select_related("sender_user", "reply_to")
+            .select_related("sender_user", "reply_to", "preview")
             .prefetch_related(
                 "attachments",
                 "resources__resource",
@@ -406,7 +416,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             user_id = getattr(user_id, "id", None)
             try:
                 message = (
-                    Messages.objects.select_related("sender_user", "reply_to")
+                    Messages.objects.select_related("sender_user", "reply_to", "preview")
                     .prefetch_related(
                         "attachments",
                         "resources__resource",
@@ -448,17 +458,15 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         context = self.get_serializer_context()
         data = MessageSerializer(message, context=context).data
+        public = MessagePublicSerializer(message, context=context).data
         # MessageSerializer's nested attachments lack download_url; rebuild from
         # the public shape that does include it.
-        data["attachments"] = MessagePublicSerializer(message, context=context).data.get("attachments", [])
-        # Legacy aliases kept for the existing frontend / tests; preserved
-        # alongside MessageSerializer's canonical fields so both new and old
-        # clients can read the same payload without a protocol migration.
-        # ``message.resources.all()`` walks the prefetch cache instead of issuing
-        # a fresh query.
-        data["sender_id"] = message.sender_user_id
-        data["text"] = data.get("message_text", "")
-        data["resource_ids"] = [r.resource_id for r in message.resources.all()]
+        data["attachments"] = public.get("attachments", [])
+        # ``preview`` only lives on MessagePublicSerializer — surface it on
+        # the broadcast so a client receiving the WS frame after a preview
+        # has been resolved (or cleared by edit) doesn't need to round-trip
+        # the REST list endpoint.
+        data["preview"] = public.get("preview")
         return data
 
     def _dispatch_link_previews(self, message: Messages) -> None:
@@ -491,8 +499,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         group_pk = self.kwargs.get("group_pk")
         return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
 
-    # GET /chat/groups/{gid}/messages/
+    # GET /chat/groups/{gid}/messages/?after=&before=&limit=
     def list(self, request, *args, **kwargs):
+        # Two cursors so the same endpoint serves both real chat-UX
+        # operations: ``after`` returns messages strictly newer than the
+        # pivot (poll-on-reconnect), ``before`` returns messages strictly
+        # older (scroll-up infinite history). Both may be combined to
+        # bound a window.
         gid = self.kwargs.get("group_pk")
         qs = self.get_queryset().order_by("-sent_at", "-id")
 
@@ -507,6 +520,17 @@ class MessageViewSet(viewsets.ModelViewSet):
             except (ValueError, Messages.DoesNotExist):
                 pass
 
+        before = request.query_params.get("before")
+        if before:
+            try:
+                pivot = Messages.objects.get(pk=int(before), group_id=gid)
+                qs = qs.filter(
+                    Q(sent_at__lt=pivot.sent_at)
+                    | Q(sent_at=pivot.sent_at, id__lt=pivot.id)
+                )
+            except (ValueError, Messages.DoesNotExist):
+                pass
+
         try:
             limit = int(request.query_params.get("limit", 50))
         except ValueError:
@@ -515,10 +539,15 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         items = list(qs[:limit])
         data = MessagePublicSerializer(items, many=True, context=self.get_serializer_context()).data
+        # ``next_after`` = newest id on the page; pass back as ``after``
+        # to poll for what arrived since. ``next_before`` = oldest id on
+        # a *full* page; pass back as ``before`` to load older history.
+        # Null cursor in either direction signals "no more in that direction".
         next_after = items[0].id if items else None
+        next_before = items[-1].id if len(items) == limit else None
 
         return Response(
-            {"items": data, "next_after": next_after},
+            {"items": data, "next_after": next_after, "next_before": next_before},
             status=status.HTTP_200_OK,
         )
 
@@ -623,6 +652,21 @@ class MessageViewSet(viewsets.ModelViewSet):
         # Edits can introduce *new* mentions (existing ones are preserved
         # — see ``apply_mentions``'s contract).
         apply_mentions(instance)
+        # Keep the persisted OG preview in sync with the edited text.
+        # update_or_create on the worker side handles URL *changes*, so
+        # the only case the dispatcher doesn't cover is "edit removed
+        # the last URL" — drop the stale row here so the broadcast
+        # below carries ``preview:null`` and the FE doesn't render a
+        # zombie card.
+        if extract_urls(instance.message_text):
+            self._dispatch_link_previews(instance)
+        else:
+            MessagePreview.objects.filter(message_id=instance.id).delete()
+            # Invalidate the select_related cache so the immediately-
+            # following serialization sees ``preview = None``.
+            if hasattr(instance, "_state"):
+                instance._state.fields_cache.pop("preview", None)
+
         _broadcast(
             instance.group_id, "message.edited", self._serialize_broadcast_message(instance)
         )
@@ -706,19 +750,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         # Toggle: if the (user, message, emoji) row exists, delete it; otherwise create it.
         # Broadcasts a flat ``message.reaction_updated`` WS frame on commit.
         message = self.get_object()
-        emoji = request.data.get("emoji_string")
+        emoji = request.data.get("emoji")
         if not isinstance(emoji, str):
-            return Response(
-                {"emoji_string": ["This field is required."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise drf_serializers.ValidationError({"emoji": ["This field is required."]})
         emoji = emoji.strip()
         allowed = getattr(settings, "CHAT_REACTION_EMOJIS", ())
         if emoji not in allowed:
-            return Response(
-                {"emoji_string": ["Unsupported emoji."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise drf_serializers.ValidationError({"emoji": ["Unsupported emoji."]})
 
         with transaction.atomic():
             existing = (
@@ -858,3 +896,23 @@ class MentionViewSet(viewsets.GenericViewSet):
             mention.read_at = timezone.now()
             mention.save(update_fields=["read_at"])
         return Response(MentionSerializer(mention).data, status=status.HTTP_200_OK)
+
+    # POST /chat/mentions/mark-all-read/
+    @action(detail=False, methods=["post"], url_path="mark-all-read")
+    def mark_all_read(self, request, *args, **kwargs):
+        """Clear the entire mentions inbox in one call.
+
+        Idempotent — an already-empty inbox returns ``marked_count: 0``.
+        Scope is always ``request.user``; no user/group filter is
+        accepted on the body so a compromised client can never escalate
+        to clearing someone else's notifications.
+        """
+        updated = (
+            MessageMention.objects
+            .filter(mentioned_user=request.user, read_at__isnull=True)
+            .update(read_at=timezone.now())
+        )
+        return Response(
+            {"marked_count": updated, "unread_count": 0},
+            status=status.HTTP_200_OK,
+        )

@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,14 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { myFetch } from "@/lib/myFetch";
 import { useQueryClient } from "@tanstack/react-query";
-import { PRODUCT_LOGIN_URL, isProductBuild } from "@/lib/authConfig";
 
 export const Route = createFileRoute("/setup-password")({
-  beforeLoad: () => {
-    if (isProductBuild) {
-      throw redirect({ href: PRODUCT_LOGIN_URL });
-    }
-  },
   component: SetupPasswordPage,
 });
 
@@ -42,7 +36,7 @@ function SetupPasswordPage() {
     try {
       const res = await myFetch.post<{ msg: string; data: boolean | null }>(
         "/auth/set-password/",
-        { password }
+        { password },
       );
       if (!res.data.data) {
         setError(res.data.msg || "Failed to set password.");
@@ -90,9 +84,7 @@ function SetupPasswordPage() {
                 placeholder="Repeat password"
               />
             </div>
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={isPending}>
               {isPending ? "Setting..." : "Set Password"}
             </Button>
