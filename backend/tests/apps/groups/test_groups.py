@@ -408,6 +408,65 @@ class GroupMemberApiTests(TestCase):
         response = self.client.get(self.by_group_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    # ------------------------------------------------------------------
+    # user_name read-only field — powers chat mention autocomplete labels
+    # ------------------------------------------------------------------
+    def test_membership_payload_exposes_user_name(self):
+        """Each membership row carries a display label for mention UIs."""
+        self.normal_user.first_name = "Test"
+        self.normal_user.last_name = "User"
+        self.normal_user.save(update_fields=["first_name", "last_name"])
+
+        self.client.force_authenticate(user=self.normal_user)
+        response = self.client.get(self.by_group_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = next(m for m in response.data if m["user"] == self.normal_user.id)
+        self.assertIn("user_name", row)
+        self.assertEqual(row["user_name"], "Test User")
+
+    def test_user_name_falls_back_to_email_when_names_blank(self):
+        self.normal_user.first_name = ""
+        self.normal_user.last_name = ""
+        self.normal_user.save(update_fields=["first_name", "last_name"])
+
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.by_group_url)
+        row = next(m for m in response.data if m["user"] == self.normal_user.id)
+        self.assertEqual(row["user_name"], self.normal_user.email)
+
+    def test_user_name_strips_partial_names(self):
+        self.normal_user.first_name = "Solo"
+        self.normal_user.last_name = ""
+        self.normal_user.save(update_fields=["first_name", "last_name"])
+
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.by_group_url)
+        row = next(m for m in response.data if m["user"] == self.normal_user.id)
+        self.assertEqual(row["user_name"], "Solo")
+
+    def test_user_name_is_read_only_on_create(self):
+        """Posting a `user_name` in the request body must not affect the DB."""
+        self.client.force_authenticate(user=self.admin_user)
+        new_user = get_user_model().objects.create_user(
+            email="readonly@test.com",
+            password="pass",
+            first_name="Real",
+            last_name="Name",
+        )
+        response = self.client.post(
+            self.list_url,
+            {
+                "user": new_user.id,
+                "group": self.group.id,
+                "user_name": "Spoofed Name",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Server-rendered label comes from the user's actual name, not the
+        # caller-supplied value.
+        self.assertEqual(response.data["user_name"], "Real Name")
+
 
 class TrackApiTests(TestCase):
     def setUp(self):

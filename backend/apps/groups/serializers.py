@@ -10,7 +10,11 @@ class CountrySerializer(serializers.ModelSerializer):
 
 
 class GroupMembershipSerializer(serializers.ModelSerializer):
-  user_name = serializers.SerializerMethodField()
+  # Read-only display label for chat mention autocomplete and member lists.
+  # Mentions on the wire still use the numeric user id (``<@user_id>``);
+  # this field only powers the UI label so the frontend doesn't have to
+  # fall back to "User 60". Falls through gracefully when names are missing.
+  user_name = serializers.SerializerMethodField(read_only=True)
 
   class Meta:
     model = GroupMembership
@@ -18,12 +22,16 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
     read_only_fields = ['id', 'user_name', 'joined_at', 'left_at']
     validators = []
 
-  def get_user_name(self, obj) -> str | None:
-    user = obj.user
+  def get_user_name(self, obj) -> str:
+    user = getattr(obj, 'user', None)
     if user is None:
-      return None
-    name = f"{user.first_name} {user.last_name}".strip()
-    return name or user.email
+      return ''
+    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    if full_name:
+      return full_name
+    if user.email:
+      return user.email
+    return f"User {user.id}"
 
   def validate(self, attrs):
     group = attrs.get('group', getattr(self.instance, 'group', None))
