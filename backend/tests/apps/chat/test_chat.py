@@ -173,13 +173,40 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         returned_ids = [it["id"] for it in items]
         self.assertEqual(returned_ids, [m3.id, m2.id])
         self.assertEqual(resp.data["next_after"], m3.id)
+        # Page is full (limit=2, returned 2) and there is at least one older
+        # message (m1) → next_before is the oldest id on the page.
+        self.assertEqual(resp.data["next_before"], m2.id)
 
-        # after=m2 should return only m3 (newer than m2)
+        # after=m2 should return only m3 (newer than m2). No older history
+        # on that page, so next_before is null.
         url2 = self._list_url() + f"?after={m2.id}&limit=10"
         resp2 = self.client_student.get(url2)
         self.assertEqual(resp2.status_code, 200)
         ids2 = [it["id"] for it in resp2.data["items"]]
         self.assertEqual(ids2, [m3.id])
+        self.assertIsNone(resp2.data["next_before"])
+
+    def test_list_before_cursor_loads_older_history(self):
+        # Newest-first ordering; before=m2 should return m1 only.
+        m1 = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="m1",
+            sent_at=timezone.now() - timedelta(minutes=3),
+        )
+        m2 = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="m2",
+            sent_at=timezone.now() - timedelta(minutes=2),
+        )
+        m3 = Messages.objects.create(
+            group=self.group, sender_user=self.student, message_text="m3",
+            sent_at=timezone.now() - timedelta(minutes=1),
+        )
+        url = self._list_url() + f"?before={m2.id}&limit=10"
+        resp = self.client_student.get(url)
+        self.assertEqual(resp.status_code, 200)
+        ids = [it["id"] for it in resp.data["items"]]
+        self.assertEqual(ids, [m1.id])
+        # End-of-history → null cursor.
+        self.assertIsNone(resp.data["next_before"])
 
     def test_delete_allowed_for_sender_within_window(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="to delete")
@@ -372,7 +399,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         fake_layer.group_send.assert_not_called()
 
     @patch("apps.chat.views.get_channel_layer")
-    def test_attachment_upload_broadcasts_message_created_with_download_url_and_legacy_aliases(
+    def test_attachment_upload_broadcasts_message_created_with_download_url(
         self,
         mock_get_channel_layer,
     ):
@@ -412,9 +439,11 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertEqual(payload["event"], "message.created")
         self.assertEqual(payload["group_id"], self.group.id)
         self.assertEqual(payload["message"]["message_type"], "attachment")
-        self.assertEqual(payload["message"]["sender_id"], self.student.id)
-        self.assertEqual(payload["message"]["text"], "See attached")
-        self.assertEqual(payload["message"]["resource_ids"], [])
+        self.assertEqual(payload["message"]["sender_user"], self.student.id)
+        self.assertEqual(payload["message"]["message_text"], "See attached")
+        self.assertEqual(
+            [r["resource_id"] for r in payload["message"]["resources"]], []
+        )
         self.assertEqual(len(payload["message"]["attachments"]), 1)
         self.assertTrue(
             payload["message"]["attachments"][0]["download_url"].endswith(
