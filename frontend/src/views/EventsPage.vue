@@ -806,14 +806,11 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   overflow: hidden;
   box-shadow: 0 2px 4px var(--shadow);
   margin-bottom: 0;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
 }
 
 .event-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px var(--shadow);
+  transform: none;
+  box-shadow: 0 2px 4px var(--shadow);
 }
 
 .event-banner {
