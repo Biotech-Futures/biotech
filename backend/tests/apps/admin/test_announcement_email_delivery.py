@@ -19,6 +19,7 @@ This module covers the engagement-aware replacement:
 
 from unittest.mock import patch, MagicMock
 
+from django.core.mail import get_connection as _real_get_connection
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -188,13 +189,81 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
         self.assertFalse(AnnouncementDelivery.objects.exists())
 
     # ------------------------------------------------------------------
+    # Persisted error strings must be sanitized: prefixed with the
+    # exception class name, length-bounded, and CR/LF-stripped so a
+    # malicious SMTP banner can't smuggle log lines or leak details.
+    # ------------------------------------------------------------------
+    def test_failed_recipient_errors_are_sanitized(self):
+        nasty = (
+            "550 5.1.1 <user@example.com>: rejected\r\n"
+            "X-Internal-Hostname: smtp-internal.corp.example.com\n"
+            + "A" * 500
+        )
+        with patch(
+            "apps.admin.services.announcement.EmailMultiAlternatives.send",
+            side_effect=Exception(nasty),
+        ):
+            result = send_announcement_email(self.announcement.id)
+
+        delivery = AnnouncementDelivery.objects.get(pk=result["deliveryId"])
+        self.assertGreaterEqual(len(delivery.failed_recipients), 1)
+        for entry in delivery.failed_recipients:
+            err = entry["error"]
+            self.assertTrue(
+                err.startswith("Exception: "),
+                f"missing class-name prefix in {err!r}",
+            )
+            self.assertNotIn("\n", err)
+            self.assertNotIn("\r", err)
+            # Class prefix ("Exception: ") + truncated message + ellipsis.
+            self.assertLess(len(err), 260)
+
+    # ------------------------------------------------------------------
+    # The inner ``finally`` swallows connection-close errors but still
+    # logs them. Make sure the outer call still reports success and the
+    # delivery row is still persisted.
+    # ------------------------------------------------------------------
+    def test_connection_close_failure_is_swallowed(self):
+        real_conn = _real_get_connection()
+
+        class FlakyConnection:
+            """Wraps a real connection but explodes on ``close()``."""
+
+            def __init__(self, inner):
+                self._inner = inner
+
+            def open(self):
+                return self._inner.open()
+
+            def send_messages(self, messages):
+                return self._inner.send_messages(messages)
+
+            def close(self):
+                raise RuntimeError("simulated close failure")
+
+        with patch(
+            "apps.admin.services.announcement.get_connection",
+            return_value=FlakyConnection(real_conn),
+        ):
+            result = send_announcement_email(self.announcement.id)
+
+        # The send still counts as successful — close errors don't
+        # invalidate already-accepted messages.
+        self.assertEqual(result["status"], AnnouncementDelivery.Status.SUCCESS)
+        self.assertGreaterEqual(result["succeeded"], 1)
+        # And the delivery row is still saved.
+        self.assertTrue(
+            AnnouncementDelivery.objects.filter(pk=result["deliveryId"]).exists()
+        )
+
+    # ------------------------------------------------------------------
     # Regression guard: nothing in the path may opt back into the silent
     # mode. We assert the connection is opened with fail_silently=False.
     # ------------------------------------------------------------------
     def test_uses_non_silent_smtp_connection(self):
         with patch(
             "apps.admin.services.announcement.get_connection",
-            wraps=lambda **kw: __import__("django.core.mail", fromlist=["get_connection"]).get_connection(**kw),
+            wraps=_real_get_connection,
         ) as spy:
             send_announcement_email(self.announcement.id)
 
@@ -261,6 +330,8 @@ class AnnouncementNotifyViewTests(TestCase):
         self.assertEqual(body["status"], "failed")
         self.assertEqual(body["succeeded"], 0)
         self.assertGreaterEqual(body["failed"], 1)
+        # Legacy alias parity — succeeded/sent must agree on every path.
+        self.assertEqual(body["sent"], 0)
 
     def test_partial_failure_returns_207(self):
         call_count = {"n": 0}
