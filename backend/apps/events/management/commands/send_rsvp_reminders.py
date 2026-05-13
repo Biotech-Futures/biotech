@@ -1,7 +1,8 @@
-"""Scheduler-facing entrypoint for the RSVP reminder dispatcher.
+"""Ops-side entrypoint for the RSVP reminder dispatcher.
 
-Logic lives in apps.events.services.send_due_rsvp_reminders; this is
-the Azure WebJob's hourly invocation surface.
+Used for ad-hoc / dry-run invocations. The hourly cron path is the
+GitHub Actions workflow hitting the HTTP trigger endpoint, which calls
+the same apps.events.services.send_due_rsvp_reminders() service.
 """
 
 from django.core.management.base import BaseCommand, CommandError

@@ -380,10 +380,9 @@ def set_user_rsvp(user, event_id, rsvp_status):
 
 
 # ---------------------------------------------------------------------------
-# RSVP reminder dispatch. Triggered hourly by the Azure WebJob
-# (deployment/azure/webjobs/rsvp-reminders/) and by the HMAC-guarded
-# POST /events/v1/admin/send-rsvp-reminders/ endpoint as an ops escape
-# hatch — both call send_due_rsvp_reminders().
+# RSVP reminder dispatch. Triggered hourly by the GitHub Actions workflow
+# (.github/workflows/rsvp-reminders.yml) hitting the HMAC-guarded
+# POST /events/v1/admin/send-rsvp-reminders/ endpoint.
 # ---------------------------------------------------------------------------
 
 
