@@ -473,6 +473,15 @@
               <div class="chat-header-actions">
                 <button
                   type="button"
+                  class="mentions-toggle chat-search-toggle"
+                  :class="{ active: showMessageSearch }"
+                  title="Search messages"
+                  @click="toggleMessageSearch"
+                >
+                  <i class="fas fa-search"></i>
+                </button>
+                <button
+                  type="button"
                   class="mentions-toggle"
                   :class="{ active: showMentionInbox }"
                   title="Mentions"
@@ -494,6 +503,96 @@
             </div>
             <div v-if="chatNotice" class="chat-notice">
               {{ chatNotice }}
+            </div>
+            <div v-if="showMessageSearch" class="message-search-panel">
+              <form class="message-search-form" @submit.prevent="searchMessages(true)">
+                <input
+                  ref="messageSearchInputRef"
+                  v-model.trim="messageSearchQuery"
+                  type="search"
+                  class="message-search-input"
+                  placeholder="Search messages"
+                />
+                <button
+                  type="submit"
+                  class="message-action-btn"
+                  :disabled="isSearchingMessages || !messageSearchQuery.trim()"
+                >
+                  {{ isSearchingMessages ? 'Searching...' : 'Search' }}
+                </button>
+                <button
+                  v-if="messageSearchQuery || messageSearchResults.length"
+                  type="button"
+                  class="message-action-btn"
+                  @click="clearMessageSearch"
+                >
+                  Clear
+                </button>
+              </form>
+              <div v-if="messageSearchError" class="gif-status">{{ messageSearchError }}</div>
+              <div v-if="isSearchingMessages" class="gif-status">Searching messages...</div>
+              <div v-else class="message-search-list">
+                <button
+                  v-for="result in messageSearchResults"
+                  :key="`search-${result.id}`"
+                  type="button"
+                  class="message-search-row"
+                  @click="openSearchResult(result)"
+                >
+                  <span class="message-search-row-head">
+                    <strong>{{ result.author }}</strong>
+                    <small>{{ formatDate(result.date) }} {{ result.time }}</small>
+                  </span>
+                  <span class="message-search-text">
+                    <template v-if="result.text">
+                      <template
+                        v-for="(segment, segmentIndex) in getMessageTextSegments(result.text)"
+                        :key="`${result.id}-search-segment-${segmentIndex}`"
+                      >
+                        <span v-if="segment.type === 'mention'" class="mention-token">{{
+                          segment.text
+                        }}</span>
+                        <span v-else>{{ segment.text }}</span>
+                      </template>
+                    </template>
+                    <template v-else>{{ getMessageSearchSummary(result) }}</template>
+                  </span>
+                  <span
+                    v-if="result.attachments?.length || result.resources?.length || result.preview"
+                    class="message-search-tags"
+                  >
+                    <span v-if="result.attachments?.length">
+                      <i class="fas fa-paperclip"></i> Attachment
+                    </span>
+                    <span v-if="result.resources?.length">
+                      <i class="fas fa-book-open"></i> Resource
+                    </span>
+                    <span v-if="result.preview">
+                      <i class="fas fa-link"></i> Preview
+                    </span>
+                  </span>
+                </button>
+                <button
+                  v-if="messageSearchNextBefore"
+                  type="button"
+                  class="load-older-messages"
+                  :disabled="isLoadingMoreSearchResults"
+                  @click="loadMoreSearchResults"
+                >
+                  {{ isLoadingMoreSearchResults ? 'Loading...' : 'Load more results' }}
+                </button>
+                <div
+                  v-if="
+                    messageSearchQuery &&
+                    !messageSearchResults.length &&
+                    !messageSearchError &&
+                    hasSearchedMessages
+                  "
+                  class="gif-status"
+                >
+                  No matching messages.
+                </div>
+              </div>
             </div>
             <div v-if="showMentionInbox" class="mention-inbox">
               <div class="mention-inbox-header">
@@ -518,8 +617,21 @@
                   :class="{ unread: !mention.read_at }"
                   @click="openMention(mention)"
                 >
-                  <span>{{ mention.sender_name || `User ${mention.sender_user_id}` }}</span>
-                  <strong>{{ mention.message_text || 'Message was deleted.' }}</strong>
+                  <span>{{ getMentionSenderLabel(mention) }}</span>
+                  <strong>
+                    <template
+                      v-for="(segment, segmentIndex) in getMessageTextSegments(
+                        mention.message_text,
+                      )"
+                      :key="`${mention.id}-mention-segment-${segmentIndex}`"
+                    >
+                      <span v-if="segment.type === 'mention'" class="mention-token">{{
+                        segment.text
+                      }}</span>
+                      <span v-else>{{ segment.text }}</span>
+                    </template>
+                    <template v-if="!mention.message_text">Message was deleted.</template>
+                  </strong>
                   <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
                 </button>
                 <div v-if="!mentionItems.length && !mentionInboxError" class="gif-status">
@@ -541,7 +653,15 @@
               <div
                 v-for="message in messages"
                 :key="message.id"
-                :class="['message', { own: message.isOwn, pending: message.isLocalOnly }]"
+                :data-message-id="message.id"
+                :class="[
+                  'message',
+                  {
+                    own: message.isOwn,
+                    pending: message.isLocalOnly,
+                    'search-hit': String(highlightedSearchMessageId) === String(message.id),
+                  },
+                ]"
               >
                 <div class="message-avatar">{{ getInitials(message.author) }}</div>
                 <div class="message-content">
@@ -986,6 +1106,7 @@ const newMessage = ref('')
 const composer = ref(null)
 const msgList = ref(null)
 const fileInputRef = ref(null)
+const messageSearchInputRef = ref(null)
 const isLoadingMessages = ref(false)
 const isLoadingOlderMessages = ref(false)
 const isSendingMessage = ref(false)
@@ -1015,6 +1136,14 @@ const showMentionInbox = ref(false)
 const isLoadingMentions = ref(false)
 const isUpdatingMentions = ref(false)
 const mentionInboxError = ref('')
+const showMessageSearch = ref(false)
+const messageSearchQuery = ref('')
+const messageSearchResults = ref([])
+const messageSearchNextBefore = ref(null)
+const isSearchingMessages = ref(false)
+const isLoadingMoreSearchResults = ref(false)
+const hasSearchedMessages = ref(false)
+const messageSearchError = ref('')
 const typingUsers = ref([])
 const wsConnectionState = ref('offline')
 const nextMessagesBefore = ref(null)
@@ -1026,10 +1155,12 @@ const manageWindowNow = ref(Date.now())
 const activeReactionPickerMessageId = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
+const highlightedSearchMessageId = ref(null)
 
 let chatSocket = null
 let typingStopTimer = null
 let manageWindowTimer = null
+let searchHighlightTimer = null
 let hasSentTypingStart = false
 let lastTypingSentAt = 0
 const typingUserTimers = new Map()
@@ -1074,18 +1205,18 @@ const groupSubtitle = computed(() => {
 })
 
 const groupMetaItems = computed(() => {
-  const mentorIds = groupMemberships.value
+  const mentorNames = groupMemberships.value
     .filter((item) =>
       String(item.role || '')
         .toLowerCase()
         .includes('mentor'),
     )
-    .map((item) => item.userId)
+    .map((item) => item.userName || `User ${item.userId}`)
     .filter(Boolean)
   const items = []
 
-  if (mentorIds.length) {
-    items.push(`Mentor: ${mentorIds.map((id) => `User ${id}`).join(', ')}`)
+  if (mentorNames.length) {
+    items.push(`Mentor: ${mentorNames.join(', ')}`)
   }
   if (isLoadingMembers.value) {
     items.push('Loading members...')
@@ -1109,6 +1240,9 @@ const extractCollectionItems = (data) => {
 // so every helper returns a single canonical URL.
 const buildChatMessageCollectionUrl = (groupId, suffix = '') =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/${suffix}`
+
+const buildChatMessageSearchUrl = (groupId, suffix = '') =>
+  `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/search/${suffix}`
 
 const buildChatUploadUrl = (groupId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${groupId}/messages/upload/`
@@ -1208,18 +1342,26 @@ const normalizeMembership = (item) => ({
   id: item?.id,
   groupId: item?.group,
   userId: item?.user,
+  userName: item?.user_name || item?.userName || '',
   role: item?.membership_role || '',
   joinedAt: item?.joined_at || '',
   leftAt: item?.left_at || '',
 })
 
+const getCurrentUserMentionName = () => {
+  if (!currentUserId.value) return ''
+  return auth.displayName || auth.user?.email || `User ${currentUserId.value}`
+}
+
 const normalizeMentionMember = (item) => {
   const userId = Number(item?.userId || item?.user || item?.id || 0)
   const role = formatTaskStatus(item?.role || item?.membership_role || 'member') || 'Member'
+  const userName = item?.userName || item?.user_name || ''
+  const fallbackName = userId === currentUserId.value ? getCurrentUserMentionName() : `User ${userId}`
   return {
     userId,
     role,
-    label: userId === currentUserId.value ? 'You' : `User ${userId}`,
+    label: userName || fallbackName,
   }
 }
 
@@ -1766,7 +1908,7 @@ const normalizeMessage = (item) => {
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
   const author = isOwn
     ? 'You'
-    : raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member')
+    : raw?.sender_name || raw?.author || getMentionLabel(senderId)
 
   return {
     id: raw?.id || `${senderId}-${sentAt}`,
@@ -1863,7 +2005,7 @@ const getResourceLabel = (resource) =>
 
 const getReplyLabel = (reply) => {
   if (!reply) return ''
-  return reply.deleted ? 'Deleted message' : `Reply to User ${reply.user_id || ''}`.trim()
+  return reply.deleted ? 'Deleted message' : `Reply to ${getMentionLabel(reply.user_id)}`
 }
 
 const getReplyText = (reply) => {
@@ -1873,8 +2015,16 @@ const getReplyText = (reply) => {
 }
 
 const getMentionLabel = (userId) => {
-  const member = mentionMembers.value.find((item) => Number(item.userId) === Number(userId))
-  return member?.label || `User ${userId}`
+  const numericUserId = Number(userId)
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Team member'
+  const member = mentionLabelMembers.value.find((item) => Number(item.userId) === numericUserId)
+  if (member?.label) return member.label
+  if (numericUserId === currentUserId.value) return getCurrentUserMentionName()
+  return `User ${numericUserId}`
+}
+
+const getMentionSenderLabel = (mention) => {
+  return mention?.sender_name || getMentionLabel(mention?.sender_user_id)
 }
 
 const getMessageTextSegments = (text) => {
@@ -1898,6 +2048,13 @@ const getMessageTextSegments = (text) => {
   }
 
   return segments.length ? segments : [{ type: 'text', text: source }]
+}
+
+const getMessageSearchSummary = (message) => {
+  if (message?.attachments?.length) return getAttachmentLabel(message.attachments[0])
+  if (message?.resources?.length) return getResourceLabel(message.resources[0])
+  if (message?.preview?.title) return message.preview.title
+  return 'Message'
 }
 
 const normalizeChatResource = (resource) => ({
@@ -2169,10 +2326,15 @@ const canSendChatMessage = computed(
   () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
 )
 
-const mentionMembers = computed(() =>
+const mentionLabelMembers = computed(() =>
   groupMemberships.value
     .filter((item) => !item.leftAt)
     .map(normalizeMentionMember)
+    .filter((member) => member.userId),
+)
+
+const mentionMembers = computed(() =>
+  mentionLabelMembers.value
     .filter((member) => member.userId && member.userId !== currentUserId.value),
 )
 
@@ -2677,7 +2839,7 @@ const handleSocketPayload = async (payload) => {
         message_id: payload.message_id,
         message_text: payload.preview || '',
         sender_user_id: payload.sender_user_id,
-        sender_name: payload.sender_name || `User ${payload.sender_user_id || ''}`,
+        sender_name: payload.sender_name || getMentionLabel(payload.sender_user_id),
         sent_at: payload.sent_at || new Date().toISOString(),
         created_at: new Date().toISOString(),
         read_at: null,
@@ -2876,6 +3038,143 @@ const loadNewerMessages = async () => {
     nextMessagesAfter.value = data?.next_after || nextMessagesAfter.value
   } catch (error) {
     console.error('Failed to backfill newer chat messages:', error)
+  }
+}
+
+const toggleMessageSearch = async () => {
+  showMessageSearch.value = !showMessageSearch.value
+  if (showMessageSearch.value) {
+    showMentionInbox.value = false
+    await nextTick()
+    messageSearchInputRef.value?.focus()
+  }
+}
+
+const clearMessageSearch = () => {
+  messageSearchQuery.value = ''
+  messageSearchResults.value = []
+  messageSearchNextBefore.value = null
+  messageSearchError.value = ''
+  hasSearchedMessages.value = false
+}
+
+const mergeSearchResults = (current, incoming) => {
+  const seen = new Set(current.map((message) => String(message.id)))
+  return [...current, ...incoming.filter((message) => !seen.has(String(message.id)))]
+}
+
+const searchMessages = async (reset = true) => {
+  const backendGroupId = getBackendGroupId()
+  const query = messageSearchQuery.value.trim()
+
+  if (!backendGroupId) {
+    messageSearchError.value = 'Live discussion needs a backend numeric group id.'
+    return
+  }
+  if (!query) {
+    clearMessageSearch()
+    return
+  }
+  if (!reset && !messageSearchNextBefore.value) return
+
+  if (reset) {
+    isSearchingMessages.value = true
+    messageSearchResults.value = []
+    messageSearchNextBefore.value = null
+  } else {
+    isLoadingMoreSearchResults.value = true
+  }
+  messageSearchError.value = ''
+
+  const params = new URLSearchParams({ q: query, limit: '20' })
+  if (!reset && messageSearchNextBefore.value) {
+    params.set('before', String(messageSearchNextBefore.value))
+  }
+
+  try {
+    const data = await requestJson(buildChatMessageSearchUrl(backendGroupId, `?${params}`))
+    const results = extractCollectionItems(data).map(normalizeMessage)
+    messageSearchResults.value = reset
+      ? results
+      : mergeSearchResults(messageSearchResults.value, results)
+    messageSearchNextBefore.value = data?.next_before || null
+    hasSearchedMessages.value = true
+  } catch (error) {
+    messageSearchError.value =
+      error instanceof Error ? error.message : 'Messages could not be searched.'
+  } finally {
+    isSearchingMessages.value = false
+    isLoadingMoreSearchResults.value = false
+  }
+}
+
+const loadMoreSearchResults = async () => {
+  await searchMessages(false)
+}
+
+const insertMessageFromSearch = (message) => {
+  const normalized = normalizeMessage(message)
+  const existingIndex = messages.value.findIndex((item) => String(item.id) === String(normalized.id))
+  if (existingIndex !== -1) {
+    messages.value.splice(existingIndex, 1, {
+      ...messages.value[existingIndex],
+      ...normalized,
+    })
+    return normalized
+  }
+
+  const normalizedId = Number(normalized.id)
+  if (Number.isFinite(normalizedId)) {
+    const insertIndex = messages.value.findIndex((item) => Number(item.id) > normalizedId)
+    if (insertIndex === -1) messages.value.push(normalized)
+    else messages.value.splice(insertIndex, 0, normalized)
+    return normalized
+  }
+
+  const normalizedTime = new Date(normalized.date).getTime()
+  const insertIndex = messages.value.findIndex(
+    (item) => new Date(item.date).getTime() > normalizedTime,
+  )
+  if (insertIndex === -1) messages.value.push(normalized)
+  else messages.value.splice(insertIndex, 0, normalized)
+  return normalized
+}
+
+const scrollToMessageId = async (messageId) => {
+  await nextTick()
+  const target = Array.from(msgList.value?.querySelectorAll('[data-message-id]') || []).find(
+    (element) => element.dataset.messageId === String(messageId),
+  )
+  if (!target) return false
+
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  highlightedSearchMessageId.value = messageId
+  clearTimeout(searchHighlightTimer)
+  searchHighlightTimer = setTimeout(() => {
+    highlightedSearchMessageId.value = null
+  }, 2200)
+  return true
+}
+
+const openSearchResult = async (result) => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId || !result?.id) return
+
+  messageSearchError.value = ''
+  showMessageSearch.value = false
+
+  if (!messages.value.some((message) => String(message.id) === String(result.id))) {
+    try {
+      const detail = await requestJson(buildChatMessageUrl(backendGroupId, result.id))
+      insertMessageFromSearch(detail)
+    } catch {
+      insertMessageFromSearch(result)
+    }
+  }
+
+  const didScroll = await scrollToMessageId(result.id)
+  if (!didScroll) {
+    messageSearchError.value = 'Message was found, but could not be shown in the current view.'
   }
 }
 
@@ -3276,6 +3575,9 @@ const reloadGroupDetail = async () => {
   chatError.value = ''
   chatNotice.value = ''
   activeReactionPickerMessageId.value = null
+  showMessageSearch.value = false
+  clearMessageSearch()
+  highlightedSearchMessageId.value = null
 
   try {
     await loadGroup()
@@ -3335,6 +3637,7 @@ onBeforeUnmount(() => {
     clearInterval(manageWindowTimer)
     manageWindowTimer = null
   }
+  clearTimeout(searchHighlightTimer)
 })
 </script>
 
@@ -3345,7 +3648,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
 }
 .gd-head-left {
   display: flex;
@@ -3358,19 +3661,19 @@ onBeforeUnmount(() => {
 }
 .gd-subtitle {
   color: #6c757d;
-  margin-top: 0.15rem;
+  margin-top: 0.1rem;
 }
 .gd-meta-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
-  margin-top: 0.35rem;
+  margin-top: 0.25rem;
   color: #6c757d;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 .gd-meta-row span {
-  padding: 0.2rem 0.5rem;
+  padding: 0.12rem 0.45rem;
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.65);
@@ -3955,7 +4258,7 @@ onBeforeUnmount(() => {
 }
 
 .message-action-btn:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.55;
 }
 
@@ -4069,6 +4372,105 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.86rem;
+}
+
+.message-search-panel {
+  display: grid;
+  gap: 0.65rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--white);
+  padding: 0.85rem;
+}
+
+.message-search-form {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.message-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--charcoal);
+  font: inherit;
+  padding: 0.52rem 0.62rem;
+}
+
+.message-search-input:focus {
+  outline: none;
+  border-color: var(--air-force-blue);
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+
+.message-search-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.message-search-row {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  padding: 0.62rem 0.75rem;
+  text-align: left;
+}
+
+.message-search-row:hover {
+  border-color: var(--air-force-blue);
+  background: #f3f8f7;
+}
+
+.message-search-row-head,
+.message-search-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.message-search-row-head {
+  justify-content: space-between;
+}
+
+.message-search-row-head small,
+.message-search-tags {
+  color: #6c757d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.message-search-text {
+  overflow: hidden;
+  color: var(--charcoal);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message.search-hit .message-content {
+  animation: message-search-pulse 2.2s ease;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.22);
+}
+
+@keyframes message-search-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(57, 104, 123, 0);
+  }
+  20%,
+  70% {
+    box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.24);
+  }
 }
 
 .selected-resource-strip {
@@ -4751,7 +5153,9 @@ onBeforeUnmount(() => {
   isolation: auto;
   min-height: calc(100vh - 60px);
   overflow: auto;
-  padding: 2rem;
+  padding: 1rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
   color: var(--charcoal);
   background: var(--bg-light);
   --text-primary: var(--charcoal);
@@ -4777,7 +5181,7 @@ onBeforeUnmount(() => {
 }
 
 .group-hero-card {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.8rem;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -4789,7 +5193,7 @@ onBeforeUnmount(() => {
 }
 
 .gd-head {
-  padding: 1.5rem;
+  padding: 0.85rem 1rem;
   margin-bottom: 0;
   border: 1px solid var(--border-light);
   border-radius: 8px;
@@ -4799,23 +5203,52 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: none;
 }
 
+.gd-head-left {
+  padding-left: 0.35rem;
+}
+
 .gd-title {
   margin: 0;
   color: var(--charcoal);
-  font-size: 2rem;
+  font-size: 1.45rem;
   font-weight: 600;
 }
 
 .gd-subtitle {
-  margin-top: 0.15rem;
+  margin-top: 0.1rem;
   color: #6c757d;
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 .group-avatar {
   background: var(--air-force-blue);
   color: var(--white);
   border-color: var(--white);
+}
+
+@media (min-width: 1181px) {
+  .group-detail {
+    height: calc(100vh - 64px - 2rem);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .group-hero-card {
+    flex: 0 0 auto;
+  }
+
+  .split {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+  }
+
+  .split .pane,
+  .card,
+  .pane--discussion {
+    min-height: 0;
+  }
 }
 
 .mobile-tabs {

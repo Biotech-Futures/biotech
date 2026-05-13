@@ -18,11 +18,30 @@
       </div>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="card">
-      <p style="text-align:center;color:#6c757d;">
-        Loading events...
-      </p>
+    <div v-if="loading" class="events-skeleton-grid" role="status" aria-live="polite">
+      <span class="sr-only">Loading events...</span>
+      <article
+        v-for="item in 4"
+        :key="`event-skeleton-${item}`"
+        class="event-card event-skeleton-card"
+      >
+        <div class="event-skeleton-banner skeleton-block"></div>
+        <div class="event-content">
+          <div class="event-skeleton-date skeleton-block"></div>
+          <div class="event-skeleton-title skeleton-block"></div>
+          <div class="event-skeleton-line skeleton-block"></div>
+          <div class="event-skeleton-line event-skeleton-line--short skeleton-block"></div>
+          <div class="event-skeleton-meta">
+            <div class="event-skeleton-chip skeleton-block"></div>
+            <div class="event-skeleton-chip skeleton-block"></div>
+            <div class="event-skeleton-chip skeleton-block"></div>
+          </div>
+          <div class="event-skeleton-actions">
+            <div class="event-skeleton-button skeleton-block"></div>
+            <div class="event-skeleton-button skeleton-block"></div>
+          </div>
+        </div>
+      </article>
     </div>
 
     <!-- Error -->
@@ -236,12 +255,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { fetchEvents } from '../utils/eventsAPI'
+import { formatEventDate, formatEventTimeRange } from '../utils/date'
 
 const auth = useAuthStore()
 
 const isAdmin = computed(() => auth.isAdmin)
 
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
 const events = ref<any[]>([])
@@ -285,31 +305,9 @@ onMounted(() => {
 })
 
 // Formatting
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return ''
+const formatDate = (dateStr?: string | null) => formatEventDate(dateStr, auth.timeZone)
 
-  return new Date(dateStr).toLocaleDateString(
-    'en-AU',
-    {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    }
-  )
-}
-
-const formatTime = (dateStr: string) => {
-  if (!dateStr) return ''
-
-  return new Date(dateStr).toLocaleTimeString(
-    'en-AU',
-    {
-      hour: '2-digit',
-      minute: '2-digit'
-    }
-  )
-}
+const formatTime = (dateStr?: string | null) => formatEventTimeRange(dateStr, null, auth.timeZone)
 
 const prettyType = (type: string) => {
   if (!type) return 'General'
@@ -493,8 +491,15 @@ const resetCover = (ev: any) => {
   gap: 1.5rem;
 }
 
+.events-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
 @media (max-width: 900px) {
-  .events-grid {
+  .events-grid,
+  .events-skeleton-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -516,6 +521,82 @@ const resetCover = (ev: any) => {
 
 .event-banner {
   position: relative;
+}
+
+.event-skeleton-card {
+  pointer-events: none;
+  transform: none;
+}
+
+.event-skeleton-banner {
+  height: 150px;
+  border-radius: 0;
+}
+
+.event-skeleton-date {
+  width: 120px;
+  height: 26px;
+  margin-bottom: 0.9rem;
+}
+
+.event-skeleton-title {
+  width: 72%;
+  height: 24px;
+  margin-bottom: 0.9rem;
+}
+
+.event-skeleton-line {
+  width: 100%;
+  height: 14px;
+  margin-bottom: 0.55rem;
+}
+
+.event-skeleton-line--short {
+  width: 68%;
+  margin-bottom: 1rem;
+}
+
+.event-skeleton-meta,
+.event-skeleton-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.event-skeleton-meta {
+  margin-bottom: 1rem;
+}
+
+.event-skeleton-chip {
+  width: 100px;
+  height: 18px;
+}
+
+.event-skeleton-button {
+  width: 112px;
+  height: 38px;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e9ecef;
+}
+
+.skeleton-block::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: events-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes events-loading-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .event-banner i {

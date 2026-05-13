@@ -461,8 +461,8 @@ import * as THREE from 'three'
 import {
   formatAnnouncementDateAU,
   formatDateAU,
-  formatEventDateUTC,
-  formatEventTimeRangeUTC,
+  formatEventDate,
+  formatEventTimeRange,
   formatLongDateAU,
 } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
@@ -473,7 +473,7 @@ import { getAccentClass } from '@/utils/ui'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
-const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user } =
+const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user, timeZone } =
   storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const DASHBOARD_ENDPOINTS = {
@@ -529,7 +529,7 @@ const progressSnapshot = ref({
 const selectedProgressGroupId = ref('')
 
 const nextEventDateParts = computed(() => {
-  const formatted = formatEventDateUTC(nextEvent.value?.date || '') || 'TBC'
+  const formatted = formatEventDate(nextEvent.value?.date || '', timeZone.value) || 'TBC'
   const parts = formatted.split(' ')
   return {
     day: parts[0] || 'TBC',
@@ -995,7 +995,7 @@ function getAnnouncementBody(announcement) {
 }
 
 function formatEventTime(startValue, endValue) {
-  return formatEventTimeRangeUTC(startValue, endValue)
+  return formatEventTimeRange(startValue, endValue, timeZone.value)
 }
 
 function resolveResourceIconType(value) {

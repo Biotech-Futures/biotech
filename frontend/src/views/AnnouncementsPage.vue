@@ -12,8 +12,26 @@
       </div>
     </div>
 
-    <div v-if="isLoading" class="card">
-      <p style="margin:0;color:#6c757d;">Loading announcements...</p>
+    <div v-if="isLoading" class="announcements-skeleton-list" role="status" aria-live="polite">
+      <span class="sr-only">Loading announcements...</span>
+      <article
+        v-for="item in 4"
+        :key="`announcement-skeleton-${item}`"
+        class="announcement-card announcement-skeleton-card"
+        :class="{ 'announcement-skeleton-card--with-media': item % 2 === 0 }"
+      >
+        <div v-if="item % 2 === 0" class="announcement-skeleton-media skeleton-block"></div>
+        <div class="announcement-card-content announcement-skeleton-content">
+          <div class="announcement-skeleton-heading-row">
+            <div class="announcement-skeleton-title skeleton-block"></div>
+            <div class="announcement-skeleton-badge skeleton-block"></div>
+          </div>
+          <div class="announcement-skeleton-meta skeleton-block"></div>
+          <div class="announcement-skeleton-line skeleton-block"></div>
+          <div class="announcement-skeleton-line skeleton-block"></div>
+          <div class="announcement-skeleton-line announcement-skeleton-line--short skeleton-block"></div>
+        </div>
+      </article>
     </div>
 
     <div v-else-if="loadError" class="card">
@@ -158,7 +176,7 @@ const MAX_VISIBLE_IMAGES = 4
 
 const q = ref('')
 const announcements = ref<AnnouncementItem[]>([])
-const isLoading = ref(false)
+const isLoading = ref(true)
 const loadError = ref('')
 
 const filtered = computed(() => {
@@ -534,6 +552,11 @@ onMounted(() => {
   gap: 1rem;
 }
 
+.announcements-skeleton-list {
+  display: grid;
+  gap: 1rem;
+}
+
 .announcement-card {
   width: min(100%, 860px);
   background: var(--white);
@@ -551,6 +574,87 @@ onMounted(() => {
   border-color: rgba(1, 113, 81, 0.2);
   box-shadow: 0 4px 12px var(--shadow);
   transform: translateY(-1px);
+}
+
+.announcement-skeleton-card {
+  pointer-events: none;
+  transform: none;
+}
+
+.announcement-skeleton-card--with-media {
+  display: grid;
+  grid-template-columns: minmax(300px, 40%) minmax(0, 1fr);
+  width: min(100%, 1100px);
+  min-height: 260px;
+  padding: 0;
+}
+
+.announcement-skeleton-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.announcement-skeleton-media {
+  min-height: 260px;
+  border-radius: 0;
+}
+
+.announcement-skeleton-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.announcement-skeleton-title {
+  width: min(420px, 70%);
+  height: 24px;
+}
+
+.announcement-skeleton-badge {
+  width: 96px;
+  height: 24px;
+}
+
+.announcement-skeleton-meta {
+  width: 220px;
+  height: 14px;
+  margin-bottom: 1.1rem;
+}
+
+.announcement-skeleton-line {
+  width: 100%;
+  height: 14px;
+  margin-bottom: 0.7rem;
+}
+
+.announcement-skeleton-line--short {
+  width: 66%;
+  margin-bottom: 0;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e9ecef;
+}
+
+.skeleton-block::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: announcements-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes announcements-loading-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .announcement-card:not(.announcement-card--with-image) {
@@ -783,12 +887,14 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
-  .announcement-card--with-image {
+  .announcement-card--with-image,
+  .announcement-skeleton-card--with-media {
     grid-template-columns: 1fr;
   }
 
   .announcement-card-media,
-  .announcement-card-gallery {
+  .announcement-card-gallery,
+  .announcement-skeleton-media {
     min-height: 220px;
   }
 }
@@ -812,6 +918,17 @@ onMounted(() => {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .announcement-skeleton-heading-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .announcement-skeleton-title,
+  .announcement-skeleton-badge,
+  .announcement-skeleton-meta {
+    width: 100%;
   }
 }
 </style>
