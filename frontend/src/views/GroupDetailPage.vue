@@ -518,8 +518,21 @@
                   :class="{ unread: !mention.read_at }"
                   @click="openMention(mention)"
                 >
-                  <span>{{ mention.sender_name || `User ${mention.sender_user_id}` }}</span>
-                  <strong>{{ mention.message_text || 'Message was deleted.' }}</strong>
+                  <span>{{ getMentionSenderLabel(mention) }}</span>
+                  <strong>
+                    <template
+                      v-for="(segment, segmentIndex) in getMessageTextSegments(
+                        mention.message_text,
+                      )"
+                      :key="`${mention.id}-mention-segment-${segmentIndex}`"
+                    >
+                      <span v-if="segment.type === 'mention'" class="mention-token">{{
+                        segment.text
+                      }}</span>
+                      <span v-else>{{ segment.text }}</span>
+                    </template>
+                    <template v-if="!mention.message_text">Message was deleted.</template>
+                  </strong>
                   <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
                 </button>
                 <div v-if="!mentionItems.length && !mentionInboxError" class="gif-status">
@@ -1214,14 +1227,20 @@ const normalizeMembership = (item) => ({
   leftAt: item?.left_at || '',
 })
 
+const getCurrentUserMentionName = () => {
+  if (!currentUserId.value) return ''
+  return auth.displayName || auth.user?.email || `User ${currentUserId.value}`
+}
+
 const normalizeMentionMember = (item) => {
   const userId = Number(item?.userId || item?.user || item?.id || 0)
   const role = formatTaskStatus(item?.role || item?.membership_role || 'member') || 'Member'
   const userName = item?.userName || item?.user_name || ''
+  const fallbackName = userId === currentUserId.value ? getCurrentUserMentionName() : `User ${userId}`
   return {
     userId,
     role,
-    label: userId === currentUserId.value ? 'You' : userName || `User ${userId}`,
+    label: userName || fallbackName,
   }
 }
 
@@ -1768,7 +1787,7 @@ const normalizeMessage = (item) => {
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
   const author = isOwn
     ? 'You'
-    : raw?.sender_name || raw?.author || (senderId ? `User ${senderId}` : 'Team member')
+    : raw?.sender_name || raw?.author || getMentionLabel(senderId)
 
   return {
     id: raw?.id || `${senderId}-${sentAt}`,
@@ -1875,8 +1894,16 @@ const getReplyText = (reply) => {
 }
 
 const getMentionLabel = (userId) => {
-  const member = mentionMembers.value.find((item) => Number(item.userId) === Number(userId))
-  return member?.label || `User ${userId}`
+  const numericUserId = Number(userId)
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Team member'
+  const member = mentionLabelMembers.value.find((item) => Number(item.userId) === numericUserId)
+  if (member?.label) return member.label
+  if (numericUserId === currentUserId.value) return getCurrentUserMentionName()
+  return `User ${numericUserId}`
+}
+
+const getMentionSenderLabel = (mention) => {
+  return mention?.sender_name || getMentionLabel(mention?.sender_user_id)
 }
 
 const getMessageTextSegments = (text) => {
@@ -2171,10 +2198,15 @@ const canSendChatMessage = computed(
   () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
 )
 
-const mentionMembers = computed(() =>
+const mentionLabelMembers = computed(() =>
   groupMemberships.value
     .filter((item) => !item.leftAt)
     .map(normalizeMentionMember)
+    .filter((member) => member.userId),
+)
+
+const mentionMembers = computed(() =>
+  mentionLabelMembers.value
     .filter((member) => member.userId && member.userId !== currentUserId.value),
 )
 
@@ -2679,7 +2711,7 @@ const handleSocketPayload = async (payload) => {
         message_id: payload.message_id,
         message_text: payload.preview || '',
         sender_user_id: payload.sender_user_id,
-        sender_name: payload.sender_name || `User ${payload.sender_user_id || ''}`,
+        sender_name: payload.sender_name || getMentionLabel(payload.sender_user_id),
         sent_at: payload.sent_at || new Date().toISOString(),
         created_at: new Date().toISOString(),
         read_at: null,
