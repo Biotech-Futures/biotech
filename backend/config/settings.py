@@ -393,6 +393,22 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
+# RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
+# HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h
+# capture per kind under an hourly trigger.
+RSVP_REMINDER_24H_HOURS_AHEAD = config(
+    "RSVP_REMINDER_24H_HOURS_AHEAD", default=24, cast=int
+)
+RSVP_REMINDER_24H_WINDOW_HOURS = config(
+    "RSVP_REMINDER_24H_WINDOW_HOURS", default=1, cast=int
+)
+RSVP_REMINDER_1H_HOURS_AHEAD = config(
+    "RSVP_REMINDER_1H_HOURS_AHEAD", default=1, cast=int
+)
+RSVP_REMINDER_1H_WINDOW_HOURS = config(
+    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=int
+)
+
 # --- Link previews -----------------------------------------------------------
 # OG metadata cache lives in Redis under ``cache:og:<md5(url)>``. The 24h TTL
 # matches the requirement to dedupe a globally-previewed URL across users.

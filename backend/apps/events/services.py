@@ -20,8 +20,9 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.mail import send_mail
-from django.db.models import Exists, OuterRef, Q
+from django.core.mail import EmailMultiAlternatives
+from django.db.models import Exists, F, OuterRef, Q
+from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
@@ -378,169 +379,191 @@ def set_user_rsvp(user, event_id, rsvp_status):
 
 
 # ---------------------------------------------------------------------------
-# 24h RSVP reminder dispatch. Invoked by:
-#   * `manage.py send_rsvp_reminders`
-#   * the POST /events/v1/admin/send-rsvp-reminders/ endpoint (guarded by
-#     RSVP_REMINDER_TOKEN), which the hourly GitHub Actions workflow hits.
-#
-# Why this lives in services.py rather than a Celery task:
-# we don't want a broker/worker just for one cron job. An external
-# scheduler triggers the same code path via the management command or
-# the admin endpoint.
+# RSVP reminder dispatch. Triggered hourly by the Azure WebJob
+# (deployment/azure/webjobs/rsvp-reminders/) and by the HMAC-guarded
+# POST /events/v1/admin/send-rsvp-reminders/ endpoint as an ops escape
+# hatch — both call send_due_rsvp_reminders().
 # ---------------------------------------------------------------------------
 
 
-# Default window constants — callers can override by passing explicit
-# hours to send_due_rsvp_reminders(). Keeping them here as defaults
-# means the GitHub Actions trigger and management command require no
-# changes for the standard case.
-RSVP_REMINDER_24H_WINDOW_START = 24
-RSVP_REMINDER_24H_WINDOW_END = 25
-RSVP_REMINDER_1H_WINDOW_START = 1
-RSVP_REMINDER_1H_WINDOW_END = 2
-
-# How many RSVPs to pull from the DB per chunk inside one event. Keeps
-# memory flat for events with very large attendee lists.
-RSVP_REMINDER_RSVP_CHUNK_SIZE = 100
+REMINDER_RSVP_CHUNK_SIZE = 100
 
 
-def send_due_rsvp_reminders(
-    window_start_hours=None,
-    window_end_hours=None,
-):
-    """Dispatch reminder emails for events within the given time window.
+# A "kind" is one (window, idempotency field) pair. Multiple audiences
+# can fire under a single atomic claim per kind.
+REMINDER_KINDS = {
+    "24h": {
+        "field": "reminder_24h_sent_for_start",
+        "hours_ahead_setting": "RSVP_REMINDER_24H_HOURS_AHEAD",
+        "window_hours_setting": "RSVP_REMINDER_24H_WINDOW_HOURS",
+        "audiences": (
+            {
+                "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
+                "subject": "Reminder: {event_name}",
+                "headline": "Your event is tomorrow",
+                "intro": (
+                    "This is a friendly reminder that you have an upcoming "
+                    "event with BIOTech Futures tomorrow."
+                ),
+                "closing": "We look forward to seeing you there!",
+                "preheader_phrase": "starts in about 24 hours",
+            },
+            {
+                "statuses": (EventRsvp.RsvpStatus.PENDING,),
+                "subject": "Please respond: {event_name}",
+                "headline": "Please respond",
+                "intro": (
+                    "You have been invited to this event tomorrow, but we "
+                    "haven't received your response yet. Please log in to "
+                    "let us know whether you'll be attending."
+                ),
+                "closing": "Thanks for letting us know.",
+                "preheader_phrase": "is tomorrow — please respond",
+            },
+        ),
+    },
+    "1h": {
+        "field": "reminder_1h_sent_for_start",
+        "hours_ahead_setting": "RSVP_REMINDER_1H_HOURS_AHEAD",
+        "window_hours_setting": "RSVP_REMINDER_1H_WINDOW_HOURS",
+        "audiences": (
+            {
+                "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
+                "subject": "Starting soon: {event_name}",
+                "headline": "Starting soon",
+                "intro": (
+                    "Just a quick reminder — your BIOTech Futures event "
+                    "starts in about an hour."
+                ),
+                "closing": "See you very soon!",
+                "preheader_phrase": "starts in about an hour",
+            },
+        ),
+    },
+}
 
-    Called twice per cycle:
-      * 24h window — emails ACCEPTED attendees + nudges PENDING attendees
-      * 1h window  — emails ACCEPTED attendees only (final reminder)
 
-    ``window_start_hours`` and ``window_end_hours`` default to the 24h
-    window constants so the existing management command and GitHub Actions
-    trigger require no changes.
+def send_due_rsvp_reminders(*, kind=None, dry_run=False):
+    """Dispatch RSVP reminder emails for events in their reminder windows.
 
-    Returns ``(events_processed, emails_sent, emails_failed)``.
-
-    Idempotency: separate ``reminder_sent`` and ``reminder_1h_sent``
-    boolean flags guard each window so a crash or parallel worker cannot
-    send duplicate emails.
+    kind=None scans every configured kind; pass "24h" or "1h" to scan
+    one. dry_run=True reports counts without claiming or sending.
+    Returns (events_processed, emails_sent, emails_failed) summed
+    across kinds.
     """
-    if window_start_hours is None:
-        window_start_hours = RSVP_REMINDER_24H_WINDOW_START
-    if window_end_hours is None:
-        window_end_hours = RSVP_REMINDER_24H_WINDOW_END
-
-    is_1h_window = window_start_hours < 2  # treat anything under 2h as the 1h pass
-
-    now = timezone.now()
-    window_start = now + timedelta(hours=window_start_hours)
-    window_end = now + timedelta(hours=window_end_hours)
-
-    # Select the correct idempotency flag for this window
-    if is_1h_window:
-        candidates = Events.objects.filter(
-            start_datetime__gte=window_start,
-            start_datetime__lt=window_end,
-            deleted_at__isnull=True,
-            reminder_1h_sent=False,
-        )
+    if kind is None:
+        kinds = tuple(REMINDER_KINDS.keys())
+    elif kind in REMINDER_KINDS:
+        kinds = (kind,)
     else:
-        candidates = Events.objects.filter(
-            start_datetime__gte=window_start,
-            start_datetime__lt=window_end,
-            deleted_at__isnull=True,
-            reminder_sent=False,
+        raise ValueError(
+            f"Unknown reminder kind {kind!r}; choose from {sorted(REMINDER_KINDS)}."
         )
 
     events_processed = 0
-    total_sent = 0
-    total_failed = 0
+    emails_sent = 0
+    emails_failed = 0
+    for k in kinds:
+        ev, sent, failed = _dispatch_reminder_kind(k, dry_run=dry_run)
+        events_processed += ev
+        emails_sent += sent
+        emails_failed += failed
+    return events_processed, emails_sent, emails_failed
+
+
+def _dispatch_reminder_kind(kind, *, dry_run):
+    cfg = REMINDER_KINDS[kind]
+    field = cfg["field"]
+    hours_ahead = int(getattr(settings, cfg["hours_ahead_setting"]))
+    window_hours = int(getattr(settings, cfg["window_hours_setting"]))
+
+    now = timezone.now()
+    window_start = now + timedelta(hours=hours_ahead)
+    window_end = now + timedelta(hours=hours_ahead + window_hours)
+
+    candidates = (
+        Events.objects.filter(
+            start_datetime__gte=window_start,
+            start_datetime__lt=window_end,
+            deleted_at__isnull=True,
+        )
+        .exclude(**{field: F("start_datetime")})
+        .order_by("start_datetime", "id")
+    )
+
+    events_processed = 0
+    emails_sent = 0
+    emails_failed = 0
 
     for event in candidates:
-        # Atomic claim using the correct flag
-        if is_1h_window:
-            claimed = Events.objects.filter(
-                pk=event.pk, reminder_1h_sent=False
-            ).update(reminder_1h_sent=True)
-        else:
-            claimed = Events.objects.filter(
-                pk=event.pk, reminder_sent=False
-            ).update(reminder_sent=True)
+        if dry_run:
+            # Best-effort: doesn't account for blank user emails skipped at send time.
+            for audience in cfg["audiences"]:
+                emails_sent += EventRsvp.objects.filter(
+                    event=event, rsvp_status__in=audience["statuses"]
+                ).count()
+            events_processed += 1
+            continue
 
+        # Atomic claim — wins exactly once under concurrent runs.
+        claimed = (
+            Events.objects.filter(pk=event.pk)
+            .exclude(**{field: F("start_datetime")})
+            .update(**{field: event.start_datetime})
+        )
         if not claimed:
             continue
 
         try:
-            if is_1h_window:
-                # 1h window — confirmed attendees only, final reminder
-                sent, failed = _send_reminders_for_event(
-                    event,
-                    statuses=[EventRsvp.RsvpStatus.ACCEPTED],
-                    subject_prefix="Starting soon",
-                )
-            else:
-                # 24h window — confirmed attendees get full reminder,
-                # pending attendees get a nudge to respond
-                sent, failed = _send_reminders_for_event(
-                    event,
-                    statuses=[EventRsvp.RsvpStatus.ACCEPTED],
-                    subject_prefix="Reminder",
-                )
-                nudge_sent, nudge_failed = _send_reminders_for_event(
-                    event,
-                    statuses=[EventRsvp.RsvpStatus.PENDING],
-                    subject_prefix="Please respond",
-                    is_nudge=True,
-                )
-                sent += nudge_sent
-                failed += nudge_failed
+            ev_sent, ev_failed = _send_reminders_for_event(event, cfg["audiences"])
         except Exception:
             logger.exception(
-                "RSVP reminder dispatch crashed for event %s", event.id
+                "RSVP reminder dispatch crashed for event %s (kind=%s)",
+                event.id,
+                kind,
             )
             continue
 
         events_processed += 1
-        total_sent += sent
-        total_failed += failed
+        emails_sent += ev_sent
+        emails_failed += ev_failed
         logger.info(
-            "RSVP reminders for event %s (%s): sent=%s failed=%s window=%sh",
+            "RSVP reminders kind=%s event=%s (%s): sent=%s failed=%s",
+            kind,
             event.id,
             event.event_name,
-            sent,
-            failed,
-            window_start_hours,
+            ev_sent,
+            ev_failed,
         )
 
-    return events_processed, total_sent, total_failed
+    return events_processed, emails_sent, emails_failed
 
 
-def _send_reminders_for_event(event, statuses=None, subject_prefix="Reminder", is_nudge=False):
-    """Email attendees of `event` whose RSVP status is in `statuses`.
+def _send_reminders_for_event(event, audiences):
+    sent = 0
+    failed = 0
+    for audience in audiences:
+        s, f = _send_audience_reminders(event, audience)
+        sent += s
+        failed += f
+    return sent, failed
 
-    Returns ``(sent, failed)``.
 
-    ``is_nudge=True`` swaps in the pending-nudge body so PENDING
-    attendees get a different message asking them to respond rather
-    than a confirmation reminder.
-    """
-    if statuses is None:
-        statuses = [EventRsvp.RsvpStatus.ACCEPTED]
-
+def _send_audience_reminders(event, audience):
     rsvps = (
         EventRsvp.objects.filter(
             event=event,
-            rsvp_status__in=statuses,
+            rsvp_status__in=audience["statuses"],
         )
         .select_related("user")
-        .iterator(chunk_size=RSVP_REMINDER_RSVP_CHUNK_SIZE)
+        .iterator(chunk_size=REMINDER_RSVP_CHUNK_SIZE)
     )
 
-    if is_nudge:
-        body_template = _rsvp_nudge_body_template(event)
-        subject = f"{subject_prefix}: {event.event_name} — have you responded?"
-    else:
-        body_template = _rsvp_reminder_body_template(event)
-        subject = f"{subject_prefix}: {event.event_name}"
+    subject = audience["subject"].format(event_name=event.event_name)
+    location_text, location_map_url = _event_location_lines(event)
+    when_full = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p UTC")
+    date_label = event.start_datetime.strftime("%A, %d %B %Y")
+    time_label = event.start_datetime.strftime("%I:%M %p UTC")
 
     from_email = settings.DEFAULT_FROM_EMAIL or "noreply@biotechfutures.com"
 
@@ -548,17 +571,33 @@ def _send_reminders_for_event(event, statuses=None, subject_prefix="Reminder", i
     failed = 0
     for rsvp in rsvps:
         user = rsvp.user
-        email = getattr(user, "email", None)
+        email = (getattr(user, "email", "") or "").strip()
         if not email:
             continue
         first_name = (getattr(user, "first_name", "") or "").strip() or "there"
+
+        ctx = {
+            "First_Name": first_name,
+            "HEADLINE": audience["headline"],
+            "INTRO": audience["intro"],
+            "CLOSING": audience["closing"],
+            "PREHEADER": f"{event.event_name} {audience['preheader_phrase']}.",
+            "EVENT_NAME": event.event_name,
+            "EVENT_WHEN_TEXT": when_full,
+            "EVENT_DATE": date_label,
+            "EVENT_TIME": time_label,
+            "EVENT_LOCATION_TEXT": location_text,
+            "EVENT_LOCATION_MAP_URL": location_map_url,
+            "EVENT_DESCRIPTION": event.description or "",
+            "CONTACT_EMAIL": from_email,
+        }
+
         try:
-            send_mail(
+            _send_one_reminder(
                 subject=subject,
-                message=body_template.format(first_name=first_name),
+                recipient=email,
                 from_email=from_email,
-                recipient_list=[email],
-                fail_silently=False,
+                ctx=ctx,
             )
             sent += 1
         except Exception:
@@ -571,52 +610,47 @@ def _send_reminders_for_event(event, statuses=None, subject_prefix="Reminder", i
     return sent, failed
 
 
-def _rsvp_reminder_body_template(event):
-    """Return a ``str.format``-ready body with a ``{first_name}`` slot.
+def _send_one_reminder(*, subject, recipient, from_email, ctx):
+    # Extracted so resilience tests can patch a single seam.
+    plain_body = _build_plain_reminder_body(ctx)
+    html_body = render_to_string("emails/rsvp_reminder.html", ctx)
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=plain_body,
+        from_email=from_email,
+        to=[recipient],
+    )
+    msg.attach_alternative(html_body, "text/html")
+    msg.send(fail_silently=False)
 
-    Built once per event so we don't re-render the location block for
-    every recipient.
-    """
+
+def _build_plain_reminder_body(ctx):
+    lines = [
+        f"Hi {ctx['First_Name']},",
+        "",
+        ctx["INTRO"],
+        "",
+        f"Event:  {ctx['EVENT_NAME']}",
+        f"Date:   {ctx['EVENT_WHEN_TEXT']}",
+    ]
+    if ctx["EVENT_LOCATION_TEXT"]:
+        lines.append(f"Location: {ctx['EVENT_LOCATION_TEXT']}")
+    if ctx["EVENT_LOCATION_MAP_URL"]:
+        lines.append(f"Map: {ctx['EVENT_LOCATION_MAP_URL']}")
+    if ctx["EVENT_DESCRIPTION"]:
+        lines += ["", f"Details: {ctx['EVENT_DESCRIPTION']}"]
+    lines += ["", ctx["CLOSING"], "", "The BIOTech Futures Team"]
+    return "\n".join(lines)
+
+
+def _event_location_lines(event):
+    # Virtual events flatten the join URL into the text line; in-person
+    # splits into (location, map). Empty pair ⇒ omit the row entirely.
     if event.is_virtual:
         if event.location_link:
-            location_line = f"Join online: {event.location_link}"
-        else:
-            location_line = (
-                "This is a virtual event. Check your calendar invite for the link."
-            )
-    else:
-        # Non-virtual events can legitimately have a null `location`
-        # (the model allows it) — fall back to the map link, then to
-        # nothing, rather than emailing "Location: None".
-        parts = []
-        if event.location:
-            parts.append(f"Location: {event.location}")
-        if event.location_link:
-            parts.append(f"Map: {event.location_link}")
-        location_line = "\n".join(parts) if parts else ""
-
-    # Event times are stored in UTC; label the rendered string so the
-    # recipient never has to guess which zone "10:00 AM" refers to.
-    when = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p UTC")
-    body = (
-        "Hi {first_name},\n\n"
-        "This is a friendly reminder that you have an upcoming event:\n\n"
-        f"Event:  {event.event_name}\n"
-        f"Date:   {when}\n"
-    )
-    if location_line:
-        body += f"{location_line}\n"
-    body += "\nWe look forward to seeing you there!\n\nThe BIOTech Futures Team"
-    return body
-
-def _rsvp_nudge_body_template(event):
-    """Return a nudge body for PENDING attendees who haven't responded yet."""
-    when = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p")
-    body = (
-        "Hi {first_name},\n\n"
-        f"You have been invited to {event.event_name} happening tomorrow "
-        f"on {when} but we haven't received your response yet.\n\n"
-        "Please log in to confirm whether you will be attending.\n\n"
-        "The BIOTech Futures Team"
-    )
-    return body
+            return (f"Join online: {event.location_link}", "")
+        return (
+            "This is a virtual event. Check your calendar invite for the link.",
+            "",
+        )
+    return (event.location or "", event.location_link or "")
