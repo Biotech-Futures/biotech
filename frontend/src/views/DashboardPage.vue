@@ -487,6 +487,7 @@ const DASHBOARD_ENDPOINTS = {
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
   nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
   personalizedEvents: `${API_BASE_URL}/events/v1/?rsvp_status=accepted,tentative,pending&page_size=1&ordering=start_datetime`,
+  eventsCount: `${API_BASE_URL}/events/v1/?when=upcoming&page_size=1`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
   progress: `${API_BASE_URL}/dashboard/v1/progress/`,
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`,
@@ -499,6 +500,7 @@ const groups = ref([])
 const resources = ref([])
 const announcements = ref([])
 const events = ref([])
+const upcomingEventsCount = ref(0)
 
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
@@ -1154,7 +1156,7 @@ function deriveDashboardSummary() {
   if (isAdmin.value && adminOperationsSummary.value) {
     dashboardSummary.value = {
       activeGroups: Number(adminOperationsSummary.value.active_groups || groups.value.length),
-      upcomingEvents: Number(adminOperationsSummary.value.upcoming_events || events.value.length),
+      upcomingEvents: Number(adminOperationsSummary.value.upcoming_events ?? upcomingEventsCount.value),
       resources: resources.value.length,
       announcements: announcements.value.length,
     }
@@ -1163,7 +1165,7 @@ function deriveDashboardSummary() {
 
   dashboardSummary.value = {
     activeGroups: groups.value.length,
-    upcomingEvents: events.value.length,
+    upcomingEvents: upcomingEventsCount.value,
     resources: resources.value.length,
     announcements: announcements.value.length,
   }
@@ -1374,6 +1376,9 @@ async function loadAnnouncements() {
 
 async function loadEvents() {
   try {
+    const countData = await fetchJson(DASHBOARD_ENDPOINTS.eventsCount)
+    upcomingEventsCount.value = Number(countData?.count ?? 0)
+
     const nextEventData = await fetchJson(DASHBOARD_ENDPOINTS.nextEvent, {
       allowNoContent: true,
     })
@@ -1401,8 +1406,10 @@ async function loadEvents() {
         DASHBOARD_ENDPOINTS.events,
       ])
       const liveEvents = extractCollectionItems(fallbackEvents)
+      upcomingEventsCount.value = Number(fallbackEvents?.count ?? liveEvents.length)
       events.value = liveEvents.length ? liveEvents.map(normalizeEvent) : []
     } catch {
+      upcomingEventsCount.value = 0
       events.value = []
     }
   }
