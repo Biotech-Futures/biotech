@@ -336,11 +336,7 @@ const bannerStyle = (ev: any) => {
 
   return `
     ${base}
-    background:linear-gradient(
-      135deg,
-      var(--dark-green),
-      var(--mint-green)
-    );
+    background-color:var(--dark-green);
   `
 }
 
@@ -686,5 +682,14 @@ const resetCover = (ev: any) => {
 
 .detail-banner i {
   font-size: 2.5rem;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem 1.5rem;
+  border-top: 1px solid var(--border-light);
+  flex-wrap: wrap;
 }
 </style>
