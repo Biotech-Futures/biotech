@@ -20,12 +20,21 @@ This module covers the engagement-aware replacement:
 from unittest.mock import patch, MagicMock
 
 from django.core.mail import get_connection as _real_get_connection
+from django.db import transaction
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.admin.services.announcement import send_announcement_email
-from apps.announcements.models import Announcement, AnnouncementDelivery
+from apps.admin.services.announcement import (
+    create_announcement,
+    send_announcement_email,
+    update_announcement,
+)
+from apps.announcements.models import (
+    Announcement,
+    AnnouncementAudience,
+    AnnouncementDelivery,
+)
 from apps.users.models import User
 from apps.users.models.admin_scope import AdminScope
 
@@ -161,10 +170,24 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
 
     # ------------------------------------------------------------------
     # No recipients: skip cleanly, do NOT persist a delivery row.
+    #
+    # We target the announcement at an audience that resolves to zero
+    # users (an empty track) rather than flipping every ``User`` to
+    # inactive — that approach in earlier revisions deactivated the
+    # author itself and accidentally exercised the auth/admin model.
+    # The empty-track path is the same one ``test_no_recipients_returns_400``
+    # uses for the HTTP layer.
     # ------------------------------------------------------------------
     def test_no_recipients_skipped_and_no_delivery_row(self):
-        # Deactivate every user so _resolve_recipient_emails returns [].
-        User.objects.update(is_active=False)
+        from apps.groups.models import Countries, CountryStates, Tracks
+        country = Countries.objects.create(country_name="ServiceC")
+        state = CountryStates.objects.create(country=country, state_name="ServiceS")
+        empty_track = Tracks.objects.create(track_name="SERVICE_EMPTY", state=state)
+        AnnouncementAudience.objects.create(
+            announcement=self.announcement, track=empty_track,
+        )
+        self.announcement.visibility_scope = "track_based"
+        self.announcement.save(update_fields=["visibility_scope"])
 
         result = send_announcement_email(self.announcement.id)
 
@@ -391,3 +414,159 @@ class AnnouncementNotifyViewTests(TestCase):
         ).first()
         self.assertIsNotNone(delivery)
         self.assertEqual(delivery.initiated_by, self.admin)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementCreateUpdateOnCommitTests(TestCase):
+    """The create / update service path is wrapped in ``@transaction.atomic``.
+
+    Earlier revisions ran ``send_announcement_email`` synchronously inside
+    that atomic block, which meant:
+
+      * The whole SMTP loop held an announcement row lock for the
+        duration of the network I/O, and
+      * Any DB error raised *after* the send had already gone out would
+        roll back the ``AnnouncementDelivery`` audit row — re-introducing
+        the exact failure mode the delivery tracking is supposed to fix.
+
+    These tests pin the fix in place: the sender must be deferred via
+    ``transaction.on_commit`` and must NOT fire when the surrounding
+    transaction rolls back.
+    """
+
+    def setUp(self):
+        self.author = User.objects.create_user(
+            email="onc-author@example.com",
+            password="testpass",
+            first_name="OC",
+            last_name="Author",
+        )
+
+    def test_create_with_send_email_defers_send_until_commit(self):
+        """Inside the atomic block, the send is *scheduled* but not yet
+        invoked. Once the transaction commits, on_commit fires it exactly
+        once for the announcement we just created."""
+        with patch(
+            "apps.admin.services.announcement.send_announcement_email"
+        ) as mock_send:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                result = create_announcement(
+                    {
+                        "title": "Hello",
+                        "body": "Body",
+                        "send_email": True,
+                    },
+                    initiated_by=self.author,
+                )
+            # While callbacks are captured but not executed, the sender
+            # must not have run — proves it is wired through on_commit.
+            mock_send.assert_not_called()
+            self.assertEqual(len(callbacks), 1)
+            announcement_id = result["data"]["id"]
+
+            # Now execute the deferred callback and confirm the send is
+            # invoked with the right announcement id and initiator.
+            for cb in callbacks:
+                cb()
+            mock_send.assert_called_once()
+            call = mock_send.call_args
+            args, kwargs = call.args, call.kwargs
+            self.assertEqual(args[0] if args else kwargs["announcement_id"], announcement_id)
+            self.assertEqual(kwargs.get("initiated_by"), self.author)
+
+    def test_create_send_email_is_dropped_on_rollback(self):
+        """If the outer transaction rolls back, the on_commit callback is
+        discarded — we must NOT notify recipients about an announcement
+        that doesn't actually exist, and no AnnouncementDelivery row
+        should be created."""
+        with patch(
+            "apps.admin.services.announcement.send_announcement_email"
+        ) as mock_send:
+            with self.captureOnCommitCallbacks(execute=True):
+                try:
+                    with transaction.atomic():
+                        create_announcement(
+                            {
+                                "title": "Doomed",
+                                "body": "Body",
+                                "send_email": True,
+                            },
+                            initiated_by=self.author,
+                        )
+                        raise RuntimeError("force rollback")
+                except RuntimeError:
+                    pass
+
+        mock_send.assert_not_called()
+        self.assertFalse(
+            Announcement.objects.filter(title="Doomed").exists(),
+        )
+        self.assertFalse(AnnouncementDelivery.objects.exists())
+
+    def test_update_with_send_email_defers_send_until_commit(self):
+        announcement = Announcement.objects.create(
+            author_user=self.author,
+            title="Existing",
+            body="Body",
+            visibility_scope="global",
+        )
+
+        with patch(
+            "apps.admin.services.announcement.send_announcement_email"
+        ) as mock_send:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                update_announcement(
+                    announcement.id,
+                    {"title": "Existing v2", "send_email": True},
+                    initiated_by=self.author,
+                )
+            mock_send.assert_not_called()
+            self.assertEqual(len(callbacks), 1)
+
+            for cb in callbacks:
+                cb()
+            mock_send.assert_called_once()
+            call = mock_send.call_args
+            args, kwargs = call.args, call.kwargs
+            self.assertEqual(args[0] if args else kwargs["announcement_id"], announcement.id)
+
+    def test_create_without_send_email_schedules_nothing(self):
+        """Sanity: ``send_email`` opt-in is required to schedule a send."""
+        with patch(
+            "apps.admin.services.announcement.send_announcement_email"
+        ) as mock_send:
+            with self.captureOnCommitCallbacks(execute=True) as callbacks:
+                create_announcement(
+                    {"title": "Silent", "body": "Body"},
+                    initiated_by=self.author,
+                )
+            self.assertEqual(callbacks, [])
+            mock_send.assert_not_called()
+
+    def test_delivery_row_survives_commit_path(self):
+        """End-to-end: when the outer transaction commits, the deferred
+        ``send_announcement_email`` runs in autocommit mode and the
+        resulting ``AnnouncementDelivery`` row is durable — not subject
+        to the create's atomic block. This is the audit-trail guarantee
+        we re-established by moving the send out of @transaction.atomic.
+        """
+        with self.captureOnCommitCallbacks(execute=True):
+            result = create_announcement(
+                {
+                    "title": "Audited",
+                    "body": "Body",
+                    "send_email": True,
+                },
+                initiated_by=self.author,
+            )
+        announcement_id = result["data"]["id"]
+        # The real sender ran (the locmem backend accepts everything),
+        # so a delivery row must be visible from outside the create's
+        # transaction.
+        deliveries = AnnouncementDelivery.objects.filter(
+            announcement_id=announcement_id,
+        )
+        self.assertEqual(deliveries.count(), 1)
+        self.assertEqual(
+            deliveries.first().status, AnnouncementDelivery.Status.SUCCESS,
+        )

@@ -571,14 +571,17 @@ class AnnouncementListCreateView(APIView):
 
     """POST /api/v1/announcement - Create announcement"""
     def post(self, request):
-        author_user_id = None
-        initiated_by = None
-        if hasattr(request, "user") and request.user.is_authenticated:
-            author_user_id = request.user.id
-            initiated_by = request.user
-        result = create_announcement(
-            request.data, author_user_id, initiated_by=initiated_by,
+        # ``initiated_by`` carries the acting user; ``create_announcement``
+        # derives ``author_user_id`` from it. The two are split in the
+        # service signature so impersonation / service-account flows can
+        # still pass a different ``author_user_id`` if needed — see
+        # ``_resolve_author_user_id`` in apps.admin.services.announcement.
+        initiated_by = (
+            request.user
+            if hasattr(request, "user") and request.user.is_authenticated
+            else None
         )
+        result = create_announcement(request.data, initiated_by=initiated_by)
         code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 

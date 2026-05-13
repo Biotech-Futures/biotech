@@ -130,6 +130,13 @@ class AnnouncementDelivery(models.Model):
     recipient_count = models.PositiveIntegerField(default=0)
     success_count = models.PositiveIntegerField(default=0)
     failure_count = models.PositiveIntegerField(default=0)
+    # Persisted shape: ``[{"email": "<addr>", "error": "<sanitized>"}, ...]``,
+    # capped at ``FAILED_RECIPIENTS_CAP`` entries. Note this differs from the
+    # API response shape, which surfaces email strings only (the sanitized
+    # error message is operator-facing — see ``send_announcement_email``).
+    # Do NOT return ``failed_recipients`` directly over the wire without
+    # stripping the ``error`` field; the strings are bounded and CR/LF-safe
+    # but still leak provider error text.
     failed_recipients = models.JSONField(default=list, blank=True)
     error_summary = models.TextField(blank=True, default="")
 
@@ -145,6 +152,6 @@ class AnnouncementDelivery(models.Model):
 
     def __str__(self):
         return (
-            f"Delivery #{self.pk} ({self.status}, "
+            f"Delivery #{self.pk} ({self.get_status_display()}, "
             f"{self.success_count}/{self.recipient_count})"
         )
