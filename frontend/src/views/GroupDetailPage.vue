@@ -2526,8 +2526,8 @@ const openEditTaskDialog = async (task) => {
   taskDialogOpen.value = true
 }
 
-const closeTaskDialog = () => {
-  if (isSavingTask.value) return
+const closeTaskDialog = ({ force = false } = {}) => {
+  if (isSavingTask.value && !force) return
   taskDialogOpen.value = false
   taskFormError.value = ''
 }
@@ -2591,7 +2591,7 @@ const saveTask = async () => {
       const createdTask = await createTaskRequest(buildCreateTaskPayload())
       upsertTask(createdTask)
     }
-    closeTaskDialog()
+    closeTaskDialog({ force: true })
   } catch (error) {
     taskFormError.value = error instanceof Error ? error.message : 'Task could not be saved.'
   } finally {
