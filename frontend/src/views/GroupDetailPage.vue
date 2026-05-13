@@ -84,6 +84,16 @@
             </div>
           </div>
           <div class="gd-head-actions">
+            <button
+              type="button"
+              class="group-members-btn"
+              :disabled="isLoadingMembers || !visibleGroupMembers.length"
+              @click="showGroupMembersDialog = true"
+            >
+              <i class="fas fa-users"></i>
+              Members
+              <span>{{ visibleGroupMembers.length }}</span>
+            </button>
             <label class="group-switcher" for="group-switcher">
               <span>Group</span>
               <select
@@ -103,6 +113,44 @@
             }}</span>
           </div>
         </div>
+      </div>
+
+      <div
+        v-if="showGroupMembersDialog"
+        class="group-members-dialog-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Group members"
+      >
+        <section class="group-members-dialog">
+          <div class="group-members-dialog-header">
+            <div>
+              <h3>Group members</h3>
+              <p>{{ visibleGroupMembers.length }} visible members</p>
+            </div>
+            <button
+              type="button"
+              class="group-members-dialog-close"
+              title="Close"
+              @click="showGroupMembersDialog = false"
+            >
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <div class="group-members-list">
+            <div v-for="member in visibleGroupMembers" :key="member.key" class="group-member-row">
+              <div class="group-member-avatar">{{ getInitials(member.name).slice(0, 2) }}</div>
+              <div class="group-member-copy">
+                <strong>{{ member.name }}</strong>
+                <span>{{ member.roleLabel }}</span>
+              </div>
+            </div>
+            <div v-if="!visibleGroupMembers.length" class="group-members-empty">
+              No members are available.
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- Mobile tabs (hidden on desktop) -->
@@ -152,7 +200,7 @@
               </button>
             </div>
           </div>
-          <div class="card-content tasks-content">
+          <div class="card-content tasks-content" :class="{ 'has-bulk-actions': selectedTaskIds.size }">
             <div class="task-filter-bar">
               <label class="task-filter-field">
                 <span>Search</span>
@@ -162,14 +210,6 @@
                   placeholder="Task name"
                   @keyup.enter="loadTasks"
                 />
-              </label>
-              <label class="task-filter-field">
-                <span>Type</span>
-                <select v-model="taskFilters.taskType">
-                  <option value="">All</option>
-                  <option value="group">Group</option>
-                  <option value="individual">Individual</option>
-                </select>
               </label>
               <label class="task-filter-field">
                 <span>Status</span>
@@ -185,14 +225,6 @@
                 </select>
               </label>
               <label class="task-filter-field">
-                <span>Done</span>
-                <select v-model="taskFilters.completed">
-                  <option value="">All</option>
-                  <option value="true">Done</option>
-                  <option value="false">Open</option>
-                </select>
-              </label>
-              <label class="task-filter-field">
                 <span>Sort</span>
                 <select v-model="taskFilters.ordering">
                   <option
@@ -204,10 +236,6 @@
                   </option>
                 </select>
               </label>
-              <label class="task-deleted-toggle">
-                <input v-model="taskFilters.showDeleted" type="checkbox" />
-                Deleted
-              </label>
               <button
                 type="button"
                 class="btn btn-outline btn-sm"
@@ -216,34 +244,84 @@
               >
                 Apply
               </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm task-more-filters-btn"
+                :class="{ active: showAdvancedTaskFilters }"
+                :aria-expanded="showAdvancedTaskFilters"
+                @click="showAdvancedTaskFilters = !showAdvancedTaskFilters"
+              >
+                {{ showAdvancedTaskFilters ? 'Hide filters' : 'More filters' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isLoadingTasks"
+                @click="resetTaskFilters"
+              >
+                Reset
+              </button>
             </div>
 
-            <div v-if="selectedTaskIds.size" class="task-bulk-bar">
-              <span>{{ selectedTaskIds.size }} selected</span>
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="isBulkUpdatingTasks"
-                @click="bulkSetTaskCompletion(true)"
-              >
-                Mark done
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isBulkUpdatingTasks"
-                @click="bulkSetTaskCompletion(false)"
-              >
-                Mark open
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isBulkUpdatingTasks"
-                @click="clearTaskSelection"
-              >
-                Clear
-              </button>
+            <div v-if="showAdvancedTaskFilters" class="task-filter-bar task-filter-bar--advanced">
+              <label class="task-filter-field">
+                <span>Type</span>
+                <select v-model="taskFilters.taskType">
+                  <option value="">All</option>
+                  <option value="group">Group</option>
+                  <option value="individual">Individual</option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Done</span>
+                <select v-model="taskFilters.completed">
+                  <option value="">All</option>
+                  <option value="true">Done</option>
+                  <option value="false">Open</option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Assignee</span>
+                <select v-model="taskFilters.assignedUser">
+                  <option value="">All members</option>
+                  <option
+                    v-for="member in taskAssigneeOptions"
+                    :key="member.userId"
+                    :value="String(member.userId)"
+                  >
+                    {{ member.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="task-filter-field task-filter-field--wide">
+                <span>Subtasks of</span>
+                <select v-model="taskFilters.parentId">
+                  <option value="">Any task</option>
+                  <option
+                    v-for="option in parentTaskFilterOptions"
+                    :key="option.id"
+                    :value="String(option.id)"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Due after</span>
+                <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+              </label>
+              <label class="task-filter-field">
+                <span>Due before</span>
+                <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+              </label>
+              <label class="task-deleted-toggle">
+                <input
+                  v-model="taskFilters.showDeleted"
+                  type="checkbox"
+                  @change="toggleDeletedTaskVisibility"
+                />
+                Deleted
+              </label>
             </div>
 
             <div v-if="taskError" class="chat-alert" style="margin-bottom: 1rem">
@@ -268,7 +346,12 @@
                   v-for="row in section.rows"
                   :key="row.task.id"
                   class="task-item"
-                  :class="{ 'is-subtask': row.depth > 0, 'is-deleted': row.task.deletedAt }"
+                  :class="{
+                    'is-subtask': row.depth > 0,
+                    'is-deleted': row.task.deletedAt,
+                    'is-group-task': row.task.taskType === 'group',
+                    'is-individual-task': row.task.taskType === 'individual',
+                  }"
                   :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
                 >
                   <label class="task-select-control" title="Select task">
@@ -336,7 +419,11 @@
                         row.task.deletedAt ||
                         !canCreateTaskType(row.task.taskType, row.task)
                       "
-                      title="Add a sub-task"
+                      :title="
+                        canCreateTaskType(row.task.taskType, row.task)
+                          ? 'Add a sub-task'
+                          : 'You do not have permission to add a sub-task here'
+                      "
                       @click="openCreateTaskDialog(row.task.taskType, row.task)"
                     >
                       <i class="fas fa-plus"></i>
@@ -372,6 +459,65 @@
                 </div>
               </div>
             </div>
+
+            <div v-if="tasks.length" class="task-pagination-bar">
+              <span>
+                {{ taskPageStart }}-{{ taskPageEnd }} of {{ tasks.length }}
+              </span>
+              <label class="task-page-size">
+                <span>Rows</span>
+                <select v-model.number="taskPagination.pageSize" @change="changeTaskPageSize">
+                  <option v-for="size in TASK_PAGE_SIZE_OPTIONS" :key="size" :value="size">
+                    {{ size }}
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="taskPagination.page <= 1 || isLoadingTasks"
+                @click="goToTaskPage(taskPagination.page - 1)"
+              >
+                Previous
+              </button>
+              <span>Page {{ taskPagination.page }} / {{ taskTotalPages }}</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="taskPagination.page >= taskTotalPages || isLoadingTasks"
+                @click="goToTaskPage(taskPagination.page + 1)"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div v-if="selectedTaskIds.size" class="task-bulk-bar">
+            <span>{{ selectedTaskIds.size }} selected</span>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="isBulkUpdatingTasks"
+              @click="bulkSetTaskCompletion(true)"
+            >
+              Mark done
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isBulkUpdatingTasks"
+              @click="bulkSetTaskCompletion(false)"
+            >
+              Mark open
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isBulkUpdatingTasks"
+              @click="clearTaskSelection"
+            >
+              Clear
+            </button>
           </div>
 
           <div
@@ -429,7 +575,11 @@
 
                 <label class="task-form-field">
                   <span>Type</span>
-                  <select v-model="taskForm.taskType" :disabled="taskDialogMode === 'edit'">
+                  <select
+                    v-model="taskForm.taskType"
+                    :disabled="taskDialogMode === 'edit'"
+                    @change="syncTaskAssigneeForType"
+                  >
                     <option
                       v-for="option in allowedTaskTypeOptions"
                       :key="option.value"
@@ -441,14 +591,23 @@
                 </label>
 
                 <label v-if="taskForm.taskType === 'individual'" class="task-form-field">
-                  <span>Assignee user id</span>
-                  <input
-                    v-model.trim="taskForm.assignedUser"
-                    type="number"
-                    min="1"
-                    :disabled="taskDialogMode === 'edit'"
-                    required
-                  />
+                  <span>Assignee</span>
+                  <div
+                    v-if="taskDialogMode === 'edit' || isStudentOnlyIndividualAssignee"
+                    class="task-readonly-value"
+                  >
+                    {{ selectedTaskAssigneeLabel }}
+                  </div>
+                  <select v-else v-model="taskForm.assignedUser" required>
+                    <option value="" disabled>Select assignee</option>
+                    <option
+                      v-for="option in individualTaskAssigneeOptions"
+                      :key="option.userId"
+                      :value="String(option.userId)"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
                 </label>
               </div>
 
@@ -1022,6 +1181,7 @@ import {
   createTask as createTaskRequest,
   deleteTask as deleteTaskRequest,
   listTasks,
+  retrieveTask,
   toggleTaskCompletion,
   updateTask as updateTaskRequest,
 } from '@/utils/tasksAPI'
@@ -1049,25 +1209,36 @@ const membersError = ref('')
 const availableGroups = ref([])
 const isLoadingGroupOptions = ref(false)
 const groupOptionsError = ref('')
+const showGroupMembersDialog = ref(false)
 
 // Active mobile tab
 const activeTab = ref('tasks')
 
 // Live task state
 const tasks = ref([])
+const locallyDeletedTasks = ref(new Map())
 const isLoadingTasks = ref(false)
 const taskError = ref('')
 const updatingTaskIds = ref(new Set())
 const deletingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const isBulkUpdatingTasks = ref(false)
+const showAdvancedTaskFilters = ref(false)
 const taskFilters = ref({
   taskType: '',
   status: '',
   completed: '',
+  assignedUser: '',
+  parentId: '',
+  dueDateAfter: '',
+  dueDateBefore: '',
   search: '',
   ordering: 'due_date',
   showDeleted: false,
+})
+const taskPagination = ref({
+  page: 1,
+  pageSize: 20,
 })
 const taskDialogOpen = ref(false)
 const taskDialogMode = ref('create')
@@ -1096,9 +1267,15 @@ const TASK_STATUS_OPTIONS = [
 const TASK_ORDERING_OPTIONS = [
   { value: 'due_date', label: 'Due date' },
   { value: '-due_date', label: 'Due date desc' },
+  { value: 'created_at', label: 'Created date' },
+  { value: '-created_at', label: 'Created date desc' },
+  { value: 'updated_at', label: 'Updated date' },
   { value: '-updated_at', label: 'Recently updated' },
   { value: 'status', label: 'Status' },
+  { value: '-status', label: 'Status desc' },
 ]
+
+const TASK_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 const messages = ref([])
 
@@ -1226,6 +1403,31 @@ const groupMetaItems = computed(() => {
 
   return items
 })
+
+const visibleGroupMembers = computed(() =>
+  groupMemberships.value
+    .filter((item) => {
+      if (item.leftAt) return false
+      return !String(item.role || '')
+        .toLowerCase()
+        .includes('supervisor')
+    })
+    .map((item) => ({
+      key: `${item.id || item.userId}`,
+      id: item.userId,
+      name: item.userName || `User ${item.userId}`,
+      roleLabel: formatTaskStatus(item.role || 'member') || 'Member',
+      role: String(item.role || '').toLowerCase(),
+    }))
+    .sort((a, b) => {
+      const roleRank = (role) => {
+        if (role.includes('mentor')) return 0
+        if (role.includes('student')) return 1
+        return 2
+      }
+      return roleRank(a.role) - roleRank(b.role) || a.name.localeCompare(b.name)
+    }),
+)
 
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
@@ -1587,6 +1789,28 @@ const groupMemberUserIds = computed(
     ),
 )
 
+const normalizeTaskAssigneeOption = (item) => {
+  const userId = Number(item.userId)
+  const role = formatTaskStatus(item.role || '')
+  const baseLabel = item.userName || `User ${userId}`
+
+  return {
+    userId,
+    label: role ? `${baseLabel} (${role})` : baseLabel,
+    role: String(item.role || '').toLowerCase(),
+  }
+}
+
+const activeGroupMemberOptions = computed(() =>
+  groupMemberships.value
+    .filter((item) => !item.leftAt)
+    .map(normalizeTaskAssigneeOption)
+    .filter((item) => Number.isFinite(item.userId) && item.userId > 0)
+    .sort((a, b) => a.label.localeCompare(b.label)),
+)
+
+const taskAssigneeOptions = computed(() => activeGroupMemberOptions.value)
+
 const studentMemberUserIds = computed(
   () =>
     new Set(
@@ -1613,6 +1837,54 @@ const supervisedStudentIds = computed(
 )
 
 const currentUserId = computed(() => Number(auth.user?.id || 0))
+
+const currentUserTaskAssigneeOption = computed(() => {
+  const userId = currentUserId.value
+  if (!userId) return null
+  const member = activeGroupMemberOptions.value.find((item) => item.userId === userId)
+  if (member) return member
+  return {
+    userId,
+    label: auth.displayName || auth.user?.email || `User ${userId}`,
+    role: 'student',
+  }
+})
+
+const individualTaskAssigneeOptions = computed(() => {
+  if (auth.isStudent) {
+    return currentUserTaskAssigneeOption.value ? [currentUserTaskAssigneeOption.value] : []
+  }
+
+  if (auth.isSupervisor) {
+    return activeGroupMemberOptions.value.filter((item) =>
+      supervisedStudentIds.value.has(Number(item.userId)),
+    )
+  }
+
+  if (auth.isMentor) {
+    return activeGroupMemberOptions.value.filter((item) =>
+      groupMemberUserIds.value.has(Number(item.userId)),
+    )
+  }
+
+  if (auth.isAdmin) {
+    return activeGroupMemberOptions.value
+  }
+
+  return []
+})
+
+const isStudentOnlyIndividualAssignee = computed(
+  () => auth.isStudent && taskDialogMode.value === 'create',
+)
+
+const selectedTaskAssigneeLabel = computed(() => {
+  const assigneeId = Number(taskForm.value.assignedUser)
+  const option =
+    individualTaskAssigneeOptions.value.find((item) => item.userId === assigneeId) ||
+    activeGroupMemberOptions.value.find((item) => item.userId === assigneeId)
+  return option?.label || (assigneeId ? `User ${assigneeId}` : 'No assignee selected')
+})
 
 const isCurrentGroupMentor = computed(() =>
   groupMemberships.value.some(
@@ -1688,8 +1960,37 @@ const createTaskSection = (key, title, icon, sectionTasks) => {
   }
 }
 
+const taskTotalPages = computed(() =>
+  Math.max(1, Math.ceil(tasks.value.length / taskPagination.value.pageSize)),
+)
+
+const pagedTasks = computed(() => {
+  const page = Math.min(taskPagination.value.page, taskTotalPages.value)
+  const start = (page - 1) * taskPagination.value.pageSize
+  return tasks.value.slice(start, start + taskPagination.value.pageSize)
+})
+
+const taskPageStart = computed(() => {
+  if (!tasks.value.length) return 0
+  return (Math.min(taskPagination.value.page, taskTotalPages.value) - 1) * taskPagination.value.pageSize + 1
+})
+
+const taskPageEnd = computed(() =>
+  Math.min(taskPageStart.value + taskPagination.value.pageSize - 1, tasks.value.length),
+)
+
+const parentTaskFilterOptions = computed(() =>
+  tasks.value
+    .filter((task) => !task.deletedAt)
+    .map((task) => ({
+      id: task.id,
+      label: `${task.taskType === 'individual' ? 'Individual Task' : 'Group Task'} · ${task.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+)
+
 const taskSections = computed(() => {
-  const relevantTasks = tasks.value.filter(isTaskRelevantToCurrentGroup)
+  const relevantTasks = pagedTasks.value.filter(isTaskRelevantToCurrentGroup)
   const groupTasks = relevantTasks.filter((task) => task.taskType === 'group')
   const individualTasks = relevantTasks.filter((task) => task.taskType === 'individual')
 
@@ -1762,7 +2063,7 @@ const clearTaskSelection = () => {
 
 const syncSelectedTasks = () => {
   const visibleIds = new Set(
-    tasks.value
+    pagedTasks.value
       .filter((task) => !task.deletedAt && canToggleTask(task))
       .map((task) => Number(task.id)),
   )
@@ -1828,7 +2129,7 @@ const canCreateTaskType = (taskType, parentTask = null) => {
   const assigneeId = Number(parentTask.assignedUser)
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -1841,7 +2142,7 @@ const canCreateTaskFromForm = () => {
   if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -1851,6 +2152,39 @@ const upsertTask = (task) => {
   const index = tasks.value.findIndex((item) => Number(item.id) === Number(normalized.id))
   if (index === -1) tasks.value.push(normalized)
   else tasks.value.splice(index, 1, normalized)
+  tasks.value = sortTaskCollection(tasks.value)
+}
+
+const cacheDeletedTask = (task) => {
+  const normalized = normalizeTask(task)
+  if (!normalized.id || !normalized.deletedAt) return
+  const next = new Map(locallyDeletedTasks.value)
+  next.set(Number(normalized.id), normalized)
+  locallyDeletedTasks.value = next
+}
+
+const mergeLocallyDeletedTasks = () => {
+  const byId = new Map(tasks.value.map((task) => [Number(task.id), task]))
+  locallyDeletedTasks.value.forEach((task) => {
+    if (isTaskRelevantToCurrentGroup(task)) byId.set(Number(task.id), task)
+  })
+  tasks.value = sortTaskCollection(Array.from(byId.values()))
+  ensureTaskPageInRange()
+  syncSelectedTasks()
+}
+
+const hideLocallyDeletedTasks = () => {
+  tasks.value = tasks.value.filter((task) => !task.deletedAt)
+  ensureTaskPageInRange()
+  syncSelectedTasks()
+}
+
+const toggleDeletedTaskVisibility = () => {
+  if (taskFilters.value.showDeleted) {
+    mergeLocallyDeletedTasks()
+  } else {
+    hideLocallyDeletedTasks()
+  }
 }
 
 const removeTaskFromList = (taskId) => {
@@ -1858,17 +2192,70 @@ const removeTaskFromList = (taskId) => {
   if (index !== -1) tasks.value.splice(index, 1)
 }
 
-const getTaskListParams = () => ({
-  page_size: 100,
-  deleted: taskFilters.value.showDeleted,
-  task_type: taskFilters.value.taskType,
+const getTaskListBaseParams = () => ({
   status: taskFilters.value.status,
   completed: taskFilters.value.completed === '' ? '' : taskFilters.value.completed === 'true',
+  parent_id: taskFilters.value.parentId,
+  due_date_after: fromDateTimeLocal(taskFilters.value.dueDateAfter) || '',
+  due_date_before: fromDateTimeLocal(taskFilters.value.dueDateBefore) || '',
   search: taskFilters.value.search,
   ordering: taskFilters.value.ordering,
 })
 
-const loadTasks = async () => {
+const fetchAllTaskPages = async (params) => {
+  const items = []
+  let page = 1
+  let hasNext = true
+
+  while (hasNext) {
+    const data = await listTasks({
+      ...params,
+      page,
+      page_size: 100,
+    })
+    items.push(...extractCollectionItems(data).map(normalizeTask))
+    hasNext = Boolean(data?.next)
+    page += 1
+  }
+
+  return items
+}
+
+const sortTaskCollection = (items) => {
+  const ordering = taskFilters.value.ordering || 'due_date'
+  const descending = ordering.startsWith('-')
+  const field = descending ? ordering.slice(1) : ordering
+
+  const valueFor = (task) => {
+    if (field === 'due_date') return task.dueDate ? new Date(task.dueDate).getTime() : Infinity
+    if (field === 'created_at') return task.createdAt ? new Date(task.createdAt).getTime() : 0
+    if (field === 'updated_at') return task.updatedAt ? new Date(task.updatedAt).getTime() : 0
+    if (field === 'status') return task.status || ''
+    return task.id || 0
+  }
+
+  return [...items].sort((a, b) => {
+    const first = valueFor(a)
+    const second = valueFor(b)
+    const result =
+      typeof first === 'string'
+        ? first.localeCompare(String(second))
+        : Number(first) - Number(second)
+
+    return descending ? -result : result
+  })
+}
+
+const ensureTaskPageInRange = () => {
+  if (taskPagination.value.page > taskTotalPages.value) {
+    taskPagination.value.page = taskTotalPages.value
+  }
+  if (taskPagination.value.page < 1) {
+    taskPagination.value.page = 1
+  }
+}
+
+const loadTasks = async ({ resetPage = true } = {}) => {
   const currentGroupId = getBackendGroupId()
   if (!currentGroupId) {
     tasks.value = []
@@ -1880,8 +2267,58 @@ const loadTasks = async () => {
   taskError.value = ''
 
   try {
-    const data = await listTasks(getTaskListParams())
-    tasks.value = extractCollectionItems(data).map(normalizeTask)
+    if (resetPage) taskPagination.value.page = 1
+
+    const baseParams = getTaskListBaseParams()
+    const requestedType = taskFilters.value.taskType
+    const requestedAssignee = Number(taskFilters.value.assignedUser)
+    const taskRequests = []
+
+    if ((!requestedType || requestedType === 'group') && !requestedAssignee) {
+      taskRequests.push(
+        fetchAllTaskPages({
+          ...baseParams,
+          task_type: 'group',
+          group_id: currentGroupId,
+        }),
+      )
+    }
+
+    if (!requestedType || requestedType === 'individual') {
+      const assigneeIds =
+        Number.isFinite(requestedAssignee) && requestedAssignee > 0
+          ? [requestedAssignee]
+          : Array.from(groupMemberUserIds.value)
+
+      assigneeIds.forEach((assignedUser) => {
+        taskRequests.push(
+          fetchAllTaskPages({
+            ...baseParams,
+            task_type: 'individual',
+            assigned_user: assignedUser,
+          }),
+        )
+      })
+    }
+
+    const taskBatches = await Promise.all(taskRequests)
+    const byId = new Map()
+    taskBatches.flat().forEach((task) => {
+      if (task?.id) byId.set(Number(task.id), task)
+    })
+    if (taskFilters.value.showDeleted) {
+      locallyDeletedTasks.value.forEach((task) => {
+        if (isTaskRelevantToCurrentGroup(task)) byId.set(Number(task.id), task)
+      })
+    }
+
+    tasks.value = sortTaskCollection(
+      Array.from(byId.values()).filter((task) => {
+        if (!taskFilters.value.showDeleted && task.deletedAt) return false
+        return isTaskRelevantToCurrentGroup(task)
+      }),
+    )
+    ensureTaskPageInRange()
     syncSelectedTasks()
   } catch (error) {
     tasks.value = []
@@ -1889,6 +2326,32 @@ const loadTasks = async () => {
   } finally {
     isLoadingTasks.value = false
   }
+}
+
+const resetTaskFilters = () => {
+  taskFilters.value = {
+    taskType: '',
+    status: '',
+    completed: '',
+    assignedUser: '',
+    parentId: '',
+    dueDateAfter: '',
+    dueDateBefore: '',
+    search: '',
+    ordering: 'due_date',
+    showDeleted: false,
+  }
+  loadTasks()
+}
+
+const goToTaskPage = (page) => {
+  taskPagination.value.page = Math.min(Math.max(Number(page) || 1, 1), taskTotalPages.value)
+  syncSelectedTasks()
+}
+
+const changeTaskPageSize = () => {
+  taskPagination.value.page = 1
+  syncSelectedTasks()
 }
 
 const normalizeMessage = (item) => {
@@ -2094,12 +2557,25 @@ const resolveIndividualTaskAssignee = (parentTask = null) => {
   if (parentTask?.assignedUser) return Number(parentTask.assignedUser)
   if (auth.isStudent && auth.user?.id) return Number(auth.user.id)
 
-  const studentMemberships = groupMemberships.value.filter((item) => {
-    const role = String(item.role || '').toLowerCase()
-    return !item.leftAt && role.includes('student')
-  })
-  const assigneeId = Number(studentMemberships[0]?.userId || '')
+  const assigneeId = Number(individualTaskAssigneeOptions.value[0]?.userId || '')
   return Number.isFinite(assigneeId) && assigneeId > 0 ? assigneeId : null
+}
+
+const syncTaskAssigneeForType = () => {
+  if (taskForm.value.taskType !== 'individual') {
+    taskForm.value.assignedUser = ''
+    return
+  }
+
+  const currentAssignee = Number(taskForm.value.assignedUser)
+  const currentAllowed = individualTaskAssigneeOptions.value.some(
+    (item) => item.userId === currentAssignee,
+  )
+
+  if (!currentAllowed) {
+    const fallbackAssignee = resolveIndividualTaskAssignee()
+    taskForm.value.assignedUser = fallbackAssignee ? String(fallbackAssignee) : ''
+  }
 }
 
 const toDateTimeLocal = (value) => {
@@ -2158,26 +2634,38 @@ const openCreateTaskDialog = (taskType, parentTask = null) => {
   taskDialogOpen.value = true
 }
 
-const openEditTaskDialog = (task) => {
+const openEditTaskDialog = async (task) => {
+  let editableTask = task
+  taskError.value = ''
+
+  try {
+    const latestTask = await retrieveTask(task.id)
+    editableTask = normalizeTask(latestTask)
+    upsertTask(latestTask)
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : 'Latest task details could not be loaded.'
+  }
+
   taskDialogMode.value = 'edit'
   taskDialogTitle.value = 'Edit task'
-  editingTaskId.value = Number(task.id)
+  editingTaskId.value = Number(editableTask.id)
   taskFormError.value = ''
   taskForm.value = {
-    name: task.name || '',
-    description: task.description || '',
-    dueDate: toDateTimeLocal(task.dueDate),
-    status: task.status || 'todo',
-    taskType: task.taskType || 'group',
-    parent: task.parent ? String(task.parent) : '',
-    group: task.group ? String(task.group) : '',
-    assignedUser: task.assignedUser ? String(task.assignedUser) : '',
+    name: editableTask.name || '',
+    description: editableTask.description || '',
+    dueDate: toDateTimeLocal(editableTask.dueDate),
+    status: editableTask.status || 'todo',
+    taskType: editableTask.taskType || 'group',
+    parent: editableTask.parent ? String(editableTask.parent) : '',
+    group: editableTask.group ? String(editableTask.group) : '',
+    assignedUser: editableTask.assignedUser ? String(editableTask.assignedUser) : '',
   }
   taskDialogOpen.value = true
 }
 
-const closeTaskDialog = () => {
-  if (isSavingTask.value) return
+const closeTaskDialog = ({ force = false } = {}) => {
+  if (isSavingTask.value && !force) return
   taskDialogOpen.value = false
   taskFormError.value = ''
 }
@@ -2222,7 +2710,7 @@ const saveTask = async () => {
     taskForm.value.taskType === 'individual' &&
     !Number(taskForm.value.assignedUser)
   ) {
-    taskFormError.value = 'Assignee user id is required for individual tasks.'
+    taskFormError.value = 'Please choose an assignee for this individual task.'
     return
   }
   if (taskDialogMode.value === 'create' && !canCreateTaskFromForm()) {
@@ -2241,7 +2729,7 @@ const saveTask = async () => {
       const createdTask = await createTaskRequest(buildCreateTaskPayload())
       upsertTask(createdTask)
     }
-    closeTaskDialog()
+    closeTaskDialog({ force: true })
   } catch (error) {
     taskFormError.value = error instanceof Error ? error.message : 'Task could not be saved.'
   } finally {
@@ -2302,6 +2790,7 @@ const removeTask = async (task) => {
 
   try {
     const deletedTask = await deleteTaskRequest(task.id)
+    cacheDeletedTask(deletedTask)
     setTaskSelected(task.id, false)
     if (taskFilters.value.showDeleted) upsertTask(deletedTask)
     else removeTaskFromList(task.id)
@@ -3575,6 +4064,7 @@ const reloadGroupDetail = async () => {
   chatError.value = ''
   chatNotice.value = ''
   activeReactionPickerMessageId.value = null
+  showGroupMembersDialog.value = false
   showMessageSearch.value = false
   clearMessageSearch()
   highlightedSearchMessageId.value = null
@@ -3685,6 +4175,37 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
   min-width: 180px;
 }
+.group-members-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 34px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.42rem 0.68rem;
+  background: var(--white);
+  color: var(--air-force-blue);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.group-members-btn:hover:not(:disabled) {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+}
+.group-members-btn:disabled {
+  cursor: not-allowed;
+  color: #98a2ad;
+  background: #f8f9fa;
+}
+.group-members-btn span {
+  min-width: 1.4rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.38rem;
+  background: #eef7f9;
+  color: var(--air-force-blue);
+  text-align: center;
+}
 .group-switcher {
   display: flex;
   align-items: center;
@@ -3711,6 +4232,121 @@ onBeforeUnmount(() => {
   color: #8a5a00;
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.group-members-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(21, 32, 43, 0.42);
+}
+
+.group-members-dialog {
+  width: min(460px, 100%);
+  max-height: min(620px, 82vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(24, 38, 50, 0.2);
+}
+
+.group-members-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.group-members-dialog-header h3 {
+  margin: 0;
+  color: var(--charcoal);
+  font-size: 1.05rem;
+}
+
+.group-members-dialog-header p {
+  margin: 0.16rem 0 0;
+  color: #6c757d;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.group-members-dialog-close {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--white);
+  color: #5b6770;
+  cursor: pointer;
+}
+
+.group-members-dialog-close:hover {
+  border-color: var(--air-force-blue);
+  color: var(--air-force-blue);
+  background: #f1f5f7;
+}
+
+.group-members-list {
+  overflow-y: auto;
+  padding: 0.45rem;
+}
+
+.group-member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.78rem;
+  padding: 0.7rem;
+  border-radius: 8px;
+}
+
+.group-member-row + .group-member-row {
+  border-top: 1px solid #eef1f3;
+}
+
+.group-member-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--air-force-blue);
+  color: var(--white);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.group-member-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.group-member-copy strong {
+  color: var(--charcoal);
+  font-size: 0.92rem;
+}
+
+.group-member-copy span,
+.group-members-empty {
+  color: #6c757d;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.group-members-empty {
+  padding: 1rem;
+  text-align: center;
 }
 
 /* Mobile tabs */
@@ -3751,6 +4387,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-height: 320px;
+  position: relative;
+  container-type: inline-size;
 }
 
 /* Discussion pane */
@@ -3776,6 +4414,10 @@ onBeforeUnmount(() => {
 }
 .tasks-content {
   padding-right: 2px; /* for visible scrollbar */
+}
+
+.tasks-content.has-bulk-actions {
+  padding-bottom: 5rem;
 }
 
 .task-header-actions {
@@ -3804,8 +4446,32 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.task-filter-field--compact {
+  min-width: 92px;
+}
+
+.task-filter-field--wide {
+  min-width: min(100%, 220px);
+}
+
+.task-filter-bar--advanced {
+  align-items: end;
+  margin-top: -0.35rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+
+.task-more-filters-btn.active {
+  color: var(--air-force-blue);
+  border-color: var(--air-force-blue);
+  background: #eef7f9;
+}
+
 .task-filter-field input,
 .task-filter-field select,
+.task-page-size select,
 .task-form-field input,
 .task-form-field select,
 .task-form-field textarea {
@@ -3818,8 +4484,22 @@ onBeforeUnmount(() => {
   font: inherit;
 }
 
+.task-readonly-value {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.52rem 0.62rem;
+  background: #f8f9fa;
+  color: var(--charcoal);
+  font: inherit;
+}
+
 .task-filter-field input:focus,
 .task-filter-field select:focus,
+.task-page-size select:focus,
 .task-form-field input:focus,
 .task-form-field select:focus,
 .task-form-field textarea:focus {
@@ -3839,14 +4519,45 @@ onBeforeUnmount(() => {
 }
 
 .task-bulk-bar {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 6;
   align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
   padding: 0.62rem 0.7rem;
   background: #f1f5f7;
   border: 1px solid var(--border-light);
   border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(30, 44, 56, 0.16);
   color: var(--charcoal);
   font-size: 0.84rem;
   font-weight: 700;
+}
+
+.task-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  padding-top: 0.85rem;
+  color: #5b6770;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.task-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.task-page-size select {
+  min-width: 74px;
+  padding: 0.45rem 0.55rem;
 }
 
 .task-section {
@@ -3882,9 +4593,18 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.task-item {
+  min-width: 0;
+  align-items: flex-start;
+}
+
 .task-body {
   flex: 1;
   min-width: 0;
+}
+
+.task-item.is-individual-task .task-body {
+  flex: 1 1 220px;
 }
 
 .task-select-control {
@@ -3917,6 +4637,11 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
 }
 
+.task-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .task-meta i {
   margin-right: 0.25rem;
 }
@@ -3928,6 +4653,11 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
   flex-wrap: wrap;
   flex-shrink: 0;
+}
+
+.task-item.is-individual-task .task-row-actions {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .task-status-toggle {
@@ -3974,6 +4704,23 @@ onBeforeUnmount(() => {
 .task-status-toggle:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+@container (max-width: 640px) {
+  .task-item.is-individual-task {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .task-item.is-individual-task .task-body {
+    flex-basis: calc(100% - 36px);
+  }
+
+  .task-item.is-individual-task .task-row-actions {
+    width: calc(100% - 36px);
+    margin-left: calc(22px + 0.75rem);
+    justify-content: flex-start;
+  }
 }
 
 .task-item.is-deleted {
@@ -5504,6 +6251,16 @@ onBeforeUnmount(() => {
   border-color: var(--air-force-blue);
 }
 
+.add-subtask-btn:disabled,
+.add-subtask-btn:disabled:hover {
+  cursor: not-allowed;
+  color: #98a2ad;
+  border-color: var(--border-light);
+  background: #f3f5f6;
+  opacity: 0.62;
+  box-shadow: none;
+}
+
 .group-detail-loading {
   display: flex;
   flex-direction: column;
@@ -5722,6 +6479,11 @@ onBeforeUnmount(() => {
 
   .gd-head-actions {
     align-items: stretch;
+    width: 100%;
+  }
+
+  .group-members-btn {
+    justify-content: center;
     width: 100%;
   }
 

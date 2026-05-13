@@ -128,9 +128,20 @@ export function listTasks(params: ListTasksParams = {}) {
   return requestJson<PaginatedTaskResponse>(buildTaskListUrl(params))
 }
 
+export function retrieveTask(taskId: number | string) {
+  return requestJson<TaskRow>(`/api/v1/tasks/${taskId}/`)
+}
+
 export function createTask(payload: CreateTaskPayload) {
   return requestJson<TaskRow>('/api/v1/tasks/', {
     method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function replaceTask(taskId: number | string, payload: UpdateTaskPayload) {
+  return requestJson<TaskRow>(`/api/v1/tasks/${taskId}/`, {
+    method: 'PUT',
     body: JSON.stringify(payload)
   })
 }
