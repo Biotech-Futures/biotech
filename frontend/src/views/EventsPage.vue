@@ -571,8 +571,11 @@ const eventCover = (ev?: BackendEvent | null) => resolveEventUrl(ev?.event_image
 
 const eventLink = (ev?: BackendEvent | null) => resolveEventUrl(ev?.location_link)
 
-const eventLinkLabel = (ev?: BackendEvent | null) =>
-  ev?.is_virtual ? 'Join Online' : 'Open Map'
+const eventLinkLabel = (ev?: BackendEvent | null) => {
+  if (!ev) return ''
+  if (ev.is_virtual) return 'Join Online'
+  return ev.location || 'Open Map'
+}
 
 const eventLocationText = (ev?: BackendEvent | null) => {
   if (!ev) return 'TBA'
