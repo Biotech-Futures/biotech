@@ -101,6 +101,11 @@ class AnnouncementDelivery(models.Model):
         SUCCESS = "success", "Success"   # every recipient accepted
         PARTIAL = "partial", "Partial"   # at least one succeeded, at least one failed
         FAILED = "failed", "Failed"      # zero succeeded
+        # Note: the API also returns ``"skipped"`` when the audience resolves to
+        # zero recipients or the announcement id is unknown. ``"skipped"`` is a
+        # *wire-only* status — it is never persisted on a delivery row, so it is
+        # deliberately absent from this enum. If you ever need to persist a
+        # skipped attempt, add ``SKIPPED`` here AND a migration.
 
     # Max number of failing addresses to persist on a single delivery row.
     # Anything beyond this is summarised into ``error_summary`` so a 50k-user
