@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
 import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
+import { normalizeTimeZone } from '@/utils/date'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -11,6 +12,7 @@ interface User {
   email: string
   first_name: string
   last_name: string
+  timezone?: string
   must_change_password?: boolean
   status?: boolean
   current_role_id?: number | null
@@ -131,6 +133,8 @@ export const useAuthStore = defineStore('auth', {
     isTeacher: (state) => ['mentor', 'supervisor'].includes(resolveNormalizedRole(state.user)),
 
     mustChangePassword: (state) => state.user?.must_change_password === true,
+
+    timeZone: (state) => normalizeTimeZone(state.user?.timezone),
 
     displayName: (state) => {
       const fullName = `${state.user?.first_name || ''} ${state.user?.last_name || ''}`.trim()
@@ -275,6 +279,42 @@ export const useAuthStore = defineStore('auth', {
       }
 
       return user
+    },
+
+    async updateTimeZone(timezone: string) {
+      const csrfReady = await ensureCsrfCookie(API_BASE_URL)
+      if (!csrfReady) {
+        throw new Error('Could not initialize a secure session. Please refresh and try again.')
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: buildSessionHeaders({
+          includeCSRF: true
+        }),
+        body: JSON.stringify({
+          timezone
+        })
+      })
+
+      const data = await parseResponseJson(response)
+
+      if (!response.ok) {
+        throw new ApiError(
+          normalizeApiErrorBody(
+            data,
+            'Could not update your timezone. Please try again.',
+            response.headers.get('X-Request-ID') || undefined,
+            response.status
+          ),
+          response.status
+        )
+      }
+
+      this.user = data
+      localStorage.setItem('auth.user', JSON.stringify(data))
+      return data
     },
 
     async logout() {

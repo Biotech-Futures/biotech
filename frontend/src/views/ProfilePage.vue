@@ -3,6 +3,11 @@
     <div v-if="error" class="card" style="margin-bottom:1rem;border-left:4px solid var(--danger);">
       <p style="margin:0;color:#6c757d;">{{ error }}</p>
     </div>
+    <Transition name="status-fade">
+      <div v-if="statusMessage" class="card status-card">
+        <p>{{ statusMessage }}</p>
+      </div>
+    </Transition>
 
     <div class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
@@ -33,6 +38,53 @@
           <div class="profile-field">
             <span class="profile-field-label">Account Status:</span>
             <span class="profile-field-value">{{ capitalise(user.accountStatus) }}</span>
+          </div>
+        </div>
+
+        <div class="profile-section">
+          <h3 class="profile-section-title">Timezone</h3>
+          <div class="profile-field">
+            <span class="profile-field-label">Current timezone:</span>
+            <span class="profile-field-value">{{ formatTimeZoneLabel(auth.timeZone) }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">This device:</span>
+            <span class="profile-field-value">{{ formatTimeZoneLabel(browserTimeZone) }}</span>
+          </div>
+          <div class="profile-field timezone-field">
+            <label class="profile-field-label" for="timezone-input">Set timezone:</label>
+            <div class="timezone-control">
+              <select
+                id="timezone-input"
+                v-model="selectedTimeZone"
+                class="timezone-input"
+              >
+                <option
+                  v-for="zone in timeZoneOptions"
+                  :key="zone"
+                  :value="zone"
+                >
+                  {{ formatTimeZoneLabel(zone) }}
+                </option>
+              </select>
+              <div class="timezone-actions">
+                <button
+                  class="btn btn-outline"
+                  type="button"
+                  @click="useBrowserTimeZone"
+                >
+                  Use device timezone
+                </button>
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  :disabled="timezoneSaving || !timezoneChanged"
+                  @click="saveTimeZone"
+                >
+                  {{ timezoneSaving ? 'Saving...' : 'Save timezone' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -101,11 +153,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { buildSessionHeaders } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { formatTimeZoneLabel, getBrowserTimeZone, isValidTimeZone } from '@/utils/date'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -113,7 +166,106 @@ const auth = useAuthStore()
 
 const loading = ref(false)
 const error = ref('')
+const statusMessage = ref('')
+const timezoneSaving = ref(false)
+const browserTimeZone = getBrowserTimeZone()
+const selectedTimeZone = ref('UTC')
 const trackById = ref(new Map())
+let statusMessageTimer = null
+const commonTimeZones = [
+  'UTC',
+  'Australia/Sydney',
+  'Australia/Melbourne',
+  'Australia/Brisbane',
+  'Australia/Adelaide',
+  'Australia/Darwin',
+  'Australia/Perth',
+  'Australia/Hobart',
+  'Pacific/Auckland',
+  'Pacific/Fiji',
+  'Asia/Shanghai',
+  'Asia/Hong_Kong',
+  'Asia/Taipei',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+  'Asia/Bangkok',
+  'Asia/Jakarta',
+  'Asia/Kolkata',
+  'Asia/Dubai',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Amsterdam',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'America/Vancouver',
+  'America/Sao_Paulo',
+  'Africa/Johannesburg'
+]
+
+const timeZoneOptions = computed(() => {
+  return Array.from(new Set([
+    auth.timeZone,
+    browserTimeZone,
+    ...commonTimeZones
+  ])).filter(Boolean).sort((a, b) => a.localeCompare(b))
+})
+
+const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
+
+watch(
+  () => auth.timeZone,
+  (timezone) => {
+    selectedTimeZone.value = timezone
+  },
+  { immediate: true }
+)
+
+const useBrowserTimeZone = () => {
+  selectedTimeZone.value = browserTimeZone
+  statusMessage.value = ''
+  clearStatusMessageTimer()
+}
+
+const saveTimeZone = async () => {
+  statusMessage.value = ''
+  clearStatusMessageTimer()
+
+  if (!isValidTimeZone(selectedTimeZone.value)) {
+    error.value = 'Please enter a valid IANA timezone, such as Australia/Sydney.'
+    return
+  }
+
+  timezoneSaving.value = true
+  error.value = ''
+
+  try {
+    await auth.updateTimeZone(selectedTimeZone.value)
+    statusMessage.value = 'Your timezone has been updated.'
+    statusMessageTimer = window.setTimeout(() => {
+      statusMessage.value = ''
+      statusMessageTimer = null
+    }, 3200)
+  } catch (saveError) {
+    error.value = saveError instanceof Error
+      ? saveError.message
+      : 'Your timezone could not be updated right now.'
+  } finally {
+    timezoneSaving.value = false
+  }
+}
+
+const clearStatusMessageTimer = () => {
+  if (!statusMessageTimer) return
+  window.clearTimeout(statusMessageTimer)
+  statusMessageTimer = null
+}
 
 const valueOrFallback = (value, fallback = 'Not provided') => {
   const text = String(value ?? '').trim()
@@ -252,3 +404,64 @@ onMounted(() => {
   loadProfile()
 })
 </script>
+
+<style scoped>
+.status-card {
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--dark-green);
+}
+
+.status-card p {
+  margin: 0;
+  color: #6c757d;
+}
+
+.status-fade-enter-active,
+.status-fade-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.status-fade-enter-from,
+.status-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.timezone-field {
+  align-items: flex-start;
+}
+
+.timezone-control {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.timezone-input {
+  width: min(100%, 360px);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  color: var(--charcoal);
+}
+
+.timezone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.timezone-actions .btn {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .timezone-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+</style>

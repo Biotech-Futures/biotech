@@ -115,7 +115,13 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { fetchEvents, type BackendEvent } from '@/utils/eventsAPI'
-import { formatEventTimeRangeUTC, toUTCDateKey } from '@/utils/date'
+import {
+  formatEventTimeRange,
+  formatTimeZoneLabel,
+  getTimeZoneDateParts,
+  toTimeZoneDateKey,
+} from '@/utils/date'
+import { useAuthStore } from '@/stores/auth'
 
 withDefaults(
   defineProps<{
@@ -135,7 +141,14 @@ interface CalendarItem {
   title: string
 }
 
-const today = new Date()
+const auth = useAuthStore()
+const currentTimeZone = computed(() => auth.timeZone)
+const currentDateParts = getTimeZoneDateParts(new Date(), currentTimeZone.value) ?? {
+  year: new Date().getUTCFullYear(),
+  month: new Date().getUTCMonth() + 1,
+  day: new Date().getUTCDate(),
+}
+const today = new Date(Date.UTC(currentDateParts.year, currentDateParts.month - 1, currentDateParts.day))
 const weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const pad = (value: number) => String(value).padStart(2, '0')
@@ -208,7 +221,7 @@ const todayLabel = computed(() => {
     day: '2-digit',
     month: 'short',
   }).format(today)
-  return `${label} UTC`
+  return `${label} ${formatTimeZoneLabel(currentTimeZone.value)}`
 })
 
 const eventSource = ref<CalendarItem[]>([])
@@ -380,12 +393,12 @@ const extractEventItems = (data: BackendEvent[] | { results?: BackendEvent[] }) 
 }
 
 const formatEventTime = (event: BackendEvent) => {
-  return formatEventTimeRangeUTC(event.start_datetime, event.ends_datetime)
+  return formatEventTimeRange(event.start_datetime, event.ends_datetime, currentTimeZone.value)
 }
 
 const normalizeCalendarEvent = (event: BackendEvent): CalendarItem | null => {
   if (!event.start_datetime) return null
-  const dateKey = toUTCDateKey(event.start_datetime)
+  const dateKey = toTimeZoneDateKey(event.start_datetime, currentTimeZone.value)
   if (!dateKey) return null
   const time = formatEventTime(event)
   const name = event.event_name || 'Untitled event'

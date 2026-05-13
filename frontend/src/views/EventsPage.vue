@@ -236,6 +236,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { fetchEvents } from '../utils/eventsAPI'
+import { formatEventDate, formatEventTimeRange } from '../utils/date'
 
 const auth = useAuthStore()
 
@@ -285,31 +286,9 @@ onMounted(() => {
 })
 
 // Formatting
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return ''
+const formatDate = (dateStr?: string | null) => formatEventDate(dateStr, auth.timeZone)
 
-  return new Date(dateStr).toLocaleDateString(
-    'en-AU',
-    {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    }
-  )
-}
-
-const formatTime = (dateStr: string) => {
-  if (!dateStr) return ''
-
-  return new Date(dateStr).toLocaleTimeString(
-    'en-AU',
-    {
-      hour: '2-digit',
-      minute: '2-digit'
-    }
-  )
-}
+const formatTime = (dateStr?: string | null) => formatEventTimeRange(dateStr, null, auth.timeZone)
 
 const prettyType = (type: string) => {
   if (!type) return 'General'
