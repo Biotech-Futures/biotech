@@ -101,7 +101,10 @@
         </nav>
       </aside>
 
-      <main class="main-content">
+      <main
+        class="main-content"
+        :class="{ 'main-content--events': route.path === '/events' }"
+      >
         <RouterView />
       </main>
     </div>
@@ -460,6 +463,11 @@ select {
   padding: 1rem;
 }
 
+.main-content--events {
+  padding: 0;
+  background-color: var(--bg-light);
+}
+
 .close-button {
   width: 32px;
   height: 32px;
@@ -678,6 +686,10 @@ select {
     width: 100%;
     margin-left: 0;
     padding: 0.85rem;
+  }
+
+  .main-content--events {
+    padding: 0;
   }
 
   .notification-panel {
