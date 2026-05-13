@@ -8,10 +8,11 @@ name: Hourly RSVP reminders
 #   secret  RSVP_REMINDER_TOKEN         must match backend env of same name
 #   var     RSVP_REMINDER_BACKEND_URL   e.g. https://biotechbe.azurewebsites.net
 #
-# Cron drift of a few minutes is fine — each kind has a 1h capture window.
+# Off-peak minute (23) avoids GitHub's top-of-hour cron load spike,
+# which can otherwise drift the run by 10+ minutes and miss the window.
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "23 * * * *"
   workflow_dispatch:
 
 jobs:
