@@ -131,6 +131,11 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
                 # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
                 RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=104))
 
+        if "timezone" in data:
+            serializer = UserSerializer(user, data={"timezone": data["timezone"]}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 #issue 40
@@ -157,6 +162,11 @@ class MeRetrieveView(generics.RetrieveAPIView):
             with transaction.atomic():
                 # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
                 RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
+
+        if "timezone" in data:
+            serializer = UserSerializer(user, data={"timezone": data["timezone"]}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
     

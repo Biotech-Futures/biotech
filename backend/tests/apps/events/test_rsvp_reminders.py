@@ -3,6 +3,7 @@
 from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -353,6 +354,82 @@ class HtmlAlternativeTests(TestCase):
         # Info-card uppercase labels distinguish HTML rendering from
         # the plain alt.
         self.assertIn("DATE", html_body.upper())
+
+
+class TimezoneLocalizationTests(TestCase):
+    """Per-user IANA timezone drives the event time/label in the email body."""
+
+    def test_recipient_in_sydney_gets_local_time_and_tz_label(self):
+        event = _make_event()
+        sydney_user = User.objects.create_user(
+            email="syd@example.com",
+            password="pw",
+            first_name="Syd",
+            timezone="Australia/Sydney",
+        )
+        _rsvp(event, sydney_user)
+
+        send_due_rsvp_reminders()
+
+        body = mail.outbox[0].body
+        local = event.start_datetime.astimezone(ZoneInfo("Australia/Sydney"))
+        expected_hour = local.strftime("%I:%M %p")
+        expected_label = local.tzname()  # AEDT in summer, AEST in winter
+
+        self.assertIn(expected_hour, body)
+        self.assertIn(expected_label, body)
+        # Sydney recipient must never see the UTC label.
+        self.assertNotIn("UTC", body)
+
+    def test_recipient_with_utc_timezone_gets_utc_label(self):
+        event = _make_event()
+        utc_user = User.objects.create_user(
+            email="utc@example.com",
+            password="pw",
+            first_name="Yu",
+            timezone="UTC",
+        )
+        _rsvp(event, utc_user)
+
+        send_due_rsvp_reminders()
+
+        body = mail.outbox[0].body
+        expected_hour = event.start_datetime.strftime("%I:%M %p")
+        self.assertIn(expected_hour, body)
+        self.assertIn("UTC", body)
+
+    def test_invalid_timezone_falls_back_to_utc(self):
+        # A bad DB value (manual edit, legacy import) must not block the send.
+        event = _make_event()
+        user = User.objects.create_user(
+            email="bad-tz@example.com",
+            password="pw",
+            first_name="Bea",
+            timezone="Not/A/Real/Zone",
+        )
+        _rsvp(event, user)
+
+        send_due_rsvp_reminders()
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("UTC", mail.outbox[0].body)
+
+    def test_two_recipients_in_different_zones_see_different_times(self):
+        # Same event, same instant — different localized strings.
+        event = _make_event()
+        sydney = User.objects.create_user(
+            email="syd2@example.com", password="pw", timezone="Australia/Sydney"
+        )
+        london = User.objects.create_user(
+            email="lon@example.com", password="pw", timezone="Europe/London"
+        )
+        _rsvp(event, sydney)
+        _rsvp(event, london)
+
+        send_due_rsvp_reminders()
+
+        bodies = {m.to[0]: m.body for m in mail.outbox}
+        self.assertNotEqual(bodies["syd2@example.com"], bodies["lon@example.com"])
 
 
 class ResilienceTests(TestCase):
