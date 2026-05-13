@@ -193,6 +193,31 @@
                 </select>
               </label>
               <label class="task-filter-field">
+                <span>Assignee</span>
+                <select v-model="taskFilters.assignedUser">
+                  <option value="">All members</option>
+                  <option
+                    v-for="member in taskAssigneeOptions"
+                    :key="member.userId"
+                    :value="String(member.userId)"
+                  >
+                    {{ member.label }}
+                  </option>
+                </select>
+              </label>
+              <label class="task-filter-field task-filter-field--compact">
+                <span>Parent ID</span>
+                <input v-model.trim="taskFilters.parentId" type="number" min="1" />
+              </label>
+              <label class="task-filter-field">
+                <span>Due after</span>
+                <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+              </label>
+              <label class="task-filter-field">
+                <span>Due before</span>
+                <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+              </label>
+              <label class="task-filter-field">
                 <span>Sort</span>
                 <select v-model="taskFilters.ordering">
                   <option
@@ -215,6 +240,14 @@
                 @click="loadTasks"
               >
                 Apply
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isLoadingTasks"
+                @click="resetTaskFilters"
+              >
+                Reset
               </button>
             </div>
 
@@ -268,7 +301,12 @@
                   v-for="row in section.rows"
                   :key="row.task.id"
                   class="task-item"
-                  :class="{ 'is-subtask': row.depth > 0, 'is-deleted': row.task.deletedAt }"
+                  :class="{
+                    'is-subtask': row.depth > 0,
+                    'is-deleted': row.task.deletedAt,
+                    'is-group-task': row.task.taskType === 'group',
+                    'is-individual-task': row.task.taskType === 'individual',
+                  }"
                   :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
                 >
                   <label class="task-select-control" title="Select task">
@@ -371,6 +409,37 @@
                   No {{ section.title.toLowerCase() }} are available yet.
                 </div>
               </div>
+            </div>
+
+            <div v-if="tasks.length" class="task-pagination-bar">
+              <span>
+                {{ taskPageStart }}-{{ taskPageEnd }} of {{ tasks.length }}
+              </span>
+              <label class="task-page-size">
+                <span>Rows</span>
+                <select v-model.number="taskPagination.pageSize" @change="changeTaskPageSize">
+                  <option v-for="size in TASK_PAGE_SIZE_OPTIONS" :key="size" :value="size">
+                    {{ size }}
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="taskPagination.page <= 1 || isLoadingTasks"
+                @click="goToTaskPage(taskPagination.page - 1)"
+              >
+                Previous
+              </button>
+              <span>Page {{ taskPagination.page }} / {{ taskTotalPages }}</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="taskPagination.page >= taskTotalPages || isLoadingTasks"
+                @click="goToTaskPage(taskPagination.page + 1)"
+              >
+                Next
+              </button>
             </div>
           </div>
 
@@ -1022,6 +1091,7 @@ import {
   createTask as createTaskRequest,
   deleteTask as deleteTaskRequest,
   listTasks,
+  retrieveTask,
   toggleTaskCompletion,
   updateTask as updateTaskRequest,
 } from '@/utils/tasksAPI'
@@ -1055,6 +1125,7 @@ const activeTab = ref('tasks')
 
 // Live task state
 const tasks = ref([])
+const locallyDeletedTasks = ref(new Map())
 const isLoadingTasks = ref(false)
 const taskError = ref('')
 const updatingTaskIds = ref(new Set())
@@ -1065,9 +1136,17 @@ const taskFilters = ref({
   taskType: '',
   status: '',
   completed: '',
+  assignedUser: '',
+  parentId: '',
+  dueDateAfter: '',
+  dueDateBefore: '',
   search: '',
   ordering: 'due_date',
   showDeleted: false,
+})
+const taskPagination = ref({
+  page: 1,
+  pageSize: 20,
 })
 const taskDialogOpen = ref(false)
 const taskDialogMode = ref('create')
@@ -1096,9 +1175,15 @@ const TASK_STATUS_OPTIONS = [
 const TASK_ORDERING_OPTIONS = [
   { value: 'due_date', label: 'Due date' },
   { value: '-due_date', label: 'Due date desc' },
+  { value: 'created_at', label: 'Created date' },
+  { value: '-created_at', label: 'Created date desc' },
+  { value: 'updated_at', label: 'Updated date' },
   { value: '-updated_at', label: 'Recently updated' },
   { value: 'status', label: 'Status' },
+  { value: '-status', label: 'Status desc' },
 ]
+
+const TASK_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 const messages = ref([])
 
@@ -1587,6 +1672,20 @@ const groupMemberUserIds = computed(
     ),
 )
 
+const taskAssigneeOptions = computed(() =>
+  groupMemberships.value
+    .filter((item) => !item.leftAt)
+    .map((item) => {
+      const userId = Number(item.userId)
+      return {
+        userId,
+        label: item.userName || `User ${userId}`,
+      }
+    })
+    .filter((item) => Number.isFinite(item.userId) && item.userId > 0)
+    .sort((a, b) => a.label.localeCompare(b.label)),
+)
+
 const studentMemberUserIds = computed(
   () =>
     new Set(
@@ -1688,8 +1787,27 @@ const createTaskSection = (key, title, icon, sectionTasks) => {
   }
 }
 
+const taskTotalPages = computed(() =>
+  Math.max(1, Math.ceil(tasks.value.length / taskPagination.value.pageSize)),
+)
+
+const pagedTasks = computed(() => {
+  const page = Math.min(taskPagination.value.page, taskTotalPages.value)
+  const start = (page - 1) * taskPagination.value.pageSize
+  return tasks.value.slice(start, start + taskPagination.value.pageSize)
+})
+
+const taskPageStart = computed(() => {
+  if (!tasks.value.length) return 0
+  return (Math.min(taskPagination.value.page, taskTotalPages.value) - 1) * taskPagination.value.pageSize + 1
+})
+
+const taskPageEnd = computed(() =>
+  Math.min(taskPageStart.value + taskPagination.value.pageSize - 1, tasks.value.length),
+)
+
 const taskSections = computed(() => {
-  const relevantTasks = tasks.value.filter(isTaskRelevantToCurrentGroup)
+  const relevantTasks = pagedTasks.value.filter(isTaskRelevantToCurrentGroup)
   const groupTasks = relevantTasks.filter((task) => task.taskType === 'group')
   const individualTasks = relevantTasks.filter((task) => task.taskType === 'individual')
 
@@ -1762,7 +1880,7 @@ const clearTaskSelection = () => {
 
 const syncSelectedTasks = () => {
   const visibleIds = new Set(
-    tasks.value
+    pagedTasks.value
       .filter((task) => !task.deletedAt && canToggleTask(task))
       .map((task) => Number(task.id)),
   )
@@ -1851,6 +1969,15 @@ const upsertTask = (task) => {
   const index = tasks.value.findIndex((item) => Number(item.id) === Number(normalized.id))
   if (index === -1) tasks.value.push(normalized)
   else tasks.value.splice(index, 1, normalized)
+  tasks.value = sortTaskCollection(tasks.value)
+}
+
+const cacheDeletedTask = (task) => {
+  const normalized = normalizeTask(task)
+  if (!normalized.id || !normalized.deletedAt) return
+  const next = new Map(locallyDeletedTasks.value)
+  next.set(Number(normalized.id), normalized)
+  locallyDeletedTasks.value = next
 }
 
 const removeTaskFromList = (taskId) => {
@@ -1858,17 +1985,70 @@ const removeTaskFromList = (taskId) => {
   if (index !== -1) tasks.value.splice(index, 1)
 }
 
-const getTaskListParams = () => ({
-  page_size: 100,
-  deleted: taskFilters.value.showDeleted,
-  task_type: taskFilters.value.taskType,
+const getTaskListBaseParams = () => ({
   status: taskFilters.value.status,
   completed: taskFilters.value.completed === '' ? '' : taskFilters.value.completed === 'true',
+  parent_id: taskFilters.value.parentId,
+  due_date_after: fromDateTimeLocal(taskFilters.value.dueDateAfter) || '',
+  due_date_before: fromDateTimeLocal(taskFilters.value.dueDateBefore) || '',
   search: taskFilters.value.search,
   ordering: taskFilters.value.ordering,
 })
 
-const loadTasks = async () => {
+const fetchAllTaskPages = async (params) => {
+  const items = []
+  let page = 1
+  let hasNext = true
+
+  while (hasNext) {
+    const data = await listTasks({
+      ...params,
+      page,
+      page_size: 100,
+    })
+    items.push(...extractCollectionItems(data).map(normalizeTask))
+    hasNext = Boolean(data?.next)
+    page += 1
+  }
+
+  return items
+}
+
+const sortTaskCollection = (items) => {
+  const ordering = taskFilters.value.ordering || 'due_date'
+  const descending = ordering.startsWith('-')
+  const field = descending ? ordering.slice(1) : ordering
+
+  const valueFor = (task) => {
+    if (field === 'due_date') return task.dueDate ? new Date(task.dueDate).getTime() : Infinity
+    if (field === 'created_at') return task.createdAt ? new Date(task.createdAt).getTime() : 0
+    if (field === 'updated_at') return task.updatedAt ? new Date(task.updatedAt).getTime() : 0
+    if (field === 'status') return task.status || ''
+    return task.id || 0
+  }
+
+  return [...items].sort((a, b) => {
+    const first = valueFor(a)
+    const second = valueFor(b)
+    const result =
+      typeof first === 'string'
+        ? first.localeCompare(String(second))
+        : Number(first) - Number(second)
+
+    return descending ? -result : result
+  })
+}
+
+const ensureTaskPageInRange = () => {
+  if (taskPagination.value.page > taskTotalPages.value) {
+    taskPagination.value.page = taskTotalPages.value
+  }
+  if (taskPagination.value.page < 1) {
+    taskPagination.value.page = 1
+  }
+}
+
+const loadTasks = async ({ resetPage = true } = {}) => {
   const currentGroupId = getBackendGroupId()
   if (!currentGroupId) {
     tasks.value = []
@@ -1880,8 +2060,58 @@ const loadTasks = async () => {
   taskError.value = ''
 
   try {
-    const data = await listTasks(getTaskListParams())
-    tasks.value = extractCollectionItems(data).map(normalizeTask)
+    if (resetPage) taskPagination.value.page = 1
+
+    const baseParams = getTaskListBaseParams()
+    const requestedType = taskFilters.value.taskType
+    const requestedAssignee = Number(taskFilters.value.assignedUser)
+    const taskRequests = []
+
+    if ((!requestedType || requestedType === 'group') && !requestedAssignee) {
+      taskRequests.push(
+        fetchAllTaskPages({
+          ...baseParams,
+          task_type: 'group',
+          group_id: currentGroupId,
+        }),
+      )
+    }
+
+    if (!requestedType || requestedType === 'individual') {
+      const assigneeIds =
+        Number.isFinite(requestedAssignee) && requestedAssignee > 0
+          ? [requestedAssignee]
+          : Array.from(groupMemberUserIds.value)
+
+      assigneeIds.forEach((assignedUser) => {
+        taskRequests.push(
+          fetchAllTaskPages({
+            ...baseParams,
+            task_type: 'individual',
+            assigned_user: assignedUser,
+          }),
+        )
+      })
+    }
+
+    const taskBatches = await Promise.all(taskRequests)
+    const byId = new Map()
+    taskBatches.flat().forEach((task) => {
+      if (task?.id) byId.set(Number(task.id), task)
+    })
+    if (taskFilters.value.showDeleted) {
+      locallyDeletedTasks.value.forEach((task) => {
+        if (isTaskRelevantToCurrentGroup(task)) byId.set(Number(task.id), task)
+      })
+    }
+
+    tasks.value = sortTaskCollection(
+      Array.from(byId.values()).filter((task) => {
+        if (!taskFilters.value.showDeleted && task.deletedAt) return false
+        return isTaskRelevantToCurrentGroup(task)
+      }),
+    )
+    ensureTaskPageInRange()
     syncSelectedTasks()
   } catch (error) {
     tasks.value = []
@@ -1889,6 +2119,32 @@ const loadTasks = async () => {
   } finally {
     isLoadingTasks.value = false
   }
+}
+
+const resetTaskFilters = () => {
+  taskFilters.value = {
+    taskType: '',
+    status: '',
+    completed: '',
+    assignedUser: '',
+    parentId: '',
+    dueDateAfter: '',
+    dueDateBefore: '',
+    search: '',
+    ordering: 'due_date',
+    showDeleted: false,
+  }
+  loadTasks()
+}
+
+const goToTaskPage = (page) => {
+  taskPagination.value.page = Math.min(Math.max(Number(page) || 1, 1), taskTotalPages.value)
+  syncSelectedTasks()
+}
+
+const changeTaskPageSize = () => {
+  taskPagination.value.page = 1
+  syncSelectedTasks()
 }
 
 const normalizeMessage = (item) => {
@@ -2158,20 +2414,32 @@ const openCreateTaskDialog = (taskType, parentTask = null) => {
   taskDialogOpen.value = true
 }
 
-const openEditTaskDialog = (task) => {
+const openEditTaskDialog = async (task) => {
+  let editableTask = task
+  taskError.value = ''
+
+  try {
+    const latestTask = await retrieveTask(task.id)
+    editableTask = normalizeTask(latestTask)
+    upsertTask(latestTask)
+  } catch (error) {
+    taskError.value =
+      error instanceof Error ? error.message : 'Latest task details could not be loaded.'
+  }
+
   taskDialogMode.value = 'edit'
   taskDialogTitle.value = 'Edit task'
-  editingTaskId.value = Number(task.id)
+  editingTaskId.value = Number(editableTask.id)
   taskFormError.value = ''
   taskForm.value = {
-    name: task.name || '',
-    description: task.description || '',
-    dueDate: toDateTimeLocal(task.dueDate),
-    status: task.status || 'todo',
-    taskType: task.taskType || 'group',
-    parent: task.parent ? String(task.parent) : '',
-    group: task.group ? String(task.group) : '',
-    assignedUser: task.assignedUser ? String(task.assignedUser) : '',
+    name: editableTask.name || '',
+    description: editableTask.description || '',
+    dueDate: toDateTimeLocal(editableTask.dueDate),
+    status: editableTask.status || 'todo',
+    taskType: editableTask.taskType || 'group',
+    parent: editableTask.parent ? String(editableTask.parent) : '',
+    group: editableTask.group ? String(editableTask.group) : '',
+    assignedUser: editableTask.assignedUser ? String(editableTask.assignedUser) : '',
   }
   taskDialogOpen.value = true
 }
@@ -2302,6 +2570,7 @@ const removeTask = async (task) => {
 
   try {
     const deletedTask = await deleteTaskRequest(task.id)
+    cacheDeletedTask(deletedTask)
     setTaskSelected(task.id, false)
     if (taskFilters.value.showDeleted) upsertTask(deletedTask)
     else removeTaskFromList(task.id)
@@ -3751,6 +4020,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-height: 320px;
+  container-type: inline-size;
 }
 
 /* Discussion pane */
@@ -3804,8 +4074,13 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.task-filter-field--compact {
+  min-width: 92px;
+}
+
 .task-filter-field input,
 .task-filter-field select,
+.task-page-size select,
 .task-form-field input,
 .task-form-field select,
 .task-form-field textarea {
@@ -3820,6 +4095,7 @@ onBeforeUnmount(() => {
 
 .task-filter-field input:focus,
 .task-filter-field select:focus,
+.task-page-size select:focus,
 .task-form-field input:focus,
 .task-form-field select:focus,
 .task-form-field textarea:focus {
@@ -3847,6 +4123,29 @@ onBeforeUnmount(() => {
   color: var(--charcoal);
   font-size: 0.84rem;
   font-weight: 700;
+}
+
+.task-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  padding-top: 0.85rem;
+  color: #5b6770;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.task-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.task-page-size select {
+  min-width: 74px;
+  padding: 0.45rem 0.55rem;
 }
 
 .task-section {
@@ -3882,9 +4181,18 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.task-item {
+  min-width: 0;
+  align-items: flex-start;
+}
+
 .task-body {
   flex: 1;
   min-width: 0;
+}
+
+.task-item.is-individual-task .task-body {
+  flex: 1 1 220px;
 }
 
 .task-select-control {
@@ -3917,6 +4225,11 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
 }
 
+.task-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .task-meta i {
   margin-right: 0.25rem;
 }
@@ -3928,6 +4241,11 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
   flex-wrap: wrap;
   flex-shrink: 0;
+}
+
+.task-item.is-individual-task .task-row-actions {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .task-status-toggle {
@@ -3974,6 +4292,23 @@ onBeforeUnmount(() => {
 .task-status-toggle:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+@container (max-width: 640px) {
+  .task-item.is-individual-task {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .task-item.is-individual-task .task-body {
+    flex-basis: calc(100% - 36px);
+  }
+
+  .task-item.is-individual-task .task-row-actions {
+    width: calc(100% - 36px);
+    margin-left: calc(22px + 0.75rem);
+    justify-content: flex-start;
+  }
 }
 
 .task-item.is-deleted {
