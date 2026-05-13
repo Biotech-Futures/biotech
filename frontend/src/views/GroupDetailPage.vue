@@ -152,7 +152,7 @@
               </button>
             </div>
           </div>
-          <div class="card-content tasks-content">
+          <div class="card-content tasks-content" :class="{ 'has-bulk-actions': selectedTaskIds.size }">
             <div class="task-filter-bar">
               <label class="task-filter-field">
                 <span>Search</span>
@@ -162,14 +162,6 @@
                   placeholder="Task name"
                   @keyup.enter="loadTasks"
                 />
-              </label>
-              <label class="task-filter-field">
-                <span>Type</span>
-                <select v-model="taskFilters.taskType">
-                  <option value="">All</option>
-                  <option value="group">Group</option>
-                  <option value="individual">Individual</option>
-                </select>
               </label>
               <label class="task-filter-field">
                 <span>Status</span>
@@ -182,6 +174,54 @@
                   >
                     {{ option.label }}
                   </option>
+                </select>
+              </label>
+              <label class="task-filter-field">
+                <span>Sort</span>
+                <select v-model="taskFilters.ordering">
+                  <option
+                    v-for="option in TASK_ORDERING_OPTIONS"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isLoadingTasks"
+                @click="loadTasks"
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm task-more-filters-btn"
+                :class="{ active: showAdvancedTaskFilters }"
+                :aria-expanded="showAdvancedTaskFilters"
+                @click="showAdvancedTaskFilters = !showAdvancedTaskFilters"
+              >
+                {{ showAdvancedTaskFilters ? 'Hide filters' : 'More filters' }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isLoadingTasks"
+                @click="resetTaskFilters"
+              >
+                Reset
+              </button>
+            </div>
+
+            <div v-if="showAdvancedTaskFilters" class="task-filter-bar task-filter-bar--advanced">
+              <label class="task-filter-field">
+                <span>Type</span>
+                <select v-model="taskFilters.taskType">
+                  <option value="">All</option>
+                  <option value="group">Group</option>
+                  <option value="individual">Individual</option>
                 </select>
               </label>
               <label class="task-filter-field">
@@ -205,9 +245,18 @@
                   </option>
                 </select>
               </label>
-              <label class="task-filter-field task-filter-field--compact">
-                <span>Parent ID</span>
-                <input v-model.trim="taskFilters.parentId" type="number" min="1" />
+              <label class="task-filter-field task-filter-field--wide">
+                <span>Subtasks of</span>
+                <select v-model="taskFilters.parentId">
+                  <option value="">Any task</option>
+                  <option
+                    v-for="option in parentTaskFilterOptions"
+                    :key="option.id"
+                    :value="String(option.id)"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
               </label>
               <label class="task-filter-field">
                 <span>Due after</span>
@@ -217,66 +266,14 @@
                 <span>Due before</span>
                 <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
               </label>
-              <label class="task-filter-field">
-                <span>Sort</span>
-                <select v-model="taskFilters.ordering">
-                  <option
-                    v-for="option in TASK_ORDERING_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
               <label class="task-deleted-toggle">
-                <input v-model="taskFilters.showDeleted" type="checkbox" />
+                <input
+                  v-model="taskFilters.showDeleted"
+                  type="checkbox"
+                  @change="toggleDeletedTaskVisibility"
+                />
                 Deleted
               </label>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isLoadingTasks"
-                @click="loadTasks"
-              >
-                Apply
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isLoadingTasks"
-                @click="resetTaskFilters"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div v-if="selectedTaskIds.size" class="task-bulk-bar">
-              <span>{{ selectedTaskIds.size }} selected</span>
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                :disabled="isBulkUpdatingTasks"
-                @click="bulkSetTaskCompletion(true)"
-              >
-                Mark done
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isBulkUpdatingTasks"
-                @click="bulkSetTaskCompletion(false)"
-              >
-                Mark open
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isBulkUpdatingTasks"
-                @click="clearTaskSelection"
-              >
-                Clear
-              </button>
             </div>
 
             <div v-if="taskError" class="chat-alert" style="margin-bottom: 1rem">
@@ -441,6 +438,34 @@
                 Next
               </button>
             </div>
+          </div>
+
+          <div v-if="selectedTaskIds.size" class="task-bulk-bar">
+            <span>{{ selectedTaskIds.size }} selected</span>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="isBulkUpdatingTasks"
+              @click="bulkSetTaskCompletion(true)"
+            >
+              Mark done
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isBulkUpdatingTasks"
+              @click="bulkSetTaskCompletion(false)"
+            >
+              Mark open
+            </button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isBulkUpdatingTasks"
+              @click="clearTaskSelection"
+            >
+              Clear
+            </button>
           </div>
 
           <div
@@ -1145,6 +1170,7 @@ const updatingTaskIds = ref(new Set())
 const deletingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const isBulkUpdatingTasks = ref(false)
+const showAdvancedTaskFilters = ref(false)
 const taskFilters = ref({
   taskType: '',
   status: '',
@@ -1875,6 +1901,16 @@ const taskPageEnd = computed(() =>
   Math.min(taskPageStart.value + taskPagination.value.pageSize - 1, tasks.value.length),
 )
 
+const parentTaskFilterOptions = computed(() =>
+  tasks.value
+    .filter((task) => !task.deletedAt)
+    .map((task) => ({
+      id: task.id,
+      label: `${task.taskType === 'individual' ? 'Individual Task' : 'Group Task'} · ${task.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+)
+
 const taskSections = computed(() => {
   const relevantTasks = pagedTasks.value.filter(isTaskRelevantToCurrentGroup)
   const groupTasks = relevantTasks.filter((task) => task.taskType === 'group')
@@ -2047,6 +2083,30 @@ const cacheDeletedTask = (task) => {
   const next = new Map(locallyDeletedTasks.value)
   next.set(Number(normalized.id), normalized)
   locallyDeletedTasks.value = next
+}
+
+const mergeLocallyDeletedTasks = () => {
+  const byId = new Map(tasks.value.map((task) => [Number(task.id), task]))
+  locallyDeletedTasks.value.forEach((task) => {
+    if (isTaskRelevantToCurrentGroup(task)) byId.set(Number(task.id), task)
+  })
+  tasks.value = sortTaskCollection(Array.from(byId.values()))
+  ensureTaskPageInRange()
+  syncSelectedTasks()
+}
+
+const hideLocallyDeletedTasks = () => {
+  tasks.value = tasks.value.filter((task) => !task.deletedAt)
+  ensureTaskPageInRange()
+  syncSelectedTasks()
+}
+
+const toggleDeletedTaskVisibility = () => {
+  if (taskFilters.value.showDeleted) {
+    mergeLocallyDeletedTasks()
+  } else {
+    hideLocallyDeletedTasks()
+  }
 }
 
 const removeTaskFromList = (taskId) => {
@@ -4102,6 +4162,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   min-height: 320px;
+  position: relative;
   container-type: inline-size;
 }
 
@@ -4128,6 +4189,10 @@ onBeforeUnmount(() => {
 }
 .tasks-content {
   padding-right: 2px; /* for visible scrollbar */
+}
+
+.tasks-content.has-bulk-actions {
+  padding-bottom: 5rem;
 }
 
 .task-header-actions {
@@ -4158,6 +4223,25 @@ onBeforeUnmount(() => {
 
 .task-filter-field--compact {
   min-width: 92px;
+}
+
+.task-filter-field--wide {
+  min-width: min(100%, 220px);
+}
+
+.task-filter-bar--advanced {
+  align-items: end;
+  margin-top: -0.35rem;
+  padding: 0.72rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+
+.task-more-filters-btn.active {
+  color: var(--air-force-blue);
+  border-color: var(--air-force-blue);
+  background: #eef7f9;
 }
 
 .task-filter-field input,
@@ -4210,11 +4294,19 @@ onBeforeUnmount(() => {
 }
 
 .task-bulk-bar {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 6;
   align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
   padding: 0.62rem 0.7rem;
   background: #f1f5f7;
   border: 1px solid var(--border-light);
   border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(30, 44, 56, 0.16);
   color: var(--charcoal);
   font-size: 0.84rem;
   font-weight: 700;
