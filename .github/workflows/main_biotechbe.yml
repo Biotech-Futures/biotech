@@ -89,16 +89,14 @@ jobs:
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      # Mirror webjobs into App_Data/jobs/triggered/<name>/ so the
-      # deploy artifact lands them where Azure's WebJobs runtime scans.
-      - name: Stage Azure WebJobs into App_Data
-        run: |
-          mkdir -p App_Data/jobs/triggered/rsvp-reminders
-          cp backend/deployment/azure/webjobs/rsvp-reminders/run.sh \
-             App_Data/jobs/triggered/rsvp-reminders/run.sh
-          cp backend/deployment/azure/webjobs/rsvp-reminders/settings.job \
-             App_Data/jobs/triggered/rsvp-reminders/settings.job
-          chmod +x App_Data/jobs/triggered/rsvp-reminders/run.sh
+      # Oryx scans only /home/site/wwwroot/ (not subdirs) for project files
+      # during ZipDeploy + SCM_DO_BUILD_DURING_DEPLOYMENT=true. With our
+      # multi-path artifact, requirements.txt lands at /wwwroot/backend/...
+      # so Oryx doesn't detect Python and never runs pip install (container
+      # then crashes with ModuleNotFoundError: django). Surface it at the
+      # root so Oryx finds it. The PROJECT app setting is unreliable here.
+      - name: Surface requirements.txt at artifact root for Oryx detection
+        run: cp backend/requirements.txt requirements.txt
 
       # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size.
       - name: Upload artifact for deployment jobs
@@ -107,7 +105,7 @@ jobs:
           name: python-app
           path: |
             backend/
-            App_Data/
+            requirements.txt
             !backend/antenv/
             !backend/venv/
             !backend/.venv/

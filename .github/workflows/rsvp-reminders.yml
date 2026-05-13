@@ -1,20 +1,18 @@
 name: Hourly RSVP reminders
 
-# Trigger the 24h RSVP reminder dispatcher every hour. The job is a
-# thin curl against a shared-secret-protected backend endpoint; all
-# logic lives in apps/events/services.py::send_due_rsvp_reminders.
+# Hits the HMAC-protected dispatcher endpoint every hour. One call fires
+# both reminder kinds (24h + 1h) — see services.send_due_rsvp_reminders
+# and the REMINDER_KINDS registry.
 #
 # Required configuration:
-#   secret  RSVP_REMINDER_TOKEN         shared secret, must match
-#                                       backend env RSVP_REMINDER_TOKEN
-#   var     RSVP_REMINDER_BACKEND_URL   base URL of the backend, e.g.
-#                                       https://biotechbe.azurewebsites.net
+#   secret  RSVP_REMINDER_TOKEN         must match backend env of same name
+#   var     RSVP_REMINDER_BACKEND_URL   e.g. https://biotechbe.azurewebsites.net
 #
-# GitHub schedules can drift by several minutes under load — that's
-# fine, the dispatcher window is one hour wide.
+# Off-peak minute (23) avoids GitHub's top-of-hour cron load spike,
+# which can otherwise drift the run by 10+ minutes and miss the window.
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "23 * * * *"
   workflow_dispatch:
 
 jobs:
