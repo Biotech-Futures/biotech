@@ -9,7 +9,33 @@
       </div>
     </Transition>
 
-    <div class="card" style="overflow:hidden;padding:0;">
+    <div v-if="loading" class="profile-loading" role="status" aria-live="polite">
+      <span class="sr-only">Loading your profile...</span>
+      <div class="profile-loading-header">
+        <div class="profile-loading-avatar skeleton-block"></div>
+        <div class="profile-loading-title skeleton-block"></div>
+        <div class="profile-loading-subtitle skeleton-block"></div>
+      </div>
+      <div class="profile-loading-content">
+        <section
+          v-for="section in 3"
+          :key="`profile-loading-section-${section}`"
+          class="profile-loading-section"
+        >
+          <div class="profile-loading-heading skeleton-block"></div>
+          <div
+            v-for="row in 4"
+            :key="`profile-loading-row-${section}-${row}`"
+            class="profile-loading-row"
+          >
+            <div class="profile-loading-label skeleton-block"></div>
+            <div class="profile-loading-value skeleton-block"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div v-else-if="auth.user" class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
         <div class="profile-avatar-large">{{ getInitials(user.name) }}</div>
         <h2 class="profile-name">{{ user.name }}</h2>
@@ -17,10 +43,6 @@
       </div>
 
       <div class="profile-content">
-        <div v-if="loading" class="profile-section">
-          <p style="margin:0;color:#6c757d;">Loading your profile...</p>
-        </div>
-
         <div class="profile-section">
           <h3 class="profile-section-title">Personal Information</h3>
           <div class="profile-field">
@@ -164,7 +186,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 const auth = useAuthStore()
 
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 const statusMessage = ref('')
 const timezoneSaving = ref(false)
@@ -406,9 +428,116 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.status-card {
+.profile-loading {
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
+}
+
+.profile-loading-header {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 2rem;
+  background: linear-gradient(135deg, var(--dark-green), var(--mint-green));
+}
+
+.profile-loading-content {
+  padding: 2rem;
+}
+
+.profile-loading-section {
+  padding: 1.5rem 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.profile-loading-section:first-child {
+  padding-top: 0;
+}
+
+.profile-loading-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.profile-loading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e9ecef;
+}
+
+.skeleton-block::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+  animation: profile-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+.profile-loading-avatar {
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.profile-loading-title {
+  width: min(280px, 68%);
+  height: 26px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.profile-loading-subtitle {
+  width: min(220px, 58%);
+  height: 16px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.profile-loading-heading {
+  width: 180px;
+  height: 20px;
   margin-bottom: 1rem;
+}
+
+.profile-loading-label {
+  width: 140px;
+  height: 16px;
+}
+
+.profile-loading-value {
+  width: min(320px, 55%);
+  height: 16px;
+}
+
+@keyframes profile-loading-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.status-card {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  width: min(360px, calc(100vw - 2rem));
+  margin-bottom: 0;
   border-left: 4px solid var(--dark-green);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
 }
 
 .status-card p {
@@ -459,6 +588,21 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .status-card {
+    top: 0.75rem;
+    right: 0.75rem;
+    width: calc(100vw - 1.5rem);
+  }
+
+  .profile-loading-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .profile-loading-value {
+    width: 100%;
+  }
+
   .timezone-actions {
     flex-direction: column;
     align-items: stretch;
