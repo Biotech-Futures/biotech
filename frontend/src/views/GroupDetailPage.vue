@@ -84,6 +84,16 @@
             </div>
           </div>
           <div class="gd-head-actions">
+            <button
+              type="button"
+              class="group-members-btn"
+              :disabled="isLoadingMembers || !visibleGroupMembers.length"
+              @click="showGroupMembersDialog = true"
+            >
+              <i class="fas fa-users"></i>
+              Members
+              <span>{{ visibleGroupMembers.length }}</span>
+            </button>
             <label class="group-switcher" for="group-switcher">
               <span>Group</span>
               <select
@@ -103,6 +113,44 @@
             }}</span>
           </div>
         </div>
+      </div>
+
+      <div
+        v-if="showGroupMembersDialog"
+        class="group-members-dialog-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Group members"
+      >
+        <section class="group-members-dialog">
+          <div class="group-members-dialog-header">
+            <div>
+              <h3>Group members</h3>
+              <p>{{ visibleGroupMembers.length }} visible members</p>
+            </div>
+            <button
+              type="button"
+              class="group-members-dialog-close"
+              title="Close"
+              @click="showGroupMembersDialog = false"
+            >
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <div class="group-members-list">
+            <div v-for="member in visibleGroupMembers" :key="member.key" class="group-member-row">
+              <div class="group-member-avatar">{{ getInitials(member.name).slice(0, 2) }}</div>
+              <div class="group-member-copy">
+                <strong>{{ member.name }}</strong>
+                <span>{{ member.roleLabel }}</span>
+              </div>
+            </div>
+            <div v-if="!visibleGroupMembers.length" class="group-members-empty">
+              No members are available.
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- Mobile tabs (hidden on desktop) -->
@@ -371,7 +419,11 @@
                         row.task.deletedAt ||
                         !canCreateTaskType(row.task.taskType, row.task)
                       "
-                      title="Add a sub-task"
+                      :title="
+                        canCreateTaskType(row.task.taskType, row.task)
+                          ? 'Add a sub-task'
+                          : 'You do not have permission to add a sub-task here'
+                      "
                       @click="openCreateTaskDialog(row.task.taskType, row.task)"
                     >
                       <i class="fas fa-plus"></i>
@@ -1157,6 +1209,7 @@ const membersError = ref('')
 const availableGroups = ref([])
 const isLoadingGroupOptions = ref(false)
 const groupOptionsError = ref('')
+const showGroupMembersDialog = ref(false)
 
 // Active mobile tab
 const activeTab = ref('tasks')
@@ -1350,6 +1403,31 @@ const groupMetaItems = computed(() => {
 
   return items
 })
+
+const visibleGroupMembers = computed(() =>
+  groupMemberships.value
+    .filter((item) => {
+      if (item.leftAt) return false
+      return !String(item.role || '')
+        .toLowerCase()
+        .includes('supervisor')
+    })
+    .map((item) => ({
+      key: `${item.id || item.userId}`,
+      id: item.userId,
+      name: item.userName || `User ${item.userId}`,
+      roleLabel: formatTaskStatus(item.role || 'member') || 'Member',
+      role: String(item.role || '').toLowerCase(),
+    }))
+    .sort((a, b) => {
+      const roleRank = (role) => {
+        if (role.includes('mentor')) return 0
+        if (role.includes('student')) return 1
+        return 2
+      }
+      return roleRank(a.role) - roleRank(b.role) || a.name.localeCompare(b.name)
+    }),
+)
 
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
@@ -3986,6 +4064,7 @@ const reloadGroupDetail = async () => {
   chatError.value = ''
   chatNotice.value = ''
   activeReactionPickerMessageId.value = null
+  showGroupMembersDialog.value = false
   showMessageSearch.value = false
   clearMessageSearch()
   highlightedSearchMessageId.value = null
@@ -4096,6 +4175,37 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
   min-width: 180px;
 }
+.group-members-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 34px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.42rem 0.68rem;
+  background: var(--white);
+  color: var(--air-force-blue);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.group-members-btn:hover:not(:disabled) {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+}
+.group-members-btn:disabled {
+  cursor: not-allowed;
+  color: #98a2ad;
+  background: #f8f9fa;
+}
+.group-members-btn span {
+  min-width: 1.4rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.38rem;
+  background: #eef7f9;
+  color: var(--air-force-blue);
+  text-align: center;
+}
 .group-switcher {
   display: flex;
   align-items: center;
@@ -4122,6 +4232,121 @@ onBeforeUnmount(() => {
   color: #8a5a00;
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.group-members-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(21, 32, 43, 0.42);
+}
+
+.group-members-dialog {
+  width: min(460px, 100%);
+  max-height: min(620px, 82vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(24, 38, 50, 0.2);
+}
+
+.group-members-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.group-members-dialog-header h3 {
+  margin: 0;
+  color: var(--charcoal);
+  font-size: 1.05rem;
+}
+
+.group-members-dialog-header p {
+  margin: 0.16rem 0 0;
+  color: #6c757d;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.group-members-dialog-close {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--white);
+  color: #5b6770;
+  cursor: pointer;
+}
+
+.group-members-dialog-close:hover {
+  border-color: var(--air-force-blue);
+  color: var(--air-force-blue);
+  background: #f1f5f7;
+}
+
+.group-members-list {
+  overflow-y: auto;
+  padding: 0.45rem;
+}
+
+.group-member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.78rem;
+  padding: 0.7rem;
+  border-radius: 8px;
+}
+
+.group-member-row + .group-member-row {
+  border-top: 1px solid #eef1f3;
+}
+
+.group-member-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--air-force-blue);
+  color: var(--white);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.group-member-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.group-member-copy strong {
+  color: var(--charcoal);
+  font-size: 0.92rem;
+}
+
+.group-member-copy span,
+.group-members-empty {
+  color: #6c757d;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.group-members-empty {
+  padding: 1rem;
+  text-align: center;
 }
 
 /* Mobile tabs */
@@ -6026,6 +6251,16 @@ onBeforeUnmount(() => {
   border-color: var(--air-force-blue);
 }
 
+.add-subtask-btn:disabled,
+.add-subtask-btn:disabled:hover {
+  cursor: not-allowed;
+  color: #98a2ad;
+  border-color: var(--border-light);
+  background: #f3f5f6;
+  opacity: 0.62;
+  box-shadow: none;
+}
+
 .group-detail-loading {
   display: flex;
   flex-direction: column;
@@ -6244,6 +6479,11 @@ onBeforeUnmount(() => {
 
   .gd-head-actions {
     align-items: stretch;
+    width: 100%;
+  }
+
+  .group-members-btn {
+    justify-content: center;
     width: 100%;
   }
 
