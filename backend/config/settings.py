@@ -259,6 +259,18 @@ else:
         "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
     }
 
+# Use Redis as the cache backend so rate-limit counters are shared across
+# all workers and survive restarts. Falls back to LocMemCache when REDIS_URL
+# is not set (local dev without Redis).
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
+    }
+
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

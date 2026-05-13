@@ -4,6 +4,7 @@ from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRe
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile, StudentProfile
@@ -433,21 +434,51 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
     Returns:
         Dictionary with 'replaced' count
     """
+    new_mentor_id = input_data['newMentorUserId']
+    group_id = input_data['groupId']
+
+    profile = (
+        MentorProfile.objects
+        .filter(user_id=new_mentor_id)
+        .values('max_group_count')
+        .first()
+    )
+    if profile is None:
+        raise ValidationError({'newMentorUserId': 'User is not a mentor.'})
+
+    surviving_count = (
+        GroupMembership.objects
+        .filter(
+            user_id=new_mentor_id,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .exclude(group_id=group_id)
+        .count()
+    )
+    if surviving_count >= profile['max_group_count']:
+        raise ValidationError({
+            'newMentorUserId': (
+                f'Mentor is at capacity '
+                f'({surviving_count}/{profile["max_group_count"]}).'
+            ),
+        })
+
     # Mark old mentor as left
     GroupMembership.objects.filter(
         id=input_data['membershipId'],
-        group_id=input_data['groupId'],
+        group_id=group_id,
         left_at__isnull=True,
     ).update(left_at=timezone.now())
 
     # Add new mentor
     GroupMembership.objects.create(
-        group_id=input_data['groupId'],
-        user_id=input_data['newMentorUserId'],
+        group_id=group_id,
+        user_id=new_mentor_id,
         membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         joined_at=timezone.now(),
     )
-    
+
     return {'replaced': 1}
 
 
@@ -504,9 +535,61 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
         {'group_id': gid, 'mentor_user_id': mid}
         for gid, mid in unique_by_group.items()
     ]
-    
+
     group_ids = [a['group_id'] for a in assignments]
-    
+
+    # Capacity check: surviving live assignments (outside group_ids) + new
+    # assignments must not exceed each mentor's max_group_count.
+    mentor_ids = list({a['mentor_user_id'] for a in assignments})
+
+    max_counts = {
+        row['user_id']: row['max_group_count']
+        for row in MentorProfile.objects
+            .filter(user_id__in=mentor_ids)
+            .values('user_id', 'max_group_count')
+    }
+    missing = [mid for mid in mentor_ids if mid not in max_counts]
+    if missing:
+        raise ValidationError({
+            'assignments': f'Not a mentor: user IDs {missing}.',
+        })
+
+    surviving_counts = dict.fromkeys(mentor_ids, 0)
+    for row in (
+        GroupMembership.objects
+        .filter(
+            user_id__in=mentor_ids,
+            left_at__isnull=True,
+            user__mentorprofile__isnull=False,
+        )
+        .exclude(group_id__in=group_ids)
+        .values('user_id')
+        .annotate(count=Count('id'))
+    ):
+        surviving_counts[row['user_id']] = row['count']
+
+    new_counts = {}
+    for a in assignments:
+        mid = a['mentor_user_id']
+        new_counts[mid] = new_counts.get(mid, 0) + 1
+
+    over_capacity = [
+        {
+            'mentorUserId': mid,
+            'requested': surviving_counts[mid] + new_counts[mid],
+            'maxGroupCount': max_counts[mid],
+        }
+        for mid in mentor_ids
+        if surviving_counts[mid] + new_counts[mid] > max_counts[mid]
+    ]
+    if over_capacity:
+        raise ValidationError({
+            'assignments': {
+                'message': 'One or more mentors would exceed max_group_count.',
+                'overCapacity': over_capacity,
+            },
+        })
+
     # Remove existing mentor assignments
     existing_mentor_rows = (
         GroupMembership.objects
