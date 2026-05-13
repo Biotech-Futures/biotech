@@ -498,7 +498,11 @@
 
                 <label class="task-form-field">
                   <span>Type</span>
-                  <select v-model="taskForm.taskType" :disabled="taskDialogMode === 'edit'">
+                  <select
+                    v-model="taskForm.taskType"
+                    :disabled="taskDialogMode === 'edit'"
+                    @change="syncTaskAssigneeForType"
+                  >
                     <option
                       v-for="option in allowedTaskTypeOptions"
                       :key="option.value"
@@ -510,14 +514,23 @@
                 </label>
 
                 <label v-if="taskForm.taskType === 'individual'" class="task-form-field">
-                  <span>Assignee user id</span>
-                  <input
-                    v-model.trim="taskForm.assignedUser"
-                    type="number"
-                    min="1"
-                    :disabled="taskDialogMode === 'edit'"
-                    required
-                  />
+                  <span>Assignee</span>
+                  <div
+                    v-if="taskDialogMode === 'edit' || isStudentOnlyIndividualAssignee"
+                    class="task-readonly-value"
+                  >
+                    {{ selectedTaskAssigneeLabel }}
+                  </div>
+                  <select v-else v-model="taskForm.assignedUser" required>
+                    <option value="" disabled>Select assignee</option>
+                    <option
+                      v-for="option in individualTaskAssigneeOptions"
+                      :key="option.userId"
+                      :value="String(option.userId)"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
                 </label>
               </div>
 
@@ -1672,19 +1685,27 @@ const groupMemberUserIds = computed(
     ),
 )
 
-const taskAssigneeOptions = computed(() =>
+const normalizeTaskAssigneeOption = (item) => {
+  const userId = Number(item.userId)
+  const role = formatTaskStatus(item.role || '')
+  const baseLabel = item.userName || `User ${userId}`
+
+  return {
+    userId,
+    label: role ? `${baseLabel} (${role})` : baseLabel,
+    role: String(item.role || '').toLowerCase(),
+  }
+}
+
+const activeGroupMemberOptions = computed(() =>
   groupMemberships.value
     .filter((item) => !item.leftAt)
-    .map((item) => {
-      const userId = Number(item.userId)
-      return {
-        userId,
-        label: item.userName || `User ${userId}`,
-      }
-    })
+    .map(normalizeTaskAssigneeOption)
     .filter((item) => Number.isFinite(item.userId) && item.userId > 0)
     .sort((a, b) => a.label.localeCompare(b.label)),
 )
+
+const taskAssigneeOptions = computed(() => activeGroupMemberOptions.value)
 
 const studentMemberUserIds = computed(
   () =>
@@ -1712,6 +1733,54 @@ const supervisedStudentIds = computed(
 )
 
 const currentUserId = computed(() => Number(auth.user?.id || 0))
+
+const currentUserTaskAssigneeOption = computed(() => {
+  const userId = currentUserId.value
+  if (!userId) return null
+  const member = activeGroupMemberOptions.value.find((item) => item.userId === userId)
+  if (member) return member
+  return {
+    userId,
+    label: auth.displayName || auth.user?.email || `User ${userId}`,
+    role: 'student',
+  }
+})
+
+const individualTaskAssigneeOptions = computed(() => {
+  if (auth.isStudent) {
+    return currentUserTaskAssigneeOption.value ? [currentUserTaskAssigneeOption.value] : []
+  }
+
+  if (auth.isSupervisor) {
+    return activeGroupMemberOptions.value.filter((item) =>
+      supervisedStudentIds.value.has(Number(item.userId)),
+    )
+  }
+
+  if (auth.isMentor) {
+    return activeGroupMemberOptions.value.filter((item) =>
+      groupMemberUserIds.value.has(Number(item.userId)),
+    )
+  }
+
+  if (auth.isAdmin) {
+    return activeGroupMemberOptions.value
+  }
+
+  return []
+})
+
+const isStudentOnlyIndividualAssignee = computed(
+  () => auth.isStudent && taskDialogMode.value === 'create',
+)
+
+const selectedTaskAssigneeLabel = computed(() => {
+  const assigneeId = Number(taskForm.value.assignedUser)
+  const option =
+    individualTaskAssigneeOptions.value.find((item) => item.userId === assigneeId) ||
+    activeGroupMemberOptions.value.find((item) => item.userId === assigneeId)
+  return option?.label || (assigneeId ? `User ${assigneeId}` : 'No assignee selected')
+})
 
 const isCurrentGroupMentor = computed(() =>
   groupMemberships.value.some(
@@ -1946,7 +2015,7 @@ const canCreateTaskType = (taskType, parentTask = null) => {
   const assigneeId = Number(parentTask.assignedUser)
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -1959,7 +2028,7 @@ const canCreateTaskFromForm = () => {
   if (!Number.isFinite(assigneeId) || assigneeId <= 0) return false
   if (auth.isAdmin) return true
   if (auth.isStudent) return assigneeId === currentUserId.value
-  if (auth.isMentor) return isCurrentGroupMentor.value && isCurrentGroupStudent(assigneeId)
+  if (auth.isMentor) return isCurrentGroupMentor.value && groupMemberUserIds.value.has(assigneeId)
   if (auth.isSupervisor) return isSupervisorOf(assigneeId)
   return false
 }
@@ -2350,12 +2419,25 @@ const resolveIndividualTaskAssignee = (parentTask = null) => {
   if (parentTask?.assignedUser) return Number(parentTask.assignedUser)
   if (auth.isStudent && auth.user?.id) return Number(auth.user.id)
 
-  const studentMemberships = groupMemberships.value.filter((item) => {
-    const role = String(item.role || '').toLowerCase()
-    return !item.leftAt && role.includes('student')
-  })
-  const assigneeId = Number(studentMemberships[0]?.userId || '')
+  const assigneeId = Number(individualTaskAssigneeOptions.value[0]?.userId || '')
   return Number.isFinite(assigneeId) && assigneeId > 0 ? assigneeId : null
+}
+
+const syncTaskAssigneeForType = () => {
+  if (taskForm.value.taskType !== 'individual') {
+    taskForm.value.assignedUser = ''
+    return
+  }
+
+  const currentAssignee = Number(taskForm.value.assignedUser)
+  const currentAllowed = individualTaskAssigneeOptions.value.some(
+    (item) => item.userId === currentAssignee,
+  )
+
+  if (!currentAllowed) {
+    const fallbackAssignee = resolveIndividualTaskAssignee()
+    taskForm.value.assignedUser = fallbackAssignee ? String(fallbackAssignee) : ''
+  }
 }
 
 const toDateTimeLocal = (value) => {
@@ -2490,7 +2572,7 @@ const saveTask = async () => {
     taskForm.value.taskType === 'individual' &&
     !Number(taskForm.value.assignedUser)
   ) {
-    taskFormError.value = 'Assignee user id is required for individual tasks.'
+    taskFormError.value = 'Please choose an assignee for this individual task.'
     return
   }
   if (taskDialogMode.value === 'create' && !canCreateTaskFromForm()) {
@@ -4089,6 +4171,19 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 0.52rem 0.62rem;
   background: var(--white);
+  color: var(--charcoal);
+  font: inherit;
+}
+
+.task-readonly-value {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 0.52rem 0.62rem;
+  background: #f8f9fa;
   color: var(--charcoal);
   font: inherit;
 }
