@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, List, Dict, Any
+from typing import TYPE_CHECKING, TypedDict, Optional, List, Dict, Any
 from datetime import datetime
 import html as html_lib
 import logging
@@ -20,7 +20,35 @@ from apps.groups.models import Tracks
 from apps.users.models import User
 from apps.admin.scope_utils import get_admin_track_ids
 
+if TYPE_CHECKING:
+    # Imported only for typing — avoids a circular import at runtime and lets
+    # us annotate the initiator parameter as the concrete user model rather
+    # than ``Any``.
+    from apps.users.models.user import User as UserType  # noqa: F401
+
 logger = logging.getLogger(__name__)
+
+# Maximum length we keep for any persisted SMTP error message. The raw
+# strings can include server banners, internal hostnames, or auth realms;
+# we keep enough for an operator to triage and drop the rest.
+_MAX_ERROR_MESSAGE_CHARS = 200
+
+
+def _sanitize_error(exc: BaseException) -> str:
+    """
+    Render an exception as a one-line, length-bounded string safe to persist
+    on a delivery row that admins can read.
+
+    * Strips CR/LF so a malicious server banner can't inject log lines.
+    * Truncates the message portion to ``_MAX_ERROR_MESSAGE_CHARS``.
+    * Always prefixes the exception class so triage doesn't depend on
+      provider-specific wording.
+    """
+    raw_message = str(exc) or ""
+    cleaned = raw_message.replace("\r", " ").replace("\n", " ").strip()
+    if len(cleaned) > _MAX_ERROR_MESSAGE_CHARS:
+        cleaned = cleaned[:_MAX_ERROR_MESSAGE_CHARS].rstrip() + "…"
+    return f"{type(exc).__name__}: {cleaned}" if cleaned else type(exc).__name__
 
 
 # Type definitions
@@ -353,7 +381,7 @@ def get_announcement_by_id(announcement_id: int) -> AnnouncementResponseDict:
 def create_announcement(
     input_data: CreateAnnouncementInput,
     author_user_id: int,
-    initiated_by: Optional[Any] = None,
+    initiated_by: Optional["UserType"] = None,
 ) -> AnnouncementResponseDict:
     """Create a new announcement."""
     now = timezone.now()
@@ -378,10 +406,7 @@ def create_announcement(
     announcement.save(update_fields=["visibility_scope"])
 
     if input_data.get("send_email"):
-        send_announcement_email(
-            announcement.id,
-            initiated_by=initiated_by or User.objects.filter(pk=author_user_id).first(),
-        )
+        send_announcement_email(announcement.id, initiated_by=initiated_by)
 
     row = _fetch_announcement(announcement.id)
     return {"msg": "Announcement created successfully", "data": row}
@@ -391,7 +416,7 @@ def create_announcement(
 def update_announcement(
     announcement_id: int,
     input_data: UpdateAnnouncementInput,
-    initiated_by: Optional[Any] = None,
+    initiated_by: Optional["UserType"] = None,
 ) -> AnnouncementResponseDict:
     """Update an existing announcement."""
     existing = _fetch_announcement(announcement_id)
@@ -459,7 +484,7 @@ def archive_announcement(announcement_id: int) -> AnnouncementResponseDict:
 
 def send_announcement_email(
     announcement_id: int,
-    initiated_by: Optional[Any] = None,
+    initiated_by: Optional["UserType"] = None,
 ) -> Dict[str, Any]:
     """
     Send an announcement to its resolved audience and persist a delivery row.
@@ -544,121 +569,127 @@ def send_announcement_email(
     )
 
     failed: List[Dict[str, str]] = []
-    succeeded = 0
+    succeeded: int = 0
     connection_error: Optional[str] = None
 
+    # The outer try/finally guarantees we always persist the final delivery
+    # state (status, counts, error summary) even if a future contributor
+    # adds an early ``return`` or an unexpected exception escapes the loop.
+    # Without this, the pessimistic row created above could be left forever
+    # in ``status=FAILED`` with success_count=0.
     try:
-        # ``fail_silently=False`` ensures SMTP / DNS / auth errors raise instead
-        # of being swallowed. We catch them ourselves so we can still persist
-        # a useful delivery row.
-        connection = get_connection(fail_silently=False)
         try:
-            connection.open()
-        except Exception as exc:  # network / TLS / auth failure
-            connection_error = f"{type(exc).__name__}: {exc}"
-            logger.exception(
-                "announcement_email.connection_failed announcement_id=%s",
-                announcement_id,
-            )
-            # Mark every recipient as failed since none could be attempted.
-            for addr in emails:
-                failed.append({"email": addr, "error": connection_error})
-        else:
+            # ``fail_silently=False`` ensures SMTP / DNS / auth errors raise
+            # instead of being swallowed. We catch them ourselves so we can
+            # still persist a useful delivery row.
+            connection = get_connection(fail_silently=False)
             try:
+                connection.open()
+            except Exception as exc:  # network / TLS / auth failure
+                connection_error = _sanitize_error(exc)
+                logger.exception(
+                    "announcement_email.connection_failed announcement_id=%s",
+                    announcement_id,
+                )
+                # Mark every recipient as failed since none could be attempted.
                 for addr in emails:
-                    message = EmailMultiAlternatives(
-                        subject=subject,
-                        body=text_body,
-                        from_email=settings.DEFAULT_FROM_EMAIL,
-                        to=[addr],
-                        connection=connection,
-                    )
-                    message.attach_alternative(html_body, "text/html")
-                    try:
-                        # ``send()`` returns the number of successfully
-                        # delivered messages (1 on success). With
-                        # ``fail_silently=False`` it raises on SMTP errors.
-                        result = message.send(fail_silently=False)
-                    except Exception as exc:
-                        failed.append({
-                            "email": addr,
-                            "error": f"{type(exc).__name__}: {exc}",
-                        })
-                        logger.warning(
-                            "announcement_email.send_failed "
-                            "announcement_id=%s recipient=%s error=%s",
-                            announcement_id, addr, exc,
+                    failed.append({"email": addr, "error": connection_error})
+            else:
+                try:
+                    for addr in emails:
+                        message = EmailMultiAlternatives(
+                            subject=subject,
+                            body=text_body,
+                            from_email=settings.DEFAULT_FROM_EMAIL,
+                            to=[addr],
+                            connection=connection,
                         )
-                    else:
-                        if result:
-                            succeeded += 1
-                        else:
-                            # Backend reported 0 sent without raising — treat
-                            # as a soft failure for tracking purposes.
+                        message.attach_alternative(html_body, "text/html")
+                        try:
+                            # ``send()`` returns the number of successfully
+                            # delivered messages (1 on success). With
+                            # ``fail_silently=False`` it raises on SMTP errors.
+                            result = message.send(fail_silently=False)
+                        except Exception as exc:
                             failed.append({
                                 "email": addr,
-                                "error": "Mail backend reported 0 sent",
+                                "error": _sanitize_error(exc),
                             })
                             logger.warning(
-                                "announcement_email.send_zero "
-                                "announcement_id=%s recipient=%s",
-                                announcement_id, addr,
+                                "announcement_email.send_failed "
+                                "announcement_id=%s recipient=%s error=%s",
+                                announcement_id, addr, _sanitize_error(exc),
                             )
-            finally:
-                try:
-                    connection.close()
-                except Exception:
-                    logger.exception(
-                        "announcement_email.connection_close_failed "
-                        "announcement_id=%s",
-                        announcement_id,
-                    )
-    except Exception as exc:  # belt-and-braces — anything truly unexpected
-        connection_error = f"{type(exc).__name__}: {exc}"
-        logger.exception(
-            "announcement_email.unexpected_failure announcement_id=%s",
-            announcement_id,
-        )
+                        else:
+                            if result:
+                                succeeded += 1
+                            else:
+                                # Backend reported 0 sent without raising —
+                                # treat as a soft failure for tracking.
+                                failed.append({
+                                    "email": addr,
+                                    "error": "Mail backend reported 0 sent",
+                                })
+                                logger.warning(
+                                    "announcement_email.send_zero "
+                                    "announcement_id=%s recipient=%s",
+                                    announcement_id, addr,
+                                )
+                finally:
+                    try:
+                        connection.close()
+                    except Exception:
+                        logger.exception(
+                            "announcement_email.connection_close_failed "
+                            "announcement_id=%s",
+                            announcement_id,
+                        )
+        except Exception as exc:  # belt-and-braces — anything truly unexpected
+            connection_error = _sanitize_error(exc)
+            logger.exception(
+                "announcement_email.unexpected_failure announcement_id=%s",
+                announcement_id,
+            )
+    finally:
+        failure_count = len(failed)
+        if succeeded == 0:
+            status_value = AnnouncementDelivery.Status.FAILED
+            msg = (
+                "Announcement send failed — no recipients accepted the message"
+                if failure_count
+                else "Announcement send failed"
+            )
+        elif failure_count == 0:
+            status_value = AnnouncementDelivery.Status.SUCCESS
+            msg = "Announcement email sent successfully"
+        else:
+            status_value = AnnouncementDelivery.Status.PARTIAL
+            msg = (
+                f"Announcement email partially sent "
+                f"({succeeded}/{len(emails)} delivered)"
+            )
 
-    failure_count = len(failed)
-    if succeeded == 0:
-        status_value = AnnouncementDelivery.Status.FAILED
-        msg = (
-            "Announcement send failed — no recipients accepted the message"
-            if failure_count
-            else "Announcement send failed"
-        )
-    elif failure_count == 0:
-        status_value = AnnouncementDelivery.Status.SUCCESS
-        msg = "Announcement email sent successfully"
-    else:
-        status_value = AnnouncementDelivery.Status.PARTIAL
-        msg = (
-            f"Announcement email partially sent "
-            f"({succeeded}/{len(emails)} delivered)"
-        )
+        capped_failed = failed[: AnnouncementDelivery.FAILED_RECIPIENTS_CAP]
+        overflow = failure_count - len(capped_failed)
+        error_summary_parts: List[str] = []
+        if connection_error:
+            error_summary_parts.append(f"connection: {connection_error}")
+        if overflow > 0:
+            error_summary_parts.append(
+                f"+{overflow} more failed recipients omitted from list"
+            )
+        error_summary = "\n".join(error_summary_parts)
 
-    capped_failed = failed[: AnnouncementDelivery.FAILED_RECIPIENTS_CAP]
-    overflow = failure_count - len(capped_failed)
-    error_summary_parts: List[str] = []
-    if connection_error:
-        error_summary_parts.append(f"connection: {connection_error}")
-    if overflow > 0:
-        error_summary_parts.append(
-            f"+{overflow} more failed recipients omitted from list"
-        )
-    error_summary = "\n".join(error_summary_parts)
-
-    delivery.status = status_value
-    delivery.success_count = succeeded
-    delivery.failure_count = failure_count
-    delivery.failed_recipients = capped_failed
-    delivery.error_summary = error_summary
-    delivery.completed_at = timezone.now()
-    delivery.save(update_fields=[
-        "status", "success_count", "failure_count",
-        "failed_recipients", "error_summary", "completed_at",
-    ])
+        delivery.status = status_value
+        delivery.success_count = succeeded
+        delivery.failure_count = failure_count
+        delivery.failed_recipients = capped_failed
+        delivery.error_summary = error_summary
+        delivery.completed_at = timezone.now()
+        delivery.save(update_fields=[
+            "status", "success_count", "failure_count",
+            "failed_recipients", "error_summary", "completed_at",
+        ])
 
     return {
         "msg": msg,
