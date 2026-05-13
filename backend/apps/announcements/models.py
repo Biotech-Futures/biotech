@@ -85,3 +85,73 @@ class AnnouncementAudience(models.Model):
     def __str__(self):
         target = self.role or self.track
         return f"{self.announcement} -> {target}"
+
+
+class AnnouncementDelivery(models.Model):
+    """
+    One row per "notify" attempt for an announcement.
+
+    Replaces the previous ``fail_silently=True`` send_mail call which had no
+    audit trail — operators need to be able to answer "did the announcement
+    actually go out, and to whom did it bounce?" without grepping mail server
+    logs.
+    """
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"   # every recipient accepted
+        PARTIAL = "partial", "Partial"   # at least one succeeded, at least one failed
+        FAILED = "failed", "Failed"      # zero succeeded
+        # Note: the API also returns ``"skipped"`` when the audience resolves to
+        # zero recipients or the announcement id is unknown. ``"skipped"`` is a
+        # *wire-only* status — it is never persisted on a delivery row, so it is
+        # deliberately absent from this enum. If you ever need to persist a
+        # skipped attempt, add ``SKIPPED`` here AND a migration.
+
+    # Max number of failing addresses to persist on a single delivery row.
+    # Anything beyond this is summarised into ``error_summary`` so a 50k-user
+    # announcement doesn't blow up the row.
+    FAILED_RECIPIENTS_CAP = 50
+
+    announcement = models.ForeignKey(
+        Announcement,
+        on_delete=models.CASCADE,
+        related_name="deliveries",
+    )
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="announcement_deliveries",
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    recipient_count = models.PositiveIntegerField(default=0)
+    success_count = models.PositiveIntegerField(default=0)
+    failure_count = models.PositiveIntegerField(default=0)
+    # Persisted shape: ``[{"email": "<addr>", "error": "<sanitized>"}, ...]``,
+    # capped at ``FAILED_RECIPIENTS_CAP`` entries. Note this differs from the
+    # API response shape, which surfaces email strings only (the sanitized
+    # error message is operator-facing — see ``send_announcement_email``).
+    # Do NOT return ``failed_recipients`` directly over the wire without
+    # stripping the ``error`` field; the strings are bounded and CR/LF-safe
+    # but still leak provider error text.
+    failed_recipients = models.JSONField(default=list, blank=True)
+    error_summary = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "announcement_delivery"
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["announcement"]),
+            models.Index(fields=["initiated_by"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["started_at"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"Delivery #{self.pk} ({self.get_status_display()}, "
+            f"{self.success_count}/{self.recipient_count})"
+        )
