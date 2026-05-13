@@ -1074,18 +1074,18 @@ const groupSubtitle = computed(() => {
 })
 
 const groupMetaItems = computed(() => {
-  const mentorIds = groupMemberships.value
+  const mentorNames = groupMemberships.value
     .filter((item) =>
       String(item.role || '')
         .toLowerCase()
         .includes('mentor'),
     )
-    .map((item) => item.userId)
+    .map((item) => item.userName || `User ${item.userId}`)
     .filter(Boolean)
   const items = []
 
-  if (mentorIds.length) {
-    items.push(`Mentor: ${mentorIds.map((id) => `User ${id}`).join(', ')}`)
+  if (mentorNames.length) {
+    items.push(`Mentor: ${mentorNames.join(', ')}`)
   }
   if (isLoadingMembers.value) {
     items.push('Loading members...')
@@ -1208,6 +1208,7 @@ const normalizeMembership = (item) => ({
   id: item?.id,
   groupId: item?.group,
   userId: item?.user,
+  userName: item?.user_name || item?.userName || '',
   role: item?.membership_role || '',
   joinedAt: item?.joined_at || '',
   leftAt: item?.left_at || '',
@@ -1216,10 +1217,11 @@ const normalizeMembership = (item) => ({
 const normalizeMentionMember = (item) => {
   const userId = Number(item?.userId || item?.user || item?.id || 0)
   const role = formatTaskStatus(item?.role || item?.membership_role || 'member') || 'Member'
+  const userName = item?.userName || item?.user_name || ''
   return {
     userId,
     role,
-    label: userId === currentUserId.value ? 'You' : `User ${userId}`,
+    label: userId === currentUserId.value ? 'You' : userName || `User ${userId}`,
   }
 }
 
@@ -1863,7 +1865,7 @@ const getResourceLabel = (resource) =>
 
 const getReplyLabel = (reply) => {
   if (!reply) return ''
-  return reply.deleted ? 'Deleted message' : `Reply to User ${reply.user_id || ''}`.trim()
+  return reply.deleted ? 'Deleted message' : `Reply to ${getMentionLabel(reply.user_id)}`
 }
 
 const getReplyText = (reply) => {
@@ -3345,7 +3347,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
 }
 .gd-head-left {
   display: flex;
@@ -3358,19 +3360,19 @@ onBeforeUnmount(() => {
 }
 .gd-subtitle {
   color: #6c757d;
-  margin-top: 0.15rem;
+  margin-top: 0.1rem;
 }
 .gd-meta-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
-  margin-top: 0.35rem;
+  margin-top: 0.25rem;
   color: #6c757d;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 .gd-meta-row span {
-  padding: 0.2rem 0.5rem;
+  padding: 0.12rem 0.45rem;
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.65);
@@ -4751,7 +4753,9 @@ onBeforeUnmount(() => {
   isolation: auto;
   min-height: calc(100vh - 60px);
   overflow: auto;
-  padding: 2rem;
+  padding: 1rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
   color: var(--charcoal);
   background: var(--bg-light);
   --text-primary: var(--charcoal);
@@ -4777,7 +4781,7 @@ onBeforeUnmount(() => {
 }
 
 .group-hero-card {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.8rem;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -4789,7 +4793,7 @@ onBeforeUnmount(() => {
 }
 
 .gd-head {
-  padding: 1.5rem;
+  padding: 0.85rem 1rem;
   margin-bottom: 0;
   border: 1px solid var(--border-light);
   border-radius: 8px;
@@ -4799,23 +4803,52 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: none;
 }
 
+.gd-head-left {
+  padding-left: 0.35rem;
+}
+
 .gd-title {
   margin: 0;
   color: var(--charcoal);
-  font-size: 2rem;
+  font-size: 1.45rem;
   font-weight: 600;
 }
 
 .gd-subtitle {
-  margin-top: 0.15rem;
+  margin-top: 0.1rem;
   color: #6c757d;
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 .group-avatar {
   background: var(--air-force-blue);
   color: var(--white);
   border-color: var(--white);
+}
+
+@media (min-width: 1181px) {
+  .group-detail {
+    height: calc(100vh - 64px - 2rem);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .group-hero-card {
+    flex: 0 0 auto;
+  }
+
+  .split {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+  }
+
+  .split .pane,
+  .card,
+  .pane--discussion {
+    min-height: 0;
+  }
 }
 
 .mobile-tabs {
