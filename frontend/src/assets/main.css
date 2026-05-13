@@ -640,7 +640,7 @@ h5 {
 
 .event-banner {
   height: 150px;
-  background: linear-gradient(135deg, var(--dark-green), var(--mint-green));
+  background-color: var(--dark-green);
   display: flex;
   align-items: center;
   justify-content: center;

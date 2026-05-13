@@ -486,7 +486,7 @@ const DASHBOARD_ENDPOINTS = {
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
   nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
-  personalizedEvents: `${API_BASE_URL}/events/v1/?audience=me&page_size=1&ordering=start_datetime`,
+  personalizedEvents: `${API_BASE_URL}/events/v1/?rsvp_status=accepted,tentative,pending&page_size=1&ordering=start_datetime`,
   events: `${API_BASE_URL}/events/v1/?page_size=10`,
   progress: `${API_BASE_URL}/dashboard/v1/progress/`,
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`,
@@ -1146,7 +1146,7 @@ function normalizeEvent(event) {
     time: formatEventTime(start, end) || event?.time || '',
     location: isVirtual ? 'Online' : event?.location || 'Location TBC',
     mode: isVirtual ? 'Virtual event' : event?.mode || 'In-person event',
-    link: event?.humanitix_link || event?.link,
+    link: event?.location_link || event?.link,
   }
 }
 
