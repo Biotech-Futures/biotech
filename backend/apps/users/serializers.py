@@ -4,7 +4,8 @@ from apps.resources.models import RoleAssignmentHistory
 from apps.groups.models import Tracks
 from django.db.models import Q
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema_field 
+from drf_spectacular.utils import extend_schema_field
+from zoneinfo import available_timezones
 
 
 # Validate body payload
@@ -60,8 +61,13 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups", "must_change_password"]
+        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups", "must_change_password", "timezone"]
         read_only_fields = ["id"]
+
+    def validate_timezone(self, value):
+        if value not in available_timezones():
+            raise serializers.ValidationError(f"Unknown IANA timezone: {value!r}")
+        return value
 
     def _active_assignment(self, user):
         now = timezone.now()

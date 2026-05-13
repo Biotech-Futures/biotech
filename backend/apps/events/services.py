@@ -18,6 +18,7 @@ to it, and vice-versa.
 
 import logging
 from datetime import timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -549,6 +550,21 @@ def _send_reminders_for_event(event, audiences):
     return sent, failed
 
 
+def _format_event_times_for_user(event, user_tz_name: str):
+    # Recipient timezones can be any IANA name. An empty or invalid value
+    # falls back to UTC so a bad DB row never blocks a reminder send.
+    try:
+        tz = ZoneInfo(user_tz_name or "UTC")
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    local = event.start_datetime.astimezone(tz)
+    tz_label = local.tzname() or (user_tz_name or "UTC")
+    when_full = local.strftime(f"%A, %d %B %Y at %I:%M %p {tz_label}")
+    date_label = local.strftime("%A, %d %B %Y")
+    time_label = local.strftime(f"%I:%M %p {tz_label}")
+    return when_full, date_label, time_label
+
+
 def _send_audience_reminders(event, audience):
     rsvps = (
         EventRsvp.objects.filter(
@@ -561,9 +577,6 @@ def _send_audience_reminders(event, audience):
 
     subject = audience["subject"].format(event_name=event.event_name)
     location_text, location_map_url = _event_location_lines(event)
-    when_full = event.start_datetime.strftime("%A, %d %B %Y at %I:%M %p UTC")
-    date_label = event.start_datetime.strftime("%A, %d %B %Y")
-    time_label = event.start_datetime.strftime("%I:%M %p UTC")
 
     from_email = settings.DEFAULT_FROM_EMAIL or "noreply@biotechfutures.com"
 
@@ -575,6 +588,9 @@ def _send_audience_reminders(event, audience):
         if not email:
             continue
         first_name = (getattr(user, "first_name", "") or "").strip() or "there"
+        when_full, date_label, time_label = _format_event_times_for_user(
+            event, getattr(user, "timezone", "UTC")
+        )
 
         ctx = {
             "First_Name": first_name,
