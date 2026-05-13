@@ -198,6 +198,17 @@
               >
                 <i class="fas fa-user-plus"></i> Individual Task
               </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm task-depth-toggle"
+                :class="{ active: showTaskDepthColors }"
+                :aria-pressed="showTaskDepthColors"
+                title="Toggle task level colors"
+                @click="showTaskDepthColors = !showTaskDepthColors"
+              >
+                <i class="fas fa-layer-group"></i>
+                Levels
+              </button>
             </div>
           </div>
           <div class="card-content tasks-content" :class="{ 'has-bulk-actions': selectedTaskIds.size }">
@@ -348,11 +359,16 @@
                   class="task-item"
                   :class="{
                     'is-subtask': row.depth > 0,
+                    [`task-depth-${Math.min(row.depth, 4)}`]: showTaskDepthColors,
+                    'task-depth-disabled': !showTaskDepthColors,
                     'is-deleted': row.task.deletedAt,
                     'is-group-task': row.task.taskType === 'group',
                     'is-individual-task': row.task.taskType === 'individual',
                   }"
-                  :style="{ paddingLeft: `${0.85 + row.depth * 1.35}rem` }"
+                  :style="{
+                    marginLeft: row.depth ? `${Math.min(row.depth, 4) * 1.05}rem` : '0',
+                    paddingLeft: '0.85rem',
+                  }"
                 >
                   <label class="task-select-control" title="Select task">
                     <input
@@ -377,7 +393,7 @@
                         ><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span
                       >
                       <span v-if="row.task.assignedUser"
-                        ><i class="fas fa-user"></i> User {{ row.task.assignedUser }}</span
+                        ><i class="fas fa-user"></i> {{ getTaskAssigneeName(row.task.assignedUser) }}</span
                       >
                       <span v-if="row.task.creatorRole"
                         ><i class="fas fa-id-badge"></i>
@@ -1224,6 +1240,7 @@ const deletingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const isBulkUpdatingTasks = ref(false)
 const showAdvancedTaskFilters = ref(false)
+const showTaskDepthColors = ref(true)
 const taskFilters = ref({
   taskType: '',
   status: '',
@@ -1885,6 +1902,27 @@ const selectedTaskAssigneeLabel = computed(() => {
     activeGroupMemberOptions.value.find((item) => item.userId === assigneeId)
   return option?.label || (assigneeId ? `User ${assigneeId}` : 'No assignee selected')
 })
+
+const getTaskAssigneeName = (userId) => {
+  const numericUserId = Number(userId)
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Unassigned'
+
+  const member = activeGroupMemberOptions.value.find((item) => item.userId === numericUserId)
+  if (member?.label) return member.label
+
+  const supervisedStudent = (auth.user?.supervised_students || []).find(
+    (student) => Number(student?.id) === numericUserId,
+  )
+  if (supervisedStudent) {
+    const fullName = [supervisedStudent.first_name, supervisedStudent.last_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+    return fullName || supervisedStudent.email || `User ${numericUserId}`
+  }
+
+  return `User ${numericUserId}`
+}
 
 const isCurrentGroupMentor = computed(() =>
   groupMemberships.value.some(
@@ -4427,6 +4465,12 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.task-depth-toggle.active {
+  color: var(--dark-green);
+  border-color: #b8dcc6;
+  background: #f3faf5;
+}
+
 .task-filter-bar,
 .task-bulk-bar {
   display: flex;
@@ -4596,6 +4640,70 @@ onBeforeUnmount(() => {
 .task-item {
   min-width: 0;
   align-items: flex-start;
+  position: relative;
+  border-radius: 8px;
+  border: 1px solid var(--task-depth-border, #e5ebef);
+  background: var(--task-depth-bg, var(--white));
+  box-shadow: inset 3px 0 0 var(--task-depth-accent, transparent);
+  cursor: default;
+}
+
+.group-detail .task-item:hover {
+  margin-top: 0 !important;
+  margin-right: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0.5rem !important;
+  padding-right: 0 !important;
+  padding-bottom: 0.5rem !important;
+  background: var(--task-depth-bg, var(--white)) !important;
+  transform: none !important;
+}
+
+.task-item.is-subtask::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.35rem;
+  width: 0.5rem;
+  height: 1px;
+  background: var(--task-depth-accent, #cfd6dd);
+  opacity: 0.82;
+}
+
+.task-depth-0 {
+  --task-depth-bg: #eaf6ee;
+  --task-depth-border: #d0e6d8;
+  --task-depth-accent: #79a988;
+}
+
+.task-depth-1 {
+  --task-depth-bg: #f3faf5;
+  --task-depth-border: #dceee2;
+  --task-depth-accent: #9abc9f;
+}
+
+.task-depth-2 {
+  --task-depth-bg: #fbfdfb;
+  --task-depth-border: #edf5ef;
+  --task-depth-accent: #c2d8c8;
+}
+
+.task-depth-3 {
+  --task-depth-bg: var(--white);
+  --task-depth-border: transparent;
+  --task-depth-accent: transparent;
+}
+
+.task-depth-4 {
+  --task-depth-bg: var(--white);
+  --task-depth-border: transparent;
+  --task-depth-accent: transparent;
+}
+
+.task-depth-disabled {
+  --task-depth-bg: var(--white);
+  --task-depth-border: transparent;
+  --task-depth-accent: transparent;
 }
 
 .task-body {
@@ -4674,10 +4782,6 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    color 0.2s ease;
 }
 
 .task-status-toggle i {
@@ -6231,14 +6335,6 @@ onBeforeUnmount(() => {
 
 .task-section {
   border-bottom-color: var(--border-light);
-}
-
-.task-item:hover {
-  margin: 0;
-  padding-top: 0.5rem;
-  padding-right: 0;
-  padding-bottom: 0.5rem;
-  background-color: transparent;
 }
 
 .add-subtask-btn {
