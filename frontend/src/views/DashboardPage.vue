@@ -471,7 +471,7 @@ import { getAccentClass } from '@/utils/ui'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
-const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user, timeZone } =
+const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, timeZone } =
   storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const DASHBOARD_ENDPOINTS = {
