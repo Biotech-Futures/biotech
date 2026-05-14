@@ -44,8 +44,11 @@ def _mentor_group_ids(user):
 
 def _student_group_ids(user):
     return list(
-        GroupMembership.objects.filter(user=user, left_at__isnull=True)
-        .values_list("group_id", flat=True)
+        GroupMembership.objects.filter(
+            user=user,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            left_at__isnull=True,
+        ).values_list("group_id", flat=True)
     )
 
 
@@ -89,8 +92,14 @@ def _supervises_any_in_group(user, group_id):
 
 
 def _user_active_group_id(user_id):
+    # Intended to find the group an assignee belongs to. Excludes the
+    # auto-created SUPERVISOR rows so a supervisor's supervisee group isn't
+    # mistaken for the supervisor's "own" group, while still allowing mentor
+    # and student memberships through (so non-student assignees still resolve
+    # to a meaningful group/track).
     return (
         GroupMembership.objects.filter(user_id=user_id, left_at__isnull=True)
+        .exclude(membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR)
         .values_list("group_id", flat=True)
         .first()
     )
@@ -269,10 +278,17 @@ def _can_modify_task(user, task: Task) -> bool:
         return True
     if task.created_by_id == user.id:
         return True
-    # Mentor / Supervisor can also CRUD Student-created tasks within reach.
-    if task.creator_role == CreatorRole.STUDENT:
-        if task.task_type == TaskType.GROUP and _is_active_group_mentor(user, task.group_id):
+
+    # Mentor of the group can edit any group task; supervisor of any active
+    # group student can edit any group task in that group.
+    if task.task_type == TaskType.GROUP:
+        if _is_active_group_mentor(user, task.group_id):
             return True
+        if _supervises_any_in_group(user, task.group_id):
+            return True
+
+    # Student-created tasks: mentor / supervisor reach extends to CRUD.
+    if task.creator_role == CreatorRole.STUDENT:
         if task.task_type == TaskType.INDIVIDUAL:
             assignee_group_id = _user_active_group_id(task.assigned_user_id)
             if assignee_group_id and _is_active_group_mentor(user, assignee_group_id):

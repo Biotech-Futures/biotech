@@ -166,6 +166,13 @@ export function toggleTaskCompletion(taskId: number | string, completed?: boolea
   })
 }
 
+export function setTaskStatus(taskId: number | string, status: TaskStatus) {
+  return requestJson<TaskRow>(`/api/v1/tasks/${taskId}/status/`, {
+    method: 'POST',
+    body: JSON.stringify({ status })
+  })
+}
+
 export function bulkToggleTasks(taskIds: number[], completed?: boolean) {
   return requestJson<BulkToggleTasksResponse>('/api/v1/tasks/bulk/check/', {
     method: 'POST',
