@@ -495,7 +495,7 @@ function EventPage() {
   };
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="min-w-0 space-y-4 p-4">
       <div className="flex flex-wrap gap-3 p-4 items-end justify-between">
         <Button
           type="button"
@@ -510,7 +510,7 @@ function EventPage() {
         </Button>
       </div>
 
-      <div className="rounded-md border">
+      <div className="min-w-0 overflow-hidden rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
