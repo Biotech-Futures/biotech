@@ -3,7 +3,6 @@
   <div
     ref="dashboardShellRef"
     class="content-area dashboard-page-shell"
-    :class="{ 'is-fx-disabled': !isDashboardFxRunningAllowed }"
     :style="dashboardThemeStyle"
   >
     <div class="dashboard-page-inner">
@@ -2093,7 +2092,6 @@ onMounted(async () => {
   margin-bottom: 1.1rem;
 }
 
-/* HUD-style kicker: animated dot + label */
 .surface-kicker {
   margin: 0 0 0.22rem;
   font-size: 0.72rem;
@@ -2115,19 +2113,6 @@ onMounted(async () => {
   background: #3cc87a;
   box-shadow: 0 0 8px rgba(60, 200, 110, 0.85);
   flex-shrink: 0;
-  animation: hud-pulse 2.2s ease-in-out infinite;
-}
-
-@keyframes hud-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 8px rgba(60, 200, 110, 0.85);
-  }
-  50% {
-    opacity: 0.52;
-    box-shadow: 0 0 4px rgba(60, 200, 110, 0.38);
-  }
 }
 
 .surface-card-title {
@@ -2904,15 +2889,6 @@ onMounted(async () => {
   background: #e8edf1;
 }
 
-.dashboard-skeleton-block::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: dashboard-loading-shimmer 1.35s ease-in-out infinite;
-}
-
 .dashboard-skeleton-eyebrow {
   width: 116px;
   height: 1.15rem;
@@ -3012,12 +2988,6 @@ onMounted(async () => {
 .dashboard-skeleton-link {
   width: 84px;
   height: 1.8rem;
-}
-
-@keyframes dashboard-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
 }
 
 .empty-state {
@@ -3553,6 +3523,7 @@ onMounted(async () => {
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
+.hero-eyebrow,
 .status-pill,
 .event-detail-card,
 .dashboard-alert {

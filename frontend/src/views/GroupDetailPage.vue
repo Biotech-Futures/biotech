@@ -6552,25 +6552,17 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
-  background-size: 200% 100%;
-  animation: task-skeleton-shimmer 1.4s infinite linear;
+  background: #eef2f4;
   flex-shrink: 0;
 }
 .task-skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
 .task-skeleton-line {
   height: 10px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
-  background-size: 200% 100%;
-  animation: task-skeleton-shimmer 1.4s infinite linear;
+  background: #eef2f4;
 }
 .task-skeleton-line--lg { width: 70%; }
 .task-skeleton-line--sm { width: 40%; }
-@keyframes task-skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
 
 /* Sticky bulk action bar */
 
@@ -9542,15 +9534,6 @@ onBeforeUnmount(() => {
   background: #e8edf1;
 }
 
-.skeleton-block::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: group-loading-shimmer 1.35s ease-in-out infinite;
-}
-
 .skeleton-title {
   width: min(360px, 78%);
   height: 2rem;
@@ -9624,12 +9607,6 @@ onBeforeUnmount(() => {
 .skeleton-composer {
   height: 74px;
   margin-top: 1rem;
-}
-
-@keyframes group-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
 }
 
 @media (max-width: 1180px) {

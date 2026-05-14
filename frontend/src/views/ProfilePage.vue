@@ -479,15 +479,6 @@ onMounted(() => {
   background: #e9ecef;
 }
 
-.skeleton-block::after {
-  position: absolute;
-  inset: 0;
-  content: '';
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: profile-loading-shimmer 1.35s ease-in-out infinite;
-}
-
 .profile-loading-avatar {
   width: 82px;
   height: 82px;
@@ -521,12 +512,6 @@ onMounted(() => {
 .profile-loading-value {
   width: min(320px, 55%);
   height: 16px;
-}
-
-@keyframes profile-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
 }
 
 .status-card {

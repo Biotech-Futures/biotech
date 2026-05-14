@@ -884,21 +884,6 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   background: #e9ecef;
 }
 
-.skeleton-block::after {
-  position: absolute;
-  inset: 0;
-  content: '';
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: events-loading-shimmer 1.35s ease-in-out infinite;
-}
-
-@keyframes events-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
 .event-banner i {
   font-size: 2.25rem;
   opacity: 0.9;
