@@ -784,9 +784,10 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="react")
     def react(self, request, *args, **kwargs):
-        # One reaction per (user, message): reacting with the same emoji toggles
-        # it off; reacting with a different emoji REPLACES the previous one so a
-        # user can never carry multiple chips on the same message. Same WS
+        # Toggle semantics keyed by (user, message, emoji): reacting with an
+        # emoji the user already chose deletes that row; reacting with a new
+        # emoji adds another row alongside any existing ones, so a single user
+        # can carry multiple distinct chips on the same message. A
         # ``message.reaction_updated`` frame is broadcast on commit either way.
         message = self.get_object()
         emoji = request.data.get("emoji")
@@ -798,23 +799,15 @@ class MessageViewSet(viewsets.ModelViewSet):
             raise drf_serializers.ValidationError({"emoji": ["Unsupported emoji."]})
 
         with transaction.atomic():
-            existing_for_user = list(
+            existing = (
                 MessageReaction.objects
                 .select_for_update()
-                .filter(message=message, user=request.user)
+                .filter(message=message, user=request.user, emoji=emoji)
+                .first()
             )
-            same = next((r for r in existing_for_user if r.emoji == emoji), None)
-            if same is not None:
-                # Toggle off — user re-tapped the emoji they already chose.
-                same.delete()
+            if existing is not None:
+                existing.delete()
             else:
-                # Replace: drop any prior emoji from this user on this message
-                # before recording the new one. ``existing_for_user`` is already
-                # narrow (1 row in normal use) so this stays cheap.
-                if existing_for_user:
-                    MessageReaction.objects.filter(
-                        pk__in=[r.pk for r in existing_for_user]
-                    ).delete()
                 MessageReaction.objects.create(
                     message=message, user=request.user, emoji=emoji,
                 )
