@@ -73,6 +73,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
+  { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

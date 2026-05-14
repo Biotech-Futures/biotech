@@ -7,7 +7,7 @@ from apps.audit.services import log_audit_event
 from apps.resources.models import RoleAssignmentHistory
 
 from .models import Announcement
-from .serializers import AnnouncementSerializer
+from .serializers import AnnouncementListSerializer, AnnouncementSerializer
 
 
 class AnnouncementViewSet(
@@ -21,6 +21,14 @@ class AnnouncementViewSet(
     queryset = Announcement.objects.select_related("author_user", "track").prefetch_related("audiences__role", "audiences__track").all()
     serializer_class = AnnouncementSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        # Listing returns body truncated to 4 KB; detail returns the full
+        # body. Prevents one announcement with an embedded base64 image
+        # from inflating every list response.
+        if self.action == "list":
+            return AnnouncementListSerializer
+        return AnnouncementSerializer
 
     def get_permissions(self):
         if self.action in {"create", "update", "partial_update", "destroy"}:

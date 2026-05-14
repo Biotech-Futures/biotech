@@ -27,6 +27,10 @@ class AnnouncementSerializer(serializers.ModelSerializer):
     audiences = AnnouncementAudienceSerializer(many=True, read_only=True)
     audience_rules = AnnouncementAudienceWriteSerializer(many=True, write_only=True, required=False)
 
+    # Above this size we truncate on list responses; one embedded base64
+    # image in a single row otherwise inflates the whole page payload.
+    LIST_BODY_CAP = 4096
+
     class Meta:
         model = Announcement
         fields = [
@@ -66,3 +70,27 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         announcement = super().update(instance, validated_data)
         self._replace_audiences(announcement, audience_rules)
         return announcement
+
+
+class AnnouncementListSerializer(AnnouncementSerializer):
+    """Truncates ``body`` for list responses.
+
+    A single base64-embedded image in one announcement can otherwise push
+    the list payload past 300 KB. Detail endpoints keep returning the full
+    body so the dedicated detail view still shows everything.
+    """
+
+    body = serializers.SerializerMethodField()
+    body_truncated = serializers.SerializerMethodField()
+
+    class Meta(AnnouncementSerializer.Meta):
+        fields = AnnouncementSerializer.Meta.fields + ["body_truncated"]
+
+    def get_body(self, obj):
+        body = obj.body or ""
+        if len(body) <= self.LIST_BODY_CAP:
+            return body
+        return body[: self.LIST_BODY_CAP]
+
+    def get_body_truncated(self, obj):
+        return len(obj.body or "") > self.LIST_BODY_CAP
