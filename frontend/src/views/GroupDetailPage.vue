@@ -1094,16 +1094,28 @@
               <div
                 v-for="message in messages"
                 :key="message.id"
-                :data-message-id="message.id"
-                :class="[
-                  'message',
-                  {
-                    own: message.isOwn,
-                    pending: message.isLocalOnly,
-                    'search-hit': String(highlightedSearchMessageId) === String(message.id),
-                  },
-                ]"
+                class="message-thread-item"
               >
+                <div
+                  v-if="isMissedMessageAnchor(message.id)"
+                  class="missed-message-divider"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span>{{ missedMessageDividerText }}</span>
+                  <button type="button" @click="scrollMessagesToBottom">Jump to latest</button>
+                </div>
+                <div
+                  :data-message-id="message.id"
+                  :class="[
+                    'message',
+                    {
+                      own: message.isOwn,
+                      pending: message.isLocalOnly,
+                      'search-hit': String(highlightedSearchMessageId) === String(message.id),
+                    },
+                  ]"
+                >
                 <div class="message-avatar">{{ getInitials(message.author) }}</div>
                 <div class="message-content">
                   <div class="message-header">
@@ -1498,6 +1510,7 @@
                 </div>
               </div>
             </div>
+            </div>
 
             <button
               v-if="showScrollToBottomButton"
@@ -1508,6 +1521,19 @@
               @click="scrollMessagesToBottom"
             >
               <i class="fas fa-arrow-down"></i>
+            </button>
+
+            <button
+              v-if="showMissedMessageJumpButton"
+              type="button"
+              class="missed-message-jump-btn"
+              :class="{ 'has-scroll-bottom': showScrollToBottomButton }"
+              :title="`Jump to ${missedMessageDividerText.toLowerCase()}`"
+              :aria-label="`Jump to ${missedMessageDividerText.toLowerCase()}`"
+              @click="jumpToMissedMessagesFromButton"
+            >
+              <i class="fas fa-location-arrow"></i>
+              <span>{{ missedMessageJumpText }}</span>
             </button>
 
             <Transition name="typing">
@@ -1955,6 +1981,9 @@ const openMessageKebabId = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
 const highlightedSearchMessageId = ref(null)
+const missedMessageAnchorId = ref(null)
+const missedMessageCount = ref(0)
+const isMissedMessageJumpDismissed = ref(false)
 
 let chatSocket = null
 let typingStopTimer = null
@@ -3703,6 +3732,22 @@ const showScrollToBottomButton = computed(
   () => hasScrollableMessages.value && isChatAwayFromBottom.value,
 )
 
+const showMissedMessageJumpButton = computed(
+  () => missedMessageAnchorId.value !== null && !isMissedMessageJumpDismissed.value,
+)
+
+const missedMessageDividerText = computed(() => {
+  const count = Number(missedMessageCount.value || 0)
+  if (count <= 1) return 'New message'
+  return `${count} new messages`
+})
+
+const missedMessageJumpText = computed(() => {
+  const count = Number(missedMessageCount.value || 0)
+  if (count <= 1) return 'Unread'
+  return `${count} unread`
+})
+
 const canSendChatMessage = computed(
   () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
 )
@@ -3785,6 +3830,72 @@ const upsertMessage = (message) => {
     ...normalized,
   })
 }
+
+const getMissedMessages = (messageList = messages.value) =>
+  (messageList || []).filter(
+    (message) => !message.isOwn && !message.isLocalOnly && message.isReadByMe === false,
+  )
+
+const shouldLoadOlderMissedMessages = (messageList, nextBefore) => {
+  if (!nextBefore || !getMissedMessages(messageList).length) return false
+  const firstPeerMessage = (messageList || []).find(
+    (message) => !message.isOwn && !message.isLocalOnly,
+  )
+  return firstPeerMessage?.isReadByMe === false
+}
+
+const expandMissedMessageWindow = async (messageList, initialNextBefore) => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) return { messages: messageList, nextBefore: initialNextBefore }
+
+  let combinedMessages = [...messageList]
+  let nextBefore = initialNextBefore
+  const MAX_MISSED_LOOKBACK_PAGES = 5
+
+  for (
+    let page = 0;
+    page < MAX_MISSED_LOOKBACK_PAGES && shouldLoadOlderMissedMessages(combinedMessages, nextBefore);
+    page += 1
+  ) {
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(
+        backendGroupId,
+        `?limit=100&before=${encodeURIComponent(nextBefore)}`,
+      ),
+    )
+    const olderMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    if (!olderMessages.length) {
+      nextBefore = null
+      break
+    }
+
+    const existingIds = new Set(combinedMessages.map((message) => String(message.id)))
+    combinedMessages = [
+      ...olderMessages.filter((message) => !existingIds.has(String(message.id))),
+      ...combinedMessages,
+    ]
+    nextBefore = data?.next_before || null
+  }
+
+  return { messages: combinedMessages, nextBefore }
+}
+
+const setMissedMessageAnchor = (messageList = messages.value) => {
+  const missedMessages = getMissedMessages(messageList)
+  missedMessageAnchorId.value = missedMessages[0]?.id || null
+  missedMessageCount.value = missedMessages.length
+  isMissedMessageJumpDismissed.value = false
+}
+
+const clearMissedMessageAnchor = () => {
+  missedMessageAnchorId.value = null
+  missedMessageCount.value = 0
+  isMissedMessageJumpDismissed.value = false
+}
+
+const isMissedMessageAnchor = (messageId) =>
+  missedMessageAnchorId.value !== null &&
+  String(missedMessageAnchorId.value) === String(messageId)
 
 const removeTypingUser = (name) => {
   const timer = typingUserTimers.get(name)
@@ -4459,6 +4570,7 @@ const loadMessages = async () => {
   if (!backendGroupId) {
     chatError.value = 'Live discussion needs a backend numeric group id.'
     messages.value = []
+    clearMissedMessageAnchor()
     await scrollMessagesToBottom()
     return
   }
@@ -4468,20 +4580,33 @@ const loadMessages = async () => {
 
   try {
     const data = await requestJson(buildChatMessageCollectionUrl(backendGroupId, '?limit=50'))
-    const liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    let liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    let nextBefore = data?.next_before || null
+
+    if (shouldLoadOlderMissedMessages(liveMessages, nextBefore)) {
+      const expanded = await expandMissedMessageWindow(liveMessages, nextBefore)
+      liveMessages = expanded.messages
+      nextBefore = expanded.nextBefore
+    }
 
     messages.value = liveMessages.length ? liveMessages : []
+    setMissedMessageAnchor(messages.value)
     nextMessagesAfter.value = data?.next_after || null
-    nextMessagesBefore.value = data?.next_before || null
+    nextMessagesBefore.value = nextBefore
   } catch (error) {
     chatError.value =
       error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
     messages.value = []
+    clearMissedMessageAnchor()
     nextMessagesAfter.value = null
     nextMessagesBefore.value = null
   } finally {
     isLoadingMessages.value = false
-    await scrollMessagesToBottomAfterRender()
+    if (missedMessageAnchorId.value) {
+      await scrollToMissedMessages()
+    } else {
+      await scrollMessagesToBottomAfterRender()
+    }
     await markMessagesAsDelivered(
       messages.value.filter((message) => !message.isOwn).map((message) => message.id),
     )
@@ -4675,6 +4800,18 @@ const scrollToMessageId = async (messageId) => {
     highlightedSearchMessageId.value = null
   }, 2200)
   return true
+}
+
+const scrollToMissedMessages = async () => {
+  if (!missedMessageAnchorId.value) return false
+  return scrollToMessageId(missedMessageAnchorId.value)
+}
+
+const jumpToMissedMessagesFromButton = async () => {
+  const didScroll = await scrollToMissedMessages()
+  if (didScroll) {
+    isMissedMessageJumpDismissed.value = true
+  }
 }
 
 const openSearchResult = async (result) => {
@@ -5288,6 +5425,7 @@ const reloadGroupDetail = async () => {
   showMessageSearch.value = false
   clearMessageSearch()
   highlightedSearchMessageId.value = null
+  clearMissedMessageAnchor()
 
   try {
     await loadGroup()
@@ -7185,6 +7323,53 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
+.missed-message-jump-btn {
+  position: absolute;
+  right: 1rem;
+  bottom: 8.75rem;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  max-width: calc(100% - 2rem);
+  min-height: 2.2rem;
+  border: 1px solid rgba(57, 104, 123, 0.28);
+  border-radius: 999px;
+  background: #eef7f9;
+  color: var(--air-force-blue);
+  box-shadow: 0 4px 12px rgba(24, 38, 50, 0.12);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.42rem 0.72rem;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.missed-message-jump-btn.has-scroll-bottom {
+  bottom: 8.75rem;
+}
+
+.missed-message-jump-btn:not(.has-scroll-bottom) {
+  bottom: 5.9rem;
+}
+
+.missed-message-jump-btn:hover {
+  border-color: var(--air-force-blue);
+  background: #f6fbfc;
+  box-shadow: 0 6px 16px rgba(24, 38, 50, 0.16);
+  transform: translateY(-1px);
+}
+
+.missed-message-jump-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .load-older-messages {
   align-self: center;
   border: 1px solid var(--border-light);
@@ -7200,6 +7385,53 @@ onBeforeUnmount(() => {
 .load-older-messages:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.message-thread-item {
+  display: contents;
+}
+
+.missed-message-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.7rem 0;
+  color: var(--air-force-blue);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.missed-message-divider::before,
+.missed-message-divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(57, 104, 123, 0.28);
+}
+
+.missed-message-divider span {
+  flex: 0 0 auto;
+  border: 1px solid rgba(57, 104, 123, 0.24);
+  border-radius: 999px;
+  background: #eef7f9;
+  padding: 0.22rem 0.6rem;
+}
+
+.missed-message-divider button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(57, 104, 123, 0.28);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--air-force-blue);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 0.22rem 0.58rem;
+}
+
+.missed-message-divider button:hover {
+  border-color: var(--air-force-blue);
+  background: #f3f8f7;
 }
 
 .message.pending {
