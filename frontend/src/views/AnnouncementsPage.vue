@@ -642,21 +642,6 @@ onMounted(() => {
   background: #e9ecef;
 }
 
-.skeleton-block::after {
-  position: absolute;
-  inset: 0;
-  content: '';
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: announcements-loading-shimmer 1.35s ease-in-out infinite;
-}
-
-@keyframes announcements-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
 .announcement-card:not(.announcement-card--with-image) {
   padding: 1.5rem;
 }
