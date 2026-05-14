@@ -94,23 +94,6 @@
               Members
               <span>{{ visibleGroupMembers.length }}</span>
             </button>
-            <label class="group-switcher" for="group-switcher">
-              <span>Group</span>
-              <select
-                id="group-switcher"
-                :value="backendGroupId"
-                :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
-                @change="switchGroup"
-              >
-                <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
-                <option v-for="option in availableGroups" :key="option.id" :value="option.id">
-                  {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
-                </option>
-              </select>
-            </label>
-            <span v-if="groupOptionsError" class="group-switcher-error">{{
-              groupOptionsError
-            }}</span>
           </div>
         </div>
       </div>
@@ -5290,12 +5273,6 @@ const reactToMessage = async (messageId, emoji) => {
 
 let loadSequence = 0
 
-const switchGroup = async (event) => {
-  const selectedGroupId = event?.target?.value
-  if (!selectedGroupId || String(selectedGroupId) === String(backendGroupId.value)) return
-  await router.push(`/groups/${selectedGroupId}`)
-}
-
 const reloadGroupDetail = async () => {
   const sequence = ++loadSequence
 
@@ -5548,34 +5525,6 @@ onBeforeUnmount(() => {
   color: var(--air-force-blue);
   text-align: center;
 }
-.group-switcher {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: #6c757d;
-  font-size: 0.85rem;
-  font-weight: 700;
-}
-.group-switcher select {
-  min-width: 150px;
-  max-width: 240px;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 0.45rem 0.65rem;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--charcoal);
-  font-weight: 600;
-}
-.group-switcher select:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-.group-switcher-error {
-  color: #8a5a00;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
 .group-members-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -9629,16 +9578,6 @@ onBeforeUnmount(() => {
   .group-members-btn {
     justify-content: center;
     width: 100%;
-  }
-
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
   }
 
   .task-toolbar { gap: 0.5rem; }
