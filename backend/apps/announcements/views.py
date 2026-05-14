@@ -6,8 +6,10 @@ from rest_framework.response import Response
 from apps.audit.services import log_audit_event
 from apps.resources.models import RoleAssignmentHistory
 
+from apps.groups.models import GroupMembership
+
 from .models import Announcement
-from .serializers import AnnouncementSerializer
+from .serializers import AnnouncementListSerializer, AnnouncementSerializer
 
 
 class AnnouncementViewSet(
@@ -21,6 +23,14 @@ class AnnouncementViewSet(
     queryset = Announcement.objects.select_related("author_user", "track").prefetch_related("audiences__role", "audiences__track").all()
     serializer_class = AnnouncementSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        # Listing returns body truncated to 4 KB; detail returns the full
+        # body. Prevents one announcement with an embedded base64 image
+        # from inflating every list response.
+        if self.action == "list":
+            return AnnouncementListSerializer
+        return AnnouncementSerializer
 
     def get_permissions(self):
         if self.action in {"create", "update", "partial_update", "destroy"}:
@@ -50,6 +60,15 @@ class AnnouncementViewSet(
             audience_filter |= Q(audiences__role_id__in=role_ids)
         if user.track_id:
             audience_filter |= Q(track_id=user.track_id) | Q(audiences__track_id=user.track_id)
+
+        # Group-targeted announcements: visible to active members of the
+        # targeted group(s).
+        group_ids = list(
+            GroupMembership.objects.filter(user=user, left_at__isnull=True)
+            .values_list("group_id", flat=True)
+        )
+        if group_ids:
+            audience_filter |= Q(audiences__group_id__in=group_ids)
 
         return queryset.filter(Q(archived_at__isnull=True), audience_filter).distinct().order_by("-published_at")
 

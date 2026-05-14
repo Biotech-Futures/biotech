@@ -93,10 +93,22 @@ class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
 
     def get_queryset(self):
-        raw = (self.request.query_params.get('include_deleted') or '').lower().strip()
-        if raw == 'true' and self.request.user.is_staff:
-            return Groups.objects.order_by("group_name", "id")
-        return Groups.objects.filter(deleted_at__isnull=True).order_by("group_name", "id")
+        include_deleted = (self.request.query_params.get('include_deleted') or '').lower().strip() == 'true'
+        if include_deleted and self.request.user.is_staff:
+            queryset = Groups.objects.all()
+        else:
+            queryset = Groups.objects.filter(deleted_at__isnull=True)
+
+        mine = (self.request.query_params.get('mine') or '').lower().strip() == 'true'
+        if mine and self.request.user.is_authenticated:
+            # Active memberships only — a user who has left the group should
+            # not see it in their "my groups" feed.
+            queryset = queryset.filter(
+                groupmembership__user=self.request.user,
+                groupmembership__left_at__isnull=True,
+            ).distinct()
+
+        return queryset.order_by("group_name", "id")
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:

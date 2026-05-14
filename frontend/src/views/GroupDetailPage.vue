@@ -1779,6 +1779,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { fetchResources } from '@/utils/resourcesAPI'
@@ -1795,11 +1796,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const groupNameCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: 'base',
-})
 const supportsGifs = true
 const supportsAttachments = true
 const supportsMessageReactions = true
@@ -2301,64 +2299,11 @@ const loadGroupOptions = async () => {
   isLoadingGroupOptions.value = true
   groupOptionsError.value = ''
 
-  try {
-    const [groupsData, membershipsData] = await Promise.all([
-      requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
-      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`),
-    ])
-    const groupItems = extractCollectionItems(groupsData)
-    const memberships = extractCollectionItems(membershipsData)
-      .map(normalizeMembership)
-      .filter((item) => !item.leftAt)
-    const currentUserId = Number(auth.user?.id || 0)
-    const visibleGroupIds = auth.isAdmin
-      ? null
-      : new Set(
-          memberships
-            .filter((item) => currentUserId > 0 && String(item.userId) === String(currentUserId))
-            .map((item) => String(item.groupId)),
-        )
-    const memberCounts = new Map()
+  // Single source of truth for "this user's groups" — shared with the
+  // sidebar via the Pinia store, so this never refires its own bulk fetch.
+  await groupsStore.ensureLoaded()
 
-    memberships.forEach((item) => {
-      const groupId = String(item.groupId || '')
-      if (!groupId) return
-      memberCounts.set(groupId, Number(memberCounts.get(groupId) || 0) + 1)
-    })
-
-    let options = groupItems
-      .filter((item) => {
-        const groupId = String(item?.id || '')
-        return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
-      })
-      .map((item) => normalizeGroupOption(item, memberCounts.get(String(item?.id || ''))))
-      .sort(
-        (a, b) =>
-          groupNameCollator.compare(a.name, b.name) ||
-          Number(a.id) - Number(b.id) ||
-          String(a.id).localeCompare(String(b.id)),
-      )
-
-    const currentGroupId = getBackendGroupId() || routeGroupId.value
-    if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
-      options = [
-        normalizeGroupOption(
-          {
-            id: currentGroupId,
-            group_name: group.value?.name || `Group ${currentGroupId}`,
-            created_at: group.value?.createdAt,
-          },
-          group.value?.members,
-        ),
-        ...options,
-      ]
-    }
-
-    availableGroups.value = options
-    if (!options.length) {
-      groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
-    }
-  } catch {
+  if (groupsStore.error) {
     const currentGroupId = getBackendGroupId() || routeGroupId.value
     availableGroups.value = currentGroupId
       ? [
@@ -2369,9 +2314,39 @@ const loadGroupOptions = async () => {
         ]
       : []
     groupOptionsError.value = 'Group list unavailable'
-  } finally {
     isLoadingGroupOptions.value = false
+    return
   }
+
+  let options = groupsStore.sorted.map((g) =>
+    normalizeGroupOption(
+      { id: g.id, group_name: g.name, created_at: g.createdAt },
+      g.memberCount,
+    ),
+  )
+
+  // Keep the currently-viewed group visible even if it isn't in the store
+  // (e.g. an admin viewing a group they're not a member of).
+  const currentGroupId = getBackendGroupId() || routeGroupId.value
+  if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
+    options = [
+      normalizeGroupOption(
+        {
+          id: currentGroupId,
+          group_name: group.value?.name || `Group ${currentGroupId}`,
+          created_at: group.value?.createdAt,
+        },
+        group.value?.members,
+      ),
+      ...options,
+    ]
+  }
+
+  availableGroups.value = options
+  if (!options.length) {
+    groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
+  }
+  isLoadingGroupOptions.value = false
 }
 
 const loadGroupMembers = async () => {
@@ -2466,13 +2441,27 @@ const loadGroup = async () => {
     if (currentRouteGroupId) {
       const data = await requestJson(`${API_BASE_URL}/groups/groups/${currentRouteGroupId}/`)
       group.value = normalizeGroup(data)
+      // Push the freshly-fetched detail (with authoritative member_count)
+      // into the shared store so the sidebar can use the richer payload.
+      groupsStore.upsert(data)
       return
     }
 
-    const data = await requestJson(`${API_BASE_URL}/groups/groups/?page_size=1`)
-    const firstGroup = extractCollectionItems(data)[0]
-    if (firstGroup) {
-      group.value = normalizeGroup(firstGroup)
+    // The /groups landing route is handled by the router guard now — it
+    // resolves to the user's first group before this view mounts. If we
+    // somehow arrive here without an id, fall back to the store rather
+    // than fetching a stranger group.
+    await groupsStore.ensureLoaded()
+    const first = groupsStore.firstGroup
+    if (first) {
+      group.value = {
+        id: first.id,
+        name: first.name,
+        members: first.memberCount,
+        createdAt: first.createdAt,
+      }
+    } else {
+      group.value = { id: null, name: 'No groups yet', members: 0, createdAt: '' }
     }
   } catch {
     group.value = {
@@ -5606,19 +5595,24 @@ const reloadGroupDetail = async () => {
   try {
     // First wave: everything that only needs routeGroupId (getBackendGroupId
     // already falls back to the route param). Drops 3 sequential RTTs to 1.
-    await Promise.all([loadGroup(), loadGroupMembers(), loadMessages()])
-    if (sequence !== loadSequence) return
-
-    // Tasks need the member list to fan out individual-task fetches, so
-    // they go in the second wave — still one round-trip thanks to the
-    // new ``assigned_user__in`` filter.
-    await loadTasks()
-    if (sequence !== loadSequence) return
-
-    await scrollMessagesToBottomAfterRender()
-    if (sequence !== loadSequence) return
-
+    // WS doesn't depend on any HTTP fetch — connect immediately so the
+    // socket is ready by the time messages render.
     connectChatSocket()
+
+    // Critical path: only the header data the user actually waits on.
+    // Tasks + chat have their own loading states and run in the
+    // background.
+    await Promise.all([loadGroup(), loadGroupMembers()])
+    if (sequence !== loadSequence) return
+    isLoadingGroupDetail.value = false
+
+    // Fire-and-forget: chat and tasks resolve in parallel; their own
+    // panel skeletons handle the wait. Sequence check on completion
+    // guards against navigating between groups mid-flight.
+    void loadMessages().then(() => {
+      if (sequence === loadSequence) void scrollMessagesToBottomAfterRender()
+    })
+    void loadTasks()
   } catch (error) {
     console.error('reloadGroupDetail failed:', error)
   } finally {
@@ -5732,14 +5726,13 @@ onMounted(async () => {
 
   await ensureAuthUser()
 
-  // When we already have a route id, the group switcher dropdown isn't on
-  // the critical path — kick it off in parallel with the main reload so
-  // the user doesn't wait two extra RTTs before seeing anything.
   if (routeGroupId.value) {
-    void loadGroupOptions()
+    // App.vue's sidebar already pulls /groups/ + /group-members/ for the
+    // switcher rail — re-fetching the same data here is pure waste.
     await reloadGroupDetail()
   } else {
-    // No route id: we must wait for the group list to pick a fallback.
+    // No route id: only path that needs the group list, to pick a
+    // fallback to redirect into.
     await loadGroupOptions()
     if (availableGroups.value.length) {
       await loadMentions()
@@ -6387,7 +6380,9 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  overflow: hidden;
+  /* overflow stays visible so the status-menu popup can extend below the
+     last (or only) task without being clipped. Rounded corners are kept
+     by rounding the first/last task-item directly. */
 }
 
 .task-item {
@@ -6401,7 +6396,8 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, box-shadow 120ms ease;
   position: relative;
 }
-.task-item:last-child { border-bottom: 0; }
+.task-item:first-child { border-top-left-radius: 11px; border-top-right-radius: 11px; }
+.task-item:last-child { border-bottom: 0; border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
 .task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
 .task-item.is-selected {
   background: rgba(57, 104, 123, 0.08);

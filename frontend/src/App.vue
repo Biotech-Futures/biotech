@@ -218,6 +218,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
@@ -225,17 +226,12 @@ import logo from '@/assets/btf-logo.png'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 interface CollectionResponse {
   results?: unknown[]
   items?: unknown[]
-}
-
-interface GroupMembership {
-  groupId: string
-  userId: string
-  leftAt: string
 }
 
 interface SidebarGroupOption {
@@ -248,6 +244,8 @@ interface SidebarGroupOption {
 
 const handleLogout = async () => {
   await auth.logout()
+  // Drop the previous user's group cache so the next session re-fetches.
+  groupsStore.reset()
   go('/login')
 }
 
@@ -278,10 +276,6 @@ const sidebarGroups = ref<SidebarGroupOption[]>([])
 const isLoadingSidebarGroups = ref(false)
 const sidebarGroupError = ref('')
 let sidebarGroupLoadSequence = 0
-const groupNameCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: 'base',
-})
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
@@ -327,36 +321,6 @@ const requestJson = async (url: string, options: RequestInit = {}) => {
   if (response.status === 204) return null
   return response.json()
 }
-
-const normalizeSidebarMembership = (item: Record<string, unknown>): GroupMembership => ({
-  groupId: String(item.group ?? item.group_id ?? item.groupId ?? ''),
-  userId: String(item.user ?? item.user_id ?? item.userId ?? ''),
-  leftAt: String(item.left_at ?? item.leftAt ?? ''),
-})
-
-const normalizeSidebarGroup = (
-  item: Record<string, unknown>,
-  memberCount = 0,
-): SidebarGroupOption => ({
-  id: String(item.id ?? item.group_id ?? item.groupId ?? ''),
-  name: String(
-    item.group_name ??
-      item.groupName ??
-      item.name ??
-      item.title ??
-      (item.id || item.group_id || item.groupId
-        ? `Group ${item.id ?? item.group_id ?? item.groupId}`
-        : 'Group'),
-  ),
-  memberCount,
-  hasUnread: false,
-  latestAt: '',
-})
-
-const compareSidebarGroups = (a: SidebarGroupOption, b: SidebarGroupOption) =>
-  groupNameCollator.compare(a.name, b.name) ||
-  Number(a.id) - Number(b.id) ||
-  a.id.localeCompare(b.id)
 
 const getCurrentUserDisplayNames = () =>
   new Set(
@@ -420,60 +384,33 @@ const loadSidebarGroups = async () => {
   isLoadingSidebarGroups.value = true
   sidebarGroupError.value = ''
 
-  try {
-    const [groupsData, membershipsData] = await Promise.all([
-      requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
-      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`),
-    ])
-    if (sequence !== sidebarGroupLoadSequence) return
+  await groupsStore.ensureLoaded()
+  if (sequence !== sidebarGroupLoadSequence) return
 
-    const memberships = extractCollectionItems(membershipsData)
-      .map(normalizeSidebarMembership)
-      .filter((item) => item.groupId && !item.leftAt)
-    const currentUserId = String(auth.user?.id || '')
-    const visibleGroupIds = auth.isAdmin
-      ? null
-      : new Set(
-          memberships
-            .filter((item) => currentUserId && item.userId === currentUserId)
-            .map((item) => item.groupId),
-        )
-    const memberCounts = new Map<string, number>()
-
-    memberships.forEach((item) => {
-      memberCounts.set(item.groupId, (memberCounts.get(item.groupId) || 0) + 1)
-    })
-
-    const groups = extractCollectionItems(groupsData)
-      .filter((item) => {
-        const groupId = String(item.id ?? item.group_id ?? item.groupId ?? '')
-        return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
-      })
-      .map((item) => {
-        const groupId = String(item.id ?? item.group_id ?? item.groupId ?? '')
-        return normalizeSidebarGroup(item, memberCounts.get(groupId) || 0)
-      })
-      .sort(compareSidebarGroups)
-
-    sidebarGroups.value = groups
-    // N requests (one per group) — defer behind idle so the page is
-    // interactive before unread/latest-at indicators light up.
-    const runLatest = () => void loadSidebarLatestMessageState(groups, sequence)
-    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
-      .requestIdleCallback
-    if (typeof ric === 'function') ric(runLatest)
-    else window.setTimeout(runLatest, 250)
-  } catch (error) {
-    if (sequence === sidebarGroupLoadSequence) {
-      sidebarGroups.value = []
-      sidebarGroupError.value =
-        error instanceof Error ? error.message : 'Group list unavailable'
-    }
-  } finally {
-    if (sequence === sidebarGroupLoadSequence) {
-      isLoadingSidebarGroups.value = false
-    }
+  if (groupsStore.error) {
+    sidebarGroups.value = []
+    sidebarGroupError.value = groupsStore.error
+    isLoadingSidebarGroups.value = false
+    return
   }
+
+  const groups: SidebarGroupOption[] = groupsStore.sorted.map((g) => ({
+    id: g.id,
+    name: g.name,
+    memberCount: g.memberCount,
+    hasUnread: false,
+    latestAt: '',
+  }))
+  sidebarGroups.value = groups
+  isLoadingSidebarGroups.value = false
+
+  // N requests (one per group) — defer behind idle so the page is
+  // interactive before unread/latest-at indicators light up.
+  const runLatest = () => void loadSidebarLatestMessageState(groups, sequence)
+  const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
+    .requestIdleCallback
+  if (typeof ric === 'function') ric(runLatest)
+  else window.setTimeout(runLatest, 250)
 }
 
 const isSidebarGroupActive = (groupId: string) => String(route.params.id || '') === groupId
@@ -536,8 +473,18 @@ watch(showSidebarGroupSwitcher, (isVisible) => {
 })
 
 watch(
-  () => [auth.user?.id, auth.isAdmin],
-  () => {
+  () => [auth.user?.id, auth.isAdmin, showSidebarGroupSwitcher.value],
+  ([newUserId, , nowVisible], old) => {
+    const oldUserId = Array.isArray(old) ? old[0] : undefined
+    const wasVisible = Array.isArray(old) ? old[2] : undefined
+    // The cached list belongs to whoever was logged in. If the identity
+    // changes (login, account switch) drop it so the next load fetches fresh.
+    if (oldUserId !== undefined && oldUserId !== newUserId) {
+      groupsStore.reset()
+    }
+    // Skip the no-op transition where the switcher stays hidden — avoids
+    // refetching while the user is bouncing between non-/groups routes.
+    if (wasVisible === false && nowVisible === false) return
     scheduleSidebarLoad()
   },
 )
