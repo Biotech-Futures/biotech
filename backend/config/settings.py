@@ -244,13 +244,18 @@ SERVER_EMAIL = DEFAULT_FROM_EMAIL
 REDIS_URL = config("REDIS_URL", default="")
 
 if REDIS_URL:
+    # ``RedisPubSubChannelLayer`` uses Redis pub/sub instead of the legacy
+    # MULTI/pipeline-based ``RedisChannelLayer``. Azure Cache for Redis
+    # Enterprise (and any clustered Redis) rejects MULTI pipelines whose keys
+    # land on different cluster slots with CROSSSLOT. The pubsub layer only
+    # PUBLISH/SUBSCRIBEs against single keys per command, so it works on
+    # both clustered and standalone Redis. Same wire protocol for consumers,
+    # no app-side changes needed.
     CHANNEL_LAYERS = {
         "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
             "CONFIG": {
                 "hosts": [REDIS_URL],
-                "capacity": 1500,
-                "expiry": 60,
             },
         }
     }
@@ -385,6 +390,22 @@ CHAT_SANITIZER_BLACKLIST = config(
 )
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
+
+# --- GIF proxy (Tenor v2) ----------------------------------------------------
+# We proxy GIF search/trending through the chat API so:
+#   1. clients never see the Tenor key,
+#   2. queries pass through ``contains_blacklisted`` first — a slur in the
+#      query returns ``{items: []}`` with no upstream call, satisfying the
+#      "ill words -> blank output" requirement of issue #95,
+#   3. responses can be cached in Redis (same store as link previews) to
+#      keep repeat searches fast.
+# An empty ``TENOR_API_KEY`` triggers fail-soft behaviour: endpoints return
+# 200 with an empty list rather than 500, so dev environments without a key
+# still load the UI.
+TENOR_API_KEY = config("TENOR_API_KEY", default="")
+TENOR_CLIENT_KEY = config("TENOR_CLIENT_KEY", default="biotech-chat")
+TENOR_TIMEOUT = config("TENOR_TIMEOUT", default=5, cast=int)
+GIF_CACHE_TTL = config("GIF_CACHE_TTL", default=300, cast=int)
 
 # Shared secret for POST /events/v1/admin/send-rsvp-reminders/. The
 # hourly GitHub Actions workflow sends this in the X-Reminder-Token
