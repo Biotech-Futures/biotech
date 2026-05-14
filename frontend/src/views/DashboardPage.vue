@@ -479,7 +479,6 @@ const DASHBOARD_ENDPOINTS = {
     `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
   groupsMine: `${API_BASE_URL}/groups/groups/?page_size=20&mine=true`,
-  groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
   tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
@@ -839,14 +838,6 @@ function extractCollectionItems(data) {
   return []
 }
 
-function getCurrentUserId() {
-  return user.value?.id ?? auth.user?.id ?? null
-}
-
-function toNumberSet(items) {
-  return new Set(items.map((item) => Number(item)).filter((item) => Number.isFinite(item)))
-}
-
 function truncateText(value, maxLength = 160) {
   const text = String(value || '')
     .replace(/\s+/g, ' ')
@@ -1047,21 +1038,6 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
       (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
     track: trackLabel || 'General',
   }
-}
-
-function filterGroupsForDashboard(items, memberships = []) {
-  if (isAdmin.value) return items
-
-  const currentUserId = getCurrentUserId()
-  if (!currentUserId || !Array.isArray(memberships)) return items
-
-  const groupIds = toNumberSet(
-    memberships
-      .filter((item) => String(item?.user) === String(currentUserId))
-      .map((item) => item?.group),
-  )
-
-  return items.filter((group) => groupIds.has(Number(group?.id)))
 }
 
 function normalizeResource(resource) {
@@ -1286,6 +1262,9 @@ function loadSummary() {
 
 async function loadGroups() {
   try {
+    // For non-admin users we rely on the server's ?mine=true filter (added to
+    // GroupViewSet) — no more pulling every group + every membership row just
+    // to filter client-side. Admins still get the full list.
     const primaryGroupUrl = isAdmin.value
       ? DASHBOARD_ENDPOINTS.groupsPreview(false)
       : DASHBOARD_ENDPOINTS.groupsPreview(true)
@@ -1309,15 +1288,7 @@ async function loadGroups() {
       return
     }
 
-    let memberships = null
     let trackById = new Map()
-
-    try {
-      memberships = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.groupMembers))
-    } catch {
-      memberships = null
-    }
-
     try {
       const tracks = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.tracks))
       trackById = new Map(
@@ -1327,12 +1298,7 @@ async function loadGroups() {
       trackById = new Map()
     }
 
-    if (!isAdmin.value && memberships === null) {
-      throw new Error('Group memberships unavailable')
-    }
-
-    const liveGroups = filterGroupsForDashboard(groupItems, memberships || [])
-    groups.value = liveGroups.map((group) => normalizeGroup(group, memberships || [], trackById))
+    groups.value = groupItems.map((group) => normalizeGroup(group, [], trackById))
   } catch {
     groups.value = []
   }

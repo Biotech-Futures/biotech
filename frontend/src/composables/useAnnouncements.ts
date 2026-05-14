@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, ApiError } from '@/utils/apiError'
+import { useGroupsStore } from '@/stores/groups'
 
 export interface AnnouncementImage {
   url: string
@@ -347,29 +348,15 @@ export interface UserGroupOption {
 }
 
 // Fetches the groups the current user is an active member of. Used by the
-// announcements page group-filter dropdown.
+// announcements page group-filter dropdown. Shares the cached, server-filtered
+// list with the sidebar via the Pinia store — no extra bulk fetch.
 export async function fetchMyGroups(userId: number | string | null): Promise<UserGroupOption[]> {
   if (!userId) return []
-  const url = `${API_BASE_URL}/groups/group-members/?page_size=100`
-  const response = await fetch(url, {
-    method: 'GET',
-    credentials: 'include',
-    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }),
-  })
-  if (!response.ok) return []
-  const data = (await response.json()) as { results?: unknown[] } | unknown[]
-  const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
-  const me = String(userId)
-  const seen = new Map<number, string>()
-  for (const row of rows as Record<string, unknown>[]) {
-    if (String(row.user ?? row.user_id ?? '') !== me) continue
-    if (row.left_at) continue
-    const id = Number(row.group ?? row.group_id ?? 0)
-    if (!id || seen.has(id)) continue
-    const name = String(row.group_name ?? row.name ?? `Group ${id}`)
-    seen.set(id, name)
-  }
-  return Array.from(seen.entries()).map(([id, name]) => ({ id, name }))
+  const store = useGroupsStore()
+  await store.ensureLoaded()
+  return store.sorted
+    .map((g) => ({ id: Number(g.id), name: g.name }))
+    .filter((g) => Number.isFinite(g.id) && g.id > 0)
 }
 
 export function useAnnouncements() {

@@ -1779,6 +1779,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { fetchResources } from '@/utils/resourcesAPI'
@@ -1795,6 +1796,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const supportsGifs = true
 const supportsAttachments = true
@@ -2297,59 +2299,11 @@ const loadGroupOptions = async () => {
   isLoadingGroupOptions.value = true
   groupOptionsError.value = ''
 
-  try {
-    const [groupsData, membershipsData] = await Promise.all([
-      requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
-      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`),
-    ])
-    const groupItems = extractCollectionItems(groupsData)
-    const memberships = extractCollectionItems(membershipsData)
-      .map(normalizeMembership)
-      .filter((item) => !item.leftAt)
-    const currentUserId = Number(auth.user?.id || 0)
-    const visibleGroupIds = auth.isAdmin
-      ? null
-      : new Set(
-          memberships
-            .filter((item) => currentUserId > 0 && String(item.userId) === String(currentUserId))
-            .map((item) => String(item.groupId)),
-        )
-    const memberCounts = new Map()
+  // Single source of truth for "this user's groups" — shared with the
+  // sidebar via the Pinia store, so this never refires its own bulk fetch.
+  await groupsStore.ensureLoaded()
 
-    memberships.forEach((item) => {
-      const groupId = String(item.groupId || '')
-      if (!groupId) return
-      memberCounts.set(groupId, Number(memberCounts.get(groupId) || 0) + 1)
-    })
-
-    let options = groupItems
-      .filter((item) => {
-        const groupId = String(item?.id || '')
-        return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
-      })
-      .map((item) => normalizeGroupOption(item, memberCounts.get(String(item?.id || ''))))
-      .sort((a, b) => a.name.localeCompare(b.name))
-
-    const currentGroupId = getBackendGroupId() || routeGroupId.value
-    if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
-      options = [
-        normalizeGroupOption(
-          {
-            id: currentGroupId,
-            group_name: group.value?.name || `Group ${currentGroupId}`,
-            created_at: group.value?.createdAt,
-          },
-          group.value?.members,
-        ),
-        ...options,
-      ]
-    }
-
-    availableGroups.value = options
-    if (!options.length) {
-      groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
-    }
-  } catch {
+  if (groupsStore.error) {
     const currentGroupId = getBackendGroupId() || routeGroupId.value
     availableGroups.value = currentGroupId
       ? [
@@ -2360,9 +2314,39 @@ const loadGroupOptions = async () => {
         ]
       : []
     groupOptionsError.value = 'Group list unavailable'
-  } finally {
     isLoadingGroupOptions.value = false
+    return
   }
+
+  let options = groupsStore.sorted.map((g) =>
+    normalizeGroupOption(
+      { id: g.id, group_name: g.name, created_at: g.createdAt },
+      g.memberCount,
+    ),
+  )
+
+  // Keep the currently-viewed group visible even if it isn't in the store
+  // (e.g. an admin viewing a group they're not a member of).
+  const currentGroupId = getBackendGroupId() || routeGroupId.value
+  if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
+    options = [
+      normalizeGroupOption(
+        {
+          id: currentGroupId,
+          group_name: group.value?.name || `Group ${currentGroupId}`,
+          created_at: group.value?.createdAt,
+        },
+        group.value?.members,
+      ),
+      ...options,
+    ]
+  }
+
+  availableGroups.value = options
+  if (!options.length) {
+    groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
+  }
+  isLoadingGroupOptions.value = false
 }
 
 const loadGroupMembers = async () => {
@@ -2457,13 +2441,27 @@ const loadGroup = async () => {
     if (currentRouteGroupId) {
       const data = await requestJson(`${API_BASE_URL}/groups/groups/${currentRouteGroupId}/`)
       group.value = normalizeGroup(data)
+      // Push the freshly-fetched detail (with authoritative member_count)
+      // into the shared store so the sidebar can use the richer payload.
+      groupsStore.upsert(data)
       return
     }
 
-    const data = await requestJson(`${API_BASE_URL}/groups/groups/?page_size=1`)
-    const firstGroup = extractCollectionItems(data)[0]
-    if (firstGroup) {
-      group.value = normalizeGroup(firstGroup)
+    // The /groups landing route is handled by the router guard now — it
+    // resolves to the user's first group before this view mounts. If we
+    // somehow arrive here without an id, fall back to the store rather
+    // than fetching a stranger group.
+    await groupsStore.ensureLoaded()
+    const first = groupsStore.firstGroup
+    if (first) {
+      group.value = {
+        id: first.id,
+        name: first.name,
+        members: first.memberCount,
+        createdAt: first.createdAt,
+      }
+    } else {
+      group.value = { id: null, name: 'No groups yet', members: 0, createdAt: '' }
     }
   } catch {
     group.value = {
