@@ -167,7 +167,18 @@ class DashboardNextEventApiTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["user"], user.email)
-        self.assertEqual(response.data["stats"], {"tasks": 0, "events": 0, "groups": 0})
+        self.assertEqual(
+            set(response.data["stats"].keys()),
+            {
+                "my_groups",
+                "upcoming_events",
+                "resources",
+                "announcements",
+                "tasks_completed",
+                "tasks_total",
+            },
+        )
+        self.assertIsNone(response.data["admin"])
 
 class GroupsPreviewViewTest(TestCase):
     """End-to-end tests for ``GET /dashboard/v1/groups-preview/``."""

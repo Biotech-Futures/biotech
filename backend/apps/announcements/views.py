@@ -1,15 +1,12 @@
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.response import Response
 
 from apps.audit.services import log_audit_event
-from apps.resources.models import RoleAssignmentHistory
-
-from apps.groups.models import GroupMembership
 
 from .models import Announcement
 from .serializers import AnnouncementListSerializer, AnnouncementSerializer
+from .services import visible_announcements_queryset
 
 
 class AnnouncementViewSet(
@@ -38,39 +35,12 @@ class AnnouncementViewSet(
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        queryset = self.queryset
-        user = self.request.user
-
-        if not user or not user.is_authenticated:
-            return Announcement.objects.none()
-
-        if user.is_staff or user.is_superuser:
-            return queryset.order_by("-published_at")
-
-        now = timezone.now()
-        role_ids = RoleAssignmentHistory.objects.filter(
-            user=user,
-            valid_from__lte=now,
-        ).filter(
-            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-        ).values_list("role_id", flat=True)
-
-        audience_filter = Q(author_user=user) | Q(visibility_scope=Announcement.VisibilityScope.PUBLIC)
-        if role_ids:
-            audience_filter |= Q(audiences__role_id__in=role_ids)
-        if user.track_id:
-            audience_filter |= Q(track_id=user.track_id) | Q(audiences__track_id=user.track_id)
-
-        # Group-targeted announcements: visible to active members of the
-        # targeted group(s).
-        group_ids = list(
-            GroupMembership.objects.filter(user=user, left_at__isnull=True)
-            .values_list("group_id", flat=True)
-        )
-        if group_ids:
-            audience_filter |= Q(audiences__group_id__in=group_ids)
-
-        return queryset.filter(Q(archived_at__isnull=True), audience_filter).distinct().order_by("-published_at")
+        # Admins keep visibility into archived rows so they can audit and
+        # restore — non-admin filtering happens inside the service.
+        qs = visible_announcements_queryset(self.request.user, include_archived=True)
+        return qs.select_related("author_user", "track").prefetch_related(
+            "audiences__role", "audiences__track"
+        ).order_by("-published_at")
 
     def perform_create(self, serializer):
         announcement = serializer.save(author_user=self.request.user)

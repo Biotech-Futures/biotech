@@ -2,7 +2,6 @@ from datetime import timedelta
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Count, Q
 from django.contrib.auth import authenticate, login
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
@@ -14,8 +13,6 @@ from drf_spectacular.utils import extend_schema
 from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
-from apps.events.models import Events
-from apps.matching_runtime.models import MatchRecommendation
 from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
@@ -25,7 +22,8 @@ from .serializers import (
     UserSerializer,
     UserStatusPatchSerializer,
 )
-from .utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
+from .services import get_operational_admin_summary
+from .utils.admin_scope import can_admin_track, is_operational_admin
 from config.errors import (
     AccountInactive,
     AdminScopeForTrackRequired,
@@ -286,42 +284,7 @@ class AdminOperationalSummaryView(APIView):
         if not is_operational_admin(request.user):
             raise OperationalAdminRequired()
 
-        track_scope = get_admin_track_ids(request.user)
-        user_queryset = User.objects.all()
-        group_queryset = Groups.objects.filter(deleted_at__isnull=True)
-        recommendation_queryset = MatchRecommendation.objects.filter(accepted=False)
-        event_queryset = Events.objects.filter(deleted_at__isnull=True, start_datetime__gte=timezone.now())
-
-        if track_scope is not None:
-            user_queryset = user_queryset.filter(track_id__in=track_scope)
-            group_queryset = group_queryset.filter(track_id__in=track_scope)
-            recommendation_queryset = recommendation_queryset.filter(group__track_id__in=track_scope)
-            event_queryset = event_queryset.filter(Q(track_id__in=track_scope) | Q(track__isnull=True))
-
-        groups_without_mentor = group_queryset.annotate(
-            active_mentor_count=Count(
-                "groupmembership",
-                filter=Q(
-                    groupmembership__membership_role__iexact="mentor",
-                    groupmembership__left_at__isnull=True,
-                ),
-            )
-        ).filter(active_mentor_count=0).count()
-
-        payload = {
-            "track_scope": [] if track_scope is None else list(track_scope),
-            "active_users": user_queryset.filter(account_status=User.AccountStatus.ACTIVE).count(),
-            "invited_or_pending_users": user_queryset.filter(
-                account_status__in=[User.AccountStatus.INVITED, User.AccountStatus.PENDING]
-            ).count(),
-            "suspended_or_deactivated_users": user_queryset.filter(
-                account_status__in=[User.AccountStatus.SUSPENDED, User.AccountStatus.DEACTIVATED]
-            ).count(),
-            "active_groups": group_queryset.count(),
-            "groups_without_mentor": groups_without_mentor,
-            "unassigned_match_recommendations": recommendation_queryset.count(),
-            "upcoming_events": event_queryset.count(),
-        }
+        payload = get_operational_admin_summary(request.user)
         return Response(AdminOperationsSummarySerializer(payload).data)
 
 

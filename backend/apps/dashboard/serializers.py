@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.users.serializers import AdminOperationsSummarySerializer
+
 from .services import MENTOR_MEMBERSHIPS_ATTR
 
 
@@ -39,9 +41,21 @@ class DashboardNextEventSerializer(serializers.Serializer):
     rsvp_status = serializers.CharField(allow_null=True)
 
 
+class DashboardStatsSerializer(serializers.Serializer):
+    my_groups = serializers.IntegerField()
+    upcoming_events = serializers.IntegerField()
+    resources = serializers.IntegerField()
+    announcements = serializers.IntegerField()
+    tasks_completed = serializers.IntegerField()
+    tasks_total = serializers.IntegerField()
+
+
 class DashboardSummarySerializer(serializers.Serializer):
     user = serializers.CharField()
-    stats = serializers.DictField()
+    stats = DashboardStatsSerializer()
+    # Populated only for operational admins; null for everyone else so
+    # the frontend can branch on a single field.
+    admin = AdminOperationsSummarySerializer(allow_null=True)
 
 
 class DashboardLeadUserSerializer(serializers.Serializer):

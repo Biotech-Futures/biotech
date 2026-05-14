@@ -1,9 +1,14 @@
 from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
+from apps.announcements.services import visible_announcements_queryset
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack, Events
+from apps.events.services import visible_events_queryset
 from apps.groups.models import Groups, GroupMembership
-from apps.resources.models import RoleAssignmentHistory
+from apps.resources.models import RoleAssignmentHistory, Resources
+from apps.resources.rbac import filter_resources_for_user
+from apps.tasks.services import build_progress_snapshot, get_allowed_group_ids
+from apps.users.services import get_operational_admin_summary
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
 
 
@@ -169,20 +174,47 @@ def get_personalized_next_event(user):
 
 
 def get_dashboard_summary(user):
-    """
-    All dashboard business logic lives here.
-    Views must never compute data directly.
-    """
-    user_identifier = getattr(user, "username", None) or user.email
+    """Header counts for the dashboard hero/widget strip.
 
-    return {
-        "user": user_identifier,
+    Returns per-user totals everyone sees, plus an ``admin`` block
+    populated only for operational admins. Each count delegates to the
+    same scoping primitives used by the corresponding list endpoint so
+    the summary stays in lockstep with what the user can actually open.
+    """
+    now = timezone.now()
+
+    upcoming_events_qs = visible_events_queryset(
+        user,
+        Events.objects.filter(deleted_at__isnull=True, ends_datetime__gte=now),
+    )
+    resources_qs = filter_resources_for_user(
+        Resources.objects.filter(deleted_at__isnull=True),
+        user,
+    )
+
+    # Task totals come from the same snapshot that powers /progress/, so
+    # the summary card and the progress card can never disagree.
+    progress = build_progress_snapshot(
+        allowed_group_ids=list(get_allowed_group_ids(user))
+    )
+
+    payload = {
+        "user": getattr(user, "username", None) or user.email,
         "stats": {
-            "tasks": 0,
-            "events": 0,
-            "groups": 0,
-        }
+            "my_groups": Groups.objects.for_user(user, mine=True).count(),
+            "upcoming_events": upcoming_events_qs.count(),
+            "resources": resources_qs.count(),
+            "announcements": visible_announcements_queryset(user).count(),
+            "tasks_completed": progress["completedTasks"],
+            "tasks_total": progress["totalTasks"],
+        },
+        "admin": None,
     }
+
+    if is_operational_admin(user):
+        payload["admin"] = get_operational_admin_summary(user)
+
+    return payload
 
 def get_groups_preview(*, user, mine=False, track_id=None):
     """
