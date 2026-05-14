@@ -99,6 +99,51 @@
             </li>
           </ul>
         </nav>
+
+        <section
+          v-if="showSidebarGroupSwitcher"
+          class="sidebar-group-switcher"
+          aria-label="Group switcher"
+        >
+          <div class="sidebar-group-switcher-header">
+            <span>Groups</span>
+            <i v-if="isLoadingSidebarGroups" class="fas fa-circle-notch fa-spin"></i>
+          </div>
+
+          <p v-if="sidebarGroupError" class="sidebar-group-message">
+            {{ sidebarGroupError }}
+          </p>
+          <p
+            v-else-if="!isLoadingSidebarGroups && !sidebarGroups.length"
+            class="sidebar-group-message"
+          >
+            No groups available
+          </p>
+
+          <div v-else class="sidebar-group-list">
+            <RouterLink
+              v-for="groupOption in sidebarGroups"
+              :key="groupOption.id"
+              :to="`/groups/${groupOption.id}`"
+              class="sidebar-group-link"
+              :class="{
+                active: isSidebarGroupActive(groupOption.id),
+                unread: groupOption.hasUnread && !isSidebarGroupActive(groupOption.id),
+              }"
+            >
+              <span class="sidebar-group-copy">
+                <span class="sidebar-group-name">{{ groupOption.name }}</span>
+                <small>{{ formatSidebarGroupMeta(groupOption) }}</small>
+              </span>
+              <span
+                v-if="groupOption.hasUnread && !isSidebarGroupActive(groupOption.id)"
+                class="sidebar-group-badge"
+              >
+                New
+              </span>
+            </RouterLink>
+          </div>
+        </section>
       </aside>
 
       <main
@@ -163,11 +208,33 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { buildSessionHeaders } from '@/utils/csrf'
+import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+interface CollectionResponse {
+  results?: unknown[]
+  items?: unknown[]
+}
+
+interface GroupMembership {
+  groupId: string
+  userId: string
+  leftAt: string
+}
+
+interface SidebarGroupOption {
+  id: string
+  name: string
+  memberCount: number
+  hasUnread: boolean
+  latestAt: string
+}
 
 const handleLogout = async () => {
   await auth.logout()
@@ -177,6 +244,13 @@ const handleLogout = async () => {
 const isLoginPage = computed(() =>
   ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
 )
+const showSidebarGroupSwitcher = computed(
+  () => !isLoginPage.value && route.path.startsWith('/groups'),
+)
+const sidebarGroups = ref<SidebarGroupOption[]>([])
+const isLoadingSidebarGroups = ref(false)
+const sidebarGroupError = ref('')
+let sidebarGroupLoadSequence = 0
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
@@ -191,6 +265,170 @@ const toggleUserMenu = () => {
 const go = (path: string) => {
   showUserMenu.value = false
   router.push(path)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const extractCollectionItems = (data: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(data)) return data.filter(isRecord)
+  if (!isRecord(data)) return []
+  const collection = data as CollectionResponse
+  if (Array.isArray(collection.results)) return collection.results.filter(isRecord)
+  if (Array.isArray(collection.items)) return collection.items.filter(isRecord)
+  return []
+}
+
+const requestJson = async (url: string, options: RequestInit = {}) => {
+  const headers = buildSessionHeaders({ headers: options.headers })
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers,
+  })
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
+  if (response.status === 204) return null
+  return response.json()
+}
+
+const normalizeSidebarMembership = (item: Record<string, unknown>): GroupMembership => ({
+  groupId: String(item.group ?? item.group_id ?? item.groupId ?? ''),
+  userId: String(item.user ?? item.user_id ?? item.userId ?? ''),
+  leftAt: String(item.left_at ?? item.leftAt ?? ''),
+})
+
+const normalizeSidebarGroup = (
+  item: Record<string, unknown>,
+  memberCount = 0,
+): SidebarGroupOption => ({
+  id: String(item.id ?? ''),
+  name: String(item.group_name ?? item.name ?? item.title ?? (item.id ? `Group ${item.id}` : 'Group')),
+  memberCount,
+  hasUnread: false,
+  latestAt: '',
+})
+
+const getCurrentUserDisplayNames = () =>
+  new Set(
+    [
+      auth.displayName,
+      auth.user?.email,
+      [auth.user?.first_name, auth.user?.last_name].filter(Boolean).join(' '),
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )
+
+const loadSidebarLatestMessageState = async (
+  groups: SidebarGroupOption[],
+  sequence: number,
+) => {
+  if (!groups.length) return
+
+  const currentUserId = Number(auth.user?.id || 0)
+  const currentNames = getCurrentUserDisplayNames()
+  const results = await Promise.allSettled(
+    groups.map(async (groupOption) => {
+      const data = await requestJson(
+        `${API_BASE_URL}/api/v1/chat/groups/${groupOption.id}/messages/?limit=1`,
+      )
+      const latest = extractCollectionItems(data)[0]
+      if (!latest) return { ...groupOption, hasUnread: false, latestAt: '' }
+
+      const senderId = Number(
+        latest.sender_user ?? latest.sender_id ?? latest.sender_user_id ?? 0,
+      )
+      const senderName = String(latest.sender_name ?? latest.author ?? '').trim()
+      const isOwn =
+        (currentUserId > 0 && senderId === currentUserId) ||
+        (senderName && currentNames.has(senderName))
+      const latestAt = String(latest.sent_at ?? latest.created_at ?? latest.sent_datetime ?? '')
+      const hasUnread = latest.is_read_by_me === false && !isOwn
+
+      return { ...groupOption, hasUnread, latestAt }
+    }),
+  )
+
+  if (sequence !== sidebarGroupLoadSequence) return
+
+  sidebarGroups.value = groups.map((groupOption, index) => {
+    const result = results[index]
+    return result?.status === 'fulfilled' ? result.value : groupOption
+  })
+}
+
+const loadSidebarGroups = async () => {
+  if (!showSidebarGroupSwitcher.value) {
+    sidebarGroupLoadSequence += 1
+    sidebarGroups.value = []
+    sidebarGroupError.value = ''
+    isLoadingSidebarGroups.value = false
+    return
+  }
+
+  const sequence = ++sidebarGroupLoadSequence
+  isLoadingSidebarGroups.value = true
+  sidebarGroupError.value = ''
+
+  try {
+    const [groupsData, membershipsData] = await Promise.all([
+      requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
+      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`),
+    ])
+    if (sequence !== sidebarGroupLoadSequence) return
+
+    const memberships = extractCollectionItems(membershipsData)
+      .map(normalizeSidebarMembership)
+      .filter((item) => item.groupId && !item.leftAt)
+    const currentUserId = String(auth.user?.id || '')
+    const visibleGroupIds = auth.isAdmin
+      ? null
+      : new Set(
+          memberships
+            .filter((item) => currentUserId && item.userId === currentUserId)
+            .map((item) => item.groupId),
+        )
+    const memberCounts = new Map<string, number>()
+
+    memberships.forEach((item) => {
+      memberCounts.set(item.groupId, (memberCounts.get(item.groupId) || 0) + 1)
+    })
+
+    const groups = extractCollectionItems(groupsData)
+      .filter((item) => {
+        const groupId = String(item.id ?? '')
+        return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
+      })
+      .map((item) => normalizeSidebarGroup(item, memberCounts.get(String(item.id ?? '')) || 0))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    sidebarGroups.value = groups
+    await loadSidebarLatestMessageState(groups, sequence)
+  } catch (error) {
+    if (sequence === sidebarGroupLoadSequence) {
+      sidebarGroups.value = []
+      sidebarGroupError.value =
+        error instanceof Error ? error.message : 'Group list unavailable'
+    }
+  } finally {
+    if (sequence === sidebarGroupLoadSequence) {
+      isLoadingSidebarGroups.value = false
+    }
+  }
+}
+
+const isSidebarGroupActive = (groupId: string) => String(route.params.id || '') === groupId
+
+const formatSidebarGroupMeta = (groupOption: SidebarGroupOption) => {
+  const count = groupOption.memberCount
+  if (count > 0) return `${count} ${count === 1 ? 'member' : 'members'}`
+  return 'Group workspace'
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -218,12 +456,21 @@ watch(
   () => route.fullPath,
   () => {
     showUserMenu.value = false
+    loadSidebarGroups()
+  },
+)
+
+watch(
+  () => [auth.user?.id, auth.isAdmin],
+  () => {
+    loadSidebarGroups()
   },
 )
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
+  loadSidebarGroups()
 })
 
 onBeforeUnmount(() => {
@@ -402,6 +649,8 @@ select {
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
   width: 250px;
   min-width: 250px;
   flex-shrink: 0;
@@ -455,6 +704,112 @@ select {
   color: var(--dark-green);
   border-left-color: var(--dark-green);
   font-weight: 500;
+}
+
+.sidebar-group-switcher {
+  margin-top: auto;
+  padding: 1rem 0.85rem 0;
+}
+
+.sidebar-group-switcher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.65rem 0.5rem;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-group-list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: min(360px, 42vh);
+  overflow-y: auto;
+}
+
+.sidebar-group-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  min-height: 52px;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--charcoal);
+  text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.sidebar-group-link:hover {
+  border-color: var(--line-mid);
+  background: #f4f8f6;
+  color: var(--dark-green);
+}
+
+.sidebar-group-link.active {
+  border-color: rgba(35, 70, 59, 0.2);
+  background: var(--light-green);
+  color: var(--dark-green);
+}
+
+.sidebar-group-link.unread {
+  border-color: rgba(61, 106, 91, 0.24);
+  background: #eef7f2;
+}
+
+.sidebar-group-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.sidebar-group-name {
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-group-link.unread .sidebar-group-name {
+  font-weight: 800;
+}
+
+.sidebar-group-copy small {
+  overflow: hidden;
+  color: #6c757d;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-group-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0.14rem 0.42rem;
+  background: var(--dark-green);
+  color: var(--white);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.sidebar-group-message {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  color: #6c757d;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .main-content {
@@ -680,6 +1035,25 @@ select {
     overflow-y: visible;
     padding: 0.75rem;
     z-index: auto;
+  }
+
+  .sidebar-group-switcher {
+    margin-top: 0.75rem;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .sidebar-group-list {
+    display: flex;
+    gap: 0.5rem;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.15rem;
+  }
+
+  .sidebar-group-link {
+    flex: 0 0 min(220px, 78vw);
   }
 
   .main-content {
