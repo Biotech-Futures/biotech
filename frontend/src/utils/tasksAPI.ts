@@ -46,6 +46,8 @@ export interface ListTasksParams {
   completed?: boolean | ''
   group_id?: number | string | ''
   assigned_user?: number | string | ''
+  // Comma-separated assignee ids — backend treats as IN list.
+  assigned_user__in?: string
   parent_id?: number | string | ''
   due_date_after?: string
   due_date_before?: string

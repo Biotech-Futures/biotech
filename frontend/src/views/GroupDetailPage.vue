@@ -1082,14 +1082,22 @@
                   <i class="fas fa-pen"></i> Write a message
                 </button>
               </div>
+              <div
+                v-if="isLoadingOlderMessages"
+                class="load-older-status"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="loading load-older-spinner" aria-hidden="true"></span>
+                <span>Loading older messages...</span>
+              </div>
               <button
-                v-if="nextMessagesBefore"
+                v-else-if="nextMessagesBefore"
                 type="button"
                 class="load-older-messages"
-                :disabled="isLoadingOlderMessages"
                 @click="loadOlderMessages"
               >
-                {{ isLoadingOlderMessages ? 'Loading...' : 'Load older messages' }}
+                Load older messages
               </button>
               <div
                 v-for="message in messages"
@@ -1223,6 +1231,10 @@
                     :src="message.gifUrl"
                     :alt="message.text || 'GIF message'"
                     class="message-gif"
+                    width="280"
+                    height="210"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <div v-else-if="editingMessageId !== message.id" class="message-text">
                     <template
@@ -1390,7 +1402,15 @@
                   </div>
 
                   <div v-if="message.preview" class="message-preview">
-                    <img v-if="message.preview.img" :src="message.preview.img" alt="" />
+                    <img
+                      v-if="message.preview.img"
+                      :src="message.preview.img"
+                      :alt="message.preview.title || 'Link preview'"
+                      width="320"
+                      height="180"
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <strong v-if="message.preview.title">{{ message.preview.title }}</strong>
                     <span v-if="message.preview.desc">{{ message.preview.desc }}</span>
                   </div>
@@ -1648,7 +1668,14 @@
                     :title="gif.title"
                     @click="sendGifMessage(gif)"
                   >
-                    <img :src="gif.previewUrl || gif.url" :alt="gif.title || 'GIF'" loading="lazy" />
+                    <img
+                      :src="gif.previewUrl || gif.url"
+                      :alt="gif.title || 'GIF'"
+                      width="170"
+                      height="170"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   </button>
                 </div>
                 <div v-if="gifNextPos && gifResults.length" class="gif-load-more-row">
@@ -1986,6 +2013,9 @@ const missedMessageCount = ref(0)
 const isMissedMessageJumpDismissed = ref(false)
 
 let chatSocket = null
+// First successful WS open per page load is a no-op catch-up; subsequent
+// reopens (reconnect after a drop) trigger a resync.
+let hasConnectedChatSocket = false
 let typingStopTimer = null
 let manageWindowTimer = null
 let searchHighlightTimer = null
@@ -2001,16 +2031,25 @@ const getInitials = (name) =>
     .join('')
     .toUpperCase()
 
+// Module-level cache: Intl.DateTimeFormat is expensive to construct;
+// reuse per (locale, options) shape across renders.
+const _dateFmt = new Intl.DateTimeFormat('en-AU', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
+const _timeFmt = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+
 const formatDate = (d) => {
   const date = new Date(d)
   if (Number.isNaN(date.getTime())) return d
-  return date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' })
+  return _dateFmt.format(date)
 }
 
 const formatTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return _timeFmt.format(date)
 }
 
 const formatTaskStatus = (value) => {
@@ -2686,20 +2725,20 @@ const taskSections = computed(() => {
   ]
 })
 
-// Counts driving the "Show more" footer + the hidden-stale toggle's badge
-const totalRelevantTaskCount = computed(
-  () => tasks.value.filter(isTaskRelevantToCurrentGroup).length,
+// Shared base set — both counts below + taskSections downstream all
+// repeatedly walked tasks.value for the same relevance test.
+const groupRelevantTasks = computed(() =>
+  tasks.value.filter(isTaskRelevantToCurrentGroup),
 )
+const totalRelevantTaskCount = computed(() => groupRelevantTasks.value.length)
 const visibleSectionTaskCount = computed(
   () => taskSections.value.reduce((sum, section) => sum + section.total, 0),
 )
 const hasMoreTasksToShow = computed(
   () => taskShownLimit.value < totalRelevantTaskCount.value,
 )
-const hiddenStaleCompletedCount = computed(() =>
-  tasks.value.filter(
-    (task) => isTaskRelevantToCurrentGroup(task) && isCompletedOverdueTask(task),
-  ).length,
+const hiddenStaleCompletedCount = computed(
+  () => groupRelevantTasks.value.filter(isCompletedOverdueTask).length,
 )
 
 const selectedTaskIdList = computed(() =>
@@ -3029,15 +3068,25 @@ const loadTasks = async ({ resetPage = true } = {}) => {
           ? [requestedAssignee]
           : Array.from(groupMemberUserIds.value)
 
-      assigneeIds.forEach((assignedUser) => {
+      if (assigneeIds.length === 1) {
         taskRequests.push(
           fetchAllTaskPages({
             ...baseParams,
             task_type: 'individual',
-            assigned_user: assignedUser,
+            assigned_user: assigneeIds[0],
           }),
         )
-      })
+      } else if (assigneeIds.length > 1) {
+        // One round-trip across every group member; backend
+        // ``assigned_user__in`` accepts a comma-separated id list.
+        taskRequests.push(
+          fetchAllTaskPages({
+            ...baseParams,
+            task_type: 'individual',
+            assigned_user__in: assigneeIds.join(','),
+          }),
+        )
+      }
     }
 
     const taskBatches = await Promise.all(taskRequests)
@@ -4295,8 +4344,19 @@ const updateScrollToBottomState = () => {
     hasScrollableMessages.value && distanceFromBottom > SCROLL_BOTTOM_THRESHOLD
 }
 
+const CHAT_TOP_TRIGGER_PX = 80
+
 const handleMessagesScroll = () => {
   updateScrollToBottomState()
+  const el = msgList.value
+  if (!el) return
+  if (
+    el.scrollTop <= CHAT_TOP_TRIGGER_PX &&
+    nextMessagesBefore.value &&
+    !isLoadingOlderMessages.value
+  ) {
+    void loadOlderMessages()
+  }
 }
 
 const scrollMessagesToBottom = async () => {
@@ -4538,10 +4598,16 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
-    void loadNewerMessages()
-    void markMessagesAsRead(
-      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
-    )
+    // No catch-up fetch on first open — loadMessages already pulled the
+    // freshest batch. Only resync on reconnect, where messages may have
+    // arrived while the socket was down.
+    if (hasConnectedChatSocket) {
+      void loadNewerMessages()
+      void markMessagesAsRead(
+        messages.value.filter((message) => !message.isOwn).map((message) => message.id),
+      )
+    }
+    hasConnectedChatSocket = true
   })
 
   chatSocket.addEventListener('message', async (event) => {
@@ -4565,6 +4631,11 @@ const connectChatSocket = () => {
   })
 }
 
+// Initial page size for the chat. Older pages are auto-fetched on
+// scroll-up; the visible button is a fallback for no-JS or screen readers.
+const CHAT_INITIAL_LIMIT = 11
+const CHAT_PAGE_LIMIT = 11
+
 const loadMessages = async () => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) {
@@ -4579,7 +4650,9 @@ const loadMessages = async () => {
   chatError.value = ''
 
   try {
-    const data = await requestJson(buildChatMessageCollectionUrl(backendGroupId, '?limit=50'))
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(backendGroupId, `?limit=${CHAT_INITIAL_LIMIT}`),
+    )
     let liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
     let nextBefore = data?.next_before || null
 
@@ -4602,17 +4675,17 @@ const loadMessages = async () => {
     nextMessagesBefore.value = null
   } finally {
     isLoadingMessages.value = false
+    // Fire-and-forget — scroll + delivery/read receipts must not gate the UI.
+    const incomingIds = messages.value
+      .filter((message) => !message.isOwn)
+      .map((message) => message.id)
     if (missedMessageAnchorId.value) {
-      await scrollToMissedMessages()
+      void scrollToMissedMessages()
     } else {
-      await scrollMessagesToBottomAfterRender()
+      void scrollMessagesToBottomAfterRender()
     }
-    await markMessagesAsDelivered(
-      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
-    )
-    await markMessagesAsRead(
-      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
-    )
+    void markMessagesAsDelivered(incomingIds)
+    void markMessagesAsRead(incomingIds)
   }
 }
 
@@ -4623,11 +4696,16 @@ const loadOlderMessages = async () => {
   isLoadingOlderMessages.value = true
   chatError.value = ''
 
+  // Anchor scroll so prepending older messages doesn't yank the user up.
+  const scroller = msgList.value
+  const prevScrollHeight = scroller?.scrollHeight ?? 0
+  const prevScrollTop = scroller?.scrollTop ?? 0
+
   try {
     const data = await requestJson(
       buildChatMessageCollectionUrl(
         backendGroupId,
-        `?limit=50&before=${encodeURIComponent(nextMessagesBefore.value)}`,
+        `?limit=${CHAT_PAGE_LIMIT}&before=${encodeURIComponent(nextMessagesBefore.value)}`,
       ),
     )
     const olderMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
@@ -4637,6 +4715,11 @@ const loadOlderMessages = async () => {
       ...messages.value,
     ]
     nextMessagesBefore.value = data?.next_before || null
+
+    await nextTick()
+    if (scroller) {
+      scroller.scrollTop = scroller.scrollHeight - prevScrollHeight + prevScrollTop
+    }
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Older messages could not be loaded.'
   } finally {
@@ -5415,6 +5498,7 @@ const reloadGroupDetail = async () => {
 
   isLoadingGroupDetail.value = true
   disconnectChatSocket()
+  hasConnectedChatSocket = false
   tasks.value = []
   messages.value = []
   taskError.value = ''
@@ -5428,13 +5512,15 @@ const reloadGroupDetail = async () => {
   clearMissedMessageAnchor()
 
   try {
-    await loadGroup()
+    // First wave: everything that only needs routeGroupId (getBackendGroupId
+    // already falls back to the route param). Drops 3 sequential RTTs to 1.
+    await Promise.all([loadGroup(), loadGroupMembers(), loadMessages()])
     if (sequence !== loadSequence) return
 
-    await loadGroupMembers()
-    if (sequence !== loadSequence) return
-
-    await Promise.all([loadTasks(), loadMessages()])
+    // Tasks need the member list to fan out individual-task fetches, so
+    // they go in the second wave — still one round-trip thanks to the
+    // new ``assigned_user__in`` filter.
+    await loadTasks()
     if (sequence !== loadSequence) return
 
     await scrollMessagesToBottomAfterRender()
@@ -5553,14 +5639,23 @@ onMounted(async () => {
   document.addEventListener('keydown', onDocumentKeydownForResourceChoice)
 
   await ensureAuthUser()
-  await loadGroupOptions()
-  if (!routeGroupId.value && availableGroups.value.length) {
-    await loadMentions()
-    await router.replace(`/groups/${availableGroups.value[0].id}`)
-    return
-  }
 
-  await reloadGroupDetail()
+  // When we already have a route id, the group switcher dropdown isn't on
+  // the critical path — kick it off in parallel with the main reload so
+  // the user doesn't wait two extra RTTs before seeing anything.
+  if (routeGroupId.value) {
+    void loadGroupOptions()
+    await reloadGroupDetail()
+  } else {
+    // No route id: we must wait for the group list to pick a fallback.
+    await loadGroupOptions()
+    if (availableGroups.value.length) {
+      await loadMentions()
+      await router.replace(`/groups/${availableGroups.value[0].id}`)
+      return
+    }
+    await reloadGroupDetail()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -5840,10 +5935,12 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 .tasks-content {
   position: relative;
   padding-right: 2px;
+  overflow-x: hidden;
 }
 
 .visually-hidden {
@@ -5904,6 +6001,12 @@ onBeforeUnmount(() => {
   gap: 0.6rem;
   margin-bottom: 0.85rem;
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 0.5rem 0;
+  background: var(--surface-elevated, #fff);
+  box-shadow: 0 1px 0 var(--border-light, rgba(0, 0, 0, 0.08));
 }
 
 .task-search {
@@ -7434,6 +7537,22 @@ onBeforeUnmount(() => {
   background: #f3f8f7;
 }
 
+.load-older-status {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--air-force-blue);
+}
+
+.load-older-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
 .message.pending {
   opacity: 0.72;
 }
@@ -7982,6 +8101,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 0;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
+  /* Pause off-screen GIFs in the picker grid. */
+  content-visibility: auto;
+  contain-intrinsic-size: 170px 170px;
 }
 
 .gif-card:hover,
@@ -8091,6 +8213,15 @@ onBeforeUnmount(() => {
   /* Never horizontally scroll. The hover toolbars / reactions that poke into
      the gutter are constrained via the message row below. */
   overflow-x: hidden;
+}
+
+/* Stop animating off-screen GIFs (and skip paint for off-screen text) by
+   letting the browser skip rendering work for messages outside the viewport.
+   contain-intrinsic-size keeps the scrollbar honest while the browser
+   learns each message's real height. */
+.chat-messages .message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
 }
 
 /* Message date and time layout */

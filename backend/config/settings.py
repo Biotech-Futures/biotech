@@ -153,6 +153,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'EXCEPTION_HANDLER': 'config.exception_handler.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'event_bulk_invite': '30/min',
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -172,6 +178,8 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # GZip must sit above middleware that touches response content.
+    "django.middleware.gzip.GZipMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

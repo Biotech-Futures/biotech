@@ -69,6 +69,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id', name: 'resource-detail', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
+  { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },

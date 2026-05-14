@@ -40,7 +40,11 @@ class TaskListCreateView(generics.ListCreateAPIView):
     ordering = ["id"]
 
     def get_queryset(self):
-        return visible_tasks(self.request.user).order_by("id")
+        return (
+            visible_tasks(self.request.user)
+            .select_related("created_by", "assigned_user")
+            .order_by("id")
+        )
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -73,7 +77,9 @@ class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         # Detail lookups use the visibility filter so non-visible tasks 404.
-        return visible_tasks(self.request.user)
+        return visible_tasks(self.request.user).select_related(
+            "created_by", "assigned_user"
+        )
 
     def get_serializer_class(self):
         if self.request.method in ("PATCH", "PUT"):

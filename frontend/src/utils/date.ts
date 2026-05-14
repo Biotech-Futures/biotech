@@ -115,6 +115,22 @@ const toValidDate = (value: string | Date | null | undefined): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+// Intl.DateTimeFormat is expensive to construct (parses locale + tz data).
+// Cache per (locale, options) shape so hot render paths don't pay it.
+const _formatterCache = new Map<string, Intl.DateTimeFormat>()
+const getFormatter = (
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat => {
+  const key = locale + '|' + JSON.stringify(options)
+  let f = _formatterCache.get(key)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, options)
+    _formatterCache.set(key, f)
+  }
+  return f
+}
+
 export function isValidTimeZone(value: string | null | undefined): value is string {
   if (!value) return false
 
@@ -146,7 +162,7 @@ export function getTimeZoneDateParts(
   const date = toValidDate(value)
   if (!date) return null
 
-  const parts = new Intl.DateTimeFormat('en-AU', {
+  const parts = getFormatter('en-AU', {
     timeZone: normalizeTimeZone(timeZone),
     year: 'numeric',
     month: '2-digit',
@@ -169,12 +185,12 @@ export function formatEventDate(
   const date = toValidDate(value)
   if (!date) return ''
 
-  return date.toLocaleDateString('en-AU', {
+  return getFormatter('en-AU', {
     timeZone: normalizeTimeZone(timeZone),
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  })
+  }).format(date)
 }
 
 export function formatEventTimeRange(
@@ -185,13 +201,12 @@ export function formatEventTimeRange(
   const start = toValidDate(startValue)
   if (!start) return ''
 
-  const options: Intl.DateTimeFormatOptions = {
+  const formatter = getFormatter('en-AU', {
     timeZone: normalizeTimeZone(timeZone),
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }
-  const formatter = new Intl.DateTimeFormat('en-AU', options)
+  })
   const startText = formatter.format(start)
   const end = toValidDate(endValue)
   const label = getEventTimeZoneAbbreviation(start, timeZone)
@@ -215,7 +230,7 @@ export function toTimeZoneDateKey(
 
 function getEventTimeZoneAbbreviation(date: Date, timeZone: string): string {
   const normalizedTimeZone = normalizeTimeZone(timeZone)
-  const parts = new Intl.DateTimeFormat('en-AU', {
+  const parts = getFormatter('en-AU', {
     timeZone: normalizedTimeZone,
     timeZoneName: 'short',
   }).formatToParts(date)

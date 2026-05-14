@@ -302,10 +302,13 @@ class EventListFiltersAndSearchTests(APITestCase):
     # ----- pagination via ?page_size ----------------------------------
 
     def test_page_size_query_param_is_honored(self):
+        # Cursor pagination returns results + next/previous links but no
+        # total ``count`` — verify the page is sized and that more pages
+        # exist by following ``next``.
         response = self.client.get(self.url + "?page_size=1")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 1)
-        self.assertEqual(response.data["count"], 3)
+        self.assertTrue(response.data.get("next"))
 
     def test_page_size_above_max_is_capped(self):
         # ``EventPagination.max_page_size = 100``; asking for more
