@@ -26,6 +26,7 @@ from config.errors import (
     EmailRequired,
     InvalidOrExpiredCode,
     InvalidOrExpiredResetToken,
+    LoginSendRateLimited,
     PasswordResetRateLimited,
     TooManyFailedAttempts,
     UserNotFound,
@@ -347,11 +348,17 @@ class PasswordResetConfirmView(APIView):
 
 
 def _client_ip(request) -> str:
-    # X-Forwarded-For only safe when terminated by a trusted proxy (Azure Front Door / App Service)
-    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    # X-Forwarded-For is attacker-controlled when the app is reachable directly.
+    # Only honor it when the deployment terminates at a trusted proxy/CDN
+    # (Azure Front Door / App Service ingress / ALB). Production opts in via
+    # TRUST_FORWARDED_FOR=true; everywhere else we anchor rate-limit keys to
+    # the real socket peer so an attacker can't fan out across spoofed IPs.
+    if getattr(settings, "TRUST_FORWARDED_FOR", False):
+        xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if xff:
+            return xff.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR", "") or ""
+
 
 def _email_request_key(email: str) -> str:
     return f"pwreset_req_email:{email}"
@@ -368,6 +375,7 @@ def _confirm_attempt_key(token: str) -> str:
 def _confirm_ip_key(ip: str) -> str:
     return f"pwreset_confirm_ip:{ip}"
 
+
 def _check_request_throttle(email: str, ip: str) -> None:
     if cache.get(_email_request_key(email), 0) >= PWRESET_REQUEST_PER_EMAIL_LIMIT:
         raise PasswordResetRateLimited()
@@ -380,11 +388,12 @@ def _bump_request_counters(email: str, ip: str) -> None:
     cache.set(e_key, cache.get(e_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
     cache.set(i_key, cache.get(i_key, 0) + 1, PWRESET_REQUEST_WINDOW_SECONDS)
 
+
 def _check_login_send_throttle(email: str, ip: str) -> None:
     if cache.get(_login_send_email_key(email), 0) >= LOGIN_SEND_PER_EMAIL_LIMIT:
-        raise TooManyFailedAttempts()
+        raise LoginSendRateLimited()
     if cache.get(_login_send_ip_key(ip), 0) >= LOGIN_SEND_PER_IP_LIMIT:
-        raise TooManyFailedAttempts()
+        raise LoginSendRateLimited()
 
 
 def _bump_login_send_counters(email: str, ip: str) -> None:
@@ -400,6 +409,7 @@ def _login_send_email_key(email: str) -> str:
 
 def _login_send_ip_key(ip: str) -> str:
     return f"login_send_ip:{ip}"
+
 
 class LogoutView(APIView):
     """Logout endpoint - destroys Django session"""

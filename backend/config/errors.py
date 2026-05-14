@@ -180,6 +180,12 @@ class PasswordResetRateLimited(APIException):
     default_code = "password_reset_rate_limited"
 
 
+class LoginSendRateLimited(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = "Too many login code requests. Try again later."
+    default_code = "login_send_rate_limited"
+
+
 class WeakPassword(APIException):
     """Surfaces failures from AUTH_PASSWORD_VALIDATORS as field errors."""
     status_code = status.HTTP_400_BAD_REQUEST

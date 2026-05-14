@@ -17,6 +17,13 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-only-not-for-production")
 DEBUG = config("DEBUG", default="true", cast=env_bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1", cast=Csv())
 
+# Only honor X-Forwarded-For for rate-limit keys (apps/services/views.py
+# `_client_ip`) when the app sits behind a trusted reverse proxy / CDN that
+# overwrites the header — Azure Front Door, App Service ingress, ALB, etc.
+# Direct exposure means the header is attacker-controlled, so the secure
+# default is False; production sets TRUST_FORWARDED_FOR=true explicitly.
+TRUST_FORWARDED_FOR = config("TRUST_FORWARDED_FOR", default="false", cast=env_bool)
+
 INSTALLED_APPS = [
     'daphne',
     "django.contrib.admin",
