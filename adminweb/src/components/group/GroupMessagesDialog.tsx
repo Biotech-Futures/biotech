@@ -8,12 +8,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useQueryGroupMessages, useRemoveGroupMessage } from "@/query/group";
-import type { Group } from "@/type/group";
+import type { Group, MessageAttachment } from "@/type/group";
 import { AxiosError } from "axios";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
   MessageSquareIcon,
+  PaperclipIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -54,6 +57,14 @@ export function GroupMessagesDialog({
   const meta = data?.data;
   const hasLoadedMessages = Boolean(meta);
   const showBlockingError = isError && !hasLoadedMessages;
+
+  function openAttachment(att: MessageAttachment, inline: boolean) {
+    const apiOrigin = import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000";
+    const base = `${apiOrigin.replace(/\/$/, "")}${att.download_url}`;
+    const sep = base.includes("?") ? "&" : "?";
+    const url = inline ? `${base}${sep}inline=1` : base;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   async function handleRemoveMessage(messageId: string) {
     if (!group) return;
@@ -144,9 +155,51 @@ export function GroupMessagesDialog({
                   </Button>
                 </div>
               </div>
-              <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">
-                {message.text}
-              </p>
+              {message.message_type === "gif" && message.gif ? (
+                <img
+                  src={message.gif.gif_url}
+                  alt={message.gif.title || "GIF"}
+                  className="mt-3 rounded"
+                  width={280}
+                  height={210}
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : message.message_type === "attachment" && message.attachments.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {message.attachments.map((att) => (
+                    <div key={att.id} className="flex items-center gap-1 rounded border bg-background px-2 py-1 text-xs">
+                      <PaperclipIcon className="size-3 shrink-0 text-muted-foreground" />
+                      <span className="max-w-[180px] truncate">{att.filename}</span>
+                      <button
+                        type="button"
+                        title="Open in new tab"
+                        onClick={() => openAttachment(att, true)}
+                        className="ml-1 text-muted-foreground hover:text-foreground"
+                      >
+                        <ExternalLinkIcon className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Download"
+                        onClick={() => openAttachment(att, false)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <DownloadIcon className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {message.text && (
+                    <p className="w-full whitespace-pre-wrap break-words text-sm leading-relaxed">
+                      {message.text}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                  {message.text}
+                </p>
+              )}
               {message.edited_at && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Edited {formatMessageTime(message.edited_at)}
