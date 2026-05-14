@@ -134,7 +134,7 @@
             <RouterLink
               v-for="groupOption in sidebarGroups"
               :key="groupOption.id"
-              :to="`/groups/${groupOption.id}`"
+              :to="{ name: 'group-detail', params: { id: groupOption.id } }"
               class="sidebar-group-link"
               :class="{
                 active: isSidebarGroupActive(groupOption.id),
@@ -460,6 +460,17 @@ watch(
     showUserMenu.value = false
   },
 )
+
+watch(showSidebarGroupSwitcher, (isVisible) => {
+  if (isVisible) {
+    scheduleSidebarLoad()
+    return
+  }
+  sidebarGroupLoadSequence += 1
+  sidebarGroups.value = []
+  sidebarGroupError.value = ''
+  isLoadingSidebarGroups.value = false
+})
 
 watch(
   () => [auth.user?.id, auth.isAdmin, showSidebarGroupSwitcher.value],

@@ -75,8 +75,17 @@ export const useGroupsStore = defineStore('groups', {
       const key = String(id)
       return state.groups.find((group) => group.id === key) || null
     },
-    sorted: (state): GroupSummary[] =>
-      [...state.groups].sort((a, b) => a.name.localeCompare(b.name)),
+    // Natural-language sort so "Group 2" comes before "Group 10".
+    // Falls back to numeric id and then string id for stable ordering.
+    sorted: (state): GroupSummary[] => {
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+      return [...state.groups].sort(
+        (a, b) =>
+          collator.compare(a.name, b.name) ||
+          Number(a.id) - Number(b.id) ||
+          a.id.localeCompare(b.id),
+      )
+    },
   },
 
   actions: {

@@ -1707,13 +1707,13 @@
                 <div v-if="showMentionSuggestions" class="mention-suggestions">
                   <button
                     v-for="(member, index) in mentionSuggestions"
-                    :key="member.userId"
+                    :key="member.key || member.userId"
                     type="button"
                     class="mention-suggestion"
                     :class="{ active: index === activeMentionSuggestionIndex }"
                     @mousedown.prevent="insertMention(member)"
                   >
-                    <i class="fas fa-at"></i>
+                    <i :class="member.icon || 'fas fa-at'"></i>
                     <span>{{ member.label }}</span>
                     <small>{{ member.role }}</small>
                   </button>
@@ -3442,15 +3442,25 @@ const getMentionSenderLabel = (mention) => {
 const getMessageTextSegments = (text) => {
   const source = String(text || '')
   const segments = []
-  const pattern = /<@(\d+)>/g
+  const pattern = /<@(\d+)>|(?<![\w@])@(here|channel)\b/gi
   let cursor = 0
+  let isHidingBroadcastExpansion = false
   let match = pattern.exec(source)
 
   while (match) {
-    if (match.index > cursor) {
-      segments.push({ type: 'text', text: source.slice(cursor, match.index) })
+    const gap = source.slice(cursor, match.index)
+    if (match[1] && isHidingBroadcastExpansion && /^\s*$/.test(gap)) {
+      cursor = match.index + match[0].length
+      match = pattern.exec(source)
+      continue
     }
-    segments.push({ type: 'mention', text: `@${getMentionLabel(match[1])}` })
+
+    if (match.index > cursor) {
+      segments.push({ type: 'text', text: gap })
+    }
+    const label = match[1] ? getMentionLabel(match[1]) : String(match[2] || '').toLowerCase()
+    segments.push({ type: 'mention', text: `@${label}` })
+    isHidingBroadcastExpansion = Boolean(match[2])
     cursor = match.index + match[0].length
     match = pattern.exec(source)
   }
@@ -3496,9 +3506,11 @@ const clearSelectedResources = () => {
 }
 
 const getBackendGroupId = () => {
-  const id = group.value?.id || routeGroupId.value
+  const id = routeGroupId.value || group.value?.id
   return /^\d+$/.test(String(id || '')) ? String(id) : ''
 }
+
+const isCurrentBackendGroupId = (groupId) => String(groupId || '') === String(getBackendGroupId())
 
 const backendGroupId = computed(() => getBackendGroupId())
 
@@ -3811,15 +3823,35 @@ const mentionMembers = computed(() =>
     .filter((member) => member.userId && member.userId !== currentUserId.value),
 )
 
+const broadcastMentionOptions = computed(() => [
+  {
+    key: 'broadcast-here',
+    token: 'here',
+    label: 'here',
+    role: 'Notify everyone in this group',
+    icon: 'fas fa-bullhorn',
+    isBroadcast: true,
+  },
+  {
+    key: 'broadcast-channel',
+    token: 'channel',
+    label: 'channel',
+    role: 'Notify everyone in this group',
+    icon: 'fas fa-bullhorn',
+    isBroadcast: true,
+  },
+])
+
 const mentionSuggestions = computed(() => {
   const query = mentionQuery.value.toLowerCase()
-  return mentionMembers.value
+  return [...broadcastMentionOptions.value, ...mentionMembers.value]
     .filter((member) => {
       if (!query) return true
       return (
         member.label.toLowerCase().includes(query) ||
+        String(member.token || '').toLowerCase().includes(query) ||
         member.role.toLowerCase().includes(query) ||
-        String(member.userId).includes(query)
+        (member.userId && String(member.userId).includes(query))
       )
     })
     .slice(0, 6)
@@ -4087,15 +4119,20 @@ const updateMentionQuery = () => {
 const pendingComposerMentions = ref(new Map())
 
 const insertMention = (member) => {
-  if (mentionStartIndex.value < 0 || !member?.userId) return
+  if (mentionStartIndex.value < 0 || !member) return
 
-  const displayName = member.label || `User ${member.userId}`
+  const displayName = member.isBroadcast
+    ? String(member.token || member.label || '').toLowerCase()
+    : member.label || `User ${member.userId}`
+  if (!displayName || (!member.isBroadcast && !member.userId)) return
   // Visible token: ``@Name`` — readable to the user. We keep a map so we can
   // resolve it back to ``<@id>`` before posting. Multiple mentions with the
   // same display name collapse to the same id (acceptable; the map keeps the
   // last-wins entry).
   const visible = `@${displayName}`
-  pendingComposerMentions.value.set(visible, member.userId)
+  if (!member.isBroadcast) {
+    pendingComposerMentions.value.set(visible, member.userId)
+  }
 
   const cursor = composer.value?.selectionStart ?? newMessage.value.length
   const prefix = newMessage.value.slice(0, mentionStartIndex.value)
@@ -4113,11 +4150,12 @@ const insertMention = (member) => {
   })
 }
 
-// Convert visible ``@Name`` tokens back to backend ``<@id>`` tokens just
-// before the wire send. Longest names first so an ``@Alice Smith`` doesn't
-// get partially replaced by an unrelated ``@Alice`` entry.
+// Convert visible mention tokens to backend ``<@id>`` tokens just before
+// sending. ``@here`` / ``@channel`` remain in the stored text; we append
+// machine-readable user tokens after them so the unchanged backend can still
+// create normal mention rows.
 const resolveComposerMentions = (text) => {
-  if (!text || !pendingComposerMentions.value.size) return text
+  if (!text) return text
   const entries = [...pendingComposerMentions.value.entries()].sort(
     ([a], [b]) => b.length - a.length,
   )
@@ -4126,6 +4164,26 @@ const resolveComposerMentions = (text) => {
     const safe = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     out = out.replace(new RegExp(safe, 'g'), `<@${userId}>`)
   }
+
+  if (/@(here|channel)\b/i.test(out)) {
+    let didExpandBroadcast = false
+    out = out.replace(/(?<![\w@])@(here|channel)\b/gi, (token) => {
+      if (didExpandBroadcast) return token
+
+      const alreadyMentioned = new Set(
+        [...out.matchAll(/<@(\d+)>/g)].map((match) => Number(match[1])),
+      )
+      const broadcastMentions = mentionMembers.value
+        .map((member) => Number(member.userId))
+        .filter((userId) => Number.isFinite(userId) && !alreadyMentioned.has(userId))
+        .map((userId) => `<@${userId}>`)
+
+      if (!broadcastMentions.length) return token
+      didExpandBroadcast = true
+      return `${token} ${broadcastMentions.join(' ')}`
+    })
+  }
+
   return out
 }
 
@@ -4291,38 +4349,44 @@ const applyDeliveredCursor = (userId, upToId) => {
   })
 }
 
-const markMessagesAsRead = async (messageIds) => {
+const markMessagesAsRead = async (messageIds, groupId = getBackendGroupId()) => {
   const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
   if (!ids.length) return
 
-  const backendGroupId = getBackendGroupId()
+  const backendGroupId = String(groupId || '')
   if (!backendGroupId) return
+  if (!isCurrentBackendGroupId(backendGroupId)) return
 
   const upToId = Math.max(...ids)
   try {
     const data = await requestJson(buildChatReadUrl(backendGroupId, upToId), {
       method: 'POST',
     })
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     applyReadCursor(auth.user?.id, data?.up_to_id || upToId)
   } catch (error) {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     console.error('Failed to mark messages as read:', error)
   }
 }
 
-const markMessagesAsDelivered = async (messageIds) => {
+const markMessagesAsDelivered = async (messageIds, groupId = getBackendGroupId()) => {
   const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
   if (!ids.length) return
 
-  const backendGroupId = getBackendGroupId()
+  const backendGroupId = String(groupId || '')
   if (!backendGroupId) return
+  if (!isCurrentBackendGroupId(backendGroupId)) return
 
   const upToId = Math.max(...ids)
   try {
     const data = await requestJson(buildChatDeliveredUrl(backendGroupId, upToId), {
       method: 'POST',
     })
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     applyDeliveredCursor(auth.user?.id, data?.up_to_id || upToId)
   } catch (error) {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     console.error('Failed to mark messages as delivered:', error)
   }
 }
@@ -4417,8 +4481,9 @@ const saveMessageEdit = async (message) => {
   try {
     const updated = await requestJson(buildChatMessageUrl(backendGroupId, message.id), {
       method: 'PATCH',
-      body: JSON.stringify({ message_text: text }),
+      body: JSON.stringify({ message_text: resolveComposerMentions(text) }),
     })
+    pendingComposerMentions.value.clear()
     upsertMessage(updated)
     cancelMessageEdit()
   } catch (error) {
@@ -4464,6 +4529,15 @@ const disconnectChatSocket = () => {
 const handleSocketPayload = async (payload) => {
   if (!payload || typeof payload !== 'object') return
   const eventName = payload.event || payload.type
+  const payloadGroupId = payload.group_id || payload.message?.group || payload.message?.group_id
+  if (
+    eventName &&
+    String(eventName).startsWith('message.') &&
+    payloadGroupId &&
+    !isCurrentBackendGroupId(payloadGroupId)
+  ) {
+    return
+  }
 
   if (eventName === 'user.typing') {
     const currentUserId = Number(auth.user?.id || 0)
@@ -4603,6 +4677,7 @@ const connectChatSocket = () => {
       void loadNewerMessages()
       void markMessagesAsRead(
         messages.value.filter((message) => !message.isOwn).map((message) => message.id),
+        backendGroupId,
       )
     }
     hasConnectedChatSocket = true
@@ -4660,11 +4735,14 @@ const loadMessages = async () => {
       nextBefore = expanded.nextBefore
     }
 
+    if (!isCurrentBackendGroupId(backendGroupId)) return
+
     messages.value = liveMessages.length ? liveMessages : []
     setMissedMessageAnchor(messages.value)
     nextMessagesAfter.value = data?.next_after || null
     nextMessagesBefore.value = nextBefore
   } catch (error) {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     chatError.value =
       error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
     messages.value = []
@@ -4672,6 +4750,7 @@ const loadMessages = async () => {
     nextMessagesAfter.value = null
     nextMessagesBefore.value = null
   } finally {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     isLoadingMessages.value = false
     // Fire-and-forget — scroll + delivery/read receipts must not gate the UI.
     const incomingIds = messages.value
@@ -4682,8 +4761,8 @@ const loadMessages = async () => {
     } else {
       void scrollMessagesToBottomAfterRender()
     }
-    void markMessagesAsDelivered(incomingIds)
-    void markMessagesAsRead(incomingIds)
+    void markMessagesAsDelivered(incomingIds, backendGroupId)
+    void markMessagesAsRead(incomingIds, backendGroupId)
   }
 }
 
@@ -5067,6 +5146,7 @@ const sendGifMessage = async (gif) => {
     return
   }
   const caption = newMessage.value.trim()
+  const wireCaption = resolveComposerMentions(caption)
   isSendingMessage.value = true
   chatError.value = ''
   gifError.value = ''
@@ -5080,9 +5160,10 @@ const sendGifMessage = async (gif) => {
         gif_url: gif.url,
         preview_url: gif.previewUrl || '',
         title: gif.title || '',
-        ...(caption ? { message_text: caption } : {}),
+        ...(wireCaption ? { message_text: wireCaption } : {}),
       }),
     })
+    pendingComposerMentions.value.clear()
     newMessage.value = ''
     showGifPanel.value = false
     // The WS ``message.created`` broadcast delivers the rendered bubble into
@@ -5231,9 +5312,10 @@ const uploadAttachment = async (event) => {
     return
   }
   const caption = newMessage.value.trim()
+  const wireCaption = resolveComposerMentions(caption)
   const formData = new FormData()
   formData.append('uploaded_file', file)
-  if (caption) formData.append('message_text', caption)
+  if (wireCaption) formData.append('message_text', wireCaption)
   // Upload endpoint now accepts reply_to_id (mirror of the JSON create path)
   // so replies can carry attachments.
   if (replyTarget.value?.id) {
@@ -5252,6 +5334,7 @@ const uploadAttachment = async (event) => {
       },
     })
     if (savedMessage) {
+      pendingComposerMentions.value.clear()
       newMessage.value = ''
       clearReplyTarget()
     }
