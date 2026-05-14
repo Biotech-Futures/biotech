@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from apps.audit.services import log_audit_event
 
 from .filters import TaskFilter
-from .models import Task
+from .models import Task, TaskStatus
 from .permissions import (
     CanToggleTask,
     IsTaskManager,
@@ -17,6 +17,7 @@ from .permissions import (
 from .serializers import (
     TaskCreateSerializer,
     TaskSerializer,
+    TaskStatusUpdateSerializer,
     TaskToggleSerializer,
     TaskUpdateSerializer,
 )
@@ -256,3 +257,37 @@ class TaskBulkToggleView(generics.GenericAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class TaskStatusUpdateView(generics.GenericAPIView):
+    """POST /api/v1/tasks/<id>/status/ — change task status without entering
+    full edit. Permission gate mirrors CanToggleTask: assignee, mentor of
+    group, supervisor of assignee, track admin, or task creator can change.
+    Setting status to "done" also flips `completed=True`; any other status
+    flips `completed=False`."""
+
+    queryset = Task.objects.filter(deleted_at__isnull=True)
+    serializer_class = TaskStatusUpdateSerializer
+    permission_classes = [permissions.IsAuthenticated, CanToggleTask]
+
+    def post(self, request, *args, **kwargs):
+        task = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data["status"]
+
+        before_state = {"status": task.status, "completed": task.completed}
+        new_completed = new_status == TaskStatus.DONE
+        with transaction.atomic():
+            task.status = new_status
+            task.completed = new_completed
+            task.save(update_fields=["status", "completed", "updated_at"])
+        log_audit_event(
+            actor=request.user,
+            entity_type="task",
+            entity_id=task.id,
+            action="status_change",
+            before_state=before_state,
+            after_state={"status": task.status, "completed": task.completed},
+        )
+        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)

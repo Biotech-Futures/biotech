@@ -21,6 +21,7 @@ from .services import (
     MEMBER_MEMBERSHIP_ROLE,
     MENTOR_MEMBERSHIP_ROLE,
     assign_mentor_to_group,
+    sync_supervisor_memberships_for_student,
 )
 from apps.audit.services import log_audit_event
 from apps.users.utils.admin_scope import can_admin_track, is_operational_admin
@@ -64,7 +65,14 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
         membership.left_at = timezone.now()
         membership.save(update_fields=["left_at"])
+        if membership.membership_role == GroupMembership.MembershipRoleChoices.STUDENT:
+            sync_supervisor_memberships_for_student(membership.user_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def perform_create(self, serializer):
+        membership = serializer.save()
+        if membership.membership_role == GroupMembership.MembershipRoleChoices.STUDENT:
+            sync_supervisor_memberships_for_student(membership.user_id)
 
 
 class TrackViewSet(viewsets.ModelViewSet):
@@ -166,6 +174,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     left_at=None,
                     defaults={"membership_role": MEMBER_MEMBERSHIP_ROLE},
                 )
+                sync_supervisor_memberships_for_student(member_user.id)
 
             mentor_user = group_payload.get("mentor_user_id")
             if mentor_user is not None:
@@ -203,6 +212,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 defaults={"membership_role": MEMBER_MEMBERSHIP_ROLE},
             )
             memberships.append(membership)
+            sync_supervisor_memberships_for_student(user_id)
 
         log_audit_event(
             actor=request.user,
@@ -233,6 +243,10 @@ class GroupViewSet(viewsets.ModelViewSet):
         for membership in active_memberships:
             membership.left_at = now
             membership.save(update_fields=["left_at"])
+
+        for membership in active_memberships:
+            if membership.membership_role == GroupMembership.MembershipRoleChoices.STUDENT:
+                sync_supervisor_memberships_for_student(membership.user_id)
 
         log_audit_event(
             actor=request.user,

@@ -5,6 +5,7 @@ from .views import (
     TaskListCreateView,
     TaskRetrieveUpdateDestroyView,
     TaskRestoreView,
+    TaskStatusUpdateView,
     TaskToggleView,
 )
 
@@ -15,4 +16,5 @@ urlpatterns = [
     path("<int:pk>/restore/", TaskRestoreView.as_view(), name="task-restore"),
     path("<int:pk>/", TaskRetrieveUpdateDestroyView.as_view(), name="task-detail"),
     path("<int:pk>/check/", TaskToggleView.as_view(), name="task-toggle"),
+    path("<int:pk>/status/", TaskStatusUpdateView.as_view(), name="task-status"),
 ]

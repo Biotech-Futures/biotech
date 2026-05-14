@@ -8,6 +8,7 @@ class GroupMembership(models.Model):
     class MembershipRoleChoices(models.TextChoices):
         MENTOR = "mentor", "Mentor"
         STUDENT = "student", "Student"
+        SUPERVISOR = "supervisor", "Supervisor"
 
     group = models.ForeignKey('Groups', on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

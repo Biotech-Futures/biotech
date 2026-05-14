@@ -13,6 +13,7 @@ class MessageType(models.TextChoices):
     ATTACHMENT = "attachment", "Attachment"
     RESOURCE = "resource", "Resource Link"
     SYSTEM = "system", "System Message"
+    GIF = "gif", "GIF"
 
 class Messages(models.Model):
     sender_user = models.ForeignKey(

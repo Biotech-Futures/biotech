@@ -314,15 +314,17 @@ class TaskOwnershipTests(_World, APITestCase):
         r = self.client.patch(_detail_url(self.mentor_task.id), {"name": "renamed"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
-    def test_mentor_cannot_edit_supervisor_task(self):
+    def test_mentor_can_edit_supervisor_task_within_group(self):
+        # Mentor of group_a can edit any group_a task regardless of creator role.
         self.client.force_authenticate(user=self.mentor_a)
         r = self.client.patch(_detail_url(self.supervisor_task.id), {"name": "x"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
 
-    def test_supervisor_cannot_edit_mentor_task(self):
+    def test_supervisor_can_edit_mentor_task_within_supervised_group(self):
+        # Supervisor whose supervisees are in group_a can edit any group_a task.
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.patch(_detail_url(self.mentor_task.id), {"name": "x"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
 
     def test_student_creator_can_edit_own_task(self):
         self.client.force_authenticate(user=self.student_x)
@@ -659,3 +661,135 @@ class TaskBulkToggleTests(_World, APITestCase):
         self.client.force_authenticate(user=self.global_admin)
         r = self.client.post(self._url(), {"task_ids": []}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+def _status_url(pk):
+    return f"/api/v1/tasks/{pk}/status/"
+
+
+class TaskStatusUpdateTests(_World, APITestCase):
+    """POST /api/v1/tasks/<id>/status/ -- in-place status change.
+
+    Permissions mirror the toggle endpoint (CanToggleTask). Setting status to
+    'done' also flips `completed=True`; any other status flips it to False.
+    """
+
+    def setUp(self):
+        self._build()
+        self.group_task = Task.objects.create(
+            name="Status A1", task_type=TaskType.GROUP, group=self.group_a,
+            created_by=self.mentor_a, creator_role=CreatorRole.MENTOR,
+            status="todo", completed=False,
+        )
+        self.indiv_task = Task.objects.create(
+            name="Status X1", task_type=TaskType.INDIVIDUAL, assigned_user=self.student_x,
+            created_by=self.student_x, creator_role=CreatorRole.STUDENT,
+            status="todo", completed=False,
+        )
+
+    # --- happy paths -------------------------------------------------------
+    def test_mentor_can_set_group_task_status(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        r = self.client.post(_status_url(self.group_task.id), {"status": "in_progress"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["status"], "in_progress")
+        self.assertFalse(r.data["completed"])
+
+    def test_supervisor_can_set_group_task_status(self):
+        self.client.force_authenticate(user=self.supervisor_a)
+        r = self.client.post(_status_url(self.group_task.id), {"status": "in_progress"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["status"], "in_progress")
+
+    def test_assignee_can_set_their_own_individual_task_status(self):
+        self.client.force_authenticate(user=self.student_x)
+        r = self.client.post(_status_url(self.indiv_task.id), {"status": "blocked"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["status"], "blocked")
+        self.assertFalse(r.data["completed"])
+
+    def test_setting_done_sets_completed_true(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        r = self.client.post(_status_url(self.group_task.id), {"status": "done"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["status"], "done")
+        self.assertTrue(r.data["completed"])
+
+    def test_changing_done_to_other_clears_completed(self):
+        self.group_task.status = "done"
+        self.group_task.completed = True
+        self.group_task.save()
+        self.client.force_authenticate(user=self.mentor_a)
+        r = self.client.post(_status_url(self.group_task.id), {"status": "in_progress"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["status"], "in_progress")
+        self.assertFalse(r.data["completed"])
+
+    # --- forbidden paths ---------------------------------------------------
+    def test_outsider_cannot_set_status(self):
+        self.client.force_authenticate(user=self.outsider)
+        r = self.client.post(_status_url(self.group_task.id), {"status": "done"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unrelated_mentor_cannot_set_status(self):
+        self.client.force_authenticate(user=self.mentor_b)  # mentor of group_c
+        r = self.client.post(_status_url(self.group_task.id), {"status": "done"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    # --- validation --------------------------------------------------------
+    def test_invalid_status_rejected(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        r = self.client.post(_status_url(self.group_task.id), {"status": "nonsense"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_status_rejected(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        r = self.client.post(_status_url(self.group_task.id), {}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class SupervisorCanEditGroupTaskTests(_World, APITestCase):
+    """A supervisor who supervises any active student in a group is allowed
+    to edit any group task in that group (not just student-created ones).
+    """
+
+    def setUp(self):
+        self._build()
+        self.mentor_created = Task.objects.create(
+            name="Mentor task", task_type=TaskType.GROUP, group=self.group_a,
+            created_by=self.mentor_a, creator_role=CreatorRole.MENTOR,
+        )
+        self.admin_created = Task.objects.create(
+            name="Admin task", task_type=TaskType.GROUP, group=self.group_a,
+            created_by=self.track_one_admin, creator_role=CreatorRole.TRACK_ADMIN,
+        )
+
+    def test_supervisor_can_patch_mentor_created_group_task(self):
+        self.client.force_authenticate(user=self.supervisor_a)
+        r = self.client.patch(
+            _detail_url(self.mentor_created.id), {"name": "Renamed by supervisor"}, format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["name"], "Renamed by supervisor")
+
+    def test_supervisor_can_patch_admin_created_group_task(self):
+        self.client.force_authenticate(user=self.supervisor_a)
+        r = self.client.patch(
+            _detail_url(self.admin_created.id), {"name": "Renamed"}, format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_unrelated_supervisor_cannot_patch_group_task(self):
+        # supervisor_b supervises student_z (group_c) only, not group_a. The
+        # visibility filter excludes the task from their queryset, so the
+        # detail view returns 404 rather than 403.
+        self.client.force_authenticate(user=self.supervisor_b)
+        r = self.client.patch(
+            _detail_url(self.mentor_created.id), {"name": "Nope"}, format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_supervisor_can_delete_group_task(self):
+        self.client.force_authenticate(user=self.supervisor_a)
+        r = self.client.delete(_detail_url(self.mentor_created.id))
+        self.assertEqual(r.status_code, status.HTTP_200_OK)

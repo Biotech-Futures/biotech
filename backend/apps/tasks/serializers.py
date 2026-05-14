@@ -16,6 +16,7 @@ class _UserMiniSerializer(serializers.Serializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     created_by = serializers.SerializerMethodField()
+    assigned_user_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -30,6 +31,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "task_type",
             "group",
             "assigned_user",
+            "assigned_user_detail",
             "created_by",
             "creator_role",
             "deleted_at",
@@ -43,6 +45,12 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.created_by is None:
             return None
         return _UserMiniSerializer(obj.created_by).data
+
+    @staticmethod
+    def get_assigned_user_detail(obj) -> dict | None:
+        if obj.assigned_user is None:
+            return None
+        return _UserMiniSerializer(obj.assigned_user).data
 
 
 class TaskCreateSerializer(serializers.ModelSerializer):
@@ -102,3 +110,8 @@ class TaskUpdateSerializer(serializers.ModelSerializer):
 
 class TaskToggleSerializer(serializers.Serializer):
     completed = serializers.BooleanField(required=False)
+
+
+class TaskStatusUpdateSerializer(serializers.Serializer):
+    from .models import TaskStatus  # noqa: PLC0415
+    status = serializers.ChoiceField(choices=TaskStatus.choices)

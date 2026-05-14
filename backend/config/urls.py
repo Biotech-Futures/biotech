@@ -34,8 +34,7 @@ from drf_spectacular.views import (
 #      ``path("api/v1/", include(...))`` inside). If it does, mounting it here
 #      will create double-prefixed paths like ``/api/v1/events/v1/`` — skip it.
 #   2. Confirm the module does not declare ``app_name`` (otherwise dual-mount
-#      registers the namespace twice and emits ``urls.W005``). ``apps.admin``
-#      already triggers this; do not add to the list.
+#      registers the namespace twice and emits ``urls.W005``).
 _DUAL_MOUNTS: tuple[tuple[str, str], ...] = (
     # The reported case: FE primary URL is ``/api/v1/chat/groups/<gid>/messages/``.
     ("chat/",      "apps.chat.urls"),
@@ -61,8 +60,8 @@ def _dual_mount_patterns():
 
 
 # Routes that live exclusively under ``/api/v1/``. ``apps.admin.urls`` declares
-# ``app_name='admin'`` and stays single-mounted to avoid amplifying the existing
-# ``urls.W005`` namespace collision with ``admin.site.urls``. ``apps.users.urls``
+# ``app_name='admin_api'`` (distinct from Django's built-in ``admin`` namespace
+# used by ``admin.site.urls``) and stays single-mounted. ``apps.users.urls``
 # registers ``users/``, ``admin/summary/``, etc. at its own root, so mounting it
 # at the v1 root keeps ``/api/v1/users/me/`` and friends working.
 _api_v1_patterns = [
