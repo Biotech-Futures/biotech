@@ -945,6 +945,12 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not can_access_chat_group(request.user, group):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
 
+        # ``?inline=1`` flips ``Content-Disposition`` from ``attachment`` to
+        # ``inline`` so the browser previews the file in a tab (PDF viewer,
+        # image, etc.) instead of forcing a save. Without the flag the default
+        # download semantics stand — keeps existing callers that only want
+        # the save flow unchanged.
+        inline = (request.query_params.get("inline") or "").lower() in {"1", "true", "yes"}
         return serve_managed_file(
             resolve_url=CHAT_FILE_SERVICE.resolve_url,
             open_file=CHAT_FILE_SERVICE.open,
@@ -952,7 +958,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             filename=attachment.attachment_filename,
             mime_type=attachment.attachment_mime_type,
             size=attachment.attachment_size,
-            as_attachment=True,
+            as_attachment=not inline,
             on_open_failure_detail="The attachment could not be opened for download.",
         )
 

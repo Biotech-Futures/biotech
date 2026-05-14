@@ -1265,16 +1265,68 @@
                   </form>
 
                   <div v-if="message.attachments?.length" class="message-attachments">
-                    <a
+                    <span
                       v-for="attachment in message.attachments"
                       :key="attachment.id || attachment.attachment_filename"
-                      :href="getAttachmentHref(attachment)"
-                      class="attachment-chip"
-                      @click.prevent="downloadAttachment(attachment)"
+                      class="resource-chip-wrap"
                     >
-                      <i class="fas fa-paperclip"></i>
-                      {{ getAttachmentLabel(attachment) }}
-                    </a>
+                      <button
+                        type="button"
+                        class="attachment-chip"
+                        :title="getAttachmentLabel(attachment)"
+                        @click.stop="toggleAttachmentChoice(message.id, attachment)"
+                      >
+                        <i class="fas fa-paperclip"></i>
+                        {{ getAttachmentLabel(attachment) }}
+                      </button>
+                      <div
+                        v-if="
+                          openAttachmentChoiceKey
+                            === `${message.id}:${attachment.id || attachment.attachment_filename}`
+                        "
+                        class="resource-choice-popover"
+                        role="menu"
+                        @click.stop
+                      >
+                        <div
+                          v-if="attachmentChoiceStatus"
+                          class="resource-choice-status"
+                        >
+                          {{ attachmentChoiceStatus }}
+                        </div>
+                        <div class="resource-choice-actions">
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Open in a new tab"
+                            aria-label="Open"
+                            :disabled="attachmentChoiceLoading"
+                            @click="openAttachmentAction(attachment, 'open')"
+                          >
+                            <i class="fas fa-eye"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Download"
+                            aria-label="Download"
+                            :disabled="attachmentChoiceLoading"
+                            @click="openAttachmentAction(attachment, 'download')"
+                          >
+                            <i class="fas fa-arrow-down"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn resource-choice-btn--danger"
+                            title="Cancel"
+                            aria-label="Cancel"
+                            @click="closeAttachmentChoice"
+                          >
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </span>
                   </div>
 
                   <div v-if="message.resources?.length" class="message-attachments">
@@ -3147,6 +3199,10 @@ const downloadAttachment = async (attachment) => {
 const openResourceChoiceKey = ref(null)
 const resourceChoiceLoading = ref(false)
 const resourceChoiceStatus = ref('')
+// Same Open/Download/Cancel popover but keyed by ``messageId:attachmentId``.
+const openAttachmentChoiceKey = ref(null)
+const attachmentChoiceLoading = ref(false)
+const attachmentChoiceStatus = ref('')
 
 const toggleResourceChoice = (messageId, resource) => {
   const rid = resource?.resource_id || resource?.id
@@ -3164,6 +3220,60 @@ const closeResourceChoice = () => {
   openResourceChoiceKey.value = null
   resourceChoiceLoading.value = false
   resourceChoiceStatus.value = ''
+}
+
+const toggleAttachmentChoice = (messageId, attachment) => {
+  const key = `${messageId}:${attachment?.id || attachment?.attachment_filename}`
+  if (openAttachmentChoiceKey.value === key) {
+    closeAttachmentChoice()
+    return
+  }
+  openAttachmentChoiceKey.value = key
+  attachmentChoiceStatus.value = ''
+}
+
+const closeAttachmentChoice = () => {
+  openAttachmentChoiceKey.value = null
+  attachmentChoiceLoading.value = false
+  attachmentChoiceStatus.value = ''
+}
+
+const openAttachmentAction = async (attachment, mode) => {
+  const baseUrl = getAttachmentHref(attachment)
+  if (!baseUrl || baseUrl === '#') return
+  attachmentChoiceLoading.value = true
+  attachmentChoiceStatus.value = mode === 'download'
+    ? 'Preparing download…'
+    : 'Opening…'
+  try {
+    if (mode === 'open') {
+      // Append ``?inline=1`` so the backend serves Content-Disposition: inline
+      // and the browser previews (PDF viewer, image, etc.) instead of saving.
+      const sep = baseUrl.includes('?') ? '&' : '?'
+      window.open(`${baseUrl}${sep}inline=1`, '_blank', 'noopener,noreferrer')
+      closeAttachmentChoice()
+      return
+    }
+    // Download path — fetch as blob so the filename comes from
+    // Content-Disposition and the browser definitely saves regardless of the
+    // file type (PDFs would otherwise open inline in some browsers even with
+    // Content-Disposition: attachment when navigated to directly).
+    const response = await fetch(baseUrl, { method: 'GET', credentials: 'include' })
+    if (!response.ok) {
+      throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
+    }
+    const blob = await response.blob()
+    const filename =
+      getFilenameFromDisposition(response.headers.get('Content-Disposition')) ||
+      getAttachmentLabel(attachment)
+    triggerBrowserDownload(blob, filename)
+    closeAttachmentChoice()
+  } catch (error) {
+    attachmentChoiceStatus.value = error instanceof Error
+      ? error.message
+      : 'Attachment could not be opened.'
+    attachmentChoiceLoading.value = false
+  }
 }
 
 const openResourceAction = async (resource, mode) => {
@@ -5299,16 +5409,17 @@ const onDocumentKeydownForMessageKebab = (event) => {
 }
 
 const onDocumentClickForResourceChoice = (event) => {
-  if (openResourceChoiceKey.value === null) return
+  if (openResourceChoiceKey.value === null && openAttachmentChoiceKey.value === null) return
   const target = event.target
   if (!(target instanceof Element)) return
   if (target.closest('.resource-chip-wrap')) return
   closeResourceChoice()
+  closeAttachmentChoice()
 }
 const onDocumentKeydownForResourceChoice = (event) => {
-  if (openResourceChoiceKey.value !== null && event.key === 'Escape') {
-    closeResourceChoice()
-  }
+  if (event.key !== 'Escape') return
+  if (openResourceChoiceKey.value !== null) closeResourceChoice()
+  if (openAttachmentChoiceKey.value !== null) closeAttachmentChoice()
 }
 
 onMounted(async () => {
