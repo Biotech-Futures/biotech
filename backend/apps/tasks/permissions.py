@@ -52,8 +52,12 @@ def _student_group_ids(user):
     )
 
 
-def _supervisor_group_ids(user):
-    student_ids = _supervisee_user_ids(user)
+def _supervisor_group_ids(user, supervisee_user_ids=None):
+    student_ids = (
+        supervisee_user_ids
+        if supervisee_user_ids is not None
+        else _supervisee_user_ids(user)
+    )
     if not student_ids:
         return []
     return list(
@@ -180,7 +184,7 @@ def visible_tasks(user):
 
     mentor_group_ids = _mentor_group_ids(user)
     supervisee_user_ids = _supervisee_user_ids(user)
-    supervisor_group_ids = _supervisor_group_ids(user)
+    supervisor_group_ids = _supervisor_group_ids(user, supervisee_user_ids)
     student_group_ids = _student_group_ids(user)
 
     visibility = Q(pk__in=[])

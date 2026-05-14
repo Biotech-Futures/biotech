@@ -12,6 +12,16 @@
         </div>
 
         <div class="header-nav">
+          <button
+            type="button"
+            class="theme-toggle"
+            :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+            :aria-pressed="isDark"
+            @click="toggleTheme"
+          >
+            <i :class="isDark ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true"></i>
+          </button>
+
           <div class="user-menu">
             <button
               class="user-avatar"
@@ -58,7 +68,7 @@
               <RouterLink
                 to="/events"
                 class="sidebar-link"
-                :class="{ active: route.path === '/events' }"
+                :class="{ active: route.path.startsWith('/events') }"
               >
                 <i class="fas fa-calendar sidebar-icon"></i>
                 <span>Events</span>
@@ -148,7 +158,7 @@
 
       <main
         class="main-content"
-        :class="{ 'main-content--events': route.path === '/events' }"
+        :class="{ 'main-content--events': route.path.startsWith('/events') }"
       >
         <RouterView />
       </main>
@@ -239,6 +249,23 @@ interface SidebarGroupOption {
 const handleLogout = async () => {
   await auth.logout()
   go('/login')
+}
+
+const THEME_STORAGE_KEY = 'biotech-theme'
+const isDark = ref(false)
+
+const applyTheme = (dark: boolean) => {
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+}
+
+const toggleTheme = () => {
+  isDark.value = !isDark.value
+  applyTheme(isDark.value)
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, isDark.value ? 'dark' : 'light')
+  } catch {
+    // localStorage may be unavailable (private mode, quota); fail silently.
+  }
 }
 
 const isLoginPage = computed(() =>
@@ -409,7 +436,13 @@ const loadSidebarGroups = async () => {
       .sort((a, b) => a.name.localeCompare(b.name))
 
     sidebarGroups.value = groups
-    await loadSidebarLatestMessageState(groups, sequence)
+    // N requests (one per group) — defer behind idle so the page is
+    // interactive before unread/latest-at indicators light up.
+    const runLatest = () => void loadSidebarLatestMessageState(groups, sequence)
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
+      .requestIdleCallback
+    if (typeof ric === 'function') ric(runLatest)
+    else window.setTimeout(runLatest, 250)
   } catch (error) {
     if (sequence === sidebarGroupLoadSequence) {
       sidebarGroups.value = []
@@ -452,25 +485,43 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
+// Sidebar group list is non-critical — defer behind requestIdleCallback
+// so we don't fight the main page's fetches for connection budget.
+const scheduleSidebarLoad = () => {
+  const run = () => loadSidebarGroups()
+  const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
+    .requestIdleCallback
+  if (typeof ric === 'function') ric(run)
+  else window.setTimeout(run, 200)
+}
+
 watch(
   () => route.fullPath,
   () => {
+    // Only close the user menu — the sidebar group list doesn't change
+    // per-route, so re-fetching here is pure waste.
     showUserMenu.value = false
-    loadSidebarGroups()
   },
 )
 
 watch(
   () => [auth.user?.id, auth.isAdmin],
   () => {
-    loadSidebarGroups()
+    scheduleSidebarLoad()
   },
 )
 
 onMounted(() => {
+  try {
+    isDark.value = window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark'
+  } catch {
+    isDark.value = false
+  }
+  applyTheme(isDark.value)
+
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
-  loadSidebarGroups()
+  scheduleSidebarLoad()
 })
 
 onBeforeUnmount(() => {
@@ -599,6 +650,38 @@ select {
 .header-nav {
   display: flex;
   align-items: center;
+  gap: 0.75rem;
+}
+
+.theme-toggle {
+  width: 40px;
+  height: 40px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--white);
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--white);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle {
+    transition: none;
+  }
 }
 
 .user-menu {

@@ -28,6 +28,10 @@ class Events(models.Model):
         help_text="Zoom URL when is_virtual=True, Google Maps URL otherwise.",
     )
     is_virtual = models.BooleanField(default=False)
+    # Optional cap. Counts ACCEPTED rows only. When set and met, new
+    # user-side ACCEPTED RSVPs are coerced to WAITLISTED; freed slots
+    # auto-promote the oldest waitlisted user.
+    max_attendees = models.PositiveIntegerField(blank=True, null=True)
     # Stamp == current start_datetime ⇒ already reminded for this schedule.
     # Reschedules auto-re-arm because the stamp no longer matches.
     reminder_24h_sent_for_start = models.DateTimeField(blank=True, null=True)
@@ -43,6 +47,10 @@ class Events(models.Model):
             models.Index(fields=["start_datetime"]),
             models.Index(fields=["host_user"]),
             models.Index(fields=["track"]),
+            # ``?when=upcoming|past`` on the list endpoint filters by
+            # ends_datetime against now(); without this it falls back to
+            # a heap scan once the events table grows.
+            models.Index(fields=["ends_datetime"]),
         ]
         constraints = [
             models.CheckConstraint(
