@@ -134,7 +134,7 @@
             <RouterLink
               v-for="groupOption in sidebarGroups"
               :key="groupOption.id"
-              :to="`/groups/${groupOption.id}`"
+              :to="{ name: 'group-detail', params: { id: groupOption.id } }"
               class="sidebar-group-link"
               :class="{
                 active: isSidebarGroupActive(groupOption.id),
@@ -278,6 +278,10 @@ const sidebarGroups = ref<SidebarGroupOption[]>([])
 const isLoadingSidebarGroups = ref(false)
 const sidebarGroupError = ref('')
 let sidebarGroupLoadSequence = 0
+const groupNameCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base',
+})
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
@@ -334,12 +338,25 @@ const normalizeSidebarGroup = (
   item: Record<string, unknown>,
   memberCount = 0,
 ): SidebarGroupOption => ({
-  id: String(item.id ?? ''),
-  name: String(item.group_name ?? item.name ?? item.title ?? (item.id ? `Group ${item.id}` : 'Group')),
+  id: String(item.id ?? item.group_id ?? item.groupId ?? ''),
+  name: String(
+    item.group_name ??
+      item.groupName ??
+      item.name ??
+      item.title ??
+      (item.id || item.group_id || item.groupId
+        ? `Group ${item.id ?? item.group_id ?? item.groupId}`
+        : 'Group'),
+  ),
   memberCount,
   hasUnread: false,
   latestAt: '',
 })
+
+const compareSidebarGroups = (a: SidebarGroupOption, b: SidebarGroupOption) =>
+  groupNameCollator.compare(a.name, b.name) ||
+  Number(a.id) - Number(b.id) ||
+  a.id.localeCompare(b.id)
 
 const getCurrentUserDisplayNames = () =>
   new Set(
@@ -429,11 +446,14 @@ const loadSidebarGroups = async () => {
 
     const groups = extractCollectionItems(groupsData)
       .filter((item) => {
-        const groupId = String(item.id ?? '')
+        const groupId = String(item.id ?? item.group_id ?? item.groupId ?? '')
         return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
       })
-      .map((item) => normalizeSidebarGroup(item, memberCounts.get(String(item.id ?? '')) || 0))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((item) => {
+        const groupId = String(item.id ?? item.group_id ?? item.groupId ?? '')
+        return normalizeSidebarGroup(item, memberCounts.get(groupId) || 0)
+      })
+      .sort(compareSidebarGroups)
 
     sidebarGroups.value = groups
     // N requests (one per group) — defer behind idle so the page is
@@ -503,6 +523,17 @@ watch(
     showUserMenu.value = false
   },
 )
+
+watch(showSidebarGroupSwitcher, (isVisible) => {
+  if (isVisible) {
+    scheduleSidebarLoad()
+    return
+  }
+  sidebarGroupLoadSequence += 1
+  sidebarGroups.value = []
+  sidebarGroupError.value = ''
+  isLoadingSidebarGroups.value = false
+})
 
 watch(
   () => [auth.user?.id, auth.isAdmin],
