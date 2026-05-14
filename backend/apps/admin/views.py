@@ -14,22 +14,20 @@ from apps.admin.services.user import (
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages,
-    update_group, restore_group, remove_group_member, remove_group_message,
-    restore_group_message,
+    update_group, remove_group_member, remove_group_message,
 )
 from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
 )
 from apps.admin.services.event import (
     query_events, query_event_by_id, create_event, update_event, delete_event,
-    restore_event,
     query_event_rsvps, create_event_rsvp, update_event_rsvp,
     query_event_targets, query_groups as event_query_groups,
     query_roles as event_query_roles, query_tracks as event_query_tracks,
 )
 from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
-    delete_resource, restore_resource, replace_resource_file, download_resource,
+    delete_resource, replace_resource_file, download_resource,
     assign_role_to_resource, remove_role_from_resource,
     list_resource_roles, list_resource_types, list_resource_tracks,
 )
@@ -42,7 +40,7 @@ from apps.admin.services.announcement import (
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
     list_admin_tasks, get_admin_task_by_id, create_admin_task,
-    update_admin_task, delete_admin_task, restore_admin_task, toggle_admin_task,
+    update_admin_task, delete_admin_task, toggle_admin_task,
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
@@ -175,9 +173,6 @@ class GroupListView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        # Admin Web sends deleted=true for the recovery table; default stays active-only.
-        deleted_raw = (request.query_params.get("deleted") or "").lower().strip()
-        deleted = True if deleted_raw == "true" else False if deleted_raw == "false" else None
         result = query_groups(
             page=int(request.query_params.get("page", 1)),
             limit=int(request.query_params.get("limit", 10)),
@@ -185,7 +180,6 @@ class GroupListView(APIView):
             search_group=request.query_params.get("searchGroup"),
             track=request.query_params.get("track"),
             mentor_status=request.query_params.get("mentorStatus"),
-            deleted=deleted,
             requesting_user=request.user,
         )
         return Response(result)
@@ -211,18 +205,6 @@ class GroupDetailView(APIView):
         return Response(result, status=code)
 
 
-class GroupRestoreView(APIView):
-    """POST /api/v1/group/{id}/restore - Restore a soft-deleted group"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, group_id):
-        result = restore_group(group_id, requesting_user=request.user)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
-        if result.get("msg") == "Group not found":
-            code = status.HTTP_404_NOT_FOUND
-        return Response(result, status=code)
-
-
 class GroupMessagesListView(APIView):
     """GET /api/v1/group/{id}/messages - View group message history"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
@@ -242,16 +224,6 @@ class GroupMessageDetailView(APIView):
 
     def delete(self, request, group_id, message_id):
         result = remove_group_message(group_id, int(message_id))
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
-        return Response(result, status=code)
-
-
-class GroupMessageRestoreView(APIView):
-    """POST /api/v1/group/{id}/messages/{messageId}/restore - Restore a message"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, group_id, message_id):
-        result = restore_group_message(group_id, int(message_id), requesting_user=request.user)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
@@ -315,15 +287,11 @@ class EventListCreateView(APIView):
 
     def get(self, request):
         upcoming = request.query_params.get("upcoming", "false").lower() == "true"
-        # Admin Web sends deleted=true for the recovery table; default stays active-only.
-        deleted_raw = (request.query_params.get("deleted") or "").lower().strip()
-        deleted = True if deleted_raw == "true" else False if deleted_raw == "false" else None
         result = query_events({
             "page": int(request.query_params.get("page", 1)),
             "limit": int(request.query_params.get("limit", 10)),
             "host_user_id": request.query_params.get("hostUserId"),
             "upcoming": upcoming,
-            "deleted": deleted,
         }, requesting_user=request.user)
         return Response(result)
 
@@ -353,18 +321,6 @@ class EventDetailView(APIView):
     def delete(self, request, event_id):
         result = delete_event(event_id)
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
-        return Response(result, status=code)
-
-
-class EventRestoreView(APIView):
-    """POST /api/v1/event/{id}/restore - Restore event"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, event_id):
-        result = restore_event(event_id, requesting_user=request.user)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
-        if result.get("msg") == "Event not found":
-            code = status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -438,9 +394,6 @@ class ResourceListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        # Admin Web sends deleted=true for the recovery table; default stays active-only.
-        deleted_raw = (request.query_params.get("deleted") or "").lower().strip()
-        deleted = True if deleted_raw == "true" else False if deleted_raw == "false" else None
         result = query_resources({
             "page": int(request.query_params.get("page", 1)),
             "limit": int(request.query_params.get("limit", 10)),
@@ -454,7 +407,6 @@ class ResourceListCreateView(APIView):
             "order": request.query_params.get("order", "newest"),
             "uploader": request.query_params.get("uploader"),
             "role_slug": request.query_params.get("roleSlug"),
-            "deleted": deleted,
         }, requesting_user=request.user)
         return Response(result)
 
@@ -493,18 +445,6 @@ class ResourceDetailView(APIView):
     def delete(self, request, resource_id):
         result = delete_resource(resource_id)
         code = status.HTTP_200_OK if result.get("msg") == "Resource deleted successfully" else status.HTTP_404_NOT_FOUND
-        return Response(result, status=code)
-
-
-class ResourceRestoreView(APIView):
-    """POST /api/v1/resource/{id}/restore - Restore resource"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, resource_id):
-        result = restore_resource(resource_id, requesting_user=request.user)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
-        if result.get("msg") == "Resource not found":
-            code = status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -848,16 +788,7 @@ class AdminTaskListCreateView(APIView):
         page = int(request.query_params.get("page", 1))
         limit = int(request.query_params.get("limit", 10))
         task_type = request.query_params.get("task_type") or None
-        # Admin Web sends deleted=true for the recovery table; default stays active-only.
-        deleted_raw = (request.query_params.get("deleted") or "").lower().strip()
-        deleted = True if deleted_raw == "true" else False if deleted_raw == "false" else None
-        result = list_admin_tasks(
-            request.user,
-            page=page,
-            limit=limit,
-            task_type=task_type,
-            deleted=deleted,
-        )
+        result = list_admin_tasks(request.user, page=page, limit=limit, task_type=task_type)
         return Response(result)
 
     def post(self, request):
@@ -886,19 +817,6 @@ class AdminTaskDetailView(APIView):
         if result.get("msg") == "Task not found":
             return Response(result, status=status.HTTP_404_NOT_FOUND)
         return Response(result, status=status.HTTP_204_NO_CONTENT)
-
-
-class AdminTaskRestoreView(APIView):
-    """POST /api/v1/admin/task/{task_id}/restore/ — restore task"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, task_id):
-        result = restore_admin_task(request.user, task_id)
-        if result.get("msg") == "Task not found":
-            return Response(result, status=status.HTTP_404_NOT_FOUND)
-        if not result.get("data"):
-            return Response(result, status=status.HTTP_400_BAD_REQUEST)
-        return Response(result, status=status.HTTP_200_OK)
 
 
 class AdminTaskToggleView(APIView):

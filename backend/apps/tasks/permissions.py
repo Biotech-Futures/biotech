@@ -155,9 +155,6 @@ def _task_track_id(task):
 
 
 def resolve_creator_role(user, task_type, group=None, assigned_user=None):
-    if user.is_staff or user.is_superuser:
-        return CreatorRole.GLOBAL_ADMIN
-
     if is_operational_admin(user):
         track_ids = get_admin_track_ids(user)
         if track_ids is None:
@@ -193,9 +190,6 @@ def visible_tasks(user, *, include_deleted=False):
 
     if not user or not user.is_authenticated:
         return base.none()
-
-    if user.is_staff or user.is_superuser:
-        return base
 
     track_ids = get_admin_track_ids(user) if is_operational_admin(user) else []
     if is_operational_admin(user) and track_ids is None:

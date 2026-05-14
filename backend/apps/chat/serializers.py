@@ -5,6 +5,7 @@ from rest_framework.reverse import reverse
 from apps.common.filenames import sanitize_upload_filename
 from apps.common.upload_validation import validate_uploaded_file
 from apps.resources.models import Resources
+from apps.resources.rbac import can_access_resource_file
 
 from .models import (
     MessageAttachment,
@@ -55,6 +56,16 @@ class MessageResourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageResource
         fields = ["id", "resource_id", "resource_name"]
+
+    def validate_resource_id(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        # Group-message resource links are user-facing references to the active
+        # resource catalogue. Admin recovery of deleted resources stays on the
+        # resource management endpoint, not in chat message creation.
+        if not can_access_resource_file(user, value):
+            raise serializers.ValidationError("You do not have access to this resource.")
+        return value
 
 
 class MessageResourcePublicSerializer(serializers.ModelSerializer):

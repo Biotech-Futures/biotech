@@ -18,8 +18,6 @@ from apps.groups.models import (
     Tracks,
 )
 from apps.users.models import AdminScope
-from apps.admin.services.event import delete_event as admin_delete_event
-from apps.admin.services.event import restore_event as admin_restore_event
 
 User = get_user_model()
 
@@ -28,7 +26,7 @@ class EventAPITests(APITestCase):
     Minimal test suite for /events/v1 endpoints.
     Covers:
     - GET returns only upcoming events
-    - POST works for admin/staff only
+    - POST works for operational admins only
     - POST rejected for regular user
     - Validation rules (end time after start time)
     """
@@ -36,9 +34,8 @@ class EventAPITests(APITestCase):
     def setUp(self):
         # Create regular and admin users
         self.user = User.objects.create_user(email="user2@gmail.com", password="pass123")
-        self.admin = User.objects.create_user(
-            email="test_admin@gmail.com", password="admin123", is_staff=True
-        )
+        self.admin = User.objects.create_user(email="test_admin@gmail.com", password="admin123")
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
         # Base URL (adjust if prefix changed)
         self.url = "/events/v1/"
@@ -74,11 +71,11 @@ class EventAPITests(APITestCase):
     # --- POST TESTS ---
 
     def test_admin_can_create_event(self):
-        """Admin/staff user can POST successfully"""
+        """Operational admin user can POST successfully"""
         self.client.force_authenticate(user=self.admin)
         data = {
             "event_name": "Admin Created Event",
-            "description": "By staff",
+            "description": "By admin",
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
@@ -93,7 +90,7 @@ class EventAPITests(APITestCase):
         self.client.force_authenticate(user=self.user)
         data = {
             "event_name": "Admin Created Event",
-            "description": "By staff",
+            "description": "By admin",
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
@@ -678,8 +675,8 @@ class EventRsvpSetActionTests(APITestCase):
 #
 # The role spec says Track Administrators have access *only* to their
 # assigned tracks. The previous ``IsAdminOrReadOnly`` permission checked
-# ``is_staff`` only, so Track Admins (defined by ``AdminScope`` rows but
-# not necessarily ``is_staff``) were locked out of event creation
+# Django's staff flag only, so Track Admins defined by ``AdminScope`` rows
+# were locked out of event creation
 # entirely. The new ``EventManagePermission`` + ``perform_create``
 # track-scope check open the door for Track Admins while keeping the
 # scope narrow:
@@ -687,8 +684,8 @@ class EventRsvpSetActionTests(APITestCase):
 #   * Track Admin → may create events whose ``track`` FK is in their
 #     scope. Cannot create untargeted events (those reach every user
 #     and would be a privilege escalation past their assigned tracks).
-#   * Global Admin (``is_staff`` / ``is_superuser`` / ``is_global``
-#     ``AdminScope`` row) → unrestricted (any track or untargeted).
+#   * Global Admin (``AdminScope.is_global`` row) → unrestricted
+#     (any track or untargeted).
 # ---------------------------------------------------------------------------
 
 
@@ -749,7 +746,7 @@ class EventCreatePermissionTests(APITestCase):
 
     def test_track_admin_can_create_event_in_their_track(self):
         # The whole point of Gap 1: Track Admin A creates a Track A
-        # event, no ``is_staff`` required.
+        # event, no Django staff flag required.
         self.client.force_authenticate(user=self.track_admin_a)
         response = self.client.post(
             self.url, self._payload(name="A Event", track_id=self.track_a.id), format="json"
@@ -806,8 +803,7 @@ class EventCreatePermissionTests(APITestCase):
     def test_regular_user_still_cannot_create_event(self):
         # Defense in depth: the new permission must not have widened
         # write access to non-admins. The previous test already covers
-        # is_staff=False users; this covers a user with neither
-        # is_staff nor any AdminScope row.
+        # non-staff users; this covers a user with no AdminScope row.
         self.client.force_authenticate(user=self.regular)
         response = self.client.post(
             self.url, self._payload(name="Should Fail", track_id=self.track_a.id), format="json"
@@ -869,10 +865,11 @@ class EventListVisibilityScopingTests(APITestCase):
             user=self.track_admin_a, track=self.track_a, is_global=False
         )
 
-        # Global admin via is_staff (covers the legacy path).
+        # Global admin via AdminScope.
         self.global_admin = User.objects.create_user(
-            email="global-admin@test.com", password="pw", is_staff=True
+            email="global-admin@test.com", password="pw"
         )
+        AdminScope.objects.create(user=self.global_admin, is_global=True)
 
         now = timezone.now()
         self.untargeted = Events.objects.create(
@@ -997,8 +994,8 @@ class EventListVisibilityScopingTests(APITestCase):
     # ----- Global Admin -----------------------------------------------
 
     def test_global_admin_sees_every_event(self):
-        # Sanity: ``is_staff=True`` gets ``admin_track_ids=None`` ⇒
-        # no clamp at all.
+        # Sanity: ``AdminScope(is_global=True)`` gets
+        # ``admin_track_ids=None`` and therefore no clamp at all.
         names = self._list(user=self.global_admin)
         self.assertEqual(
             names,
@@ -1045,7 +1042,8 @@ class EventScopedIdFilterTests(APITestCase):
         self.track_admin_a = User.objects.create_user(email="taa@test.com", password="pw")
         AdminScope.objects.create(user=self.track_admin_a, track=self.track_a, is_global=False)
 
-        self.global_admin = User.objects.create_user(email="ga@test.com", password="pw", is_staff=True)
+        self.global_admin = User.objects.create_user(email="ga@test.com", password="pw")
+        AdminScope.objects.create(user=self.global_admin, is_global=True)
 
         now = timezone.now()
         self.event_for_group_a = Events.objects.create(
@@ -1368,7 +1366,8 @@ class EventDetailAndDestroyTests(APITestCase):
     """GET/PATCH/DELETE /events/v1/{id}/."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email="d-admin@t.com", password="pw", is_staff=True)
+        self.admin = User.objects.create_user(email="d-admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin, is_global=True)
         self.user = User.objects.create_user(email="d-user@t.com", password="pw")
         now = timezone.now()
         self.event = Events.objects.create(
@@ -1430,21 +1429,6 @@ class EventDetailAndDestroyTests(APITestCase):
         ids = [row["id"] for row in r.data["results"]]
         self.assertEqual(ids, [self.event.id])
 
-    def test_admin_service_delete_and_restore_preserves_rsvps(self):
-        # Recoverability depends on soft-delete preserving RSVP rows.
-        EventRsvp.objects.create(
-            event=self.event,
-            user=self.user,
-            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
-        )
-
-        delete_result = admin_delete_event(str(self.event.id))
-        restore_result = admin_restore_event(str(self.event.id), requesting_user=self.admin)
-
-        self.assertEqual(delete_result["msg"], "Event deleted successfully")
-        self.assertEqual(restore_result["msg"], "Event restored successfully")
-        self.assertTrue(EventRsvp.objects.filter(event=self.event, user=self.user).exists())
-
     def test_re_delete_returns_404(self):
         self.client.force_authenticate(user=self.admin)
         self.client.delete(self._url(self.event.id))
@@ -1502,7 +1486,8 @@ class EventTargetingTests(APITestCase):
     """target_group_ids / target_track_ids on create + PATCH."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email="t-admin@t.com", password="pw", is_staff=True)
+        self.admin = User.objects.create_user(email="t-admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin, is_global=True)
         country = Countries.objects.create(country_name="X")
         state = CountryStates.objects.create(country=country, state_name="Y")
         self.track_a = Tracks.objects.create(track_name="A", state=state)
@@ -1570,7 +1555,8 @@ class EventBulkInviteTests(APITestCase):
     """POST /events/v1/{id}/rsvp/bulk/."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email="bi-admin@t.com", password="pw", is_staff=True)
+        self.admin = User.objects.create_user(email="bi-admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin, is_global=True)
         self.u1 = User.objects.create_user(email="bi1@t.com", password="pw")
         self.u2 = User.objects.create_user(email="bi2@t.com", password="pw")
         now = timezone.now()

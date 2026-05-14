@@ -59,6 +59,7 @@ import requests
 from apps.common.storage import serve_managed_file
 from .rbac import (
     can_access_resource_file,
+    can_manage_resource_collection,
     can_manage_resource_file,
     filter_resources_for_user,
 )
@@ -68,6 +69,11 @@ from .services.storage import (
     RESOURCE_FILE_SERVICE,
     is_external_storage_key,
 )
+
+
+class CanManageResourceCollection(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return can_manage_resource_collection(getattr(request, "user", None))
 
 
 class RoleViewSet(mixins.ListModelMixin,
@@ -309,11 +315,11 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if not user or not user.is_authenticated:
             return Resources.objects.none()
 
-        # Restore and management recovery lists are the only paths that include tombstones.
+        # Resource recovery is management-only. User uploads in group messaging use
+        # apps.chat MessageAttachment and never opt the resource catalogue into tombstones.
         include_deleted = (
             self.action == "restore"
-            or (self.request.query_params.get("include_deleted") or "").lower().strip() == "true"
-            or (self.request.query_params.get("deleted") or "").lower().strip() == "true"
+            or (self.action == "list" and self._is_recovery_list_request())
         )
         queryset = Resources.objects.select_related(
             'uploaded_by', 'track', 'group'
@@ -372,9 +378,22 @@ class ResourcesViewSet(mixins.ListModelMixin,
         return queryset
 
     def get_permissions(self):
+        if self.action in ['create', 'partial_update', 'destroy', 'restore']:
+            return [IsAuthenticated(), CanManageResourceCollection()]
         if self.action in ['assign_role', 'remove_role']:
             return [IsAuthenticated(), IsResourceAdmin()]
         return [IsAuthenticated()]
+
+    def _is_recovery_list_request(self):
+        return (
+            (self.request.query_params.get("include_deleted") or "").lower().strip() == "true"
+            or (self.request.query_params.get("deleted") or "").lower().strip() == "true"
+        )
+
+    def list(self, request, *args, **kwargs):
+        if self._is_recovery_list_request() and not can_manage_resource_collection(request.user):
+            return Response({"detail": "Admin access is required."}, status=status.HTTP_403_FORBIDDEN)
+        return super().list(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         track = self._requested_track_for_write()

@@ -5,16 +5,18 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
 from apps.groups.models import Groups, GroupMembership, CountryStates, Tracks, Countries
+from apps.users.models import AdminScope
 
 
 class GroupsTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.admin_user = get_user_model().objects.create_user(
-            email="myemail1@gmail.com", password='adminpass', is_staff=True
+            email="myemail1@gmail.com", password='adminpass'
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="myemail2@gmail.com", password='userpass', is_staff=False
+            email="myemail2@gmail.com", password='userpass'
         )
 
         self.country = Countries.objects.create(country_name="Australia")
@@ -311,10 +313,11 @@ class CountriesApiTests(TestCase):
         self.client = APIClient()
         self.list_url = reverse('countries-list')
         self.admin_user = get_user_model().objects.create_user(
-            email="myemail1@gmail.com", password='adminpass', is_staff=True
+            email="myemail1@gmail.com", password='adminpass'
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="myemail2@gmail.com", password='userpass', is_staff=False
+            email="myemail2@gmail.com", password='userpass'
         )
         self.country1 = Countries.objects.create(country_name='Australia')
         self.country2 = Countries.objects.create(country_name='Brazil')
@@ -362,10 +365,11 @@ class GroupMemberApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", password="adminpass", is_staff=True
+            email="admin@test.com", password="adminpass"
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", password="userpass", is_staff=False
+            email="user@test.com", password="userpass"
         )
 
         self.country = Countries.objects.create(country_name="Australia")
@@ -404,7 +408,7 @@ class GroupMemberApiTests(TestCase):
     def test_create_group_member_admin_only(self):
         self.client.force_authenticate(user=self.admin_user)
         new_user = get_user_model().objects.create_user(
-            email="newuser@test.com", password="newpass", is_staff=False
+            email="newuser@test.com", password="newpass"
         )
         response = self.client.post(
             self.list_url,
@@ -415,7 +419,7 @@ class GroupMemberApiTests(TestCase):
     def test_create_group_member_non_admin_forbidden(self):
         self.client.force_authenticate(user=self.normal_user)
         new_user = get_user_model().objects.create_user(
-            email="another@test.com", password="pass", is_staff=False
+            email="another@test.com", password="pass"
         )
         response = self.client.post(
             self.list_url,
@@ -439,10 +443,11 @@ class TrackApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", password="adminpass", is_staff=True
+            email="admin@test.com", password="adminpass"
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", password="userpass", is_staff=False
+            email="user@test.com", password="userpass"
         )
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")

@@ -14,6 +14,10 @@ from apps.common.rbac import (
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope
+from apps.users.utils.admin_scope import (
+    get_admin_track_ids as get_operational_admin_track_ids,
+    is_operational_admin,
+)
 
 
 User = get_user_model()
@@ -84,6 +88,16 @@ class CommonRBACTests(TestCase):
         self.assertFalse(is_global_admin(super_user))
         self.assertEqual(track_admin_track_ids(staff_user), set())
         self.assertEqual(track_admin_track_ids(super_user), set())
+
+    def test_operational_admin_helper_requires_admin_scope(self):
+        staff_user = User.objects.create_user(email="ops-staff@test.com", password="pw", is_staff=True)
+        scoped_user = User.objects.create_user(email="ops-track@test.com", password="pw")
+        AdminScope.objects.create(user=scoped_user, track=self.primary_track, is_global=False)
+
+        self.assertFalse(is_operational_admin(staff_user))
+        self.assertEqual(get_operational_admin_track_ids(staff_user), [])
+        self.assertTrue(is_operational_admin(scoped_user))
+        self.assertEqual(get_operational_admin_track_ids(scoped_user), [self.primary_track.id])
 
     def test_is_global_admin_ignores_role_assignments(self):
         admin_role = Roles.objects.create(role_name="global_admin")

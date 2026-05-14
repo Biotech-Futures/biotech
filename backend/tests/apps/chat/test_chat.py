@@ -12,6 +12,7 @@ from django.db import connection, models
 from django.conf import settings
 
 from rest_framework.test import APIClient
+from rest_framework import status
 
 try:
     from channels.testing import WebsocketCommunicator
@@ -109,12 +110,16 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
             name="R1",
             description="d1",
             uploaded_by=self.admin,
+            group=self.group,
+            visibility_scope=Resources.VisibilityScope.GROUP,
             uploaded_at=timezone.now() - timedelta(minutes=1),
         )
         self.res2 = Resources.objects.create(
             name="R2",
             description="d2",
             uploaded_by=self.admin,
+            group=self.group,
+            visibility_scope=Resources.VisibilityScope.GROUP,
             uploaded_at=timezone.now() - timedelta(minutes=1),
         )
 
@@ -155,6 +160,23 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertEqual(msg.sender_user_id, self.student.id)
         self.assertIsNone(msg.deleted_at)
         self.assertEqual(set(msg.resources.values_list("resource_id", flat=True)), {self.res1.id, self.res2.id})
+
+    def test_post_message_rejects_deleted_resource_link(self):
+        self.res1.deleted_at = timezone.now()
+        self.res1.save(update_fields=["deleted_at"])
+
+        resp = self.client_student.post(
+            self._list_url(),
+            {
+                "message_text": "deleted resource",
+                "resources": [{"resource_id": self.res1.id}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("access", str(resp.data).lower())
+        self.assertFalse(Messages.objects.filter(message_text="deleted resource").exists())
 
     def test_get_messages_with_limit_and_after(self):
         # create 3 messages

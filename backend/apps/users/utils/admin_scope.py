@@ -4,16 +4,12 @@ from apps.users.models import AdminScope
 def is_operational_admin(user) -> bool:
     if not user or not user.is_authenticated:
         return False
-    if user.is_staff or user.is_superuser:
-        return True
     return AdminScope.objects.filter(user=user).exists()
 
 
 def get_admin_track_ids(user):
     if not is_operational_admin(user):
         return []
-    if user.is_staff or user.is_superuser:
-        return None
     if AdminScope.objects.filter(user=user, is_global=True).exists():
         return None
     return list(

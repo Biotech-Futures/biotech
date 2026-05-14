@@ -335,7 +335,7 @@ class IsNotStudent(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        if request.user.is_staff or request.user.is_superuser:
+        if is_operational_admin(request.user):
             return True
 
         role_name = self._get_active_role(request.user)

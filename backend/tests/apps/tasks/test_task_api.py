@@ -36,9 +36,7 @@ class _World:
         self.group_b = Groups.objects.create(group_name="T-Group-B", track=self.track_one)
         self.group_c = Groups.objects.create(group_name="T-Group-C", track=self.track_two)
 
-        self.global_admin = User.objects.create_user(
-            email="ga@t.com", password="pw", is_staff=True
-        )
+        self.global_admin = User.objects.create_user(email="ga@t.com", password="pw")
         self.track_one_admin = User.objects.create_user(email="t1a@t.com", password="pw")
         self.track_two_admin = User.objects.create_user(email="t2a@t.com", password="pw")
         self.mentor_a = User.objects.create_user(email="ma@t.com", password="pw")
@@ -50,6 +48,7 @@ class _World:
         self.student_z = User.objects.create_user(email="sz@t.com", password="pw")
         self.outsider = User.objects.create_user(email="out@t.com", password="pw")
 
+        AdminScope.objects.create(user=self.global_admin, is_global=True)
         AdminScope.objects.create(user=self.track_one_admin, track=self.track_one, is_global=False)
         AdminScope.objects.create(user=self.track_two_admin, track=self.track_two, is_global=False)
 

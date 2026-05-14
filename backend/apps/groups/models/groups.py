@@ -23,8 +23,7 @@ class GroupQuerySet(models.QuerySet):
 
         - Operational admin without ``mine`` → all active groups within
           their admin track scope (or all active groups if the admin is
-          globally scoped via ``is_staff`` / ``is_superuser`` /
-          ``AdminScope.is_global``).
+          globally scoped via ``AdminScope.is_global``).
         - Operational admin with ``mine=True`` → only the groups they
           are an active member of.
         - Non-admin user → only the groups they are an active member of.

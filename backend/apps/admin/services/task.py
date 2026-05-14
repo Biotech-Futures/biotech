@@ -7,17 +7,14 @@ from apps.tasks.models import Task, TaskStatus, TaskType, CreatorRole
 from apps.tasks.permissions import resolve_creator_role
 from apps.groups.models import Groups, GroupMembership
 from apps.admin.scope_utils import get_admin_track_ids
-from apps.audit.services import log_audit_event
 
 
-def _admin_visible_tasks(requesting_user, *, include_deleted=False):
+def _admin_visible_tasks(requesting_user):
     """
-    Tasks visible to an admin based on AdminScope — ignores is_staff/is_superuser
-    so Track Admins are correctly scoped to their assigned tracks only (§2).
+    Tasks visible to an admin based on AdminScope; Django staff/superuser
+    flags do not widen track-scoped task visibility.
     """
-    base = Task.objects.all() if include_deleted else Task.objects.active()
-    # Deleted groups are non-participating containers, even for recovery lists.
-    base = base.filter(Q(group__isnull=True) | Q(group__deleted_at__isnull=True))
+    base = Task.objects.active()
 
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is None:
@@ -30,18 +27,11 @@ def _admin_visible_tasks(requesting_user, *, include_deleted=False):
     # Track Admin: only tasks belonging to groups in their tracks,
     # or individual tasks assigned to users in those groups
     admin_group_ids = list(
-        Groups.objects.filter(
-            track_id__in=track_ids,
-            deleted_at__isnull=True,
-        ).values_list("id", flat=True)
+        Groups.objects.filter(track_id__in=track_ids).values_list("id", flat=True)
     )
     user_ids_in_tracks = list(
         GroupMembership.objects
-        .filter(
-            group_id__in=admin_group_ids,
-            left_at__isnull=True,
-            group__deleted_at__isnull=True,
-        )
+        .filter(group_id__in=admin_group_ids, left_at__isnull=True)
         .values_list("user_id", flat=True)
     )
     visibility = (
@@ -113,7 +103,6 @@ def list_admin_tasks(
     page: int = 1,
     limit: int = 10,
     task_type: Optional[str] = None,
-    deleted: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     List tasks visible to the requesting admin with optional type filter.
@@ -127,14 +116,9 @@ def list_admin_tasks(
     Returns:
         Dictionary with tasks list and pagination info
     """
-    qs = _admin_visible_tasks(requesting_user, include_deleted=deleted is True).select_related("created_by")
+    qs = _admin_visible_tasks(requesting_user).select_related("created_by")
     if task_type:
         qs = qs.filter(task_type=task_type)
-    # deleted=true opens the recovery queue; false/omitted preserves active-only.
-    if deleted is True:
-        qs = qs.filter(deleted_at__isnull=False)
-    elif deleted is False:
-        qs = qs.filter(deleted_at__isnull=True)
 
     offset = (page - 1) * limit
     total = qs.count()
@@ -282,39 +266,6 @@ def delete_admin_task(requesting_user, task_id: int) -> TaskResponseDict:
 
     task.soft_delete()
     return {"msg": "Task deleted successfully", "data": True}
-
-
-@transaction.atomic
-def restore_admin_task(requesting_user, task_id: int) -> TaskResponseDict:
-    try:
-        task = (
-            _admin_visible_tasks(requesting_user, include_deleted=True)
-            .select_related("created_by", "group", "parent")
-            .get(id=task_id)
-        )
-    except Task.DoesNotExist:
-        return {"msg": "Task not found", "data": None}
-
-    if task.deleted_at is None:
-        return {"msg": "Task already active", "data": _serialize_task(task)}
-    # Parent scopes must be restored first so this task never becomes orphaned.
-    if task.group_id and task.group.deleted_at is not None:
-        return {"msg": "Cannot restore a task whose group is deleted", "data": None}
-    if task.parent_id and task.parent.deleted_at is not None:
-        return {"msg": "Parent task is deleted. Restore the parent first", "data": None}
-
-    before_state = _serialize_task(task)
-    task.restore(cascade=True)
-    task = Task.objects.select_related("created_by").get(id=task.id)
-    log_audit_event(
-        actor=requesting_user,
-        entity_type="task",
-        entity_id=task.id,
-        action="restore",
-        before_state=before_state,
-        after_state=_serialize_task(task),
-    )
-    return {"msg": "Task restored successfully", "data": _serialize_task(task)}
 
 
 @transaction.atomic

@@ -2,8 +2,8 @@
 
 Permission model in one paragraph:
 
-* Events are *pushed* — only admins create them. Global admins (is_staff
-  / is_superuser / AdminScope.is_global) can CRUD any event. Track admins
+* Events are *pushed* — only admins create them. Global admins
+  (AdminScope.is_global) can CRUD any event. Track admins
   can CRUD only events whose track FK is in their AdminScope.
 * Users RSVP. The user-side state machine is accepted / tentative /
   declined. PENDING is reserved for admin-issued invites awaiting a

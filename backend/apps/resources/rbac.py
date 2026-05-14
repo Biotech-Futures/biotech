@@ -145,6 +145,12 @@ def can_manage_resource_file(user, resource=None, track=None) -> bool:
     return bool(allowed_track_ids) and candidate_track_ids.issubset(allowed_track_ids)
 
 
+def can_manage_resource_collection(user) -> bool:
+    if not user or not user.is_authenticated:
+        return False
+    return is_global_admin(user) or bool(track_admin_track_ids(user))
+
+
 def can_access_resource_file(user, resource) -> bool:
     if not user or not user.is_authenticated or resource is None:
         return False

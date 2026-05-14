@@ -11,7 +11,6 @@ from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.admin.scope_utils import get_admin_track_ids
-from apps.audit.services import log_audit_event
 
 
 # Type definitions
@@ -147,7 +146,6 @@ def _build_group_where(
     search_group: Optional[str] = None,
     track: Optional[str] = None,
     mentor_status: Optional[str] = None,
-    deleted: Optional[bool] = None,
 ) -> Q:
     """
     Build query conditions for filtering groups.
@@ -161,11 +159,7 @@ def _build_group_where(
     Returns:
         Q object with combined conditions
     """
-    # Admin Web uses deleted=true for the recovery view; omission stays active-only.
-    if deleted is True:
-        conditions = [Q(deleted_at__isnull=False)]
-    else:
-        conditions = [Q(deleted_at__isnull=True)]
+    conditions = [Q(deleted_at__isnull=True)]
     
     if track:
         conditions.append(Q(track__track_name=track))
@@ -238,7 +232,6 @@ def query_groups(
     search_group: Optional[str] = None,
     track: Optional[str] = None,
     mentor_status: Optional[str] = None,
-    deleted: Optional[bool] = None,
     requesting_user=None,
 ) -> dict:
     """
@@ -256,12 +249,11 @@ def query_groups(
         Dictionary with groups, pagination, and metadata
     """
     offset = (page - 1) * limit
-    where = _build_group_where(search_name, search_group, track, mentor_status, deleted)
+    where = _build_group_where(search_name, search_group, track, mentor_status)
 
-    if requesting_user is not None:
-        track_ids = get_admin_track_ids(requesting_user)
-        if track_ids is not None:
-            where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
+    track_ids = get_admin_track_ids(requesting_user)
+    if track_ids is not None:
+        where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     # Get total count
     total = Groups.objects.filter(where).count()
@@ -458,56 +450,6 @@ def update_group(group_id: str, name: Optional[str] = None, track: Optional[str]
 
 
 @transaction.atomic
-def restore_group(group_id: str, requesting_user=None) -> dict:
-    try:
-        gid = int(group_id)
-    except (ValueError, TypeError):
-        return {"msg": "Group not found", "data": None}
-
-    try:
-        group = Groups.objects.select_related("track").get(id=gid)
-    except Groups.DoesNotExist:
-        return {"msg": "Group not found", "data": None}
-
-    if group.deleted_at is None:
-        return query_group_by_id(group_id)
-
-    # Restore must respect the active-only uniqueness constraint.
-    if Groups.objects.filter(
-        track=group.track,
-        group_name=group.group_name,
-        deleted_at__isnull=True,
-    ).exclude(pk=group.pk).exists():
-        return {
-            "msg": "An active group with this name already exists in this track",
-            "data": None,
-        }
-
-    before_state = {
-        "id": group.id,
-        "group_name": group.group_name,
-        "track": group.track_id,
-        "deleted_at": group.deleted_at.isoformat() if group.deleted_at else None,
-    }
-    group.restore()
-    group.refresh_from_db()
-    log_audit_event(
-        actor=requesting_user,
-        entity_type="group",
-        entity_id=group.id,
-        action="restore",
-        before_state=before_state,
-        after_state={
-            "id": group.id,
-            "group_name": group.group_name,
-            "track": group.track_id,
-            "deleted_at": None,
-        },
-    )
-    return query_group_by_id(group_id)
-
-
-@transaction.atomic
 def remove_group_member(group_id: str, user_id: int) -> dict:
     """
     Remove a student member from a group.
@@ -592,51 +534,6 @@ def remove_group_message(group_id: str, message_id: int) -> dict:
     
     return {
         "msg": "Group message removed successfully",
-        "data": {
-            "id": str(message.id),
-            "group_id": str(message.group_id),
-        },
-    }
-
-
-@transaction.atomic
-def restore_group_message(group_id: str, message_id: int, requesting_user=None) -> dict:
-    try:
-        gid = int(group_id)
-    except (ValueError, TypeError):
-        return {"msg": "Group not found", "data": None}
-
-    # Messages can only be restored while their parent group is active.
-    if not _fetch_group_base_by_id(gid):
-        return {"msg": "Group not found", "data": None}
-
-    try:
-        message = Messages.objects.get(id=message_id, group_id=gid)
-    except Messages.DoesNotExist:
-        return {"msg": "Group message not found", "data": None}
-
-    if message.deleted_at is None:
-        return {
-            "msg": "Group message already active",
-            "data": {"id": str(message.id), "group_id": str(message.group_id)},
-        }
-
-    before_state = {
-        "id": message.id,
-        "group_id": message.group_id,
-        "deleted_at": message.deleted_at.isoformat(),
-    }
-    message.restore()
-    log_audit_event(
-        actor=requesting_user,
-        entity_type="message",
-        entity_id=message.id,
-        action="restore",
-        before_state=before_state,
-        after_state={"id": message.id, "group_id": message.group_id, "deleted_at": None},
-    )
-    return {
-        "msg": "Group message restored successfully",
         "data": {
             "id": str(message.id),
             "group_id": str(message.group_id),

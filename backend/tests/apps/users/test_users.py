@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from apps.events.models import Events
 from apps.groups.models import Countries, CountryStates, Groups, Tracks
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
+from apps.users.models import AdminScope
 
 
 User = get_user_model()
@@ -81,8 +82,8 @@ class AdminWorkflowApiTests(TestCase):
             password="adminpass123",
             first_name="Ops",
             last_name="Admin",
-            is_staff=True,
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
         self.track = Tracks.objects.create(track_name="OPS-TRACK", state=self.state)
