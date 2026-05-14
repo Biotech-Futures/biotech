@@ -40,19 +40,29 @@
       </label>
     </header>
 
-    <div class="announcements__filters" role="tablist" aria-label="Filter by audience">
-      <button
-        v-for="option in visibleAudienceFilters"
-        :key="option.value"
-        type="button"
-        role="tab"
-        :aria-selected="audienceFilter === option.value"
-        class="filter-chip"
-        :class="{ 'filter-chip--active': audienceFilter === option.value }"
-        @click="audienceFilter = option.value"
-      >
-        {{ option.label }}
-      </button>
+    <div class="announcements__filterbar">
+      <div class="announcements__filters" role="tablist" aria-label="Filter by audience">
+        <button
+          v-for="option in visibleAudienceFilters"
+          :key="option.value"
+          type="button"
+          role="tab"
+          :aria-selected="audienceFilter === option.value"
+          class="filter-chip"
+          :class="{ 'filter-chip--active': audienceFilter === option.value }"
+          @click="audienceFilter = option.value"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+
+      <label v-if="myGroups.length" class="announcements__group-filter">
+        <span class="sr-only">Filter by group</span>
+        <select v-model.number="groupFilter" class="announcements__group-select">
+          <option :value="0">All groups</option>
+          <option v-for="g in myGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+        </select>
+      </label>
     </div>
 
     <div
@@ -109,7 +119,9 @@ import AnnouncementSkeleton from '@/components/announcements/AnnouncementSkeleto
 import {
   AUDIENCE_FILTERS_FOR_ROLE,
   audienceMatches,
+  fetchMyGroups,
   getAudienceLabel,
+  type UserGroupOption,
   useAnnouncements
 } from '@/composables/useAnnouncements'
 import { useAuthStore } from '@/stores/auth'
@@ -119,6 +131,8 @@ const { announcements, isLoading, error, load } = useAnnouncements()
 
 const q = ref('')
 const audienceFilter = ref<string>('all')
+const groupFilter = ref<number>(0) // 0 = "All groups"
+const myGroups = ref<UserGroupOption[]>([])
 
 const callerRole = computed<'admin' | 'mentor' | 'supervisor' | 'student'>(() => {
   if (auth.isAdmin) return 'admin'
@@ -143,8 +157,10 @@ const totalCount = computed(() => announcements.value.length)
 
 const filtered = computed(() => {
   const text = q.value.trim().toLowerCase()
+  const gid = groupFilter.value
   return announcements.value.filter(item => {
     if (!audienceMatches(item, audienceFilter.value)) return false
+    if (gid && !item.groupIds.includes(gid)) return false
     if (!text) return true
     return [item.title, item.bodyText, item.author, getAudienceLabel(item.audience)].some(
       field => String(field || '').toLowerCase().includes(text)
@@ -181,6 +197,7 @@ const errorTitle = computed(() => {
 function clearFilters() {
   q.value = ''
   audienceFilter.value = 'all'
+  groupFilter.value = 0
 }
 
 function onImageError({ id, url }: { id: number | string; url: string }) {
@@ -188,7 +205,11 @@ function onImageError({ id, url }: { id: number | string; url: string }) {
   if (target) target.images = target.images.filter(image => image.url !== url)
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // Group list is non-critical to first paint — fire after the feed loads.
+  myGroups.value = await fetchMyGroups(auth.user?.id ?? null)
+})
 </script>
 
 <style scoped>
@@ -301,11 +322,48 @@ onMounted(load)
   color: var(--charcoal);
 }
 
+.announcements__filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .announcements__filters {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.25rem 0.1rem;
+}
+
+.announcements__group-filter {
+  display: inline-flex;
+  align-items: center;
+}
+
+.announcements__group-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0.45rem 2rem 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-light, #e0e0e0);
+  background: var(--white, #ffffff);
+  color: var(--charcoal, #174243);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, #6c757d 50%),
+                    linear-gradient(135deg, #6c757d 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.announcements__group-select:focus {
+  outline: none;
+  border-color: var(--dark-green, #017151);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
 .filter-chip {

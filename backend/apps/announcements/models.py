@@ -52,6 +52,9 @@ class AnnouncementAudience(models.Model):
     )
     role = models.ForeignKey("resources.Roles", on_delete=models.CASCADE, null=True, blank=True)
     track = models.ForeignKey("groups.Tracks", on_delete=models.CASCADE, null=True, blank=True)
+    # Optional per-group targeting. Lets the admin narrow an announcement
+    # to specific groups within a track rather than the whole track.
+    group = models.ForeignKey("groups.Groups", on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
         db_table = "announcement_audience"
@@ -59,31 +62,37 @@ class AnnouncementAudience(models.Model):
             models.Index(fields=["announcement"]),
             models.Index(fields=["role"]),
             models.Index(fields=["track"]),
+            models.Index(fields=["group"]),
         ]
         constraints = [
             models.CheckConstraint(
-                condition=Q(role__isnull=False) | Q(track__isnull=False),
-                name="announcement_audience_requires_role_or_track",
+                condition=Q(role__isnull=False) | Q(track__isnull=False) | Q(group__isnull=False),
+                name="announcement_audience_requires_role_track_or_group",
             ),
             models.UniqueConstraint(
                 fields=["announcement", "role"],
-                condition=Q(track__isnull=True) & Q(role__isnull=False),
+                condition=Q(track__isnull=True) & Q(group__isnull=True) & Q(role__isnull=False),
                 name="unique_announcement_role_audience",
             ),
             models.UniqueConstraint(
                 fields=["announcement", "track"],
-                condition=Q(role__isnull=True) & Q(track__isnull=False),
+                condition=Q(role__isnull=True) & Q(group__isnull=True) & Q(track__isnull=False),
                 name="unique_announcement_track_audience",
             ),
             models.UniqueConstraint(
+                fields=["announcement", "group"],
+                condition=Q(role__isnull=True) & Q(track__isnull=True) & Q(group__isnull=False),
+                name="unique_announcement_group_audience",
+            ),
+            models.UniqueConstraint(
                 fields=["announcement", "role", "track"],
-                condition=Q(role__isnull=False) & Q(track__isnull=False),
+                condition=Q(role__isnull=False) & Q(track__isnull=False) & Q(group__isnull=True),
                 name="unique_announcement_role_track_audience",
             ),
         ]
 
     def __str__(self):
-        target = self.role or self.track
+        target = self.group or self.role or self.track
         return f"{self.announcement} -> {target}"
 
 

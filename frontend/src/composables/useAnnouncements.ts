@@ -17,8 +17,11 @@ export interface Announcement {
   audience: string
   // Normalized role set (e.g. ['student','mentor']) used by chip filters.
   audienceRoles: string[]
-  // True when scope is public or no specific role/track audience targets exist.
+  // True when scope is public or no specific role/track/group audience exists.
   isPublic: boolean
+  trackIds: number[]
+  // Group ids this announcement is scoped to via audience rules.
+  groupIds: number[]
   images: AnnouncementImage[]
   link?: string
   route?: string | null
@@ -36,6 +39,9 @@ const DETAIL_ENDPOINT = (id: string | number) => `${API_BASE_URL}/announcements/
 interface AnnouncementAudience {
   role_name?: string | null
   track_name?: string | null
+  track?: number | null
+  group?: number | null
+  group_name?: string | null
 }
 
 interface AnnouncementApiItem {
@@ -45,6 +51,7 @@ interface AnnouncementApiItem {
   content?: string | null
   summary?: string | null
   visibility_scope?: string | null
+  track?: number | null
   published_at?: string | null
   archived_at?: string | null
   author_email?: string | null
@@ -252,8 +259,28 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
   const rawRoles = Array.isArray(a?.audiences)
     ? a.audiences.map(r => r?.role_name).filter(Boolean)
     : []
-  const tracks = Array.isArray(a?.audiences)
+  const trackNames = Array.isArray(a?.audiences)
     ? a.audiences.map(r => r?.track_name).filter(Boolean)
+    : []
+  const audienceTrackIds = Array.isArray(a?.audiences)
+    ? (a.audiences
+        .map((r) => (typeof r?.track === 'number' ? r.track : null))
+        .filter((v): v is number => v !== null))
+    : []
+  const directTrackId = typeof (a as { track?: number | null })?.track === 'number'
+    ? ((a as { track: number }).track)
+    : null
+  const trackIds = Array.from(
+    new Set([...(directTrackId !== null ? [directTrackId] : []), ...audienceTrackIds]),
+  )
+  const groupIds = Array.isArray(a?.audiences)
+    ? Array.from(
+        new Set(
+          a.audiences
+            .map((r) => (typeof r?.group === 'number' ? r.group : null))
+            .filter((v): v is number => v !== null),
+        ),
+      )
     : []
   const scope = normalizeAudienceValue(a?.visibility_scope)
   // Normalized, deduped role set for chip-filter matching. Plural names
@@ -264,7 +291,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
   const audience =
     scope === 'public'
       ? 'all'
-      : normalizeAudienceValue(rawRoles[0] || tracks[0] || scope || 'all')
+      : normalizeAudienceValue(rawRoles[0] || trackNames[0] || scope || 'all')
 
   return {
     id: a?.id,
@@ -275,7 +302,11 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
     bodyHtml: renderAnnouncementBody(body),
     audience,
     audienceRoles,
-    isPublic: scope === 'public' || (audienceRoles.length === 0 && tracks.length === 0),
+    isPublic:
+      scope === 'public' ||
+      (audienceRoles.length === 0 && trackIds.length === 0 && groupIds.length === 0),
+    trackIds,
+    groupIds,
     images: extractImages(a),
     link: normalizeRichTextUrl(a?.link),
     route: typeof a?.route === 'string' ? a.route : null
@@ -308,6 +339,37 @@ const compareByDateDesc = (a: Announcement, b: Announcement) => {
   const da = a.date ? new Date(a.date).getTime() : 0
   const db = b.date ? new Date(b.date).getTime() : 0
   return db - da
+}
+
+export interface UserGroupOption {
+  id: number
+  name: string
+}
+
+// Fetches the groups the current user is an active member of. Used by the
+// announcements page group-filter dropdown.
+export async function fetchMyGroups(userId: number | string | null): Promise<UserGroupOption[]> {
+  if (!userId) return []
+  const url = `${API_BASE_URL}/groups/group-members/?page_size=100`
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }),
+  })
+  if (!response.ok) return []
+  const data = (await response.json()) as { results?: unknown[] } | unknown[]
+  const rows = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : []
+  const me = String(userId)
+  const seen = new Map<number, string>()
+  for (const row of rows as Record<string, unknown>[]) {
+    if (String(row.user ?? row.user_id ?? '') !== me) continue
+    if (row.left_at) continue
+    const id = Number(row.group ?? row.group_id ?? 0)
+    if (!id || seen.has(id)) continue
+    const name = String(row.group_name ?? row.name ?? `Group ${id}`)
+    seen.set(id, name)
+  }
+  return Array.from(seen.entries()).map(([id, name]) => ({ id, name }))
 }
 
 export function useAnnouncements() {
