@@ -5451,6 +5451,11 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   disconnectChatSocket()
   clearTimeout(typingStopTimer)
+  clearTimeout(taskFilterReloadTimer)
+  clearTimeout(searchHighlightTimer)
+  clearTimeout(gifSearchDebounceTimer)
+  typingUserTimers.forEach((timer) => clearTimeout(timer))
+  typingUserTimers.clear()
   if (manageWindowTimer) {
     clearInterval(manageWindowTimer)
     manageWindowTimer = null
@@ -5459,6 +5464,12 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onDocumentKeydownForStatusMenu)
   document.removeEventListener('mousedown', onDocumentClickForReceiptPopover)
   document.removeEventListener('keydown', onDocumentKeydownForReceiptPopover)
+  document.removeEventListener('mousedown', onDocumentClickForReactionPicker)
+  document.removeEventListener('keydown', onDocumentKeydownForReactionPicker)
+  document.removeEventListener('mousedown', onDocumentClickForMessageKebab)
+  document.removeEventListener('keydown', onDocumentKeydownForMessageKebab)
+  document.removeEventListener('mousedown', onDocumentClickForResourceChoice)
+  document.removeEventListener('keydown', onDocumentKeydownForResourceChoice)
 })
 </script>
 
