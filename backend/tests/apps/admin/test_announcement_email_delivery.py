@@ -570,3 +570,92 @@ class AnnouncementCreateUpdateOnCommitTests(TestCase):
         self.assertEqual(
             deliveries.first().status, AnnouncementDelivery.Status.SUCCESS,
         )
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementEmailHtmlBodyTests(TestCase):
+    """The send path attaches a styled HTML alternative; cover its shape."""
+
+    def setUp(self):
+        from django.core import mail
+
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            email="author@example.com",
+            password="testpass",
+            first_name="An",
+            last_name="Author",
+        )
+        self.recipient = User.objects.create_user(
+            email="r@example.com",
+            password="testpass",
+            first_name="R",
+            last_name="One",
+        )
+
+    def _send(self, *, title="Hello", body="<p>This is the body.</p>"):
+        from django.core import mail
+
+        announcement = Announcement.objects.create(
+            author_user=self.author,
+            title=title,
+            body=body,
+            visibility_scope="global",
+        )
+        send_announcement_email(announcement.id, initiated_by=self.author)
+        return mail.outbox, announcement
+
+    def test_email_attaches_html_alternative(self):
+        outbox, _ = self._send()
+        self.assertGreaterEqual(len(outbox), 1)
+        message = outbox[0]
+        # Plain-text body is always set; the HTML alternative is what we care
+        # about — without it, mail clients render the raw HTML markup as text.
+        self.assertEqual(len(message.alternatives), 1)
+        html_body, mime_type = message.alternatives[0]
+        self.assertEqual(mime_type, "text/html")
+        self.assertTrue(html_body.lstrip().startswith("<!doctype html>"))
+        self.assertIn("<html>", html_body)
+        self.assertIn("</html>", html_body)
+
+    def test_html_body_contains_title_and_excerpt(self):
+        outbox, _ = self._send(
+            title="Mid-term update",
+            body="<p>Lab tour moved to <strong>Friday</strong>.</p>",
+        )
+        html_body, _ = outbox[0].alternatives[0]
+        # Title is rendered into the dark header band.
+        self.assertIn("Mid-term update", html_body)
+        # Excerpt is HTML-stripped and re-escaped, so the <strong> tag from
+        # the source body must not survive into the email markup.
+        self.assertNotIn("<strong>Friday</strong>", html_body)
+        self.assertIn("Friday", html_body)
+
+    def test_html_body_escapes_xss_in_title(self):
+        outbox, _ = self._send(title='<script>alert("xss")</script>Notice')
+        html_body, _ = outbox[0].alternatives[0]
+        # The raw tag must not appear; the escaped form must.
+        self.assertNotIn('<script>alert("xss")</script>', html_body)
+        self.assertIn("&lt;script&gt;", html_body)
+        self.assertIn("Notice", html_body)
+
+    def test_html_body_links_to_announcement_detail(self):
+        outbox, announcement = self._send()
+        html_body, _ = outbox[0].alternatives[0]
+        # The CTA links to the announcement detail page. We don't pin the
+        # exact host (settings-driven) — just assert the announcement id is
+        # in the URL and that the link is wrapped in an anchor.
+        self.assertIn(f"/{announcement.id}", html_body)
+        self.assertIn("<a href=", html_body)
+        self.assertIn("View full announcement", html_body)
+
+    def test_html_and_plain_text_share_subject(self):
+        outbox, _ = self._send(title="Subject sanity")
+        message = outbox[0]
+        # Subject is plain text (no HTML escaping) and carries the title;
+        # the brand prefix is set by settings.
+        self.assertIn("Subject sanity", message.subject)
+        self.assertNotIn("&lt;", message.subject)
+        # The plain-text body carries the title too (mail clients without
+        # HTML render it).
+        self.assertIn("Subject sanity", message.body)
