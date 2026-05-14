@@ -10,10 +10,12 @@ DUMMY_TENOR_RESPONSE = {
     "results": [
         {
             "id": "abc123",
-            "media_formats": {
-                "gif": {"url": "https://media.tenor.com/abc123/gif"},
-                "tinygif": {"url": "https://media.tenor.com/abc123/tinygif"},
-            },
+            "media": [
+                {
+                    "gif": {"url": "https://media.tenor.com/abc123/gif"},
+                    "tinygif": {"url": "https://media.tenor.com/abc123/tinygif"},
+                }
+            ],
         }
     ]
 }

@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .services.gif import search_gifs, trending_gifs
 from .serializers import GifItemSerializer
+from apps.common.text import sanitize_text
 
 from apps.common.storage import serve_managed_file
 from .management.permissions import (
@@ -264,6 +265,11 @@ class GifViewSet(viewsets.ViewSet):
                 {"detail": "Query parameter 'q' is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Block blacklisted search terms gracefully — return empty results silently
+        if sanitize_text(query) != query:
+            return Response({"data": []}, status=status.HTTP_200_OK)
+
         try:
             limit = int(request.query_params.get("limit", 20))
             limit = max(1, min(limit, 50))
