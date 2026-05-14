@@ -17,7 +17,7 @@ from apps.groups.services import (
     sync_supervisor_memberships,
     sync_supervisor_memberships_for_student,
 )
-from apps.users.models import StudentProfile, SupervisorProfile
+from apps.users.models import AdminScope, StudentProfile, SupervisorProfile
 
 User = get_user_model()
 
@@ -161,9 +161,8 @@ class SupervisorMembershipViewIntegrationTests(_SupervisorWorld, TestCase):
 
     def setUp(self):
         self._build()
-        self.admin = User.objects.create_user(
-            email="admin@s.com", password="pw", is_staff=True,
-        )
+        self.admin = User.objects.create_user(email="admin@s.com", password="pw")
+        AdminScope.objects.create(user=self.admin, track=self.track)
         from rest_framework.test import APIClient
         self.client = APIClient()
         self.client.force_authenticate(user=self.admin)

@@ -1429,6 +1429,22 @@ class EventDetailAndDestroyTests(APITestCase):
         ids = [row["id"] for row in r.data["results"]]
         self.assertEqual(ids, [self.event.id])
 
+    def test_api_v1_mount_lists_and_restores_deleted_events(self):
+        # The canonical frontend/admin route must expose the same recovery flow
+        # as the legacy /events/v1/... endpoint.
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+
+        listed = self.client.get("/api/v1/events/?deleted=true&when=all")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in listed.data["results"]], [self.event.id])
+
+        restored = self.client.post(f"/api/v1/events/{self.event.id}/restore/")
+        self.assertEqual(restored.status_code, status.HTTP_200_OK)
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.deleted_at)
+        self.assertIsNone(restored.data["deleted_at"])
+
     def test_re_delete_returns_404(self):
         self.client.force_authenticate(user=self.admin)
         self.client.delete(self._url(self.event.id))
