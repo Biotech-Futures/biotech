@@ -23,7 +23,7 @@ from apps.users.utils.admin_scope import (
 )
 
 from .filters import EventFilter
-from .models import EventRsvp, Events
+from .models import EventRsvp, EventTargetGroup, Events
 from .serializers import (
     EventBulkInviteSerializer,
     EventRsvpRequestSerializer,
@@ -96,10 +96,23 @@ class EventViewSet(viewsets.ModelViewSet):
     _WHEN_VALUES = {"upcoming", "past", "all"}
 
     def get_queryset(self):
-        base_qs = Events.objects.filter(deleted_at__isnull=True)
+        # Restore and admin recovery lists are the only paths that opt into deleted events.
+        include_deleted = (
+            getattr(self, "action", None) == "restore"
+            or (
+                is_operational_admin(self.request.user)
+                and (
+                    (self.request.query_params.get("include_deleted") or "").lower().strip() == "true"
+                    or (self.request.query_params.get("deleted") or "").lower().strip() == "true"
+                )
+            )
+        )
+        base_qs = Events.objects.all() if include_deleted else Events.objects.filter(deleted_at__isnull=True)
         # ?when= only narrows the list view. Detail/update/destroy must
         # still see past events so admins can edit a finished one.
         if getattr(self, "action", None) == "list":
+            if (self.request.query_params.get("deleted") or "").lower().strip() == "true":
+                base_qs = base_qs.filter(deleted_at__isnull=False)
             when = (self.request.query_params.get("when") or "upcoming").lower()
             if when not in self._WHEN_VALUES:
                 when = "upcoming"
@@ -212,6 +225,38 @@ class EventViewSet(viewsets.ModelViewSet):
             after_state=EventSerializer(instance).data,
         )
         return Response(EventSerializer(instance).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="restore")
+    @transaction.atomic
+    def restore(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self._enforce_track_scope(instance.track)
+        if instance.deleted_at is None:
+            return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+
+        # Target groups must be restored before their events can be restored.
+        if EventTargetGroup.objects.filter(
+            event=instance,
+            group__deleted_at__isnull=False,
+        ).exists():
+            return Response(
+                {"detail": "Cannot restore an event that targets a deleted group."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        before_state = EventSerializer(instance, context=self.get_serializer_context()).data
+        instance.deleted_at = None
+        instance.save(update_fields=["deleted_at"])
+        instance.refresh_from_db()
+        log_audit_event(
+            actor=request.user,
+            entity_type="event",
+            entity_id=instance.id,
+            action="restore",
+            before_state=before_state,
+            after_state=EventSerializer(instance, context=self.get_serializer_context()).data,
+        )
+        return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
 
 
 class EventRsvpSetView(APIView):

@@ -694,6 +694,47 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         resource.refresh_from_db()
         self.assertTrue(resource.deleted_at is not None)
         self.assertIsNotNone(resource.deleted_at)
+
+    def test_restore_resource_clears_deleted_at(self):
+        """Test resource restore"""
+        # Restore clears only deleted_at; file metadata and audiences remain intact.
+        resource = Resources.objects.create(
+            name='Restore Resource',
+            description='A test resource',
+            uploaded_by=self.regular_user,
+        )
+        resource.deleted_at = timezone.now()
+        resource.save(update_fields=["deleted_at"])
+
+        url = reverse('resource-files-restore', kwargs={'pk': resource.id})
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resource.refresh_from_db()
+        self.assertIsNone(resource.deleted_at)
+        self.assertIsNone(response.data['deleted_at'])
+
+    def test_restore_resource_rejects_name_conflict(self):
+        # A deleted duplicate stays tombstoned if an active resource uses the name.
+        Resources.objects.create(
+            name='Conflicting Resource',
+            description='Active resource',
+            uploaded_by=self.regular_user,
+        )
+        deleted_resource = Resources.objects.create(
+            name='Conflicting Resource',
+            description='Deleted resource',
+            uploaded_by=self.regular_user,
+        )
+        deleted_resource.deleted_at = timezone.now()
+        deleted_resource.save(update_fields=["deleted_at"])
+
+        url = reverse('resource-files-restore', kwargs={'pk': deleted_resource.id})
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        deleted_resource.refresh_from_db()
+        self.assertIsNotNone(deleted_resource.deleted_at)
     
     def test_list_resources_excludes_deleted(self):
         """Test that deleted resources are excluded from listing"""

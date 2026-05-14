@@ -85,6 +85,9 @@ class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
 
     def get_queryset(self):
+        # Only restore and staff recovery views can see tombstoned groups.
+        if self.action == "restore":
+            return Groups.objects.order_by("group_name", "id")
         raw = (self.request.query_params.get('include_deleted') or '').lower().strip()
         if raw == 'true' and self.request.user.is_staff:
             return Groups.objects.order_by("group_name", "id")
@@ -102,6 +105,36 @@ class GroupViewSet(viewsets.ModelViewSet):
         group.deleted_at = timezone.now()
         group.save(update_fields=['deleted_at'])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="restore")
+    @transaction.atomic
+    def restore(self, request, pk=None):
+        group = self.get_object()
+        self._ensure_admin_track_access(request, group)
+        if group.deleted_at is None:
+            return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
+        # Restore must respect the active-only uniqueness constraint.
+        if Groups.objects.filter(
+            track=group.track,
+            group_name=group.group_name,
+            deleted_at__isnull=True,
+        ).exclude(pk=group.pk).exists():
+            raise ValidationError({
+                "group_name": "An active group with this name already exists in this track."
+            })
+
+        before_state = GroupSerializer(group).data
+        group.restore()
+        group.refresh_from_db()
+        log_audit_event(
+            actor=request.user,
+            entity_type="group",
+            entity_id=group.id,
+            action="restore",
+            before_state=before_state,
+            after_state=GroupSerializer(group).data,
+        )
+        return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
 
     def _ensure_admin_track_access(self, request, track_or_group):
         if not is_operational_admin(request.user):

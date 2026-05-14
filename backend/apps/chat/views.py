@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.storage import serve_managed_file
+from apps.audit.services import log_audit_event
 from .management.permissions import (
     CanEditMessage,
     CanModerateMessage,
@@ -38,6 +39,7 @@ from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from .tasks import dispatch_og
 from .utils import parse_mentions
 from apps.groups.models import Groups, GroupMembership
+from apps.users.utils.admin_scope import can_admin_track, is_operational_admin
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -310,6 +312,10 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "destroy":
             return [IsAuthenticated(), CanModerateMessage()]
+        if self.action == "restore":
+            # Restore is admin recovery, not sender self-undo; object track scope
+            # is checked inside restore() after the deleted row is loaded.
+            return [IsAuthenticated()]
         if self.action == "partial_update":
             # Edit and delete share the same window-bounded RBAC rule, but the
             # permission classes stay split so view wiring expresses intent.
@@ -329,15 +335,17 @@ class MessageViewSet(viewsets.ModelViewSet):
             return MessagePublicSerializer
         return MessageSerializer
 
-    def _message_queryset(self):
+    def _message_queryset(self, *, include_deleted=False):
         # ``reply_to`` is select_related so the embedded parent context
         # does not issue an extra query per row. The join is intentionally
         # one level deep — mirroring ReplyToSerializer's bounded shape —
         # so a long chain of quotes still costs exactly one extra JOIN.
         user_id = getattr(getattr(self, "request", None), "user", None)
         user_id = getattr(user_id, "id", None)
+        # Restore/deleted admin paths opt into tombstoned rows; normal chat stays active-only.
+        base_qs = Messages.objects.all() if include_deleted else Messages.objects.filter(deleted_at__isnull=True)
         return (
-            Messages.objects.filter(deleted_at__isnull=True)
+            base_qs
             .select_related("sender_user", "reply_to", "preview")
             .prefetch_related(
                 "attachments",
@@ -377,7 +385,9 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        return self._message_queryset().filter(group_id=gid)
+        return self._message_queryset(
+            include_deleted=self.action in {"restore"}
+        ).filter(group_id=gid)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -497,7 +507,10 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def _get_group(self):
         group_pk = self.kwargs.get("group_pk")
-        return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
+        return Groups.objects.only("id", "track_id").filter(
+            pk=group_pk,
+            deleted_at__isnull=True,
+        ).first()
 
     # GET /chat/groups/{gid}/messages/?after=&before=&limit=
     def list(self, request, *args, **kwargs):
@@ -592,6 +605,29 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=False, methods=["get"], url_path="deleted")
+    def deleted(self, request, *args, **kwargs):
+        # Recovery queue for moderators; participants should never browse deleted content.
+        if not is_operational_admin(request.user):
+            return Response({"detail": "Admin access is required."}, status=status.HTTP_403_FORBIDDEN)
+
+        gid = self.kwargs.get("group_pk")
+        qs = (
+            self._message_queryset(include_deleted=True)
+            .filter(group_id=gid, deleted_at__isnull=False)
+            .order_by("-deleted_at", "-id")
+        )
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 100))
+        items = list(qs[:limit])
+        return Response(
+            {"items": MessageSerializer(items, many=True, context=self.get_serializer_context()).data},
+            status=status.HTTP_200_OK,
+        )
+
     # POST /chat/groups/{gid}/messages/
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
@@ -681,6 +717,47 @@ class MessageViewSet(viewsets.ModelViewSet):
             instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="restore")
+    @transaction.atomic
+    def restore(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not is_operational_admin(request.user) or not can_admin_track(
+            request.user, instance.group.track_id
+        ):
+            return Response(
+                {"detail": "Admin access is required to restore messages."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # A message can only return while its parent group is active.
+        if instance.group.deleted_at is not None:
+            raise drf_serializers.ValidationError(
+                {"group": ["Cannot restore a message in a deleted group."]}
+            )
+        if instance.deleted_at is None:
+            return Response(
+                MessageSerializer(instance, context=self.get_serializer_context()).data,
+                status=status.HTTP_200_OK,
+            )
+
+        before_state = MessageSerializer(instance, context=self.get_serializer_context()).data
+        instance.restore()
+        instance.refresh_from_db()
+        after_state = MessageSerializer(instance, context=self.get_serializer_context()).data
+        log_audit_event(
+            actor=request.user,
+            entity_type="message",
+            entity_id=instance.id,
+            action="restore",
+            before_state=before_state,
+            after_state=after_state,
+        )
+        _broadcast(
+            instance.group_id,
+            "message.restored",
+            self._serialize_broadcast_message(instance),
+        )
+        return Response(after_state, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="read")
     def read(self, request, *args, **kwargs):

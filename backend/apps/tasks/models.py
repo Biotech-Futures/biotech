@@ -133,3 +133,26 @@ class Task(models.Model):
             frontier = children
         Task.objects.filter(id__in=ids_to_mark, deleted_at__isnull=True).update(deleted_at=now)
         self.deleted_at = now
+
+    @transaction.atomic
+    def restore(self, *, cascade=True):
+        deleted_marker = self.deleted_at
+        ids_to_restore = [self.id]
+
+        if cascade and deleted_marker is not None:
+            # Restore only children deleted by the same cascade, not independently deleted tasks.
+            frontier = [self.id]
+            while frontier:
+                children = list(
+                    Task.objects.filter(
+                        parent_id__in=frontier,
+                        deleted_at=deleted_marker,
+                    ).values_list("id", flat=True)
+                )
+                if not children:
+                    break
+                ids_to_restore.extend(children)
+                frontier = children
+
+        Task.objects.filter(id__in=ids_to_restore).update(deleted_at=None)
+        self.deleted_at = None

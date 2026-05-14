@@ -164,6 +164,32 @@ class GroupsTests(TestCase):
         get_response = self.client.get(detail_url)
         self.assertEqual(get_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_admin_can_restore_soft_deleted_group(self):
+        # Restore clears only deleted_at and returns the recovered group shape.
+        deleted = self.make_deleted_group()
+        url = reverse("groups-restore", args=[deleted.id])
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        deleted.refresh_from_db()
+        self.assertIsNone(deleted.deleted_at)
+        self.assertIsNone(response.data["deleted_at"])
+
+    def test_restore_group_rejects_active_name_conflict(self):
+        # A deleted duplicate stays tombstoned if it would violate active uniqueness.
+        deleted = self.make_deleted_group(name="Conflicting Group")
+        Groups.objects.create(group_name="Conflicting Group", track=self.track)
+        url = reverse("groups-restore", args=[deleted.id])
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        deleted.refresh_from_db()
+        self.assertIsNotNone(deleted.deleted_at)
+
     def test_non_staff_cannot_include_deleted_even_with_flag(self):
         deleted = self.make_deleted_group()
         url = reverse('groups-list') + '?include_deleted=true'

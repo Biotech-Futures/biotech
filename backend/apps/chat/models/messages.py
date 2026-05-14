@@ -80,6 +80,11 @@ class Messages(models.Model):
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted_at"])
 
+    def restore(self):
+        # Recovery is intentionally limited to clearing the tombstone.
+        self.deleted_at = None
+        self.save(update_fields=["deleted_at"])
+
     def can_be_self_actioned_by(self, user) -> bool:
         """Sender's self-edit / self-delete window check. The 10-minute
         budget is shared by both edit and moderation paths so that the

@@ -18,6 +18,8 @@ from apps.groups.models import (
     Tracks,
 )
 from apps.users.models import AdminScope
+from apps.admin.services.event import delete_event as admin_delete_event
+from apps.admin.services.event import restore_event as admin_restore_event
 
 User = get_user_model()
 
@@ -1405,6 +1407,44 @@ class EventDetailAndDestroyTests(APITestCase):
         self.event.refresh_from_db()
         self.assertIsNotNone(self.event.deleted_at)
 
+    def test_admin_can_restore_soft_deleted_event(self):
+        # Restore clears deleted_at and returns the normal event serializer shape.
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+
+        r = self.client.post(f"/events/v1/{self.event.id}/restore/")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.deleted_at)
+        self.assertIsNone(r.data["deleted_at"])
+
+    def test_deleted_filter_lists_deleted_events_for_admin(self):
+        # deleted=true is the admin recovery list for events.
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+
+        r = self.client.get("/events/v1/?deleted=true&when=all")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in r.data["results"]]
+        self.assertEqual(ids, [self.event.id])
+
+    def test_admin_service_delete_and_restore_preserves_rsvps(self):
+        # Recoverability depends on soft-delete preserving RSVP rows.
+        EventRsvp.objects.create(
+            event=self.event,
+            user=self.user,
+            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
+        )
+
+        delete_result = admin_delete_event(str(self.event.id))
+        restore_result = admin_restore_event(str(self.event.id), requesting_user=self.admin)
+
+        self.assertEqual(delete_result["msg"], "Event deleted successfully")
+        self.assertEqual(restore_result["msg"], "Event restored successfully")
+        self.assertTrue(EventRsvp.objects.filter(event=self.event, user=self.user).exists())
+
     def test_re_delete_returns_404(self):
         self.client.force_authenticate(user=self.admin)
         self.client.delete(self._url(self.event.id))
@@ -1596,4 +1636,3 @@ class EventBulkInviteTests(APITestCase):
     def test_empty_user_ids_rejected(self):
         r = self.client.post(self._url(), {"user_ids": []}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-

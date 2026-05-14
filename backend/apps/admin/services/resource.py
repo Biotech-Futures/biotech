@@ -15,6 +15,7 @@ from apps.groups.models import Tracks, Groups
 from apps.users.models import User
 from azure_blob_utils import upload_file, generate_sas_url
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.audit.services import log_audit_event
 
 
 # Constants
@@ -92,6 +93,7 @@ class QueryResourcesInput(TypedDict):
     order: str
     uploader: Optional[str]
     role_slug: Optional[str]
+    deleted: Optional[bool]
 
 
 class CreateResourceInput(TypedDict):
@@ -256,7 +258,15 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     """Fetch resources from database with filters and pagination."""
     queryset = Resources.objects.select_related(
         'type', 'track', 'group', 'uploaded_by'
-    ).filter(deleted_at__isnull=True)
+    )
+    # Admin lists default to active rows; deleted=true opens the recovery bucket.
+    deleted = params.get('deleted')
+    if deleted is True:
+        queryset = queryset.filter(deleted_at__isnull=False)
+    elif deleted is False:
+        queryset = queryset.filter(deleted_at__isnull=True)
+    else:
+        queryset = queryset.filter(deleted_at__isnull=True)
 
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
@@ -874,6 +884,52 @@ def delete_resource(resource_id: int) -> Dict[str, Any]:
         'msg': 'Resource deleted successfully',
         'data': None,
     }
+
+
+@transaction.atomic
+def restore_resource(resource_id: int, requesting_user=None) -> Dict[str, Any]:
+    """Restore a soft-deleted resource."""
+    try:
+        resource = Resources.objects.select_related("group").get(id=resource_id)
+    except Resources.DoesNotExist:
+        return {'msg': 'Resource not found', 'data': None}
+
+    if resource.deleted_at is None:
+        return query_resource_by_id(resource_id)
+
+    # Restore must not make a resource visible through a deleted group.
+    if resource.group_id and resource.group and resource.group.deleted_at is not None:
+        return {
+            'msg': 'Cannot restore a resource whose group is deleted',
+            'data': None,
+        }
+
+    # Re-activating a resource must not collide with the active name namespace.
+    if Resources.objects.filter(
+        name__iexact=resource.name,
+        deleted_at__isnull=True,
+    ).exclude(pk=resource.pk).exists():
+        return {
+            'msg': 'An active resource with this name already exists',
+            'data': None,
+        }
+
+    before_state = {
+        'id': resource.id,
+        'resource_name': resource.name,
+        'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
+    }
+    resource.deleted_at = None
+    resource.save(update_fields=["deleted_at"])
+    log_audit_event(
+        actor=requesting_user,
+        entity_type="resource",
+        entity_id=resource.id,
+        action="restore",
+        before_state=before_state,
+        after_state={'id': resource.id, 'resource_name': resource.name, 'deleted_at': None},
+    )
+    return query_resource_by_id(resource_id)
 
 
 @transaction.atomic

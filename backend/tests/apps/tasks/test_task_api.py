@@ -18,6 +18,10 @@ def _detail_url(pk):
     return f"/api/v1/tasks/{pk}/"
 
 
+def _restore_url(pk):
+    return f"/api/v1/tasks/{pk}/restore/"
+
+
 def _toggle_url(pk):
     return f"/api/v1/tasks/{pk}/check/"
 
@@ -377,6 +381,31 @@ class TaskDeleteTests(_World, APITestCase):
         self.child.refresh_from_db()
         self.assertIsNotNone(self.parent.deleted_at)
         self.assertIsNotNone(self.child.deleted_at)
+
+    def test_restore_parent_cascades_matching_deleted_children(self):
+        # Restore cascades only through children tombstoned by the same delete.
+        self.client.force_authenticate(user=self.global_admin)
+        self.client.delete(_detail_url(self.parent.id))
+
+        r = self.client.post(_restore_url(self.parent.id))
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.parent.refresh_from_db()
+        self.child.refresh_from_db()
+        self.assertIsNone(self.parent.deleted_at)
+        self.assertIsNone(self.child.deleted_at)
+
+    def test_deleted_filter_returns_deleted_tasks(self):
+        # deleted=true is the recovery list for tasks visible to the caller.
+        self.client.force_authenticate(user=self.global_admin)
+        self.client.delete(_detail_url(self.parent.id))
+
+        r = self.client.get(LIST_URL + "?deleted=true")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        ids = {row["id"] for row in r.data["results"]}
+        self.assertIn(self.parent.id, ids)
+        self.assertIn(self.child.id, ids)
 
     def test_student_cannot_delete_admin_task(self):
         self.client.force_authenticate(user=self.student_x)

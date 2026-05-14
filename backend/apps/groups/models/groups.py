@@ -102,3 +102,8 @@ class Groups(models.Model):
     @property
     def is_deleted(self):
         return self.deleted_at is not None
+
+    def restore(self):
+        # Recovery is intentionally limited to clearing the tombstone.
+        self.deleted_at = None
+        self.save(update_fields=["deleted_at"])

@@ -282,6 +282,54 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertIn(m1.id, ids)
         self.assertNotIn(m2.id, ids)
 
+    def test_track_admin_can_restore_soft_deleted_message(self):
+        # Restore is moderator-only and clears the message tombstone.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="restore me")
+        msg.soft_delete()
+        url = reverse("group-messages-restore", kwargs={"group_pk": self.group.id, "pk": msg.id})
+
+        resp = self.client_track_admin.post(url)
+
+        self.assertEqual(resp.status_code, 200, resp.content)
+        msg.refresh_from_db()
+        self.assertIsNone(msg.deleted_at)
+        self.assertFalse(resp.data["is_deleted"])
+        self.assertIsNone(resp.data["deleted_at"])
+
+    def test_sender_cannot_restore_soft_deleted_message(self):
+        # Sender self-delete stays recoverable only by an admin/moderator.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="no self restore")
+        msg.soft_delete()
+        url = reverse("group-messages-restore", kwargs={"group_pk": self.group.id, "pk": msg.id})
+
+        resp = self.client_student.post(url)
+
+        self.assertEqual(resp.status_code, 403)
+        msg.refresh_from_db()
+        self.assertIsNotNone(msg.deleted_at)
+
+    def test_deleted_messages_action_is_admin_only(self):
+        # Deleted message history is a recovery queue, not participant-visible chat.
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="hidden")
+        msg.soft_delete()
+        url = reverse("group-messages-deleted", kwargs={"group_pk": self.group.id})
+
+        peer_resp = self.client_student.get(url)
+        admin_resp = self.client_track_admin.get(url)
+
+        self.assertEqual(peer_resp.status_code, 403)
+        self.assertEqual(admin_resp.status_code, 200, admin_resp.content)
+        self.assertEqual([item["id"] for item in admin_resp.data["items"]], [msg.id])
+
+    def test_deleted_group_blocks_chat_access(self):
+        # Group deletion revokes chat access even for existing members.
+        self.group.deleted_at = timezone.now()
+        self.group.save(update_fields=["deleted_at"])
+
+        resp = self.client_student.get(self._list_url())
+
+        self.assertEqual(resp.status_code, 403)
+
     def _session_cookie(self, user):
         c = Client()
         c.force_login(user)

@@ -39,7 +39,15 @@ class TaskListCreateView(generics.ListCreateAPIView):
     ordering = ["id"]
 
     def get_queryset(self):
-        return visible_tasks(self.request.user).order_by("id")
+        deleted = (self.request.query_params.get("deleted") or "").lower().strip()
+        # deleted=true opens the recovery list; normal task lists stay active-only.
+        include_deleted = deleted == "true"
+        qs = visible_tasks(self.request.user, include_deleted=include_deleted)
+        if deleted == "true":
+            qs = qs.filter(deleted_at__isnull=False)
+        elif deleted == "false":
+            qs = qs.filter(deleted_at__isnull=True)
+        return qs.order_by("id")
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -115,6 +123,46 @@ class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             after_state=TaskSerializer(instance).data,
         )
         return Response(TaskSerializer(instance).data, status=status.HTTP_200_OK)
+
+
+class TaskRestoreView(generics.GenericAPIView):
+    serializer_class = TaskSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return visible_tasks(self.request.user, include_deleted=True)
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        task = self.get_object()
+        if not IsTaskManager().has_object_permission(request, self, task):
+            return Response({"detail": "You do not have permission to restore this task."}, status=status.HTTP_403_FORBIDDEN)
+        if task.deleted_at is None:
+            return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        # Parent scopes must be restored first so this task never becomes orphaned.
+        if task.group_id and task.group.deleted_at is not None:
+            return Response(
+                {"group": ["Cannot restore a task whose group is deleted."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if task.parent_id and task.parent.deleted_at is not None:
+            return Response(
+                {"parent": ["Parent task is deleted. Restore the parent first."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        before_state = TaskSerializer(task).data
+        task.restore(cascade=True)
+        task.refresh_from_db()
+        log_audit_event(
+            actor=request.user,
+            entity_type="task",
+            entity_id=task.id,
+            action="restore",
+            before_state=before_state,
+            after_state=TaskSerializer(task).data,
+        )
+        return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
 
 
 class TaskToggleView(generics.GenericAPIView):

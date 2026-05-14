@@ -74,6 +74,7 @@ class EventSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Events
+        # deleted_at is read-only; recovery goes through the restore action.
         fields = [
             "id",
             "event_name",
@@ -85,6 +86,7 @@ class EventSerializer(serializers.ModelSerializer):
             "location",
             "location_link",
             "host_user",
+            "deleted_at",
             "event_image",
             "is_virtual",
             "accepted",
@@ -98,6 +100,7 @@ class EventSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "host_user",
+            "deleted_at",
             "accepted",
             "target_groups",
             "target_tracks",

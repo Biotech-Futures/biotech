@@ -32,12 +32,15 @@ def active_role_names(user) -> set[str]:
     }
 
 
-def group_participant_qs(user, group_id=None):
+def group_participant_qs(user, group_id=None, *, include_deleted_groups=False):
     GroupMembership = apps.get_model("groups", "GroupMembership")
     queryset = GroupMembership.objects.filter(
         user=user,
         left_at__isnull=True,
     )
+    # Active membership never flows through a deleted group unless explicitly requested.
+    if not include_deleted_groups:
+        queryset = queryset.filter(group__deleted_at__isnull=True)
     if group_id is not None:
         queryset = queryset.filter(group_id=group_id)
     return queryset

@@ -19,9 +19,10 @@ def _get_active_role_ids(user):
 
 
 def _get_active_memberships(user):
+    # Dashboard scope follows active groups only; deleted groups are recoverable elsewhere.
     return list(
         GroupMembership.objects.select_related("group", "group__track")
-        .filter(user=user, left_at__isnull=True)
+        .filter(user=user, left_at__isnull=True, group__deleted_at__isnull=True)
         .order_by("id")
     )
 

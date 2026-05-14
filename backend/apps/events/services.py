@@ -188,6 +188,8 @@ def visible_events_queryset(user, base_qs):
                 EventTargetGroup.objects.filter(
                     event_id=OuterRef("id"),
                     group__track_id__in=admin_track_ids,
+                    # Deleted groups should not expand an admin's visible event scope.
+                    group__deleted_at__isnull=True,
                 )
             )
         )
@@ -209,6 +211,8 @@ def visible_events_queryset(user, base_qs):
         EventTargetGroup.objects.filter(
             event_id=OuterRef("id"),
             group_id__in=list(user_group_ids),
+            # Event visibility through groups follows active memberships only.
+            group__deleted_at__isnull=True,
         )
     )
     role_axis_pass = ~has_role_target | Exists(
@@ -250,7 +254,10 @@ def _supervisor_visibility_q(user):
 
     rows = list(
         GroupMembership.objects.filter(
-            user_id__in=supervisee_ids, left_at__isnull=True
+            user_id__in=supervisee_ids,
+            left_at__isnull=True,
+            # Supervisor visibility should not survive group deletion.
+            group__deleted_at__isnull=True,
         ).values_list("group_id", "group__track_id")
     )
     group_ids = sorted({r[0] for r in rows if r[0]})
@@ -271,6 +278,7 @@ def _supervisor_visibility_q(user):
             EventTargetGroup.objects.filter(
                 event_id=OuterRef("id"),
                 group_id__in=group_ids,
+                group__deleted_at__isnull=True,
             )
         )
     return q
@@ -311,7 +319,12 @@ def _user_scope(user):
     from apps.resources.models import RoleAssignmentHistory
 
     memberships = list(
-        GroupMembership.objects.filter(user=user, left_at__isnull=True)
+        GroupMembership.objects.filter(
+            user=user,
+            left_at__isnull=True,
+            # User event scope is rebuilt from active groups only.
+            group__deleted_at__isnull=True,
+        )
         .select_related("group")
     )
     user_group_ids = {m.group_id for m in memberships}
