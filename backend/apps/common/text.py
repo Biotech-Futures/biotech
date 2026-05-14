@@ -260,6 +260,28 @@ def sanitize_text(
     return pattern.sub(replacement, text)
 
 
+def contains_blacklisted(
+    text: str | None,
+    blacklist: Iterable[str] | None = None,
+) -> bool:
+    """Return ``True`` if ``text`` contains any blacklisted stem or whole-word.
+
+    Reuses the same compiled pattern as :func:`sanitize_text` so detection
+    rules never drift from replacement rules. Used by the GIF proxy to blank
+    the result list before any upstream provider call.
+    """
+    if not text:
+        return False
+    if not isinstance(text, str):
+        raise TypeError(
+            f"contains_blacklisted expects str | None, got {type(text).__name__}"
+        )
+    if blacklist is None:
+        blacklist, _ = _resolve_settings()
+    pattern = _cached_pattern(tuple(sorted({w for w in blacklist if w})))
+    return pattern.search(text) is not None
+
+
 def reset_pattern_cache() -> None:
     """Test helper: drop the LRU-cached compiled patterns. Use this after
     ``override_settings(CHAT_SANITIZER_*=...)`` in tests so the next call to

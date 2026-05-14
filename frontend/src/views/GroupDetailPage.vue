@@ -867,10 +867,37 @@
                   <i class="fas fa-at"></i>
                   <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
                 </button>
-                <span class="chat-status">
-                  <template v-if="isLoadingMessages">Loading...</template>
+                <span
+                  class="chat-status"
+                  :class="`chat-status--${isLoadingMessages ? 'loading' : (wsConnectionState === 'connected' ? 'connected' : 'offline')}`"
+                  :title="
+                    isLoadingMessages
+                      ? 'Fetching latest messages'
+                      : (wsConnectionState === 'connected'
+                          ? 'Realtime updates active'
+                          : 'Realtime updates unavailable — click Reconnect to retry')
+                  "
+                >
+                  <i
+                    class="chat-status-dot"
+                    :class="{
+                      'fas fa-circle-notch fa-spin': isLoadingMessages,
+                      'fas fa-circle': !isLoadingMessages,
+                    }"
+                    aria-hidden="true"
+                  ></i>
+                  <template v-if="isLoadingMessages">Loading…</template>
                   <template v-else-if="wsConnectionState === 'connected'">Live</template>
                   <template v-else>Offline</template>
+                  <button
+                    v-if="!isLoadingMessages && wsConnectionState !== 'connected'"
+                    type="button"
+                    class="chat-reconnect-btn"
+                    aria-label="Reconnect to live chat"
+                    @click="connectChatSocket"
+                  >
+                    Reconnect
+                  </button>
                 </span>
               </div>
             </div>
@@ -893,12 +920,21 @@
                 <button
                   type="submit"
                   class="message-action-btn"
-                  :disabled="isSearchingMessages || !messageSearchQuery.trim()"
+                  :disabled="isSearchingMessages"
                 >
                   {{ isSearchingMessages ? 'Searching...' : 'Search' }}
                 </button>
                 <button
-                  v-if="messageSearchQuery || messageSearchResults.length"
+                  type="button"
+                  class="message-action-btn"
+                  :class="{ active: showSearchFilters }"
+                  :aria-pressed="showSearchFilters"
+                  @click="showSearchFilters = !showSearchFilters"
+                >
+                  <i class="fas fa-sliders-h"></i> Filters
+                </button>
+                <button
+                  v-if="messageSearchQuery || messageSearchResults.length || hasActiveSearchFilters()"
                   type="button"
                   class="message-action-btn"
                   @click="clearMessageSearch"
@@ -906,6 +942,26 @@
                   Clear
                 </button>
               </form>
+              <div v-if="showSearchFilters" class="message-search-filters">
+                <label>
+                  <span>Type</span>
+                  <select v-model="messageSearchFilters.type">
+                    <option value="">Any</option>
+                    <option value="text">Text</option>
+                    <option value="attachment">Attachments</option>
+                    <option value="resource">Resources</option>
+                    <option value="gif">GIFs</option>
+                  </select>
+                </label>
+                <label>
+                  <span>From</span>
+                  <input type="date" v-model="messageSearchFilters.from" />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input type="date" v-model="messageSearchFilters.to" />
+                </label>
+              </div>
               <div v-if="messageSearchError" class="gif-status">{{ messageSearchError }}</div>
               <div v-if="isSearchingMessages" class="gif-status">Searching messages...</div>
               <div v-else class="message-search-list">
@@ -1018,6 +1074,31 @@
             </div>
 
             <div class="chat-messages" ref="msgList" @scroll="handleMessagesScroll">
+              <div
+                v-if="isLoadingMessages && !messages.length"
+                class="chat-skeleton-list"
+                aria-hidden="true"
+              >
+                <div v-for="i in 4" :key="`msg-sk-${i}`" class="chat-skeleton-row">
+                  <div class="skeleton-message-avatar skeleton-block"></div>
+                  <div class="chat-skeleton-body">
+                    <div class="skeleton-line skeleton-block" style="width: 30%"></div>
+                    <div class="skeleton-line skeleton-block" style="width: 80%"></div>
+                    <div class="skeleton-line skeleton-block" style="width: 60%"></div>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-else-if="!isLoadingMessages && !messages.length"
+                class="chat-empty-state"
+              >
+                <span class="chat-empty-emoji" aria-hidden="true">👋</span>
+                <strong>It's quiet here</strong>
+                <span>Be the first to say hi — start the conversation below.</span>
+                <button type="button" class="btn btn-outline btn-sm" @click="composer?.focus()">
+                  <i class="fas fa-pen"></i> Write a message
+                </button>
+              </div>
               <button
                 v-if="nextMessagesBefore"
                 type="button"
@@ -1048,6 +1129,94 @@
                       <span v-if="message.editedAt" class="message-edited">edited</span>
                       <span class="message-date">{{ formatDate(message.date) }}</span>
                       <span class="message-time">{{ message.time }}</span>
+                      <!-- Inline action cluster: always-visible reply + smile,
+                           and a kebab menu (Edit/Delete) shown only while the
+                           10-min self-action window is open or the caller is
+                           an admin (``canManageMessage``). -->
+                      <span class="message-inline-actions">
+                        <button
+                          type="button"
+                          class="inline-action-btn"
+                          title="Reply"
+                          aria-label="Reply"
+                          @click="setReplyTarget(message)"
+                        >
+                          <i class="fas fa-reply"></i>
+                        </button>
+                        <button
+                          v-if="supportsMessageReactions"
+                          type="button"
+                          class="inline-action-btn"
+                          :class="{ active: activeReactionPickerMessageId === message.id }"
+                          :title="hasMessageReactions(message) ? 'Add another reaction' : 'Add reaction'"
+                          aria-label="Add reaction"
+                          @click.stop="toggleReactionPicker(message.id)"
+                        >
+                          <i class="fas fa-smile"></i>
+                        </button>
+                        <span
+                          v-if="canManageMessage(message)"
+                          class="inline-kebab-wrap"
+                        >
+                          <button
+                            type="button"
+                            class="inline-action-btn"
+                            :class="{ active: openMessageKebabId === message.id }"
+                            :aria-expanded="openMessageKebabId === message.id"
+                            aria-haspopup="menu"
+                            title="More actions"
+                            aria-label="More actions"
+                            @click.stop="toggleMessageKebab(message.id)"
+                          >
+                            <i class="fas fa-ellipsis-v"></i>
+                          </button>
+                          <div
+                            v-if="openMessageKebabId === message.id"
+                            class="inline-kebab-menu"
+                            role="menu"
+                            @click.stop
+                          >
+                            <button
+                              type="button"
+                              class="inline-kebab-item"
+                              role="menuitem"
+                              @click="onKebabEdit(message)"
+                            >
+                              <i class="fas fa-pen"></i>
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="inline-kebab-item inline-kebab-item--danger"
+                              role="menuitem"
+                              :disabled="isDeletingMessageId === message.id"
+                              @click="onKebabDelete(message)"
+                            >
+                              <i class="fas fa-trash"></i>
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </span>
+                        <!-- Inline picker popout — anchors to the smile button just above. -->
+                        <div
+                          v-if="supportsMessageReactions && activeReactionPickerMessageId === message.id"
+                          class="reaction-picker reaction-picker--inline"
+                          role="menu"
+                          aria-label="Quick reactions"
+                          @click.stop
+                        >
+                          <button
+                            v-for="emoji in CHAT_REACTION_OPTIONS"
+                            :key="`${message.id}-inline-${emoji}`"
+                            type="button"
+                            class="reaction-btn"
+                            :title="`React with ${emoji}`"
+                            @click="reactToMessage(message.id, emoji)"
+                          >
+                            <span>{{ emoji }}</span>
+                          </button>
+                        </div>
+                      </span>
                     </span>
                   </div>
                   <div v-if="message.replyTo" class="message-reply">
@@ -1109,15 +1278,68 @@
                   </div>
 
                   <div v-if="message.resources?.length" class="message-attachments">
-                    <RouterLink
+                    <span
                       v-for="resource in message.resources"
                       :key="resource.resource_id || resource.id"
-                      :to="`/resources/${resource.resource_id || resource.id}`"
-                      class="attachment-chip"
+                      class="resource-chip-wrap"
                     >
-                      <i class="fas fa-book-open"></i>
-                      {{ getResourceLabel(resource) }}
-                    </RouterLink>
+                      <button
+                        type="button"
+                        class="attachment-chip attachment-chip--resource"
+                        :title="getResourceLabel(resource)"
+                        @click.stop="toggleResourceChoice(message.id, resource)"
+                      >
+                        <i class="fas fa-book-open"></i>
+                        {{ getResourceLabel(resource) }}
+                      </button>
+                      <div
+                        v-if="
+                          openResourceChoiceKey
+                            === `${message.id}:${resource.resource_id || resource.id}`
+                        "
+                        class="resource-choice-popover"
+                        role="menu"
+                        @click.stop
+                      >
+                        <div
+                          v-if="resourceChoiceStatus"
+                          class="resource-choice-status"
+                        >
+                          {{ resourceChoiceStatus }}
+                        </div>
+                        <div class="resource-choice-actions">
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Open in a new tab"
+                            aria-label="Open"
+                            :disabled="resourceChoiceLoading"
+                            @click="openResourceAction(resource, 'open')"
+                          >
+                            <i class="fas fa-eye"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Download"
+                            aria-label="Download"
+                            :disabled="resourceChoiceLoading"
+                            @click="openResourceAction(resource, 'download')"
+                          >
+                            <i class="fas fa-arrow-down"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn resource-choice-btn--danger"
+                            title="Cancel"
+                            aria-label="Cancel"
+                            @click="closeResourceChoice"
+                          >
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </span>
                   </div>
 
                   <div v-if="message.preview" class="message-preview">
@@ -1126,85 +1348,118 @@
                     <span v-if="message.preview.desc">{{ message.preview.desc }}</span>
                   </div>
 
-                  <button
-                    type="button"
-                    class="reaction-picker-toggle"
-                    :class="{ active: activeReactionPickerMessageId === message.id }"
-                    :disabled="!supportsMessageReactions"
-                    title="Add reaction"
-                    aria-label="Add reaction"
-                    @click="toggleReactionPicker(message.id)"
-                  >
-                    <i class="fas fa-smile"></i>
-                  </button>
-
+                  <!-- Reaction chips strip — always at bottom-left of bubble.
+                       The smile add-button now lives in the header (next to time)
+                       so this block is read-only display of existing reactions. -->
                   <div
-                    v-if="activeReactionPickerMessageId === message.id"
-                    class="reaction-picker"
-                    role="menu"
+                    v-if="hasMessageReactions(message)"
+                    class="reaction-pick-group has-reactions"
                   >
-                    <button
-                      v-for="emoji in CHAT_REACTION_OPTIONS"
-                      :key="`${message.id}-${emoji}`"
-                      type="button"
-                      class="reaction-btn"
-                      :disabled="!supportsMessageReactions"
-                      :title="
-                        supportsMessageReactions
-                          ? 'Add reaction'
-                          : 'Reactions are not available yet'
-                      "
-                      @click="reactToMessage(message.id, emoji)"
-                    >
-                      <span>{{ emoji }}</span>
-                    </button>
-                  </div>
-
-                  <div v-if="hasMessageReactions(message)" class="message-reactions">
-                    <button
-                      v-for="[emoji, count] in Object.entries(message.reactions)"
-                      :key="`${message.id}-${emoji}-summary`"
-                      type="button"
-                      class="reaction-summary-btn"
-                      :title="supportsMessageReactions ? 'Toggle reaction' : 'Reactions unavailable'"
-                      :disabled="!supportsMessageReactions"
-                      @click="reactToMessage(message.id, emoji)"
-                    >
-                      <span>{{ emoji }}</span>
-                      <span class="reaction-count">{{ count }}</span>
-                    </button>
+                    <div class="message-reactions" role="group" aria-label="Message reactions">
+                      <button
+                        v-for="[emoji, entry] in Object.entries(message.reactions)"
+                        :key="`${message.id}-${emoji}-summary`"
+                        type="button"
+                        class="reaction-summary-btn"
+                        :title="formatReactionUsers(entry)"
+                        :disabled="!supportsMessageReactions"
+                        @click="reactToMessage(message.id, emoji)"
+                      >
+                        <span>{{ emoji }}</span>
+                        <span class="reaction-count">{{ entry.count || entry }}</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div
-                    v-if="message.isOwn && (message.readCount || message.deliveredCount)"
-                    class="message-receipt"
+                    v-if="message.isOwn"
+                    class="message-receipt-wrap"
                   >
-                    <i class="fas fa-check-double"></i>
-                    <span v-if="message.readCount">Read by {{ message.readCount }}</span>
-                    <span v-else>Delivered to {{ message.deliveredCount }}</span>
-                  </div>
-                  <div class="message-actions">
-                    <button type="button" class="message-action-btn" @click="setReplyTarget(message)">
-                      Reply
-                    </button>
                     <button
-                      v-if="canManageMessage(message)"
                       type="button"
-                      class="message-action-btn"
-                      @click="startMessageEdit(message)"
+                      class="message-receipt message-receipt--ticks"
+                      :class="[
+                        `message-receipt--${getReceiptState(message)}`,
+                        { 'is-open': openReceiptPopoverId === message.id },
+                      ]"
+                      :aria-expanded="openReceiptPopoverId === message.id"
+                      :aria-label="getReceiptAriaLabel(message)"
+                      :title="getReceiptAriaLabel(message)"
+                      aria-haspopup="dialog"
+                      @click.stop="openMessageReceipts(message.id, $event)"
+                      @keydown.esc.stop="closeReceiptPopover"
                     >
-                      Edit
+                      <i
+                        v-if="getReceiptState(message) === 'delivered'"
+                        class="fas fa-check tick-icon"
+                      ></i>
+                      <i
+                        v-else
+                        class="fas fa-check-double tick-icon"
+                      ></i>
                     </button>
-                    <button
-                      v-if="canManageMessage(message)"
-                      type="button"
-                      class="message-action-btn"
-                      :disabled="isDeletingMessageId === message.id"
-                      @click="deleteMessage(message)"
-                    >
-                      Delete
-                    </button>
+                    <Teleport to="body">
+                      <div
+                        v-if="openReceiptPopoverId === message.id"
+                        class="message-receipt-popover message-receipt-popover--floating"
+                        role="dialog"
+                        aria-label="Read receipts"
+                        :style="receiptPopoverStyle"
+                        @click.stop
+                        @keydown.esc.stop="closeReceiptPopover"
+                      >
+                      <div v-if="isLoadingReceipts" class="message-receipt-popover-status">
+                        Loading…
+                      </div>
+                      <div v-else-if="receiptError" class="message-receipt-popover-status error">
+                        {{ receiptError }}
+                      </div>
+                      <template v-else>
+                        <div
+                          v-if="messageReceiptCache.get(message.id)?.readBy?.length"
+                          class="message-receipt-popover-section"
+                        >
+                          <strong>Read by</strong>
+                          <div
+                            v-for="reader in messageReceiptCache.get(message.id).readBy"
+                            :key="`r-${message.id}-${reader.id}`"
+                            class="message-receipt-popover-row"
+                          >
+                            <i class="fas fa-check-double"></i>
+                            <span class="receipt-name">{{ reader.name }}</span>
+                            <span class="receipt-meta">{{ formatRelativeTime(reader.read_at) }}</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="messageReceiptCache.get(message.id)?.deliveredBy?.length"
+                          class="message-receipt-popover-section"
+                        >
+                          <strong>Delivered to</strong>
+                          <div
+                            v-for="reader in messageReceiptCache.get(message.id).deliveredBy"
+                            :key="`d-${message.id}-${reader.id}`"
+                            class="message-receipt-popover-row"
+                          >
+                            <i class="fas fa-check"></i>
+                            <span class="receipt-name">{{ reader.name }}</span>
+                            <span class="receipt-meta">{{ formatRelativeTime(reader.delivered_at) }}</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="
+                            !messageReceiptCache.get(message.id)?.readBy?.length
+                            && !messageReceiptCache.get(message.id)?.deliveredBy?.length
+                          "
+                          class="message-receipt-popover-status"
+                        >
+                          Receipt details unavailable. {{ message.readCount }} read, {{ message.deliveredCount }} delivered.
+                        </div>
+                      </template>
+                    </div>
+                    </Teleport>
                   </div>
+                  <!-- Hover toolbar removed — Reply / smile / kebab(Edit+Delete) live
+                       inline in the message header (next to time). -->
                 </div>
               </div>
             </div>
@@ -1220,9 +1475,14 @@
               <i class="fas fa-arrow-down"></i>
             </button>
 
-            <div v-if="typingIndicatorText" class="typing-indicator">
-              {{ typingIndicatorText }}
-            </div>
+            <Transition name="typing">
+              <div v-if="typingIndicatorText" class="typing-indicator" aria-live="polite">
+                <span class="typing-dots" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </span>
+                <span>{{ typingIndicatorText }}</span>
+              </div>
+            </Transition>
 
             <div class="chat-input">
               <div v-if="replyTarget" class="reply-composer">
@@ -1287,27 +1547,61 @@
                     v-model.trim="gifQuery"
                     type="text"
                     class="gif-search-input"
-                    placeholder="Search GIFs"
+                    placeholder="Search Tenor GIFs"
+                    aria-label="Search GIFs"
+                    @input="scheduleGifSearch"
                     @keydown.enter.prevent="searchGifs"
                   />
                   <button type="button" class="btn btn-outline btn-sm" @click="searchGifs">
                     Search
                   </button>
                 </div>
-                <div v-if="gifError" class="gif-status">{{ gifError }}</div>
-                <div class="gif-grid">
+                <div v-if="gifError" class="gif-status gif-status--error">
+                  {{ gifError }}
+                  <button type="button" class="message-action-btn" @click="fetchGifResults(gifPanelMode)">Retry</button>
+                </div>
+                <div
+                  v-if="isLoadingGifs && !gifResults.length"
+                  class="gif-grid gif-grid--skeleton"
+                  aria-hidden="true"
+                >
+                  <div v-for="i in 6" :key="`gif-sk-${i}`" class="gif-skeleton skeleton-block"></div>
+                </div>
+                <div
+                  v-else-if="!isLoadingGifs && !gifResults.length && !gifError"
+                  class="gif-status gif-status--empty"
+                >
+                  <i class="far fa-image"></i>
+                  <span>{{ gifQuery.trim() ? `No GIFs found for "${gifQuery}"` : 'No trending GIFs right now.' }}</span>
+                </div>
+                <div
+                  v-else
+                  class="gif-grid"
+                  @scroll="handleGifGridScroll"
+                >
                   <button
                     v-for="gif in gifResults"
                     :key="gif.id"
                     type="button"
                     class="gif-card"
+                    :title="gif.title"
                     @click="sendGifMessage(gif)"
                   >
-                    <img :src="gif.previewUrl || gif.url" :alt="gif.title" />
-                    <span>{{ gif.title }}</span>
+                    <img :src="gif.previewUrl || gif.url" :alt="gif.title || 'GIF'" loading="lazy" />
                   </button>
                 </div>
-                <div v-if="isLoadingGifs" class="gif-status">Loading GIFs...</div>
+                <div v-if="gifNextPos && gifResults.length" class="gif-load-more-row">
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    :disabled="isLoadingMoreGifs"
+                    @click="loadMoreGifs"
+                  >
+                    <i v-if="isLoadingMoreGifs" class="fas fa-circle-notch fa-spin"></i>
+                    {{ isLoadingMoreGifs ? 'Loading…' : 'Load more' }}
+                  </button>
+                </div>
+                <div class="gif-attribution">Powered by Tenor</div>
               </div>
 
               <div class="chat-input-group">
@@ -1319,6 +1613,8 @@
                   rows="2"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
+                  @focus="onComposerFocus"
+                  @blur="onComposerBlur"
                 ></textarea>
                 <div v-if="showMentionSuggestions" class="mention-suggestions">
                   <button
@@ -1336,13 +1632,15 @@
                 </div>
                 <div class="chat-actions">
                   <button
-                    class="chat-btn"
+                    class="chat-btn chat-btn--toggle"
                     type="button"
-                    :title="supportsGifs ? 'GIF picker' : 'GIF search is not available yet'"
+                    :class="{ active: showGifPanel }"
+                    :aria-pressed="showGifPanel"
+                    :title="supportsGifs ? (showGifPanel ? 'Close GIF picker' : 'GIF picker') : 'GIF search is not available yet'"
                     :disabled="!supportsGifs"
                     @click="toggleGifPanel"
                   >
-                    <i class="fas fa-image"></i>
+                    <span class="chat-btn-gif-glyph" aria-hidden="true">GIF</span>
                   </button>
                   <button
                     class="chat-btn"
@@ -1354,9 +1652,11 @@
                     <i class="fas fa-paperclip"></i>
                   </button>
                   <button
-                    class="chat-btn"
+                    class="chat-btn chat-btn--toggle"
                     type="button"
-                    title="Attach resource"
+                    :class="{ active: showResourcePanel }"
+                    :aria-pressed="showResourcePanel"
+                    :title="showResourcePanel ? 'Close resources' : 'Attach resource'"
                     :disabled="isLoadingResources"
                     @click="toggleResourcePanel"
                   >
@@ -1408,7 +1708,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const supportsGifs = false
+const supportsGifs = true
 const supportsAttachments = true
 const supportsMessageReactions = true
 const supportsChatClientSocketActions = true
@@ -1561,12 +1861,17 @@ const isUploadingFile = ref(false)
 const isUpdatingMessage = ref(false)
 const isDeletingMessageId = ref(null)
 const isLoadingGifs = ref(false)
+const isLoadingMoreGifs = ref(false)
 const chatError = ref('')
 const chatNotice = ref('')
 const gifError = ref('')
 const showGifPanel = ref(false)
 const gifQuery = ref('')
 const gifResults = ref([])
+const gifNextPos = ref(null)
+const gifPanelMode = ref('trending')
+let gifSearchDebounceTimer = null
+const GIF_SEARCH_DEBOUNCE_MS = 300
 const showResourcePanel = ref(false)
 const resourceQuery = ref('')
 const chatResourceOptions = ref([])
@@ -1587,6 +1892,17 @@ const showMessageSearch = ref(false)
 const messageSearchQuery = ref('')
 const messageSearchResults = ref([])
 const messageSearchNextBefore = ref(null)
+const showSearchFilters = ref(false)
+const messageSearchFilters = ref({ type: '', from: '', to: '' })
+const messageReceiptCache = ref(new Map())
+const openReceiptPopoverId = ref(null)
+const isLoadingReceipts = ref(false)
+const receiptError = ref('')
+// Anchor coordinates for the read-receipt popover. We render it via
+// ``<Teleport to="body">`` so the scrollable chat container's ``overflow``
+// can't clip it; in exchange we have to position it ourselves relative to
+// the trigger button's bounding rect.
+const receiptPopoverAnchor = ref(null)
 const isSearchingMessages = ref(false)
 const isLoadingMoreSearchResults = ref(false)
 const hasSearchedMessages = ref(false)
@@ -1600,6 +1916,7 @@ const editingMessageId = ref(null)
 const editingMessageText = ref('')
 const manageWindowNow = ref(Date.now())
 const activeReactionPickerMessageId = ref(null)
+const openMessageKebabId = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
 const highlightedSearchMessageId = ref(null)
@@ -1740,11 +2057,26 @@ const buildMentionReadUrl = (mentionId) =>
 const buildMentionMarkAllReadUrl = () =>
   `${API_BASE_URL}/api/v1/chat/mentions/mark-all-read/`
 
-const buildGifSearchUrl = (query) =>
-  `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
+const buildGifSearchUrl = (query, pos = '', limit = 30) => {
+  const params = new URLSearchParams({ q: query })
+  if (pos) params.set('pos', pos)
+  if (limit) params.set('limit', String(limit))
+  return `${API_BASE_URL}/api/v1/chat/gifs/search?${params.toString()}`
+}
 
-const buildGifTrendingUrl = () =>
-  `${API_BASE_URL}/api/v1/chat/gifs/trending`
+const buildGifTrendingUrl = (pos = '', limit = 30) => {
+  const params = new URLSearchParams()
+  if (pos) params.set('pos', pos)
+  if (limit) params.set('limit', String(limit))
+  const qs = params.toString()
+  return `${API_BASE_URL}/api/v1/chat/gifs/trending${qs ? `?${qs}` : ''}`
+}
+
+const buildChatSendGifUrl = (gid) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${gid}/messages/send-gif/`
+
+const buildChatMessageStatusUrl = (gid, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${gid}/messages/${messageId}/status/`
 
 const buildChatWebSocketUrl = (groupId) => {
   try {
@@ -1970,13 +2302,22 @@ const normalizeReactionMap = (reactions) => {
   return Object.fromEntries(
     Object.entries(reactions)
       .map(([emoji, value]) => {
-        const count =
-          value && typeof value === 'object' && !Array.isArray(value)
-            ? Number(value.count)
-            : Number(value)
-        return [emoji, count || 0]
+        // Backend ships ``{count, users: [{id, name}, ...]}``; legacy callers
+        // may still pass a bare number. Normalize to the rich shape so the
+        // chip hover tooltip can render names without re-fetching.
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const count = Number(value.count) || 0
+          const users = Array.isArray(value.users)
+            ? value.users
+                .filter((u) => u && (u.id != null || u.name))
+                .map((u) => ({ id: Number(u.id) || 0, name: u.name || '' }))
+            : []
+          return [emoji, { count, users }]
+        }
+        const count = Number(value) || 0
+        return [emoji, { count, users: [] }]
       })
-      .filter(([, count]) => count > 0),
+      .filter(([, data]) => data.count > 0),
   )
 }
 
@@ -2693,6 +3034,14 @@ const normalizeMessage = (item) => {
   const messageType = raw?.message_type || 'text'
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
+  // Backend ships GIFs as ``{message_type: 'gif', gif: {gif_url, preview_url, title, provider_id}}``.
+  // Falling back to ``messageText`` covers any legacy pending-bubble path that stuffed the URL into ``text``.
+  const gifPayload = raw?.gif && typeof raw.gif === 'object' ? raw.gif : null
+  const gifUrl = messageType === 'gif'
+    ? (gifPayload?.gif_url || gifPayload?.url || messageText)
+    : ''
+  const gifPreviewUrl = gifPayload?.preview_url || ''
+  const gifTitle = gifPayload?.title || ''
   const author = isOwn
     ? 'You'
     : raw?.sender_name || raw?.author || getMentionLabel(senderId)
@@ -2706,7 +3055,9 @@ const normalizeMessage = (item) => {
     date: sentAt,
     isOwn,
     messageType,
-    gifUrl: messageType === 'gif' ? messageText : '',
+    gifUrl,
+    gifPreviewUrl,
+    gifTitle,
     attachments,
     resources,
     reactions: normalizeReactionMap(raw?.reactions),
@@ -2787,12 +3138,117 @@ const downloadAttachment = async (attachment) => {
   }
 }
 
+// Click a resource chip in a chat bubble → prompt the user to either
+// Open (view in a new tab) or Download (force-save). The choice popover
+// fetches the resolved URL lazily from the backend and triggers the right
+// action. ``access`` returns ``external_url`` for link-resources and a
+// signed SAS for managed files; ``download`` always returns a Content-
+// Disposition: attachment stream for managed files.
+const openResourceChoiceKey = ref(null)
+const resourceChoiceLoading = ref(false)
+const resourceChoiceStatus = ref('')
+
+const toggleResourceChoice = (messageId, resource) => {
+  const rid = resource?.resource_id || resource?.id
+  if (!rid) return
+  const key = `${messageId}:${rid}`
+  if (openResourceChoiceKey.value === key) {
+    closeResourceChoice()
+    return
+  }
+  openResourceChoiceKey.value = key
+  resourceChoiceStatus.value = ''
+}
+
+const closeResourceChoice = () => {
+  openResourceChoiceKey.value = null
+  resourceChoiceLoading.value = false
+  resourceChoiceStatus.value = ''
+}
+
+const openResourceAction = async (resource, mode) => {
+  const id = resource?.resource_id || resource?.id
+  if (!id) return
+  resourceChoiceLoading.value = true
+  resourceChoiceStatus.value = mode === 'download'
+    ? 'Preparing download…'
+    : 'Opening…'
+  try {
+    const data = await requestJson(`${API_BASE_URL}/resources/resource-files/${id}/access/`)
+    const externalUrl = data?.external_url
+    const downloadUrl = data?.download_url
+    const accessUrl = data?.access_url || downloadUrl
+    if (mode === 'download') {
+      // For managed files the download endpoint already streams the file
+      // with ``Content-Disposition: attachment``. For external link
+      // resources we tack on ``?force=1`` so the backend proxies the upstream
+      // bytes through us with the same header — without it the browser's
+      // ``<a download>`` hint is ignored cross-origin and the file opens
+      // inline instead of saving.
+      let target = downloadUrl || externalUrl || accessUrl
+      if (!target) {
+        resourceChoiceStatus.value = data?.detail || 'This resource has no downloadable file.'
+        resourceChoiceLoading.value = false
+        return
+      }
+      if (downloadUrl) {
+        const sep = downloadUrl.includes('?') ? '&' : '?'
+        target = `${downloadUrl}${sep}force=1`
+      }
+      const a = document.createElement('a')
+      a.href = target
+      a.rel = 'noopener noreferrer'
+      a.download = data?.file_name || ''
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } else {
+      const target = externalUrl || accessUrl || downloadUrl
+      if (!target) {
+        resourceChoiceStatus.value = data?.detail || 'This resource cannot be opened.'
+        resourceChoiceLoading.value = false
+        return
+      }
+      window.open(target, '_blank', 'noopener,noreferrer')
+    }
+    closeResourceChoice()
+  } catch (error) {
+    resourceChoiceStatus.value = error instanceof Error
+      ? error.message
+      : 'Resource could not be opened.'
+    resourceChoiceLoading.value = false
+  }
+}
+
 const getResourceLabel = (resource) =>
   resource?.resource_name || resource?.name || `Resource ${resource?.resource_id || resource?.id || ''}`
 
 const getReplyLabel = (reply) => {
   if (!reply) return ''
-  return reply.deleted ? 'Deleted message' : `Reply to ${getMentionLabel(reply.user_id)}`
+  if (reply.deleted) return 'Deleted message'
+  // Prefer the backend-supplied name (ReplyToSerializer.user_name). Fall back to
+  // any name we already loaded — group memberships, mention members, or another
+  // message in the list authored by the same user — before defaulting to the
+  // generic "User N" label.
+  const name = reply.user_name || resolveUserDisplayName(reply.user_id)
+  return `Reply to ${name}`
+}
+
+const resolveUserDisplayName = (userId) => {
+  const numericUserId = Number(userId)
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Team member'
+  // 1) Mention members (loaded with the group)
+  const member = mentionLabelMembers.value.find((item) => Number(item.userId) === numericUserId)
+  if (member?.label) return member.label
+  // 2) Self
+  if (numericUserId === currentUserId.value) return getCurrentUserMentionName()
+  // 3) Any other message we've already loaded — uses the sender_name the
+  //    backend ships on full message rows.
+  const peerMessage = messages.value.find(
+    (m) => Number(m?.senderId) === numericUserId && m?.author && m.author !== 'You',
+  )
+  if (peerMessage?.author) return peerMessage.author
+  return `User ${numericUserId}`
 }
 
 const getReplyText = (reply) => {
@@ -3142,9 +3598,12 @@ const removeTask = async (task) => {
 }
 
 const typingIndicatorText = computed(() => {
-  if (!typingUsers.value.length) return ''
-  if (typingUsers.value.length === 1) return `${typingUsers.value[0]} is typing...`
-  return `${typingUsers.value[0]} and others are typing...`
+  const list = typingUsers.value
+  if (!list.length) return ''
+  if (list.length === 1) return `${list[0]} is typing…`
+  if (list.length === 2) return `${list[0]} and ${list[1]} are typing…`
+  const extra = list.length - 2
+  return `${list[0]}, ${list[1]} and ${extra} ${extra === 1 ? 'other' : 'others'} are typing…`
 })
 
 const showScrollToBottomButton = computed(
@@ -3259,12 +3718,45 @@ const addTypingUser = (name) => {
 }
 
 const hasMessageReactions = (message) =>
-  Object.values(message?.reactions || {}).some((count) => Number(count) > 0)
+  Object.values(message?.reactions || {}).some((entry) => {
+    if (entry && typeof entry === 'object') return Number(entry.count) > 0
+    return Number(entry) > 0
+  })
+
+const formatReactionUsers = (entry) => {
+  const users = Array.isArray(entry?.users) ? entry.users : []
+  if (!users.length) {
+    const count = Number(entry?.count ?? entry) || 0
+    return count === 1 ? '1 person reacted' : `${count} people reacted`
+  }
+  const names = users.map((u) => u.name).filter(Boolean)
+  if (!names.length) return `${users.length} reacted`
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`
+}
 
 const toggleReactionPicker = (messageId) => {
   if (!supportsMessageReactions) return
   activeReactionPickerMessageId.value =
     activeReactionPickerMessageId.value === messageId ? null : messageId
+  if (activeReactionPickerMessageId.value !== null) openMessageKebabId.value = null
+}
+
+const toggleMessageKebab = (messageId) => {
+  openMessageKebabId.value = openMessageKebabId.value === messageId ? null : messageId
+  if (openMessageKebabId.value !== null) activeReactionPickerMessageId.value = null
+}
+
+const onKebabEdit = (message) => {
+  openMessageKebabId.value = null
+  startMessageEdit(message)
+}
+
+const onKebabDelete = (message) => {
+  openMessageKebabId.value = null
+  deleteMessage(message)
 }
 
 const sendSocketAction = (payload) => {
@@ -3338,23 +3830,73 @@ const updateMentionQuery = () => {
   activeMentionSuggestionIndex.value = 0
 }
 
+// Tracks the @-token text we wrote into the composer for each mention so we
+// can rewrite it back to the backend's ``<@id>`` form on send. Cleared after
+// a successful send / cancel.
+const pendingComposerMentions = ref(new Map())
+
 const insertMention = (member) => {
   if (mentionStartIndex.value < 0 || !member?.userId) return
+
+  const displayName = member.label || `User ${member.userId}`
+  // Visible token: ``@Name`` — readable to the user. We keep a map so we can
+  // resolve it back to ``<@id>`` before posting. Multiple mentions with the
+  // same display name collapse to the same id (acceptable; the map keeps the
+  // last-wins entry).
+  const visible = `@${displayName}`
+  pendingComposerMentions.value.set(visible, member.userId)
 
   const cursor = composer.value?.selectionStart ?? newMessage.value.length
   const prefix = newMessage.value.slice(0, mentionStartIndex.value)
   const suffix = newMessage.value.slice(cursor)
   const spacer = suffix.startsWith(' ') || !suffix ? '' : ' '
-  newMessage.value = `${prefix}<@${member.userId}> ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
+  newMessage.value = `${prefix}${visible} ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
   mentionStartIndex.value = -1
   mentionQuery.value = ''
   activeMentionSuggestionIndex.value = 0
 
   nextTick(() => {
     composer.value?.focus()
-    const position = `${prefix}<@${member.userId}> `.length
+    const position = `${prefix}${visible} `.length
     composer.value?.setSelectionRange(position, position)
   })
+}
+
+// Convert visible ``@Name`` tokens back to backend ``<@id>`` tokens just
+// before the wire send. Longest names first so an ``@Alice Smith`` doesn't
+// get partially replaced by an unrelated ``@Alice`` entry.
+const resolveComposerMentions = (text) => {
+  if (!text || !pendingComposerMentions.value.size) return text
+  const entries = [...pendingComposerMentions.value.entries()].sort(
+    ([a], [b]) => b.length - a.length,
+  )
+  let out = text
+  for (const [visible, userId] of entries) {
+    const safe = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    out = out.replace(new RegExp(safe, 'g'), `<@${userId}>`)
+  }
+  return out
+}
+
+// Close the @-autocomplete dropdown when the composer loses focus, unless
+// the new focus target is the suggestion list itself (mousedown.prevent on
+// each item keeps focus on the composer, so this only fires on truly
+// outside clicks).
+const onComposerBlur = (event) => {
+  const next = event?.relatedTarget
+  if (next instanceof Element && next.closest('.mention-suggestions')) return
+  if (mentionStartIndex.value >= 0) {
+    mentionStartIndex.value = -1
+    mentionQuery.value = ''
+  }
+}
+
+// Tapping into the composer always returns focus to "I'm typing a message",
+// so any open side panels (GIF / Resources / Search / Mentions / kebab /
+// reaction picker) should yield. Without this, panels stayed visible after
+// the user tapped the textarea, which is unexpected.
+const onComposerFocus = () => {
+  closeAllComposerPanels({ except: null })
 }
 
 const handleComposerKeydown = (event) => {
@@ -3384,9 +3926,52 @@ const handleComposerKeydown = (event) => {
     }
   }
 
+  // Respect IME composition — never intercept while a CJK candidate is selecting.
+  if (event.isComposing || event.keyCode === 229) return
+
+  if (event.key === 'Escape') {
+    if (editingMessageId.value) {
+      event.preventDefault()
+      cancelMessageEdit()
+      return
+    }
+    if (replyTarget.value) {
+      event.preventDefault()
+      clearReplyTarget()
+      return
+    }
+    composer.value?.blur()
+    return
+  }
+
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault()
+    void sendMessage()
+    return
+  }
+
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void sendMessage()
+    return
+  }
+
+  // ArrowUp on an empty composer with no active reply/edit opens your most
+  // recent in-window own message for editing — Slack-style quick-edit.
+  if (
+    event.key === 'ArrowUp'
+    && !newMessage.value.trim()
+    && !editingMessageId.value
+    && !replyTarget.value
+  ) {
+    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+      const candidate = messages.value[i]
+      if (candidate?.isOwn && canManageMessage(candidate)) {
+        event.preventDefault()
+        startMessageEdit(candidate)
+        return
+      }
+    }
   }
 }
 
@@ -3871,9 +4456,10 @@ const loadNewerMessages = async () => {
 }
 
 const toggleMessageSearch = async () => {
-  showMessageSearch.value = !showMessageSearch.value
+  const next = !showMessageSearch.value
+  closeAllComposerPanels({ except: next ? 'search' : null })
+  showMessageSearch.value = next
   if (showMessageSearch.value) {
-    showMentionInbox.value = false
     await nextTick()
     messageSearchInputRef.value?.focus()
   }
@@ -3885,11 +4471,17 @@ const clearMessageSearch = () => {
   messageSearchNextBefore.value = null
   messageSearchError.value = ''
   hasSearchedMessages.value = false
+  messageSearchFilters.value = { type: '', from: '', to: '' }
 }
 
 const mergeSearchResults = (current, incoming) => {
   const seen = new Set(current.map((message) => String(message.id)))
   return [...current, ...incoming.filter((message) => !seen.has(String(message.id)))]
+}
+
+const hasActiveSearchFilters = () => {
+  const f = messageSearchFilters.value
+  return Boolean(f.type || f.from || f.to)
 }
 
 const searchMessages = async (reset = true) => {
@@ -3900,7 +4492,9 @@ const searchMessages = async (reset = true) => {
     messageSearchError.value = 'Live discussion needs a backend numeric group id.'
     return
   }
-  if (!query) {
+  // Allow filter-only searches (e.g. "all GIFs from last week"). Bail only if
+  // there is neither a query nor any active filter.
+  if (!query && !hasActiveSearchFilters()) {
     clearMessageSearch()
     return
   }
@@ -3915,7 +4509,12 @@ const searchMessages = async (reset = true) => {
   }
   messageSearchError.value = ''
 
-  const params = new URLSearchParams({ q: query, limit: '20' })
+  const params = new URLSearchParams({ limit: '20' })
+  if (query) params.set('q', query)
+  const filters = messageSearchFilters.value
+  if (filters.type) params.set('type', filters.type)
+  if (filters.from) params.set('from', filters.from)
+  if (filters.to) params.set('to', filters.to)
   if (!reset && messageSearchNextBefore.value) {
     params.set('before', String(messageSearchNextBefore.value))
   }
@@ -4113,6 +4712,12 @@ const sendMessage = async () => {
   stopTypingIndicator()
   await scrollMessagesToBottom()
 
+  // Visible ``@Name`` tokens in the textarea -> backend ``<@id>`` form.
+  // We snapshot the resolved string here so the optimistic bubble keeps the
+  // friendly display while the wire payload carries the canonical token.
+  const wireText = resolveComposerMentions(text)
+  pendingComposerMentions.value.clear()
+
   isSendingMessage.value = true
   try {
     await sendMessagePayload({
@@ -4121,7 +4726,7 @@ const sendMessage = async () => {
       requestOptions: {
         method: 'POST',
         body: JSON.stringify({
-          message_text: text,
+          message_text: wireText,
           ...(selectedResources.length
             ? { resources: selectedResources.map((resource) => ({ resource_id: resource.id })) }
             : {}),
@@ -4145,6 +4750,38 @@ const sendGifMessage = async (gif) => {
     return
   }
   if (!gif?.url || isSendingMessage.value) return
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) {
+    chatError.value = 'Live discussion needs a backend numeric group id.'
+    return
+  }
+  const caption = newMessage.value.trim()
+  isSendingMessage.value = true
+  chatError.value = ''
+  gifError.value = ''
+  try {
+    await requestJson(buildChatSendGifUrl(backendGroupId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'tenor',
+        provider_id: String(gif.id ?? ''),
+        gif_url: gif.url,
+        preview_url: gif.previewUrl || '',
+        title: gif.title || '',
+        ...(caption ? { message_text: caption } : {}),
+      }),
+    })
+    newMessage.value = ''
+    showGifPanel.value = false
+    // The WS ``message.created`` broadcast delivers the rendered bubble into
+    // the list — no local upsert needed.
+  } catch (error) {
+    gifError.value = error instanceof Error ? error.message : 'GIF could not be sent.'
+  } finally {
+    isSendingMessage.value = false
+    composer.value?.focus()
+  }
 }
 
 const openFilePicker = () => {
@@ -4155,6 +4792,120 @@ const openFilePicker = () => {
   fileInputRef.value?.click()
 }
 
+const closeReceiptPopover = () => {
+  openReceiptPopoverId.value = null
+  receiptError.value = ''
+  receiptPopoverAnchor.value = null
+}
+
+const getOtherRecipientCount = () => {
+  // Recipients = active group members minus the sender (current user).
+  const memberships = Array.isArray(groupMemberships.value) ? groupMemberships.value : []
+  const me = Number(auth.user?.id || 0)
+  const total = memberships.filter((m) => {
+    const uid = Number(m?.user_id ?? m?.user ?? m?.userId ?? 0)
+    return uid && uid !== me
+  }).length
+  return total
+}
+
+const getReceiptState = (message) => {
+  // Tick semantics requested by the team:
+  //   single grey  — delivered (no one has read yet)
+  //   double grey  — SOME but not ALL recipients have read
+  //   double blue  — ALL recipients have read
+  if (!message) return 'delivered'
+  const reads = Number(message.readCount) || 0
+  const recipients = getOtherRecipientCount()
+  if (recipients > 0 && reads >= recipients) return 'read'   // all-seen
+  if (reads > 0) return 'partial'                              // some-seen
+  return 'delivered'                                           // none-read yet
+}
+
+const getReceiptAriaLabel = (message) => {
+  const state = getReceiptState(message)
+  const r = Number(message.readCount) || 0
+  const recipients = getOtherRecipientCount()
+  if (state === 'read') return `Read by everyone (${r})`
+  if (state === 'partial') return `Read by ${r} of ${recipients || r}`
+  const d = Number(message.deliveredCount) || 0
+  return d > 0 ? `Delivered to ${d}` : 'Delivered'
+}
+
+const formatRelativeTime = (iso) => {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return ''
+  const diffMs = Date.now() - then
+  if (diffMs < 60_000) return 'just now'
+  const mins = Math.round(diffMs / 60_000)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+const openMessageReceipts = async (messageId, event) => {
+  if (!messageId) return
+  if (openReceiptPopoverId.value === messageId) {
+    closeReceiptPopover()
+    return
+  }
+  openReceiptPopoverId.value = messageId
+  receiptError.value = ''
+  // Capture the trigger's bounding rect so the teleported popover knows
+  // where to anchor. Flip above/below depending on available viewport space.
+  const triggerEl = event?.currentTarget instanceof Element
+    ? event.currentTarget
+    : null
+  if (triggerEl) {
+    const rect = triggerEl.getBoundingClientRect()
+    const viewportH = window.innerHeight || document.documentElement.clientHeight
+    const spaceAbove = rect.top
+    const spaceBelow = viewportH - rect.bottom
+    const placeAbove = spaceAbove > 220 || spaceAbove > spaceBelow
+    receiptPopoverAnchor.value = {
+      top: placeAbove ? rect.top : rect.bottom,
+      left: rect.left,
+      right: window.innerWidth - rect.right,
+      placement: placeAbove ? 'top' : 'bottom',
+    }
+  } else {
+    receiptPopoverAnchor.value = null
+  }
+  if (messageReceiptCache.value.has(messageId)) return
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) {
+    receiptError.value = 'Live discussion needs a backend numeric group id.'
+    return
+  }
+  isLoadingReceipts.value = true
+  try {
+    const data = await requestJson(buildChatMessageStatusUrl(backendGroupId, messageId))
+    messageReceiptCache.value.set(messageId, {
+      readBy: Array.isArray(data?.read_by) ? data.read_by : [],
+      deliveredBy: Array.isArray(data?.delivered_by) ? data.delivered_by : [],
+    })
+  } catch (error) {
+    receiptError.value = error instanceof Error
+      ? error.message
+      : 'Read receipts are unavailable right now.'
+  } finally {
+    isLoadingReceipts.value = false
+  }
+}
+
+const receiptPopoverStyle = computed(() => {
+  const a = receiptPopoverAnchor.value
+  if (!a) return null
+  const offset = 6
+  return a.placement === 'top'
+    ? { position: 'fixed', top: `${a.top - offset}px`, right: `${a.right}px`, transform: 'translateY(-100%)' }
+    : { position: 'fixed', top: `${a.top + offset}px`, right: `${a.right}px` }
+})
+
 const uploadAttachment = async (event) => {
   if (!supportsAttachments) {
     chatError.value = 'File upload is not available in the backend yet.'
@@ -4163,11 +4914,6 @@ const uploadAttachment = async (event) => {
   const input = event?.target
   const file = input?.files?.[0]
   if (!file || isUploadingFile.value) return
-  if (replyTarget.value) {
-    chatError.value = 'Attachment replies are not supported by the upload endpoint yet.'
-    if (input) input.value = ''
-    return
-  }
   if (selectedChatResources.value.length) {
     chatError.value = 'Send selected resources as a chat message before uploading a local file.'
     if (input) input.value = ''
@@ -4177,6 +4923,11 @@ const uploadAttachment = async (event) => {
   const formData = new FormData()
   formData.append('uploaded_file', file)
   if (caption) formData.append('message_text', caption)
+  // Upload endpoint now accepts reply_to_id (mirror of the JSON create path)
+  // so replies can carry attachments.
+  if (replyTarget.value?.id) {
+    formData.append('reply_to_id', String(replyTarget.value.id))
+  }
 
   isUploadingFile.value = true
   chatError.value = ''
@@ -4202,30 +4953,62 @@ const uploadAttachment = async (event) => {
   }
 }
 
-const fetchGifResults = async (mode = 'trending') => {
+const fetchGifResults = async (mode = 'trending', { append = false } = {}) => {
   if (!supportsGifs) {
     gifResults.value = []
     gifError.value = 'GIF search is not available in the backend yet.'
     return
   }
-
-  isLoadingGifs.value = true
+  gifPanelMode.value = mode
+  if (append) {
+    if (isLoadingMoreGifs.value || !gifNextPos.value) return
+    isLoadingMoreGifs.value = true
+  } else {
+    isLoadingGifs.value = true
+  }
   gifError.value = ''
 
   try {
-    const data = await requestJson(
-      mode === 'search' ? buildGifSearchUrl(gifQuery.value.trim()) : buildGifTrendingUrl(),
-      {
-        method: 'GET',
-      },
-    )
-    gifResults.value = normalizeGifResults(data)
+    const url = mode === 'search'
+      ? buildGifSearchUrl(gifQuery.value.trim(), append ? gifNextPos.value : '')
+      : buildGifTrendingUrl(append ? gifNextPos.value : '')
+    const data = await requestJson(url, { method: 'GET' })
+    const items = normalizeGifResults({ results: data?.items ?? data?.results ?? [] })
+    gifResults.value = append ? [...gifResults.value, ...items] : items
+    gifNextPos.value = data?.next_pos ?? data?.next ?? null
   } catch {
-    gifResults.value = []
+    if (!append) gifResults.value = []
     gifError.value = 'Live GIF search is unavailable right now.'
   } finally {
-    isLoadingGifs.value = false
+    if (append) isLoadingMoreGifs.value = false
+    else isLoadingGifs.value = false
   }
+}
+
+const loadMoreGifs = async () => {
+  if (!gifNextPos.value || isLoadingMoreGifs.value) return
+  await fetchGifResults(gifPanelMode.value, { append: true })
+}
+
+const handleGifGridScroll = (event) => {
+  const target = event?.currentTarget
+  if (!target || !gifNextPos.value || isLoadingMoreGifs.value) return
+  const remaining = target.scrollHeight - (target.scrollTop + target.clientHeight)
+  if (remaining < 120) {
+    void loadMoreGifs()
+  }
+}
+
+// Generic helper: only one composer-adjacent panel may be open at a time.
+// Closes the other panels + the message-search / mention-inbox / kebab /
+// reaction picker so they don't all stack on top of each other.
+const closeAllComposerPanels = ({ except } = {}) => {
+  if (except !== 'gif') showGifPanel.value = false
+  if (except !== 'resource') showResourcePanel.value = false
+  if (except !== 'search') showMessageSearch.value = false
+  if (except !== 'mentions') showMentionInbox.value = false
+  if (except !== 'kebab') openMessageKebabId.value = null
+  if (except !== 'picker') activeReactionPickerMessageId.value = null
 }
 
 const toggleGifPanel = async () => {
@@ -4233,20 +5016,29 @@ const toggleGifPanel = async () => {
     gifError.value = 'GIF search is not available in the backend yet.'
     return
   }
-  showGifPanel.value = !showGifPanel.value
-  if (showGifPanel.value) showResourcePanel.value = false
+  const next = !showGifPanel.value
+  closeAllComposerPanels({ except: next ? 'gif' : null })
+  showGifPanel.value = next
   if (showGifPanel.value) {
+    gifNextPos.value = null
     await fetchGifResults('trending')
   }
 }
 
 const searchGifs = async () => {
+  gifNextPos.value = null
   if (!gifQuery.value.trim()) {
     await fetchGifResults('trending')
     return
   }
-
   await fetchGifResults('search')
+}
+
+const scheduleGifSearch = () => {
+  if (gifSearchDebounceTimer) clearTimeout(gifSearchDebounceTimer)
+  gifSearchDebounceTimer = setTimeout(() => {
+    void searchGifs()
+  }, GIF_SEARCH_DEBOUNCE_MS)
 }
 
 const loadChatResources = async () => {
@@ -4272,8 +5064,9 @@ const loadChatResources = async () => {
 }
 
 const toggleResourcePanel = async () => {
-  showResourcePanel.value = !showResourcePanel.value
-  if (showResourcePanel.value) showGifPanel.value = false
+  const next = !showResourcePanel.value
+  closeAllComposerPanels({ except: next ? 'resource' : null })
+  showResourcePanel.value = next
   if (showResourcePanel.value && !chatResourceOptions.value.length) {
     await loadChatResources()
   }
@@ -4464,12 +5257,74 @@ const onDocumentKeydownForStatusMenu = (event) => {
   }
 }
 
+const onDocumentClickForReceiptPopover = (event) => {
+  if (openReceiptPopoverId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.message-receipt, .message-receipt-popover')) return
+  closeReceiptPopover()
+}
+const onDocumentKeydownForReceiptPopover = (event) => {
+  if (openReceiptPopoverId.value !== null && event.key === 'Escape') {
+    closeReceiptPopover()
+  }
+}
+
+const onDocumentClickForReactionPicker = (event) => {
+  if (activeReactionPickerMessageId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest(
+    '.reaction-pick-group, .reaction-picker, .reaction-picker-toggle, .inline-action-btn'
+  )) return
+  activeReactionPickerMessageId.value = null
+}
+const onDocumentKeydownForReactionPicker = (event) => {
+  if (activeReactionPickerMessageId.value !== null && event.key === 'Escape') {
+    activeReactionPickerMessageId.value = null
+  }
+}
+
+const onDocumentClickForMessageKebab = (event) => {
+  if (openMessageKebabId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.inline-kebab-wrap, .inline-kebab-menu')) return
+  openMessageKebabId.value = null
+}
+const onDocumentKeydownForMessageKebab = (event) => {
+  if (openMessageKebabId.value !== null && event.key === 'Escape') {
+    openMessageKebabId.value = null
+  }
+}
+
+const onDocumentClickForResourceChoice = (event) => {
+  if (openResourceChoiceKey.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.resource-chip-wrap')) return
+  closeResourceChoice()
+}
+const onDocumentKeydownForResourceChoice = (event) => {
+  if (openResourceChoiceKey.value !== null && event.key === 'Escape') {
+    closeResourceChoice()
+  }
+}
+
 onMounted(async () => {
   manageWindowTimer = window.setInterval(() => {
     manageWindowNow.value = Date.now()
   }, 30000)
   document.addEventListener('mousedown', onDocumentClickForStatusMenu)
   document.addEventListener('keydown', onDocumentKeydownForStatusMenu)
+  document.addEventListener('mousedown', onDocumentClickForReceiptPopover)
+  document.addEventListener('keydown', onDocumentKeydownForReceiptPopover)
+  document.addEventListener('mousedown', onDocumentClickForReactionPicker)
+  document.addEventListener('keydown', onDocumentKeydownForReactionPicker)
+  document.addEventListener('mousedown', onDocumentClickForMessageKebab)
+  document.addEventListener('keydown', onDocumentKeydownForMessageKebab)
+  document.addEventListener('mousedown', onDocumentClickForResourceChoice)
+  document.addEventListener('keydown', onDocumentKeydownForResourceChoice)
 
   await ensureAuthUser()
   await loadGroupOptions()
@@ -4491,6 +5346,8 @@ onBeforeUnmount(() => {
   }
   document.removeEventListener('mousedown', onDocumentClickForStatusMenu)
   document.removeEventListener('keydown', onDocumentKeydownForStatusMenu)
+  document.removeEventListener('mousedown', onDocumentClickForReceiptPopover)
+  document.removeEventListener('keydown', onDocumentKeydownForReceiptPopover)
 })
 </script>
 
@@ -6071,6 +6928,58 @@ onBeforeUnmount(() => {
   color: #6c757d;
   font-size: 0.85rem;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(108, 117, 125, 0.08);
+  border: 1px solid rgba(108, 117, 125, 0.18);
+}
+
+.chat-status-dot {
+  font-size: 0.55rem;
+  line-height: 1;
+}
+
+.chat-status--connected {
+  color: #1f7a3f;
+  background: rgba(31, 122, 63, 0.08);
+  border-color: rgba(31, 122, 63, 0.22);
+}
+
+.chat-status--connected .chat-status-dot {
+  color: #2ea44f;
+}
+
+.chat-status--offline {
+  color: #b54708;
+  background: rgba(181, 71, 8, 0.08);
+  border-color: rgba(181, 71, 8, 0.22);
+}
+
+.chat-status--offline .chat-status-dot {
+  color: #d97706;
+}
+
+.chat-status--loading {
+  color: var(--air-force-blue, #5b8c93);
+}
+
+.chat-reconnect-btn {
+  margin-left: 0.35rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chat-reconnect-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .chat-alert {
@@ -6095,6 +7004,94 @@ onBeforeUnmount(() => {
   padding: 0.55rem 0.9rem;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 2.4rem 1.4rem;
+  text-align: center;
+  color: var(--text-muted);
+  min-height: 220px;
+}
+
+.chat-empty-emoji {
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-bottom: 0.2rem;
+}
+
+.chat-empty-state strong {
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+
+.chat-empty-state span {
+  font-size: 0.88rem;
+  max-width: 320px;
+}
+
+.chat-empty-state .btn {
+  margin-top: 0.5rem;
+}
+
+.chat-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+}
+
+.chat-skeleton-row {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.chat-skeleton-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.message-search-filters {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.9rem;
+  margin: 0 0.9rem 0.6rem;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+}
+
+.message-search-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.message-search-filters select,
+.message-search-filters input[type="date"] {
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 0.36rem 0.55rem;
+  background: var(--surface, #fff);
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.message-action-btn.active {
+  background: rgba(31, 122, 63, 0.12);
+  color: #1f7a3f;
+  border-color: rgba(31, 122, 63, 0.32);
 }
 
 .scroll-bottom-btn {
@@ -6403,17 +7400,18 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-width: 0;
   border: 1px solid var(--border-light);
-  border-radius: 6px;
+  border-radius: 999px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
-  padding: 0.52rem 0.62rem;
+  padding: 0.55rem 1rem;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .message-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
 }
 
 .message-search-list {
@@ -6634,15 +7632,16 @@ onBeforeUnmount(() => {
   align-items: center;
   max-width: 100%;
   border-radius: 999px;
-  background: #eef7f3;
-  color: var(--dark-green);
+  background: rgba(33, 150, 243, 0.12); /* soft blue */
+  color: #1565c0;
   font-weight: 700;
-  padding: 0.05rem 0.35rem;
+  padding: 0.05rem 0.4rem;
+  text-decoration: none;
 }
 
 .message.own .mention-token {
-  background: rgba(255, 255, 255, 0.18);
-  color: var(--white);
+  background: rgba(255, 255, 255, 0.22);
+  color: #cfe8ff;
 }
 
 .gif-panel {
@@ -6670,6 +7669,13 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.gif-grid--skeleton {
+  pointer-events: none;
 }
 
 .gif-card {
@@ -6680,6 +7686,14 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   cursor: pointer;
   padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.gif-card:hover,
+.gif-card:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  outline: none;
 }
 
 .gif-card img {
@@ -6689,11 +7703,44 @@ onBeforeUnmount(() => {
   display: block;
 }
 
-.gif-card span {
-  display: block;
-  padding: 0.45rem 0.55rem 0.6rem;
-  font-size: 0.78rem;
-  text-align: left;
+.gif-skeleton {
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+}
+
+.gif-status--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.2rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.gif-status--empty i {
+  font-size: 1.5rem;
+  opacity: 0.6;
+}
+
+.gif-status--error {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.gif-load-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.6rem;
+}
+
+.gif-attribution {
+  margin-top: 0.6rem;
+  text-align: right;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .chat-btn:disabled {
@@ -6713,6 +7760,9 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Never horizontally scroll. The hover toolbars / reactions that poke into
+     the gutter are constrained via the message row below. */
+  overflow-x: hidden;
 }
 
 /* Tasks pane styles defined above; the legacy .add-subtask-btn /
@@ -6743,6 +7793,9 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Never horizontally scroll. The hover toolbars / reactions that poke into
+     the gutter are constrained via the message row below. */
+  overflow-x: hidden;
 }
 
 /* Message date and time layout */
@@ -6808,27 +7861,54 @@ onBeforeUnmount(() => {
   font-size: 0.84rem;
 }
 
+/* Compact link-preview card — horizontal thumb + text layout, capped height
+   so a single image card can't dominate the chat scroll like before. */
 .message-preview {
   display: grid;
-  gap: 0.35rem;
-  margin-top: 0.7rem;
-  padding: 0.75rem 0.85rem;
-  border-radius: 16px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 12px;
   border: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-base) 86%, transparent);
   color: var(--text-primary);
+  max-width: 360px;
 }
 
 .message-preview img {
-  width: 100%;
-  max-height: 160px;
+  width: 56px;
+  height: 56px;
   border-radius: 8px;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.message-preview strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.88rem;
 }
 
 .message-preview span {
   color: var(--text-secondary);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Allow the strong/span pair to share the grid's second column. */
+.message-preview > :not(img) {
+  grid-column: 2;
+}
+
+.message-preview img {
+  grid-row: span 2;
 }
 
 .message-reactions {
@@ -6838,45 +7918,200 @@ onBeforeUnmount(() => {
   margin-top: 0.75rem;
 }
 
+/* Reaction chips — Telegram/Instagram style: compact, overlap the bubble */
 .reaction-btn,
 .reaction-summary-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   border-radius: 999px;
   border: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
   color: var(--text-primary);
-  padding: 0.35rem 0.6rem;
-  font-size: 0.9rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1;
   cursor: pointer;
   transition:
     border-color 0.18s ease,
-    background 0.18s ease;
+    background 0.18s ease,
+    transform 0.12s ease;
 }
 
 .reaction-btn:hover,
 .reaction-summary-btn:hover {
-  border-color: var(--border-strong);
+  border-color: var(--air-force-blue);
+  transform: translateY(-1px);
 }
 
 .reaction-count {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
+  color: var(--text-muted);
+}
+
+.message-reactions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+}
+
+.message-reactions .reaction-summary-btn {
+  background: var(--white);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Receipt button — reset default <button> chrome since we converted it. */
+.message-receipt-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-top: 0.55rem;
+}
+
+/* Receipt wrap — anchor for the popover + slot for ticks. Pulled out of the
+   bubble's vertical flow on own messages so it sits inline at the bottom-right
+   corner (WhatsApp position) and adds zero extra height. */
+.message.own .message-receipt-wrap {
+  position: absolute;
+  bottom: 0.35rem;
+  right: 0.55rem;
 }
 
 .message-receipt {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.55rem;
+  gap: 0.25rem;
   color: var(--text-muted);
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.message-receipt:hover,
+.message-receipt.is-open {
+  color: var(--air-force-blue);
+  background: rgba(57, 104, 123, 0.10);
 }
 
 .message.own .message-receipt {
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.message.own .message-receipt:hover,
+.message.own .message-receipt.is-open {
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Tick colours.
+   - delivered:  single grey tick      (no reads yet)
+   - partial:    double grey ticks     (some but not all members read)
+   - read:       double blue ticks     (every other group member has read it) */
+.message-receipt--ticks .tick-icon {
+  font-size: 0.82rem;
+}
+
+.message-receipt--delivered .tick-icon,
+.message-receipt--partial .tick-icon {
+  color: rgba(0, 0, 0, 0.42);
+}
+
+.message.own .message-receipt--delivered .tick-icon,
+.message.own .message-receipt--partial .tick-icon {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.message-receipt--read .tick-icon {
+  color: #2196f3;
+}
+
+.message.own .message-receipt--read .tick-icon {
+  color: #6ad1ff;
+}
+
+.receipt-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.message-receipt-popover {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 240px;
+  max-width: 320px;
+  z-index: 20;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+  padding: 0.7rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+/* Teleported variant: rendered at <body> root with fixed coordinates so
+   the scrollable chat container's ``overflow: auto`` can't clip it. */
+.message-receipt-popover--floating {
+  /* Override the inline component-scoped absolute positioning baseline.
+     ``position`` is set via inline style by the component. */
+  bottom: auto;
+  right: auto;
+}
+
+.message:not(.own) .message-receipt-popover {
+  right: auto;
+  left: 0;
+}
+
+.message-receipt-popover-section + .message-receipt-popover-section {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--border-light);
+}
+
+.message-receipt-popover-section strong {
+  display: block;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.message-receipt-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0;
+}
+
+.message-receipt-popover-row .receipt-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.message-receipt-popover-row .receipt-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.message-receipt-popover-status {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.message-receipt-popover-status.error {
+  color: #b54708;
 }
 
 .hidden-file-input {
@@ -7328,10 +8563,15 @@ onBeforeUnmount(() => {
   background: var(--white);
   color: var(--charcoal);
   border: 1px solid var(--border-light);
-  border-radius: 4px;
+  border-radius: 22px;
+  padding: 0.7rem 1rem;
+  font: inherit;
+  line-height: 1.4;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
-.chat-input-field::placeholder {
+.chat-input-field::placeholder,
+.gif-search-input::placeholder {
   color: #8a949e;
 }
 
@@ -7339,18 +8579,34 @@ onBeforeUnmount(() => {
 .gif-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  background: var(--white);
+  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
+}
+
+.chat-input-field {
+  /* textarea-specific tweaks for a rounder, friendlier composer */
+  min-height: 2.65rem;
+  resize: none;
 }
 
 .chat-btn {
   border: 1px solid var(--border-light);
   background: var(--white);
   color: var(--air-force-blue);
+  border-radius: 999px;
+  padding: 0.55rem 0.95rem;
+  font-weight: 600;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.12s ease;
 }
 
 .chat-btn:hover {
   border-color: var(--air-force-blue);
   background: #f1f5f7;
+  transform: translateY(-1px);
+}
+
+.chat-btn:active {
+  transform: translateY(0);
 }
 
 .chat-btn:disabled,
@@ -7358,6 +8614,44 @@ onBeforeUnmount(() => {
   color: #98a2ad;
   border-color: var(--border-light);
   background: var(--white);
+  transform: none;
+}
+
+/* Icon-only chat-actions buttons (paperclip / image / resource panel) */
+.chat-actions-strip .chat-btn,
+.chat-input-actions .chat-btn {
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* "GIF" glyph mark — small caps label inside a circular button. Matches the
+   Tenor / iMessage convention better than a generic image icon. */
+.chat-btn-gif-glyph {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 0.15rem 0.32rem;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  font-family: var(--font-mono, "SFMono-Regular", "Menlo", monospace);
+}
+
+/* Panel-toggle buttons (GIF / Resources) keep an active state while their
+   panel is open so the user sees what's currently expanded. */
+.chat-btn--toggle.active {
+  background: rgba(31, 122, 63, 0.12);
+  border-color: var(--dark-green, #1f7a3f);
+  color: var(--dark-green, #1f7a3f);
+  box-shadow: inset 0 0 0 1px var(--dark-green, #1f7a3f);
+}
+
+.chat-btn--toggle.active:hover {
+  background: rgba(31, 122, 63, 0.18);
 }
 
 .message-avatar {
@@ -7373,21 +8667,467 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   background: var(--white);
   color: var(--charcoal);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 .message-content {
   position: relative;
+  border-radius: 18px;
+  padding: 0.55rem 0.9rem 0.45rem;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  /* Never grow a scrollbar inside a bubble. If content is unusually wide
+     (e.g. a giant URL), let it wrap rather than scroll. */
+  overflow: visible;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Ticks live in the bubble's bottom-right corner via absolute positioning.
+   No reserved right-padding on the bubble — that produced a visible empty
+   gap on short messages (e.g. "SSS"). On long messages where the last line
+   approaches the right edge, the ticks overlay the trailing characters — a
+   small inline spacer at the END of the text reserves just enough room on
+   the LAST line so the bubble width stays snug. */
+.message.own .message-text::after {
+  content: "\00a0\00a0\00a0\00a0\00a0\00a0";
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.message:hover .message-content {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .message-header {
   padding-right: 2.2rem;
 }
 
+/* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
+.message:not(.own) .message-content {
+  border-bottom-left-radius: 6px;
+}
+
 .message.own .message-content {
   background: var(--dark-green);
   color: var(--white);
   border-color: var(--dark-green);
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 2px 8px rgba(31, 122, 63, 0.18);
+}
+
+.message.own:hover .message-content {
+  box-shadow: 0 4px 14px rgba(31, 122, 63, 0.26);
+}
+
+/* Resource chip + open/download popover */
+.resource-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.resource-choice-popover {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 25;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 0.35rem 0.45rem;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  animation: kebab-pop 0.14s ease-out;
+  white-space: nowrap;
+}
+
+.resource-choice-status {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding: 0 0.4rem;
+}
+
+.resource-choice-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.resource-choice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--air-force-blue);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
+}
+
+.resource-choice-btn:hover:not(:disabled) {
+  background: rgba(57, 104, 123, 0.10);
+  border-color: var(--air-force-blue);
+  transform: translateY(-1px);
+}
+
+.resource-choice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resource-choice-btn--danger {
+  color: #c0392b;
+  border-color: rgba(192, 57, 43, 0.4);
+}
+
+.resource-choice-btn--danger:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.10);
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+/* Attachment chips — softer, rounder */
+.attachment-chip {
+  border-radius: 14px;
+  padding: 0.5rem 0.7rem;
+  transition: border-color 0.16s ease, transform 0.12s ease;
+}
+
+.attachment-chip:hover {
+  border-color: var(--air-force-blue);
+  transform: translateY(-1px);
+}
+
+/* Message action buttons (Reply / Edit / Delete) — pill chips on hover */
+.message-action-btn {
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem !important;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.message-action-btn:hover:not(:disabled) {
+  background: rgba(57, 104, 123, 0.10);
+}
+
+.message.own .message-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Inline action cluster inside the message header (sits after the time).
+   Reply + Smile are always visible; the kebab (Edit/Delete dropdown) only
+   shows up while ``canManageMessage`` is true. */
+.message-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  margin-left: 0.35rem;
+  position: relative;
+}
+
+.inline-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.72rem;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.inline-action-btn:hover:not(:disabled),
+.inline-action-btn.active {
+  background: rgba(57, 104, 123, 0.10);
+  color: var(--air-force-blue);
+}
+
+.message.own .inline-action-btn {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.message.own .inline-action-btn:hover:not(:disabled),
+.message.own .inline-action-btn.active {
+  background: rgba(255, 255, 255, 0.20);
+  color: var(--white);
+}
+
+.inline-kebab-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.inline-kebab-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  min-width: 140px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+  padding: 0.25rem;
+  animation: kebab-pop 0.14s ease-out;
+}
+
+.inline-kebab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.7rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.inline-kebab-item i {
+  width: 0.95rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.inline-kebab-item:hover:not(:disabled) {
+  background: rgba(57, 104, 123, 0.10);
+}
+
+.inline-kebab-item--danger {
+  color: #c0392b;
+}
+
+.inline-kebab-item--danger i {
+  color: #c0392b;
+}
+
+.inline-kebab-item--danger:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.10);
+}
+
+.inline-kebab-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes kebab-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Inline picker popout — pops UPWARD above the message header so it never
+   covers the message body. Anchored to the right edge of the inline action
+   cluster (where the smile button sits). */
+.reaction-picker--inline {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  top: auto;
+  right: 0;
+  left: auto;
+  z-index: 30;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  display: inline-flex;
+  gap: 0.2rem;
+  white-space: nowrap;
+  animation: kebab-pop 0.14s ease-out;
+}
+
+.reaction-picker--inline .reaction-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.reaction-picker--inline .reaction-btn:hover {
+  transform: scale(1.18);
+  background: #f1f5f7;
+}
+
+/* Floating hover toolbar — DEPRECATED: replaced by inline header actions.
+   The .message-hover-toolbar block is preserved below as ``display: none``
+   in case other places still wire it up. */
+.message-hover-toolbar {
+  display: none !important;
+}
+
+._unused_message_hover_toolbar_legacy {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  z-index: 3;
+}
+
+.message.own .message-hover-toolbar {
+  top: 0.4rem;
+  right: 0.4rem;
+  left: auto;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.18rem;
+  border-radius: 16px;
+  transform: translateX(4px);
+}
+
+.message:hover .message-hover-toolbar,
+.message-hover-toolbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.message.own:hover .message-hover-toolbar,
+.message.own .message-hover-toolbar:focus-within {
+  transform: translateX(0);
+}
+
+.hover-tool-btn {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+
+.hover-tool-btn:hover:not(:disabled) {
+  background: #f1f5f7;
+  color: var(--air-force-blue);
+  transform: scale(1.06);
+}
+
+.hover-tool-btn--danger:hover:not(:disabled) {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.10);
+}
+
+.hover-tool-btn--reaction.active {
+  background: rgba(31, 122, 63, 0.12);
+  color: var(--dark-green, #1f7a3f);
+}
+
+.hover-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Picker popout for own-messages — anchors next to the vertical toolbar
+   and pops out to the LEFT (into the bubble) so it never escapes the
+   container's right edge. */
+.reaction-picker--own {
+  bottom: auto;
+  top: 50%;
+  right: calc(100% + 0.45rem);
+  left: auto;
+  transform: translateY(-50%);
+  animation: reaction-picker-own-pop 0.14s ease-out;
+}
+
+@keyframes reaction-picker-own-pop {
+  from { opacity: 0; transform: translate(6px, -50%) scale(0.94); }
+  to { opacity: 1; transform: translate(0, -50%) scale(1); }
+}
+
+/* Animated typing indicator — three bouncing dots inside a soft pill. */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.85rem;
+  margin: 0.25rem 0.9rem 0.4rem;
+  width: fit-content;
+  border-radius: 999px;
+  background: rgba(57, 104, 123, 0.08);
+  color: var(--air-force-blue);
+  font-size: 0.78rem;
+  font-weight: 600;
+  animation: typing-pill-pop 0.18s ease-out;
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 0.18rem;
+  align-items: flex-end;
+  height: 0.7rem;
+}
+
+.typing-dots span {
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  animation: typing-dot-bounce 1.2s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+.typing-dots span:nth-child(3) { animation-delay: 0s; }
+
+@keyframes typing-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
+@keyframes typing-pill-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Vue <Transition name="typing"> classes — slide+fade as the pill enters/leaves */
+.typing-enter-active,
+.typing-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.typing-enter-from,
+.typing-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .message.own .message-author,
@@ -7403,33 +9143,77 @@ onBeforeUnmount(() => {
   color: var(--air-force-blue);
 }
 
-.reaction-picker-toggle {
+.reaction-pick-group {
   position: absolute;
-  top: 0.55rem;
-  right: 0.55rem;
+  bottom: 0.3rem;
+  left: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  z-index: 4;
+  min-height: 1.4rem;
+}
+
+/* Reaction chips stay at bottom-left for own and received alike — the smile
+   button for own messages lives separately in the right-side toolbar. */
+
+/* When reactions exist, the chip strip permanently occupies the slot;
+   it's always visible (not gated by hover) so the count stays readable. */
+.reaction-pick-group.has-reactions .message-reactions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Reserve room at the bottom of the bubble so the chip strip (positioned
+   ``bottom: -0.85rem``) doesn't crash into the next message. */
+.message-content:has(.reaction-pick-group.has-reactions) {
+  padding-bottom: 1.5rem;
+}
+
+.reaction-picker-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border: 1px solid var(--border-light);
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--border-default);
   border-radius: 50%;
   background: var(--white);
   color: var(--air-force-blue);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
   transition:
     opacity 0.16s ease,
     border-color 0.16s ease,
-    background 0.16s ease;
+    background 0.16s ease,
+    transform 0.16s ease;
 }
 
+.message:hover .reaction-picker-toggle,
 .message-content:hover .reaction-picker-toggle,
-.message-content:focus-within .reaction-picker-toggle,
+.reaction-pick-group:hover .reaction-picker-toggle,
+.reaction-pick-group:focus-within .reaction-picker-toggle,
+.reaction-pick-group.active .reaction-picker-toggle,
 .reaction-picker-toggle.active {
   opacity: 1;
   pointer-events: auto;
+}
+
+.reaction-picker-toggle:hover,
+.reaction-picker-toggle.active {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+  transform: scale(1.04);
+}
+
+/* Smaller "+" smiley when sitting next to existing chips */
+.reaction-pick-group.has-reactions .reaction-picker-toggle {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.85rem;
 }
 
 .reaction-picker-toggle:hover,
@@ -7450,27 +9234,57 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.24);
 }
 
+/* Click-only picker. Renders only when ``activeReactionPickerMessageId``
+   matches this message — no hover gating in CSS. Anchored above the smile
+   button (WhatsApp-style) so it never collides with the bubble below. */
 .reaction-picker {
   position: absolute;
-  top: 2.55rem;
-  right: 0.55rem;
-  z-index: 2;
+  bottom: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 6;
   display: inline-flex;
-  gap: 0.35rem;
-  padding: 0.35rem;
-  border: 1px solid var(--border-light);
+  gap: 0.2rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-default);
   border-radius: 999px;
   background: var(--white);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+  animation: reaction-picker-pop 0.14s ease-out;
+}
+
+.message.own .reaction-picker {
+  right: auto;
+  left: 0;
 }
 
 .reaction-picker .reaction-btn {
   width: 2rem;
   height: 2rem;
-  justify-content: center;
   padding: 0;
   border-radius: 50%;
+  border-color: transparent;
+  background: transparent;
   box-shadow: none;
+  font-size: 1.05rem;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.reaction-picker .reaction-btn:hover {
+  transform: scale(1.18);
+  background: #f1f5f7;
+  border-color: transparent;
+}
+
+@keyframes reaction-picker-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .reaction-btn:hover,

@@ -53,7 +53,8 @@ from config.errors import (
 from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, StreamingHttpResponse
+import requests
 from apps.common.storage import serve_managed_file
 from .rbac import (
     can_access_resource_file,
@@ -499,8 +500,44 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
         payload = self._build_access_payload(resource)
         external_url = payload["external_url"]
+        # ``force=1`` query param: proxy the file bytes through us so the
+        # browser sees a ``Content-Disposition: attachment`` header and
+        # actually saves the file. Without it, an external resource just
+        # 302-redirects to the upstream URL — and the browser's
+        # ``<a download>`` hint is ignored cross-origin, so the file ends up
+        # opening inline instead of downloading. The force path is opt-in so
+        # callers that just want a preview still get the cheap redirect.
+        force = (request.query_params.get("force") or "").lower() in {"1", "true", "yes"}
         if external_url and payload["access_mode"] in {"external_file", "external_page"}:
-            return HttpResponseRedirect(external_url)
+            if not force:
+                return HttpResponseRedirect(external_url)
+            try:
+                upstream = requests.get(external_url, stream=True, timeout=10)
+            except requests.RequestException as exc:
+                return Response(
+                    {"detail": f"Upstream resource could not be fetched: {exc}"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if upstream.status_code >= 400:
+                return Response(
+                    {"detail": f"Upstream resource returned HTTP {upstream.status_code}."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            file_name = payload.get("file_name") or resource.name or "resource"
+            mime_type = (
+                resource.file_mime_type
+                or upstream.headers.get("content-type")
+                or "application/octet-stream"
+            )
+            response = StreamingHttpResponse(
+                upstream.iter_content(chunk_size=64 * 1024),
+                content_type=mime_type,
+            )
+            response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+            content_length = upstream.headers.get("content-length")
+            if content_length:
+                response["Content-Length"] = content_length
+            return response
         if payload["access_mode"] == "unavailable":
             return Response(
                 {"detail": payload["detail"]},

@@ -19,24 +19,28 @@ from .management.permissions import (
 from .rbac import can_access_chat_group
 from .models import (
     MessageAttachment,
+    MessageGif,
     MessageMention,
     MessagePreview,
     MessageReaction,
     MessageStatus,
     Messages,
+    MessageType,
 )
 from .og_extractor import extract_urls
 from .serializers import (
     MentionSerializer,
     MessageAttachmentUploadSerializer,
+    MessageGifCreateSerializer,
     MessagePublicSerializer,
     MessageSerializer,
     MessageUpdateSerializer,
     aggregate_reactions,
 )
+from .services.gifs import cached_fetch, clamp_limit, clamp_pos, clamp_query
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from .tasks import dispatch_og
-from .utils import parse_mentions
+from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
 
 
@@ -314,15 +318,17 @@ class MessageViewSet(viewsets.ModelViewSet):
             # Edit and delete share the same window-bounded RBAC rule, but the
             # permission classes stay split so view wiring expresses intent.
             return [IsAuthenticated(), CanEditMessage()]
-        if self.action in {"upload", "attachment_download"}:
+        if self.action in {"upload", "attachment_download", "send_gif"}:
             return [IsAuthenticated()]
-        if self.action in {"read", "delivered", "react"}:
+        if self.action in {"read", "delivered", "react", "message_status"}:
             return [IsAuthenticated(), IsGroupMemberOrAdmin()]
         return [IsGroupMemberOrAdmin()]
 
     def get_serializer_class(self):
         if self.action == "upload":
             return MessageAttachmentUploadSerializer
+        if self.action == "send_gif":
+            return MessageGifCreateSerializer
         if self.action == "partial_update":
             return MessageUpdateSerializer
         if self.action == "retrieve":
@@ -338,7 +344,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         user_id = getattr(user_id, "id", None)
         return (
             Messages.objects.filter(deleted_at__isnull=True)
-            .select_related("sender_user", "reply_to", "preview")
+            .select_related("sender_user", "reply_to", "preview", "gif")
             .prefetch_related(
                 "attachments",
                 "resources__resource",
@@ -416,7 +422,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             user_id = getattr(user_id, "id", None)
             try:
                 message = (
-                    Messages.objects.select_related("sender_user", "reply_to", "preview")
+                    Messages.objects.select_related("sender_user", "reply_to", "preview", "gif")
                     .prefetch_related(
                         "attachments",
                         "resources__resource",
@@ -467,6 +473,10 @@ class MessageViewSet(viewsets.ModelViewSet):
         # has been resolved (or cleared by edit) doesn't need to round-trip
         # the REST list endpoint.
         data["preview"] = public.get("preview")
+        # ``gif`` is rendered through SerializerMethodField on both serializers,
+        # but the public one is the canonical wire shape — keep parity so the
+        # broadcast and REST payloads match for GIF messages too.
+        data["gif"] = public.get("gif")
         return data
 
     def _dispatch_link_previews(self, message: Messages) -> None:
@@ -551,19 +561,46 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    # GET /chat/groups/{gid}/messages/search/?q=&before=&limit=
+    # GET /chat/groups/{gid}/messages/search/?q=&before=&limit=&type=&from=&to=
     @action(detail=False, methods=["get"], url_path="search")
     def search(self, request, *args, **kwargs):
         gid = self.kwargs.get("group_pk")
         q = (request.query_params.get("q") or "").strip()
-        if not q:
+        # Filters are optional refinements; a search with only filters and
+        # no ``q`` is still useful ("all GIFs from last week") so we don't
+        # short-circuit on an empty q anymore — the filters can stand alone.
+        filter_type = (request.query_params.get("type") or "").strip().lower()
+        filter_from = (request.query_params.get("from") or "").strip()
+        filter_to = (request.query_params.get("to") or "").strip()
+
+        if not q and not filter_type and not filter_from and not filter_to:
             return Response({"items": [], "next_before": None}, status=status.HTTP_200_OK)
 
-        qs = (
-            self.get_queryset()
-            .filter(message_text__icontains=q)
-            .order_by("-sent_at", "-id")
-        )
+        qs = self.get_queryset().order_by("-sent_at", "-id")
+        if q:
+            qs = qs.filter(message_text__icontains=q)
+
+        # ``text`` / ``gif`` map directly to ``message_type``. ``attachment``
+        # and ``resource`` are stored as ``message_type='attachment'`` /
+        # ``'resource'`` already, so the same column filter covers them.
+        if filter_type in {"text", "attachment", "resource", "gif"}:
+            qs = qs.filter(message_type=filter_type)
+
+        # Date filters are inclusive whole-day windows in the server's TZ.
+        # Bad input is silently ignored rather than 400-ing — the FE
+        # surfaces a date-picker so the value is always YYYY-MM-DD in
+        # the happy path; defensive parsing keeps a typo from breaking
+        # the search panel.
+        if filter_from:
+            try:
+                qs = qs.filter(sent_at__date__gte=filter_from)
+            except (ValueError, TypeError):
+                pass
+        if filter_to:
+            try:
+                qs = qs.filter(sent_at__date__lte=filter_to)
+            except (ValueError, TypeError):
+                pass
 
         before = request.query_params.get("before")
         if before:
@@ -747,8 +784,10 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="react")
     def react(self, request, *args, **kwargs):
-        # Toggle: if the (user, message, emoji) row exists, delete it; otherwise create it.
-        # Broadcasts a flat ``message.reaction_updated`` WS frame on commit.
+        # One reaction per (user, message): reacting with the same emoji toggles
+        # it off; reacting with a different emoji REPLACES the previous one so a
+        # user can never carry multiple chips on the same message. Same WS
+        # ``message.reaction_updated`` frame is broadcast on commit either way.
         message = self.get_object()
         emoji = request.data.get("emoji")
         if not isinstance(emoji, str):
@@ -759,17 +798,25 @@ class MessageViewSet(viewsets.ModelViewSet):
             raise drf_serializers.ValidationError({"emoji": ["Unsupported emoji."]})
 
         with transaction.atomic():
-            existing = (
+            existing_for_user = list(
                 MessageReaction.objects
                 .select_for_update()
-                .filter(message=message, user=request.user, emoji=emoji)
-                .first()
+                .filter(message=message, user=request.user)
             )
-            if existing is not None:
-                existing.delete()
+            same = next((r for r in existing_for_user if r.emoji == emoji), None)
+            if same is not None:
+                # Toggle off — user re-tapped the emoji they already chose.
+                same.delete()
             else:
+                # Replace: drop any prior emoji from this user on this message
+                # before recording the new one. ``existing_for_user`` is already
+                # narrow (1 row in normal use) so this stays cheap.
+                if existing_for_user:
+                    MessageReaction.objects.filter(
+                        pk__in=[r.pk for r in existing_for_user]
+                    ).delete()
                 MessageReaction.objects.create(
-                    message=message, user=request.user, emoji=emoji
+                    message=message, user=request.user, emoji=emoji,
                 )
 
         message = self._message_queryset().get(pk=message.pk)
@@ -788,6 +835,93 @@ class MessageViewSet(viewsets.ModelViewSet):
         count = mark_delivered_cursor(request.user, target.group_id, target.id)
         return Response(
             {"marked_count": count, "up_to_id": target.id},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="send-gif")
+    def send_gif(self, request, *args, **kwargs):
+        """Create a ``message_type=GIF`` message + sidecar in one transaction.
+
+        The Tenor URL is stored verbatim — we trust the provider URL we
+        already proxied. Captions still flow through ``sanitize_text`` via
+        :class:`MessageGifCreateSerializer.validate_message_text`, so a GIF
+        send can't bypass the chat moderation filter.
+
+        Broadcast and unfurl semantics mirror ``perform_create`` so the FE
+        renders a GIF bubble the same way it renders a text one.
+        """
+        group = self._get_group()
+        if group is None:
+            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not can_access_chat_group(request.user, group):
+            return Response(
+                {"detail": "You do not have access to this group."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = MessageGifCreateSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        gid = group.id
+
+        with transaction.atomic():
+            message = Messages.objects.create(
+                sender_user=request.user,
+                group_id=gid,
+                message_type=MessageType.GIF,
+                message_text=data.get("message_text", ""),
+                reply_to=data.get("reply_to"),
+            )
+            MessageGif.objects.create(
+                message=message,
+                provider=data.get("provider", "tenor"),
+                provider_id=data["provider_id"],
+                gif_url=data["gif_url"],
+                preview_url=data.get("preview_url", ""),
+                title=data.get("title", ""),
+            )
+            apply_mentions(message)
+            _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
+            # Captions can still carry URLs — keep unfurl symmetric with
+            # plain text + attachment sends.
+            self._dispatch_link_previews(message)
+
+        return Response(
+            self._serialize_public_message(message), status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["get"], url_path="status")
+    def message_status(self, request, *args, **kwargs):
+        """Return the per-user delivery + read state for one message.
+
+        Powers the FE's "Read by N" popover. Excludes the sender from both
+        lists (the sender has no ``MessageStatus`` row of their own). Names
+        come from ``Users.get_full_name()`` so the FE renders the same
+        attribution string used elsewhere in chat.
+        """
+        message = self.get_object()
+        statuses = (
+            MessageStatus.objects
+            .filter(message_id=message.id)
+            .exclude(user_id=message.sender_user_id)
+            .select_related("user")
+            .order_by("-read_at", "-delivered_at", "id")
+        )
+
+        read_by = []
+        delivered_by = []
+        for s in statuses:
+            user = s.user
+            name = user.get_full_name() if user else f"User {s.user_id}"
+            if s.read_at is not None:
+                read_by.append({"id": s.user_id, "name": name, "read_at": s.read_at})
+            elif s.delivered_at is not None:
+                delivered_by.append(
+                    {"id": s.user_id, "name": name, "delivered_at": s.delivered_at}
+                )
+
+        return Response(
+            {"read_by": read_by, "delivered_by": delivered_by},
             status=status.HTTP_200_OK,
         )
 
@@ -916,3 +1050,49 @@ class MentionViewSet(viewsets.GenericViewSet):
             {"marked_count": updated, "unread_count": 0},
             status=status.HTTP_200_OK,
         )
+
+
+class GifViewSet(viewsets.ViewSet):
+    """Tenor GIF proxy + sanitised search.
+
+    Endpoints:
+      * GET /api/v1/chat/gifs/search?q=&pos=&limit=
+      * GET /api/v1/chat/gifs/trending?pos=&limit=
+
+    Per issue #95, any query containing a blacklisted stem/whole-word
+    returns ``{items: [], next_pos: null}`` immediately without reaching
+    Tenor. This is layered on top of Tenor's own ``contentfilter=high``
+    so we still blank slurs even if upstream filtering ever loosens.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request, *args, **kwargs):
+        query = clamp_query(request.query_params.get("q"))
+        pos = clamp_pos(request.query_params.get("pos"))
+        limit = clamp_limit(request.query_params.get("limit"))
+
+        if not query:
+            return Response(
+                {"items": [], "next_pos": None}, status=status.HTTP_200_OK,
+            )
+
+        # Issue #95 contract: ill / irrelevant words -> blank output. The
+        # check runs BEFORE any provider call so we never spend the Tenor
+        # rate-limit budget on a query we wouldn't surface anyway, and a
+        # malicious client cannot use the chat as a slur-aware GIF lookup.
+        if contains_blacklisted(query):
+            return Response(
+                {"items": [], "next_pos": None}, status=status.HTTP_200_OK,
+            )
+
+        payload = cached_fetch("search", query, pos, limit)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="trending")
+    def trending(self, request, *args, **kwargs):
+        pos = clamp_pos(request.query_params.get("pos"))
+        limit = clamp_limit(request.query_params.get("limit"))
+        payload = cached_fetch("featured", "", pos, limit)
+        return Response(payload, status=status.HTTP_200_OK)
