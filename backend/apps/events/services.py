@@ -139,7 +139,7 @@ def can_user_rsvp_to_event(user, event) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Read-side scoping for GET /events/v1/. Mirrors the gate above.
+# Read-side scoping for GET /api/v1/events/. Mirrors the gate above.
 # ---------------------------------------------------------------------------
 
 
@@ -395,7 +395,7 @@ def set_user_rsvp(user, event_id, rsvp_status):
 # ---------------------------------------------------------------------------
 # RSVP reminder dispatch. Triggered hourly by the GitHub Actions workflow
 # (.github/workflows/rsvp-reminders.yml) hitting the HMAC-guarded
-# POST /events/v1/admin/send-rsvp-reminders/ endpoint.
+# POST /api/v1/events/admin/send-rsvp-reminders/ endpoint.
 # ---------------------------------------------------------------------------
 
 

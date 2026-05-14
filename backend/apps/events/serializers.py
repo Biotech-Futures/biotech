@@ -217,7 +217,7 @@ class EventRsvpRequestSerializer(serializers.Serializer):
 
 
 class EventRsvpSubmitSerializer(serializers.Serializer):
-    """User-side RSVP payload for POST /events/v1/{id}/rsvp/.
+    """User-side RSVP payload for POST /api/v1/events/{id}/rsvp/.
 
     PENDING is excluded — that's an admin-invite state. Restricting
     choices here means a stray `rsvp_status=pending` body is rejected

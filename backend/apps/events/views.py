@@ -260,18 +260,18 @@ class EventViewSet(viewsets.ModelViewSet):
 
 
 class EventRsvpSetView(APIView):
-    """POST /events/v1/{id}/rsvp/ — set my RSVP to accepted/tentative/declined.
+    """POST /api/v1/events/{id}/rsvp/ — set my RSVP to accepted/tentative/declined.
 
     Idempotent. PENDING is rejected — that's an admin-invite state, not a
-    user choice.
+    user choice. The legacy /events/v1/{id}/rsvp/ route still resolves.
     """
 
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
-        # Stable across every URL the dual-mount + legacy v1/ alias exposes
-        # this view at (``/events/<id>/rsvp/``, ``/events/v1/<id>/rsvp/``,
-        # ``/api/v1/events/<id>/rsvp/``, ``/api/v1/events/v1/<id>/rsvp/``).
+        # Stable across every URL the canonical mount + legacy v1/ alias exposes
+        # this view at (``/api/v1/events/<id>/rsvp/``, ``/events/<id>/rsvp/``,
+        # and ``/events/v1/<id>/rsvp/``).
         # Without this, drf_spectacular auto-generates an id from the path,
         # collides with EventInviteCreateView (same path prefix + POST), and
         # disambiguates with ``_2`` / ``_3`` / ``_4`` suffixes that change
@@ -400,7 +400,7 @@ class EventInviteListMeHTMLView(generics.ListAPIView):
 
 
 class EventBulkInviteView(APIView):
-    """POST /events/v1/{id}/rsvp/bulk/ — upsert many invites in one txn.
+    """POST /api/v1/events/{id}/rsvp/bulk/ — upsert many invites in one txn.
 
     Returns `created` / `updated` / `not_found` so the FE can show a
     partial-success summary instead of failing the whole call on one bad id.

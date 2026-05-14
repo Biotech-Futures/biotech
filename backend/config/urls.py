@@ -12,9 +12,10 @@ This module mounts each app under **both** prefixes where doing so is clean:
 * ``/<app>/...`` — legacy, kept so old clients, the curl scripts in the
   link-preview PR, and the existing test suite continue to resolve.
 
-Only apps whose internal URLconf has **no internal ``v1/`` segment** are
-dual-mounted (see :data:`_DUAL_MOUNTS` below) — otherwise the v1 mount would
-produce nonsense paths like ``/api/v1/events/v1/...``.
+Most apps whose internal URLconf has **no internal ``v1/`` segment** are
+dual-mounted through :data:`_DUAL_MOUNTS`. Events is mounted separately because
+it still keeps a legacy in-app ``v1/`` alias; only its canonical app-root
+patterns are exposed under ``/api/v1/events/...``.
 """
 from django.contrib import admin
 from django.urls import include, path
@@ -24,6 +25,8 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
+
+from apps.events.urls import canonical_urlpatterns as event_canonical_urlpatterns
 
 
 # Apps that should be served from BOTH ``/api/v1/<prefix>`` and ``/<prefix>``.
@@ -66,6 +69,10 @@ def _dual_mount_patterns():
 # at the v1 root keeps ``/api/v1/users/me/`` and friends working.
 _api_v1_patterns = [
     *_dual_mount_patterns(),
+    # Events keeps ``/events/v1/...`` as a legacy app-local alias. Mount only
+    # the canonical patterns here so new clients use ``/api/v1/events/...``
+    # without also exposing ``/api/v1/events/v1/...``.
+    path("events/", include(event_canonical_urlpatterns)),
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("", include("apps.users.urls")),
@@ -81,9 +88,9 @@ urlpatterns = [
 
     # Legacy mounts — preserved so old clients, the curl integration scripts
     # checked into the link-preview PR, and the existing test suite keep
-    # resolving. Apps with internal ``v1/`` segments (events, announcements,
-    # audit, certificates, matching_runtime) live ONLY here today — adding a
-    # ``/api/v1/`` mount for them needs a per-app urlconf refactor first.
+    # resolving. Events is also mounted canonically above; the remaining apps
+    # with internal ``v1/`` segments stay legacy-only until their URLconfs are
+    # split the same way.
     *_dual_mount_patterns(),
     path("users/", include("apps.users.urls")),
     path("dashboard/v1/", include("apps.dashboard.urls")),  # historical alias

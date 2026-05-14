@@ -476,6 +476,7 @@ const auth = useAuthStore()
 const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user, timeZone } =
   storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const EVENTS_API_BASE = `${API_BASE_URL}/api/v1/events`
 const DASHBOARD_ENDPOINTS = {
   groupsPreview: (mine = false) =>
     `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
@@ -486,9 +487,9 @@ const DASHBOARD_ENDPOINTS = {
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
   nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
-  personalizedEvents: `${API_BASE_URL}/events/v1/?rsvp_status=accepted,tentative,pending&page_size=1&ordering=start_datetime`,
-  eventsCount: `${API_BASE_URL}/events/v1/?when=upcoming&page_size=1`,
-  events: `${API_BASE_URL}/events/v1/?page_size=10`,
+  personalizedEvents: `${EVENTS_API_BASE}/?rsvp_status=accepted,tentative,pending&page_size=1&ordering=start_datetime`,
+  eventsCount: `${EVENTS_API_BASE}/?when=upcoming&page_size=1`,
+  events: `${EVENTS_API_BASE}/?page_size=10`,
   progress: `${API_BASE_URL}/dashboard/v1/progress/`,
   adminSummary: `${API_BASE_URL}/api/v1/admin/summary/`,
 }

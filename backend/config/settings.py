@@ -407,11 +407,10 @@ TENOR_CLIENT_KEY = config("TENOR_CLIENT_KEY", default="biotech-chat")
 TENOR_TIMEOUT = config("TENOR_TIMEOUT", default=5, cast=int)
 GIF_CACHE_TTL = config("GIF_CACHE_TTL", default=300, cast=int)
 
-# Shared secret for POST /events/v1/admin/send-rsvp-reminders/. The
-# hourly GitHub Actions workflow sends this in the X-Reminder-Token
-# header; the endpoint returns 503 if it's unset, so a misconfigured
-# deploy fails loud instead of silently exposing an unauthenticated
-# trigger.
+# Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
+# /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
+# schedulers. The endpoint returns 503 if it's unset, so a misconfigured deploy
+# fails loud instead of silently exposing an unauthenticated trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to

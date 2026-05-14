@@ -3,6 +3,7 @@ import { apiErrorFromResponse } from './apiError'
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const EVENTS_API_BASE = `${API_BASE_URL}/api/v1/events`
 
 export type EventWhen = 'upcoming' | 'past' | 'all'
 export type EventRsvpStatus = 'pending' | 'accepted' | 'tentative' | 'declined'
@@ -108,7 +109,7 @@ const eventListUrl = (params: EventListParams = {}) => {
   appendParam(query, 'track', params.track)
   appendParam(query, 'ordering', params.ordering || 'start_datetime')
 
-  return `${API_BASE_URL}/events/v1/?${query.toString()}`
+  return `${EVENTS_API_BASE}/?${query.toString()}`
 }
 
 export const fetchEvents = async (
@@ -142,7 +143,7 @@ export const fetchMyEventRsvps = async (
   pageSize = 100
 ): Promise<EventRsvpListResponse> => {
   const res = await fetch(
-    `${API_BASE_URL}/events/v1/rsvps/me/?page_size=${pageSize}`,
+    `${EVENTS_API_BASE}/rsvps/me/?page_size=${pageSize}`,
     {
       method: 'GET',
       credentials: 'include',
@@ -170,7 +171,7 @@ export const setEventRsvp = async (
   }
 
   const res = await fetch(
-    `${API_BASE_URL}/events/v1/${eventId}/rsvp/`,
+    `${EVENTS_API_BASE}/${eventId}/rsvp/`,
     {
       method: 'POST',
       credentials: 'include',
