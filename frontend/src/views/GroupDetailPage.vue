@@ -6297,7 +6297,9 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  overflow: hidden;
+  /* overflow stays visible so the status-menu popup can extend below the
+     last (or only) task without being clipped. Rounded corners are kept
+     by rounding the first/last task-item directly. */
 }
 
 .task-item {
@@ -6311,7 +6313,8 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, box-shadow 120ms ease;
   position: relative;
 }
-.task-item:last-child { border-bottom: 0; }
+.task-item:first-child { border-top-left-radius: 11px; border-top-right-radius: 11px; }
+.task-item:last-child { border-bottom: 0; border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
 .task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
 .task-item.is-selected {
   background: rgba(57, 104, 123, 0.08);
