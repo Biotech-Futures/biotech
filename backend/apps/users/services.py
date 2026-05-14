@@ -1,8 +1,8 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 
 from apps.events.models import Events
-from apps.groups.models import Groups
+from apps.groups.models import GroupMembership, Groups
 from apps.matching_runtime.models import MatchRecommendation
 
 from .models import User
@@ -33,32 +33,45 @@ def get_operational_admin_summary(user):
         rec_qs = rec_qs.filter(group__track_id__in=track_scope)
         event_qs = event_qs.filter(Q(track_id__in=track_scope) | Q(track__isnull=True))
 
-    mentorless_group_ids = group_qs.annotate(
-        active_mentor_count=Count(
-            "groupmembership",
-            filter=Q(
-                groupmembership__membership_role__iexact="mentor",
-                groupmembership__left_at__isnull=True,
-            ),
+    # Single aggregate per queryset — collapses what used to be 7 SELECT
+    # COUNT(*) round-trips into 3 (users, groups, recs+events stay separate
+    # since events isn't track-aliased the same way).
+    user_counts = user_qs.aggregate(
+        active=Count("id", filter=Q(account_status=User.AccountStatus.ACTIVE)),
+        invited_or_pending=Count("id", filter=Q(
+            account_status__in=[User.AccountStatus.INVITED, User.AccountStatus.PENDING]
+        )),
+        suspended_or_deactivated=Count("id", filter=Q(
+            account_status__in=[User.AccountStatus.SUSPENDED, User.AccountStatus.DEACTIVATED]
+        )),
+    )
+
+    has_active_mentor = Exists(
+        GroupMembership.objects.filter(
+            group=OuterRef("pk"),
+            membership_role__iexact="mentor",
+            left_at__isnull=True,
         )
-    ).filter(active_mentor_count=0).values_list("id", flat=True)
+    )
+    group_counts = group_qs.annotate(_has_mentor=has_active_mentor).aggregate(
+        total=Count("id"),
+        without_mentor=Count("id", filter=Q(_has_mentor=False)),
+    )
 
     # MatchRecommendation only has an `accepted` flag — no declined/expired
     # state. Restrict to groups that still need a mentor so resolved or
     # stale recommendations stop inflating the "needs review" count.
-    actionable_recs = rec_qs.filter(group_id__in=mentorless_group_ids)
+    mentorless_group_ids = group_qs.annotate(_m=has_active_mentor).filter(
+        _m=False
+    ).values_list("id", flat=True)
 
     return {
         "track_scope": [] if track_scope is None else list(track_scope),
-        "active_users": user_qs.filter(account_status=User.AccountStatus.ACTIVE).count(),
-        "invited_or_pending_users": user_qs.filter(
-            account_status__in=[User.AccountStatus.INVITED, User.AccountStatus.PENDING]
-        ).count(),
-        "suspended_or_deactivated_users": user_qs.filter(
-            account_status__in=[User.AccountStatus.SUSPENDED, User.AccountStatus.DEACTIVATED]
-        ).count(),
-        "active_groups": group_qs.count(),
-        "groups_without_mentor": mentorless_group_ids.count(),
-        "unassigned_match_recommendations": actionable_recs.count(),
+        "active_users": user_counts["active"],
+        "invited_or_pending_users": user_counts["invited_or_pending"],
+        "suspended_or_deactivated_users": user_counts["suspended_or_deactivated"],
+        "active_groups": group_counts["total"],
+        "groups_without_mentor": group_counts["without_mentor"],
+        "unassigned_match_recommendations": rec_qs.filter(group_id__in=mentorless_group_ids).count(),
         "upcoming_events": event_qs.count(),
     }

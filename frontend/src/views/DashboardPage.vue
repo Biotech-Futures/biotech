@@ -511,9 +511,7 @@ const isMentoringRole = computed(() => isMentor.value || isSupervisor.value)
 
 const adminWorkflow = ref({
   pendingMatches: 0,
-  pendingReassignments: 0,
   pendingApprovals: 0,
-  draftBulkMessages: 0,
 })
 
 const adminOperationsSummary = ref(null)
@@ -1240,16 +1238,21 @@ async function loadDashboardData() {
   loadError.value = ''
 
   try {
+    summaryFailed = false
     await Promise.allSettled([
       loadGroups(),
       loadResources(),
       loadAnnouncements(),
       loadEvents(),
+      loadSummary(),
+      loadProgress(),
     ])
-    // /summary/ is authoritative on success; on failure it falls back to
-    // client-side derivation, which needs the list loads to have settled.
-    await loadSummary()
-    await loadProgress()
+    // If /summary/ failed, fall back to client-side derivation now that
+    // the list loads have settled with their authoritative payloads.
+    if (summaryFailed) {
+      deriveDashboardSummary()
+      deriveAdminWorkflow()
+    }
   } catch (error) {
     console.error('Dashboard loading error:', error)
     loadError.value = 'Some live dashboard data could not be loaded.'
@@ -1258,13 +1261,16 @@ async function loadDashboardData() {
   }
 }
 
+// Tracked across the parallel batch so the caller can decide whether to
+// run client-side derivation after the list loads settle.
+let summaryFailed = false
+
 async function loadSummary() {
-  // Authoritative counts come from /api/v1/dashboard/summary/ — falls back to
-  // client-side derivation if the endpoint or network blips.
   try {
     const data = await fetchJson(DASHBOARD_ENDPOINTS.summary)
     applyDashboardSummary(data)
   } catch {
+    summaryFailed = true
     if (isAdmin.value) {
       try {
         adminOperationsSummary.value = await fetchJson(DASHBOARD_ENDPOINTS.adminSummary)
@@ -1272,8 +1278,6 @@ async function loadSummary() {
         adminOperationsSummary.value = null
       }
     }
-    deriveDashboardSummary()
-    deriveAdminWorkflow()
   }
 }
 
@@ -1289,36 +1293,19 @@ function applyDashboardSummary(payload) {
   }
 
   adminOperationsSummary.value = admin
-  adminWorkflow.value = admin
-    ? {
-        pendingMatches: Number(admin.unassigned_match_recommendations || 0),
-        pendingReassignments: Number(admin.groups_without_mentor || 0),
-        pendingApprovals: Number(admin.invited_or_pending_users || 0),
-        draftBulkMessages: 0,
-      }
-    : {
-        pendingMatches: 0,
-        pendingReassignments: 0,
-        pendingApprovals: 0,
-        draftBulkMessages: 0,
-      }
+  adminWorkflow.value = buildAdminWorkflow(admin)
 }
 
 function deriveAdminWorkflow() {
-  const data = adminOperationsSummary.value
-  adminWorkflow.value = data
-    ? {
-        pendingMatches: Number(data.unassigned_match_recommendations || 0),
-        pendingReassignments: Number(data.groups_without_mentor || 0),
-        pendingApprovals: Number(data.invited_or_pending_users || 0),
-        draftBulkMessages: 0,
-      }
-    : {
-        pendingMatches: 0,
-        pendingReassignments: 0,
-        pendingApprovals: 0,
-        draftBulkMessages: 0,
-      }
+  adminWorkflow.value = buildAdminWorkflow(adminOperationsSummary.value)
+}
+
+function buildAdminWorkflow(data) {
+  if (!data) return { pendingMatches: 0, pendingApprovals: 0 }
+  return {
+    pendingMatches: Number(data.unassigned_match_recommendations || 0),
+    pendingApprovals: Number(data.invited_or_pending_users || 0),
+  }
 }
 
 async function loadGroups() {
