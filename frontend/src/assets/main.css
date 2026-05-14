@@ -30,6 +30,28 @@
   --danger: #dc3545;
   --warning: #ffc107;
   --info: #17a2b8;
+
+  /* Auxiliary tokens — light mode defaults. Dark theme overrides below. */
+  --surface-elevated: #ffffff;
+  --text-muted: #6c757d;
+  --accent-green-soft: #fcede2;
+}
+
+/* Dark theme — opt-in via <html data-theme="dark">. No prefers-color-scheme
+   wiring yet so existing pages don't shift unexpectedly. */
+:root[data-theme="dark"] {
+  --bg-light: #0f1715;
+  --white: #161f1d;
+  --surface-elevated: #1d2826;
+  --border-light: #263330;
+  --charcoal: #e6efed;
+  --text-muted: #8a9a96;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --light-green: rgba(1, 113, 81, 0.18);
+  --accent-green-soft: rgba(1, 113, 81, 0.18);
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --info: #60a5fa;
 }
 
 body {

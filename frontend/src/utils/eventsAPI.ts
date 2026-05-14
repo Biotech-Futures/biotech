@@ -5,7 +5,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 export type EventWhen = 'upcoming' | 'past' | 'all'
-export type EventRsvpStatus = 'pending' | 'accepted' | 'tentative' | 'declined'
+export type EventRsvpStatus = 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
 
 export interface BackendEvent {
   id: number
@@ -19,6 +19,9 @@ export interface BackendEvent {
   event_type?: string | null
   event_image?: string | null
   is_virtual?: boolean | null
+  max_attendees?: number | null
+  accepted_count?: number
+  waitlist_count?: number
   accepted?: boolean
   target_groups?: number[]
   target_tracks?: number[]
@@ -138,11 +141,39 @@ export const fetchEvents = async (
   return res.json()
 }
 
-export const fetchMyEventRsvps = async (
-  pageSize = 100
-): Promise<EventRsvpListResponse> => {
+export const fetchEventById = async (eventId: number): Promise<BackendEvent> => {
   const res = await fetch(
-    `${API_BASE_URL}/events/v1/rsvps/me/?page_size=${pageSize}`,
+    `${API_BASE_URL}/events/v1/${eventId}/`,
+    { method: 'GET', credentials: 'include', headers: authHeaders() }
+  )
+  if (!res.ok) throw await apiErrorFromResponse(res, 'Failed to fetch event')
+  return res.json()
+}
+
+export const fetchEventsByUrl = async (url: string): Promise<EventListResponse> => {
+  // Used to follow cursor-pagination `next` links — opaque cursor in the URL.
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: authHeaders()
+  })
+  if (!res.ok) {
+    throw await apiErrorFromResponse(res, 'Failed to fetch more events')
+  }
+  return res.json()
+}
+
+export const fetchMyEventRsvps = async (
+  options: { pageSize?: number; eventIds?: number[] } = {}
+): Promise<EventRsvpListResponse> => {
+  const pageSize = options.pageSize ?? 100
+  const query = new URLSearchParams({ page_size: String(pageSize) })
+  if (options.eventIds?.length) {
+    query.set('event__in', options.eventIds.join(','))
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL}/events/v1/rsvps/me/?${query.toString()}`,
     {
       method: 'GET',
       credentials: 'include',
@@ -160,9 +191,11 @@ export const fetchMyEventRsvps = async (
   return res.json()
 }
 
+export type UserSubmittableRsvpStatus = 'accepted' | 'tentative' | 'declined'
+
 export const setEventRsvp = async (
   eventId: number,
-  rsvpStatus: Exclude<EventRsvpStatus, 'pending'>
+  rsvpStatus: UserSubmittableRsvpStatus
 ): Promise<EventRsvpResponse> => {
   const csrfReady = await ensureCsrfCookie(API_BASE_URL)
   if (!csrfReady) {
@@ -189,6 +222,46 @@ export const setEventRsvp = async (
   }
 
   return res.json()
+}
+
+export const downloadEventIcal = async (
+  eventId: number,
+  fallbackName?: string | null
+): Promise<void> => {
+  const res = await fetch(
+    `${API_BASE_URL}/events/v1/${eventId}/ical/`,
+    {
+      method: 'GET',
+      credentials: 'include',
+      headers: authHeaders()
+    }
+  )
+
+  if (!res.ok) {
+    throw await apiErrorFromResponse(
+      res,
+      'Failed to download calendar file'
+    )
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || ''
+  let filename =
+    disposition.match(/filename="?([^"]+)"?/i)?.[1] ||
+    `${(fallbackName || `event-${eventId}`).replace(/[^A-Za-z0-9_-]+/g, '-').toLowerCase().slice(0, 60) || `event-${eventId}`}.ics`
+
+  if (!filename.toLowerCase().endsWith('.ics')) {
+    filename = `${filename}.ics`
+  }
+
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 export const resolveEventUrl = (url?: string | null) => {
