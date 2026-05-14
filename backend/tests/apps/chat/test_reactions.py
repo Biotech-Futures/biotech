@@ -114,7 +114,10 @@ class MessageReactionTests(TestCase):
         user_ids = sorted(u["id"] for u in entry["users"])
         self.assertEqual(user_ids, sorted([self.alice.id, self.bob.id]))
 
-    def test_user_can_have_multiple_distinct_emojis_on_same_message(self):
+    def test_user_reacting_with_different_emoji_swaps_in_place(self):
+        # Contract: one reaction per user per message. Reacting with a new
+        # emoji REPLACES the previous one rather than stacking. Re-introduced
+        # so users can't decorate a single message with five emojis each.
         self.client_alice.post(
             self._react_url(), {"emoji": self.THUMBS_UP}, format="json"
         )
@@ -122,13 +125,16 @@ class MessageReactionTests(TestCase):
             self._react_url(), {"emoji": self.HEART}, format="json"
         )
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data["reactions"][self.THUMBS_UP]["count"], 1)
+        # New emoji visible.
         self.assertEqual(resp.data["reactions"][self.HEART]["count"], 1)
+        # Old emoji gone.
+        self.assertNotIn(self.THUMBS_UP, resp.data["reactions"])
+        # Exactly one DB row remains for this (user, message) pair.
         self.assertEqual(
             MessageReaction.objects.filter(
                 message=self.message, user=self.alice
             ).count(),
-            2,
+            1,
         )
 
     def test_list_includes_reactions_field(self):

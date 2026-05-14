@@ -8,6 +8,7 @@ from apps.common.text import (  # noqa: F401
     LEET_MAP,
     MAX_GAP_BETWEEN_LETTERS,
     STEM_MARKER,
+    contains_blacklisted,
     reset_pattern_cache,
     sanitize_text,
 )
