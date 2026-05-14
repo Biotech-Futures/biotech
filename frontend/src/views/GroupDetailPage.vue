@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
       <span class="sr-only">Loading group details...</span>
@@ -179,6 +179,17 @@
             <h3 class="card-title">Tasks</h3>
             <div class="task-header-actions">
               <button
+                type="button"
+                class="task-mode-toggle"
+                :class="{ 'is-active': taskSelectionMode }"
+                :title="taskSelectionMode ? 'Exit select mode' : 'Select tasks for bulk actions'"
+                :aria-pressed="taskSelectionMode"
+                @click="toggleTaskSelectionMode"
+              >
+                <i class="fas fa-check-square"></i>
+                {{ taskSelectionMode ? 'Done selecting' : 'Select' }}
+              </button>
+              <button
                 v-if="canCreateGroupTasks"
                 type="button"
                 class="btn btn-primary btn-sm"
@@ -198,445 +209,636 @@
               >
                 <i class="fas fa-user-plus"></i> Individual Task
               </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm task-depth-toggle"
-                :class="{ active: showTaskDepthColors }"
-                :aria-pressed="showTaskDepthColors"
-                title="Toggle task level colors"
-                @click="showTaskDepthColors = !showTaskDepthColors"
-              >
-                <i class="fas fa-layer-group"></i>
-                Levels
-              </button>
             </div>
           </div>
-          <div class="card-content tasks-content" :class="{ 'has-bulk-actions': selectedTaskIds.size }">
-            <div class="task-filter-bar">
-              <label class="task-filter-field">
-                <span>Search</span>
+          <div class="card-content tasks-content">
+            <div class="task-toolbar">
+              <div class="task-search">
+                <i class="fas fa-search task-search-icon" aria-hidden="true"></i>
                 <input
                   v-model.trim="taskFilters.search"
                   type="search"
-                  placeholder="Task name"
-                  @keyup.enter="loadTasks"
+                  class="task-search-input"
+                  placeholder="Search tasks..."
+                  aria-label="Search tasks"
                 />
-              </label>
-              <label class="task-filter-field">
-                <span>Status</span>
-                <select v-model="taskFilters.status">
-                  <option value="">All</option>
-                  <option
-                    v-for="option in TASK_STATUS_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
+              </div>
+              <div class="task-toolbar-controls">
+                <div class="task-filter-popover">
+                  <button
+                    type="button"
+                    class="task-toolbar-btn"
+                    :class="{ 'has-active': activeTaskFilterCount }"
+                    :aria-expanded="isTaskFiltersOpen"
+                    aria-haspopup="true"
+                    @click="isTaskFiltersOpen = !isTaskFiltersOpen"
                   >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Sort</span>
-                <select v-model="taskFilters.ordering">
-                  <option
-                    v-for="option in TASK_ORDERING_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isLoadingTasks"
-                @click="loadTasks"
-              >
-                Apply
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm task-more-filters-btn"
-                :class="{ active: showAdvancedTaskFilters }"
-                :aria-expanded="showAdvancedTaskFilters"
-                @click="showAdvancedTaskFilters = !showAdvancedTaskFilters"
-              >
-                {{ showAdvancedTaskFilters ? 'Hide filters' : 'More filters' }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isLoadingTasks"
-                @click="resetTaskFilters"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div v-if="showAdvancedTaskFilters" class="task-filter-bar task-filter-bar--advanced">
-              <label class="task-filter-field">
-                <span>Type</span>
-                <select v-model="taskFilters.taskType">
-                  <option value="">All</option>
-                  <option value="group">Group</option>
-                  <option value="individual">Individual</option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Done</span>
-                <select v-model="taskFilters.completed">
-                  <option value="">All</option>
-                  <option value="true">Done</option>
-                  <option value="false">Open</option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Assignee</span>
-                <select v-model="taskFilters.assignedUser">
-                  <option value="">All members</option>
-                  <option
-                    v-for="member in taskAssigneeOptions"
-                    :key="member.userId"
-                    :value="String(member.userId)"
-                  >
-                    {{ member.label }}
-                  </option>
-                </select>
-              </label>
-              <label class="task-filter-field task-filter-field--wide">
-                <span>Subtasks of</span>
-                <select v-model="taskFilters.parentId">
-                  <option value="">Any task</option>
-                  <option
-                    v-for="option in parentTaskFilterOptions"
-                    :key="option.id"
-                    :value="String(option.id)"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Due after</span>
-                <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
-              </label>
-              <label class="task-filter-field">
-                <span>Due before</span>
-                <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
-              </label>
-              <label class="task-deleted-toggle">
-                <input
-                  v-model="taskFilters.showDeleted"
-                  type="checkbox"
-                  @change="toggleDeletedTaskVisibility"
-                />
-                Deleted
-              </label>
-            </div>
-
-            <div v-if="taskError" class="chat-alert" style="margin-bottom: 1rem">
-              {{ taskError }}
-            </div>
-            <div v-if="isLoadingTasks" class="chat-alert" style="margin-bottom: 1rem">
-              Loading tasks...
-            </div>
-
-            <div v-for="section in taskSections" :key="section.key" class="task-section">
-              <div class="task-section-header">
-                <div class="task-section-title">
-                  <i :class="section.icon"></i>
-                  {{ section.title }}
+                    <i class="fas fa-sliders-h" aria-hidden="true"></i>
+                    Filters
+                    <span v-if="activeTaskFilterCount" class="task-filter-badge">
+                      {{ activeTaskFilterCount }}
+                    </span>
+                  </button>
+                  <div v-if="isTaskFiltersOpen" class="task-filter-panel" role="dialog" aria-label="Filters">
+                    <label class="task-filter-row">
+                      <span>Type</span>
+                      <select v-model="taskFilters.taskType">
+                        <option value="">All</option>
+                        <option value="group">Group</option>
+                        <option value="individual">Individual</option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>Status</span>
+                      <select v-model="taskFilters.status">
+                        <option value="">All</option>
+                        <option
+                          v-for="option in TASK_STATUS_OPTIONS"
+                          :key="option.value"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>State</span>
+                      <select v-model="taskFilters.completed">
+                        <option value="">All</option>
+                        <option value="true">Done</option>
+                        <option value="false">Open</option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>Assignee</span>
+                      <select v-model="taskFilters.assignedUser">
+                        <option value="">All members</option>
+                        <option
+                          v-for="member in taskAssigneeOptions"
+                          :key="member.userId"
+                          :value="String(member.userId)"
+                        >
+                          {{ member.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>Subtasks of</span>
+                      <select v-model="taskFilters.parentId">
+                        <option value="">Any task</option>
+                        <option
+                          v-for="option in parentTaskFilterOptions"
+                          :key="option.id"
+                          :value="String(option.id)"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <div class="task-filter-row-pair">
+                      <label class="task-filter-row">
+                        <span>Due after</span>
+                        <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Due before</span>
+                        <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                      </label>
+                    </div>
+                    <label class="task-filter-row task-filter-row--checkbox">
+                      <input
+                        v-model="taskFilters.showDeleted"
+                        type="checkbox"
+                        @change="toggleDeletedTaskVisibility"
+                      />
+                      <span>Show deleted</span>
+                    </label>
+                    <div class="task-filter-panel-footer">
+                      <button
+                        type="button"
+                        class="task-filter-clear"
+                        :disabled="!activeTaskFilterCount"
+                        @click="resetTaskFilters"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        class="task-filter-close"
+                        @click="isTaskFiltersOpen = false"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div class="task-section-status">
-                  {{ section.completed }}/{{ section.total }} Completed
+                <label class="task-toolbar-sort">
+                  <span class="visually-hidden">Sort by</span>
+                  <select v-model="taskFilters.ordering">
+                    <option
+                      v-for="option in TASK_ORDERING_OPTIONS"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      Sort: {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  class="task-toolbar-icon-btn"
+                  :class="{ 'is-active': showTaskDepthColors }"
+                  :aria-pressed="showTaskDepthColors"
+                  :title="showTaskDepthColors ? 'Tint by nesting level: on' : 'Tint by nesting level: off'"
+                  :aria-label="showTaskDepthColors ? 'Disable level tint' : 'Enable level tint'"
+                  @click="showTaskDepthColors = !showTaskDepthColors"
+                >
+                  <i class="fas fa-layer-group" aria-hidden="true"></i>
+                </button>
+                <button
+                  v-if="hiddenStaleCompletedCount || showCompletedOverdue"
+                  type="button"
+                  class="task-toolbar-icon-btn"
+                  :class="{ 'is-active': showCompletedOverdue }"
+                  :aria-pressed="showCompletedOverdue"
+                  :title="showCompletedOverdue
+                    ? 'Hide completed tasks past their due date'
+                    : `Show ${hiddenStaleCompletedCount} completed task${hiddenStaleCompletedCount === 1 ? '' : 's'} past due`"
+                  :aria-label="showCompletedOverdue ? 'Hide completed overdue' : 'Show completed overdue'"
+                  @click="showCompletedOverdue = !showCompletedOverdue"
+                >
+                  <i :class="showCompletedOverdue ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
+                  <span v-if="!showCompletedOverdue && hiddenStaleCompletedCount" class="task-toolbar-badge">
+                    {{ hiddenStaleCompletedCount }}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+
+            <div v-if="taskError" class="task-banner is-error" role="alert">
+              <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+              <span>{{ taskError }}</span>
+            </div>
+
+            <div v-if="isLoadingTasks && !tasks.length" class="task-skeleton-list" aria-busy="true">
+              <div v-for="n in 4" :key="`task-skeleton-${n}`" class="task-skeleton-row">
+                <div class="task-skeleton-circle"></div>
+                <div class="task-skeleton-lines">
+                  <div class="task-skeleton-line task-skeleton-line--lg"></div>
+                  <div class="task-skeleton-line task-skeleton-line--sm"></div>
                 </div>
               </div>
-              <div class="task-list">
+            </div>
+
+            <div
+              v-for="section in taskSections"
+              v-else
+              :key="section.key"
+              class="task-section"
+            >
+              <div class="task-section-header">
+                <div class="task-section-title">
+                  <i :class="section.icon" aria-hidden="true"></i>
+                  <span>{{ section.title }}</span>
+                  <span v-if="section.total" class="task-section-count">{{ section.total }}</span>
+                </div>
                 <div
+                  v-if="section.total"
+                  class="task-section-progress"
+                  :title="`${section.completed} of ${section.total} complete`"
+                >
+                  <div class="task-section-progress-bar">
+                    <div
+                      class="task-section-progress-fill"
+                      :style="{ width: `${Math.round((section.completed / section.total) * 100)}%` }"
+                    ></div>
+                  </div>
+                  <span class="task-section-progress-label">
+                    {{ Math.round((section.completed / section.total) * 100) }}%
+                  </span>
+                </div>
+              </div>
+              <ul class="task-list" role="tree">
+                <li
                   v-for="row in section.rows"
                   :key="row.task.id"
                   class="task-item"
-                  :class="{
-                    'is-subtask': row.depth > 0,
-                    [`task-depth-${Math.min(row.depth, 4)}`]: showTaskDepthColors,
-                    'task-depth-disabled': !showTaskDepthColors,
-                    'is-deleted': row.task.deletedAt,
-                    'is-group-task': row.task.taskType === 'group',
-                    'is-individual-task': row.task.taskType === 'individual',
-                  }"
-                  :style="{
-                    marginLeft: row.depth ? `${Math.min(row.depth, 4) * 1.05}rem` : '0',
-                    paddingLeft: '0.85rem',
-                  }"
+                  :class="[
+                    showTaskDepthColors ? `task-depth-${Math.min(row.depth, 4)}` : 'task-depth-flat',
+                    {
+                      'is-subtask': row.depth > 0,
+                      'is-deleted': row.task.deletedAt,
+                      'is-complete': row.task.completed,
+                      'is-selected': isTaskSelected(row.task.id),
+                    },
+                  ]"
+                  :style="{ '--task-depth': row.depth }"
+                  role="treeitem"
+                  :aria-level="row.depth + 1"
+                  :aria-selected="isTaskSelected(row.task.id)"
+                  :aria-expanded="row.hasChildren ? !row.isCollapsed : undefined"
                 >
-                  <label class="task-select-control" title="Select task">
-                    <input
-                      type="checkbox"
-                      :checked="isTaskSelected(row.task.id)"
-                      :disabled="row.task.deletedAt || !canToggleTask(row.task)"
-                      @change="setTaskSelectedFromEvent(row.task.id, $event)"
-                    />
-                  </label>
-                  <div class="task-body">
-                    <div :class="['task-label', { completed: row.task.completed }]">
-                      {{ row.task.name }}
-                    </div>
-                    <div v-if="row.task.description" class="task-description">
-                      {{ row.task.description }}
-                    </div>
-                    <div class="task-meta">
-                      <span v-if="row.task.dueDate"
-                        ><i class="fas fa-calendar"></i> {{ formatDate(row.task.dueDate) }}</span
-                      >
-                      <span v-if="row.task.status"
-                        ><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span
-                      >
-                      <span v-if="row.task.assignedUser"
-                        ><i class="fas fa-user"></i> {{ getTaskAssigneeName(row.task.assignedUser) }}</span
-                      >
-                      <span v-if="row.task.creatorRole"
-                        ><i class="fas fa-id-badge"></i>
-                        {{ formatTaskStatus(row.task.creatorRole) }}</span
-                      >
-                      <span v-if="row.task.deletedAt"><i class="fas fa-trash"></i> Deleted</span>
-                    </div>
-                  </div>
-                  <div class="task-row-actions">
+                  <button
+                    v-if="row.hasChildren"
+                    type="button"
+                    class="task-collapse"
+                    :class="{ 'is-collapsed': row.isCollapsed }"
+                    :title="row.isCollapsed ? `Show ${row.childCount} sub-task${row.childCount === 1 ? '' : 's'}` : 'Hide sub-tasks'"
+                    :aria-label="row.isCollapsed ? `Show sub-tasks of ${row.task.name}` : `Hide sub-tasks of ${row.task.name}`"
+                    :aria-expanded="!row.isCollapsed"
+                    @click="toggleTaskCollapsed(row.task.id)"
+                  >
+                    <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                  </button>
+                  <span v-else class="task-collapse-spacer" aria-hidden="true"></span>
+
+                  <button
+                    v-if="taskSelectionMode"
+                    type="button"
+                    class="task-select-box"
+                    :class="{ 'is-selected': isTaskSelected(row.task.id) }"
+                    :disabled="
+                      row.task.deletedAt ||
+                      !canToggleTask(row.task)
+                    "
+                    :aria-label="
+                      `${isTaskSelected(row.task.id) ? 'Deselect' : 'Select'} ${row.task.name}`
+                    "
+                    :aria-pressed="isTaskSelected(row.task.id)"
+                    @click="setTaskSelected(row.task.id, !isTaskSelected(row.task.id))"
+                  >
+                    <i
+                      v-if="isTaskSelected(row.task.id)"
+                      class="fas fa-check"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+
+                  <div v-else class="task-state-wrap">
                     <button
                       type="button"
-                      :class="['task-status-toggle', { 'is-complete': row.task.completed }]"
+                      class="task-state"
+                      :class="[
+                        `task-state--${row.task.status || 'todo'}`,
+                        { 'is-open': isStatusMenuOpen(row.task.id), 'is-disabled': !canToggleTask(row.task) },
+                      ]"
+                      :data-status="row.task.status || 'todo'"
                       :disabled="
                         isUpdatingTask(row.task.id) ||
                         row.task.deletedAt ||
                         !canToggleTask(row.task)
                       "
-                      :title="
-                        canToggleTask(row.task)
-                          ? 'Toggle task status'
-                          : 'You can view this task status only'
-                      "
-                      :aria-pressed="row.task.completed"
-                      :aria-label="
-                        row.task.completed
-                          ? `Mark ${row.task.name} open`
-                          : `Mark ${row.task.name} done`
-                      "
-                      @click="toggleTask(row.task)"
+                      :aria-haspopup="canToggleTask(row.task) ? 'menu' : undefined"
+                      :aria-expanded="isStatusMenuOpen(row.task.id)"
+                      :aria-label="`Status: ${getTaskStatusMeta(row.task.status).label}. ${canToggleTask(row.task) ? 'Click to change.' : ''}`"
+                      :title="canToggleTask(row.task) ? 'Change status' : `Status: ${getTaskStatusMeta(row.task.status).label}`"
+                      @click="canToggleTask(row.task) && (isStatusMenuOpen(row.task.id) ? closeStatusMenu() : openStatusMenu(row.task.id))"
                     >
-                      <i :class="row.task.completed ? 'fas fa-check-circle' : 'fas fa-circle'"></i>
-                      <span>{{ row.task.completed ? 'Done' : 'Open' }}</span>
+                      <i :class="`fas fa-${getTaskStatusMeta(row.task.status).icon}`" aria-hidden="true"></i>
+                      <span class="task-state-label">{{ getTaskStatusMeta(row.task.status).short }}</span>
+                      <i v-if="canToggleTask(row.task)" class="fas fa-caret-down task-state-caret" aria-hidden="true"></i>
                     </button>
+
+                    <div
+                      v-if="isStatusMenuOpen(row.task.id)"
+                      class="task-state-menu"
+                      role="menu"
+                      :aria-label="`Set status for ${row.task.name}`"
+                    >
+                      <button
+                        v-for="opt in TASK_STATUS_OPTIONS"
+                        :key="opt.value"
+                        type="button"
+                        class="task-state-menu-item"
+                        :class="[
+                          `task-state--${opt.value}`,
+                          { 'is-current': row.task.status === opt.value },
+                        ]"
+                        role="menuitem"
+                        @click="changeTaskStatus(row.task, opt.value)"
+                      >
+                        <i :class="`fas fa-${getTaskStatusMeta(opt.value).icon}`" aria-hidden="true"></i>
+                        <span>{{ opt.label }}</span>
+                        <i v-if="row.task.status === opt.value" class="fas fa-check task-state-menu-check" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="task-body">
+                    <div class="task-headline">
+                      <span class="task-label">{{ row.task.name }}</span>
+                      <span
+                        v-if="row.task.deletedAt"
+                        class="task-chip task-chip--deleted"
+                      >
+                        <i class="fas fa-trash" aria-hidden="true"></i>
+                        Deleted
+                      </span>
+                    </div>
+                    <div v-if="row.task.description" class="task-description">
+                      {{ row.task.description }}
+                    </div>
+                    <div v-if="row.task.dueDate || row.task.createdBy" class="task-meta">
+                      <span
+                        v-if="row.task.dueDate"
+                        class="task-chip task-chip--date"
+                        :class="{ 'is-overdue': isTaskOverdue(row.task) }"
+                      >
+                        <i class="fas fa-calendar" aria-hidden="true"></i>
+                        {{ formatDate(row.task.dueDate) }}
+                      </span>
+                      <span
+                        v-if="row.task.createdBy && row.task.createdBy.name"
+                        class="task-assigned-by"
+                        :title="row.task.creatorRole ? `Role: ${formatTaskStatus(row.task.creatorRole)}` : ''"
+                      >
+                        Assigned by
+                        <strong>{{ row.task.createdBy.name }}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    v-if="row.task.taskType === 'individual' && getAssigneeDisplay(row.task)"
+                    type="button"
+                    class="task-assignee"
+                    :class="{
+                      'is-self': getAssigneeDisplay(row.task).isSelf,
+                      'is-active': String(taskFilters.assignedUser) === String(row.task.assignedUser),
+                    }"
+                    :title="`Filter tasks by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                    :aria-label="`Filter by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                    @click="toggleAssigneeQuickFilter(row.task.assignedUser)"
+                  >
+                    <i :class="getAssigneeDisplay(row.task).isSelf ? 'fas fa-circle-user' : 'fas fa-user'" aria-hidden="true"></i>
+                    <span>{{ getAssigneeDisplay(row.task).label }}</span>
+                  </button>
+
+                  <div class="task-row-actions">
                     <button
                       type="button"
-                      class="btn btn-outline btn-sm add-subtask-btn"
+                      class="task-icon-btn"
                       :disabled="
                         isLoadingTasks ||
                         row.task.deletedAt ||
                         !canCreateTaskType(row.task.taskType, row.task)
                       "
-                      :title="
-                        canCreateTaskType(row.task.taskType, row.task)
-                          ? 'Add a sub-task'
-                          : 'You do not have permission to add a sub-task here'
-                      "
+                      title="Add a sub-task"
+                      :aria-label="`Add a sub-task to ${row.task.name}`"
                       @click="openCreateTaskDialog(row.task.taskType, row.task)"
                     >
-                      <i class="fas fa-plus"></i>
-                      Sub-task
+                      <i class="fas fa-plus" aria-hidden="true"></i>
                     </button>
                     <button
                       v-if="canManageTask(row.task)"
                       type="button"
-                      class="btn btn-outline btn-sm"
+                      class="task-icon-btn"
                       :disabled="isLoadingTasks || row.task.deletedAt"
                       title="Edit task"
+                      :aria-label="`Edit ${row.task.name}`"
                       @click="openEditTaskDialog(row.task)"
                     >
-                      <i class="fas fa-pen"></i>
-                      Edit
+                      <i class="fas fa-pen" aria-hidden="true"></i>
                     </button>
                     <button
                       v-if="canManageTask(row.task)"
                       type="button"
-                      class="btn btn-outline btn-sm"
+                      class="task-icon-btn task-icon-btn--danger"
                       :disabled="isDeletingTask(row.task.id) || row.task.deletedAt"
                       title="Delete task"
+                      :aria-label="`Delete ${row.task.name}`"
                       @click="removeTask(row.task)"
                     >
-                      <i class="fas fa-trash"></i>
-                      Delete
+                      <i class="fas fa-trash" aria-hidden="true"></i>
                     </button>
                   </div>
-                </div>
+                </li>
 
-                <div v-if="!section.rows.length" class="task-empty-state">
-                  No {{ section.title.toLowerCase() }} are available yet.
-                </div>
-              </div>
+                <li v-if="!section.rows.length" class="task-empty-state">
+                  <i :class="section.icon" aria-hidden="true"></i>
+                  <span>No {{ section.title.toLowerCase() }} yet.</span>
+                  <button
+                    v-if="(section.key === 'group' && canCreateGroupTasks) || (section.key === 'individual' && canCreateIndividualTasks)"
+                    type="button"
+                    class="task-empty-cta"
+                    @click="openCreateTaskDialog(section.key)"
+                  >
+                    <i class="fas fa-plus" aria-hidden="true"></i>
+                    Add {{ section.key === 'group' ? 'group' : 'individual' }} task
+                  </button>
+                </li>
+              </ul>
             </div>
 
-            <div v-if="tasks.length" class="task-pagination-bar">
-              <span>
-                {{ taskPageStart }}-{{ taskPageEnd }} of {{ tasks.length }}
+            <div
+              v-if="!isLoadingTasks && totalRelevantTaskCount"
+              class="task-list-footer"
+            >
+              <span class="task-list-count">
+                Showing {{ visibleSectionTaskCount }} of {{ totalRelevantTaskCount }}
               </span>
-              <label class="task-page-size">
-                <span>Rows</span>
-                <select v-model.number="taskPagination.pageSize" @change="changeTaskPageSize">
-                  <option v-for="size in TASK_PAGE_SIZE_OPTIONS" :key="size" :value="size">
-                    {{ size }}
-                  </option>
-                </select>
-              </label>
               <button
+                v-if="hasMoreTasksToShow"
                 type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="taskPagination.page <= 1 || isLoadingTasks"
-                @click="goToTaskPage(taskPagination.page - 1)"
+                class="task-list-more"
+                @click="loadMoreTasks"
               >
-                Previous
-              </button>
-              <span>Page {{ taskPagination.page }} / {{ taskTotalPages }}</span>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="taskPagination.page >= taskTotalPages || isLoadingTasks"
-                @click="goToTaskPage(taskPagination.page + 1)"
-              >
-                Next
+                Show {{ Math.min(TASK_LOAD_BATCH, totalRelevantTaskCount - taskShownLimit) }} more
               </button>
             </div>
+
+            <transition name="task-bulk-fade">
+              <div
+                v-if="selectedTaskIds.size"
+                class="task-bulk-bar"
+                role="region"
+                aria-label="Bulk task actions"
+              >
+                <span class="task-bulk-count">
+                  <i class="fas fa-check-square" aria-hidden="true"></i>
+                  {{ selectedTaskIds.size }} selected
+                </span>
+                <div class="task-bulk-actions">
+                  <button
+                    type="button"
+                    class="task-bulk-btn task-bulk-btn--primary"
+                    :disabled="isBulkUpdatingTasks"
+                    @click="bulkSetTaskCompletion(true)"
+                  >
+                    <i class="fas fa-check" aria-hidden="true"></i> Mark done
+                  </button>
+                  <button
+                    type="button"
+                    class="task-bulk-btn"
+                    :disabled="isBulkUpdatingTasks"
+                    @click="bulkSetTaskCompletion(false)"
+                  >
+                    <i class="fas fa-undo" aria-hidden="true"></i> Reopen
+                  </button>
+                  <button
+                    type="button"
+                    class="task-bulk-btn task-bulk-btn--ghost"
+                    :disabled="isBulkUpdatingTasks"
+                    @click="clearTaskSelection"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </transition>
           </div>
 
-          <div v-if="selectedTaskIds.size" class="task-bulk-bar">
-            <span>{{ selectedTaskIds.size }} selected</span>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="bulkSetTaskCompletion(true)"
+          <Transition name="task-dialog">
+            <div
+              v-if="taskDialogOpen"
+              class="task-dialog-backdrop"
+              role="dialog"
+              aria-modal="true"
+              :aria-label="taskDialogTitle"
+              @click.self="closeTaskDialog"
+              @keydown.esc="closeTaskDialog"
             >
-              Mark done
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="bulkSetTaskCompletion(false)"
-            >
-              Mark open
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="clearTaskSelection"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div
-            v-if="taskDialogOpen"
-            class="task-dialog-backdrop"
-            role="dialog"
-            aria-modal="true"
-            :aria-label="taskDialogTitle"
-          >
-            <form class="task-dialog" @submit.prevent="saveTask">
-              <div class="task-dialog-header">
-                <h4>{{ taskDialogTitle }}</h4>
-                <button
-                  type="button"
-                  class="task-dialog-close"
-                  title="Close"
-                  @click="closeTaskDialog"
-                >
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-
-              <div v-if="taskFormError" class="chat-alert">
-                {{ taskFormError }}
-              </div>
-
-              <label class="task-form-field task-form-field--wide">
-                <span>Name</span>
-                <input v-model.trim="taskForm.name" type="text" maxlength="255" required />
-              </label>
-
-              <label class="task-form-field task-form-field--wide">
-                <span>Description</span>
-                <textarea v-model.trim="taskForm.description" rows="3"></textarea>
-              </label>
-
-              <div class="task-form-grid">
-                <label class="task-form-field">
-                  <span>Status</span>
-                  <select v-model="taskForm.status">
-                    <option
-                      v-for="option in TASK_STATUS_OPTIONS"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-
-                <label class="task-form-field">
-                  <span>Due date</span>
-                  <input v-model="taskForm.dueDate" type="datetime-local" />
-                </label>
-
-                <label class="task-form-field">
-                  <span>Type</span>
-                  <select
-                    v-model="taskForm.taskType"
-                    :disabled="taskDialogMode === 'edit'"
-                    @change="syncTaskAssigneeForType"
-                  >
-                    <option
-                      v-for="option in allowedTaskTypeOptions"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-
-                <label v-if="taskForm.taskType === 'individual'" class="task-form-field">
-                  <span>Assignee</span>
-                  <div
-                    v-if="taskDialogMode === 'edit' || isStudentOnlyIndividualAssignee"
-                    class="task-readonly-value"
-                  >
-                    {{ selectedTaskAssigneeLabel }}
+              <form class="task-dialog" @submit.prevent="saveTask" @keydown.meta.enter.prevent="saveTask" @keydown.ctrl.enter.prevent="saveTask">
+                <header class="task-dialog-header">
+                  <div class="task-dialog-title">
+                    <i :class="taskDialogMode === 'edit' ? 'fas fa-pen' : 'fas fa-plus'" aria-hidden="true"></i>
+                    <h4>{{ taskDialogTitle }}</h4>
                   </div>
-                  <select v-else v-model="taskForm.assignedUser" required>
-                    <option value="" disabled>Select assignee</option>
-                    <option
-                      v-for="option in individualTaskAssigneeOptions"
-                      :key="option.userId"
-                      :value="String(option.userId)"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-              </div>
+                  <button
+                    type="button"
+                    class="task-dialog-close"
+                    title="Close (Esc)"
+                    aria-label="Close dialog"
+                    @click="closeTaskDialog"
+                  >
+                    <i class="fas fa-times" aria-hidden="true"></i>
+                  </button>
+                </header>
 
-              <div class="task-dialog-actions">
-                <button type="button" class="btn btn-outline btn-sm" @click="closeTaskDialog">
-                  Cancel
-                </button>
-                <button type="submit" class="btn btn-primary btn-sm" :disabled="isSavingTask">
-                  {{ isSavingTask ? 'Saving...' : 'Save task' }}
-                </button>
-              </div>
-            </form>
-          </div>
+                <div v-if="taskFormError" class="task-banner is-error" role="alert">
+                  <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                  <span>{{ taskFormError }}</span>
+                </div>
+
+                <div class="task-dialog-body">
+                  <input
+                    ref="taskDialogNameInput"
+                    v-model.trim="taskForm.name"
+                    type="text"
+                    class="task-dialog-title-input"
+                    placeholder="Task name"
+                    maxlength="255"
+                    required
+                  />
+
+                  <textarea
+                    v-model.trim="taskForm.description"
+                    class="task-dialog-description-input"
+                    placeholder="Add a description..."
+                    rows="3"
+                  ></textarea>
+
+                  <!-- Type as segmented control -->
+                  <div class="task-dialog-field">
+                    <label class="task-dialog-label">
+                      <i class="fas fa-layer-group" aria-hidden="true"></i>
+                      <span>Type</span>
+                    </label>
+                    <div class="task-segmented" role="radiogroup" aria-label="Task type">
+                      <button
+                        v-for="option in allowedTaskTypeOptions"
+                        :key="option.value"
+                        type="button"
+                        class="task-segmented-option"
+                        :class="{ 'is-active': taskForm.taskType === option.value }"
+                        :disabled="taskDialogMode === 'edit'"
+                        role="radio"
+                        :aria-checked="taskForm.taskType === option.value"
+                        @click="taskForm.taskType = option.value; syncTaskAssigneeForType()"
+                      >
+                        <i :class="option.value === 'group' ? 'fas fa-users' : 'fas fa-user'" aria-hidden="true"></i>
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Status as colored pill segmented control -->
+                  <div class="task-dialog-field">
+                    <label class="task-dialog-label">
+                      <i class="fas fa-flag" aria-hidden="true"></i>
+                      <span>Status</span>
+                    </label>
+                    <div class="task-segmented task-segmented--status" role="radiogroup" aria-label="Task status">
+                      <button
+                        v-for="option in TASK_STATUS_OPTIONS"
+                        :key="option.value"
+                        type="button"
+                        class="task-segmented-option task-segmented-option--status"
+                        :class="[
+                          `task-state--${option.value}`,
+                          { 'is-active': taskForm.status === option.value },
+                        ]"
+                        role="radio"
+                        :aria-checked="taskForm.status === option.value"
+                        @click="taskForm.status = option.value"
+                      >
+                        <i :class="`fas fa-${getTaskStatusMeta(option.value).icon}`" aria-hidden="true"></i>
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="task-dialog-row">
+                    <div class="task-dialog-field task-dialog-field--half">
+                      <label class="task-dialog-label" for="task-dialog-due">
+                        <i class="fas fa-calendar" aria-hidden="true"></i>
+                        <span>Due date</span>
+                      </label>
+                      <input id="task-dialog-due" v-model="taskForm.dueDate" type="datetime-local" class="task-dialog-input" />
+                    </div>
+
+                    <div v-if="taskForm.taskType === 'individual'" class="task-dialog-field task-dialog-field--half">
+                      <label class="task-dialog-label" for="task-dialog-assignee">
+                        <i class="fas fa-user-tag" aria-hidden="true"></i>
+                        <span>Assignee</span>
+                      </label>
+                      <div
+                        v-if="taskDialogMode === 'edit' || isStudentOnlyIndividualAssignee"
+                        class="task-dialog-readonly"
+                      >
+                        {{ selectedTaskAssigneeLabel }}
+                      </div>
+                      <select v-else id="task-dialog-assignee" v-model="taskForm.assignedUser" class="task-dialog-input" required>
+                        <option value="" disabled>Select assignee</option>
+                        <option
+                          v-for="option in individualTaskAssigneeOptions"
+                          :key="option.userId"
+                          :value="String(option.userId)"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <footer class="task-dialog-footer">
+                  <span class="task-dialog-hint">
+                    <kbd>Esc</kbd> close &middot; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save
+                  </span>
+                  <div class="task-dialog-actions">
+                    <button type="button" class="task-dialog-btn" @click="closeTaskDialog">Cancel</button>
+                    <button type="submit" class="task-dialog-btn task-dialog-btn--primary" :disabled="isSavingTask">
+                      <i v-if="!isSavingTask" :class="taskDialogMode === 'edit' ? 'fas fa-check' : 'fas fa-plus'" aria-hidden="true"></i>
+                      <i v-else class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                      {{ isSavingTask ? 'Saving...' : (taskDialogMode === 'edit' ? 'Save changes' : 'Create task') }}
+                    </button>
+                  </div>
+                </footer>
+              </form>
+            </div>
+          </Transition>
         </section>
 
         <!-- Right column: Discussion -->
@@ -1198,7 +1400,7 @@ import {
   deleteTask as deleteTaskRequest,
   listTasks,
   retrieveTask,
-  toggleTaskCompletion,
+  setTaskStatus as setTaskStatusRequest,
   updateTask as updateTaskRequest,
 } from '@/utils/tasksAPI'
 
@@ -1239,8 +1441,30 @@ const updatingTaskIds = ref(new Set())
 const deletingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const isBulkUpdatingTasks = ref(false)
-const showAdvancedTaskFilters = ref(false)
+const taskSelectionMode = ref(false)
+const isTaskFiltersOpen = ref(false)
 const showTaskDepthColors = ref(true)
+const taskDialogNameInput = ref(null)
+const taskPagination = ref({ page: 1, pageSize: 100 })
+const TASK_LOAD_BATCH = 100
+const taskShownLimit = ref(TASK_LOAD_BATCH)
+const loadMoreTasks = () => { taskShownLimit.value += TASK_LOAD_BATCH }
+const showCompletedOverdue = ref(false)
+const isCompletedOverdueTask = (task) => {
+  if (!task?.completed || !task?.dueDate) return false
+  const due = new Date(task.dueDate)
+  if (Number.isNaN(due.getTime())) return false
+  return due.getTime() < Date.now()
+}
+const collapsedTaskIds = ref(new Set())
+const toggleTaskCollapsed = (taskId) => {
+  const id = Number(taskId)
+  if (!Number.isFinite(id)) return
+  const next = new Set(collapsedTaskIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsedTaskIds.value = next
+}
 const taskFilters = ref({
   taskType: '',
   status: '',
@@ -1253,9 +1477,19 @@ const taskFilters = ref({
   ordering: 'due_date',
   showDeleted: false,
 })
-const taskPagination = ref({
-  page: 1,
-  pageSize: 20,
+let taskFilterReloadTimer = null
+const activeTaskFilterCount = computed(() => {
+  const f = taskFilters.value
+  let n = 0
+  if (f.taskType) n += 1
+  if (f.status) n += 1
+  if (f.completed !== '') n += 1
+  if (f.assignedUser) n += 1
+  if (f.parentId) n += 1
+  if (f.dueDateAfter) n += 1
+  if (f.dueDateBefore) n += 1
+  if (f.showDeleted) n += 1
+  return n
 })
 const taskDialogOpen = ref(false)
 const taskDialogMode = ref('create')
@@ -1281,6 +1515,27 @@ const TASK_STATUS_OPTIONS = [
   { value: 'blocked', label: 'Blocked' },
 ]
 
+// Visual definition for each status. icon = Font Awesome class (after `fas fa-`).
+const TASK_STATUS_META = {
+  todo:        { label: 'To do',       icon: 'circle',          short: 'To do' },
+  in_progress: { label: 'In progress', icon: 'circle-half-stroke', short: 'In progress' },
+  done:        { label: 'Done',        icon: 'circle-check',    short: 'Done' },
+  blocked:     { label: 'Blocked',     icon: 'circle-exclamation', short: 'Blocked' },
+}
+const getTaskStatusMeta = (status) => TASK_STATUS_META[status] || TASK_STATUS_META.todo
+
+// Which task's status menu is currently open (taskId or null)
+const openStatusMenuTaskId = ref(null)
+const closeStatusMenu = () => { openStatusMenuTaskId.value = null }
+const openStatusMenu = (taskId) => { openStatusMenuTaskId.value = Number(taskId) }
+const isStatusMenuOpen = (taskId) => openStatusMenuTaskId.value === Number(taskId)
+
+const toggleAssigneeQuickFilter = (userId) => {
+  const current = String(taskFilters.value.assignedUser || '')
+  const next = current === String(userId) ? '' : String(userId)
+  taskFilters.value = { ...taskFilters.value, assignedUser: next }
+}
+
 const TASK_ORDERING_OPTIONS = [
   { value: 'due_date', label: 'Due date' },
   { value: '-due_date', label: 'Due date desc' },
@@ -1291,8 +1546,6 @@ const TASK_ORDERING_OPTIONS = [
   { value: 'status', label: 'Status' },
   { value: '-status', label: 'Status desc' },
 ]
-
-const TASK_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 const messages = ref([])
 
@@ -1789,6 +2042,7 @@ const normalizeTask = (task) => ({
   taskType: task?.task_type || 'group',
   group: task?.group ?? null,
   assignedUser: task?.assigned_user ?? null,
+  assignedUserDetail: task?.assigned_user_detail || null,
   creatorRole: task?.creator_role || '',
   createdBy: task?.created_by || null,
   deletedAt: task?.deleted_at || null,
@@ -1903,27 +2157,6 @@ const selectedTaskAssigneeLabel = computed(() => {
   return option?.label || (assigneeId ? `User ${assigneeId}` : 'No assignee selected')
 })
 
-const getTaskAssigneeName = (userId) => {
-  const numericUserId = Number(userId)
-  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Unassigned'
-
-  const member = activeGroupMemberOptions.value.find((item) => item.userId === numericUserId)
-  if (member?.label) return member.label
-
-  const supervisedStudent = (auth.user?.supervised_students || []).find(
-    (student) => Number(student?.id) === numericUserId,
-  )
-  if (supervisedStudent) {
-    const fullName = [supervisedStudent.first_name, supervisedStudent.last_name]
-      .filter(Boolean)
-      .join(' ')
-      .trim()
-    return fullName || supervisedStudent.email || `User ${numericUserId}`
-  }
-
-  return `User ${numericUserId}`
-}
-
 const isCurrentGroupMentor = computed(() =>
   groupMemberships.value.some(
     (item) =>
@@ -1973,10 +2206,22 @@ const buildTaskRows = (items) => {
     return !parentId || !byId.has(parentId)
   })
 
+  const collapsed = collapsedTaskIds.value
   const rows = []
   const appendRows = (task, depth = 0) => {
-    rows.push({ task, depth })
-    ;(childrenByParent.get(Number(task.id)) || []).forEach((child) => appendRows(child, depth + 1))
+    const id = Number(task.id)
+    const children = childrenByParent.get(id) || []
+    const hasChildren = children.length > 0
+    rows.push({
+      task,
+      depth,
+      hasChildren,
+      childCount: children.length,
+      isCollapsed: hasChildren && collapsed.has(id),
+    })
+    if (hasChildren && !collapsed.has(id)) {
+      children.forEach((child) => appendRows(child, depth + 1))
+    }
   }
 
   roots.forEach((task) => appendRows(task))
@@ -2002,33 +2247,31 @@ const taskTotalPages = computed(() =>
   Math.max(1, Math.ceil(tasks.value.length / taskPagination.value.pageSize)),
 )
 
-const pagedTasks = computed(() => {
-  const page = Math.min(taskPagination.value.page, taskTotalPages.value)
-  const start = (page - 1) * taskPagination.value.pageSize
-  return tasks.value.slice(start, start + taskPagination.value.pageSize)
-})
-
-const taskPageStart = computed(() => {
-  if (!tasks.value.length) return 0
-  return (Math.min(taskPagination.value.page, taskTotalPages.value) - 1) * taskPagination.value.pageSize + 1
-})
-
-const taskPageEnd = computed(() =>
-  Math.min(taskPageStart.value + taskPagination.value.pageSize - 1, tasks.value.length),
-)
+const pagedTasks = computed(() => tasks.value.slice(0, taskShownLimit.value))
 
 const parentTaskFilterOptions = computed(() =>
   tasks.value
     .filter((task) => !task.deletedAt)
     .map((task) => ({
       id: task.id,
-      label: `${task.taskType === 'individual' ? 'Individual Task' : 'Group Task'} · ${task.name}`,
+      label: `${task.taskType === 'individual' ? 'Individual Task' : 'Group Task'} - ${task.name}`,
     }))
     .sort((a, b) => a.label.localeCompare(b.label)),
 )
 
+// Hide tasks that are completed AND past their due date by default. The
+// toolbar toggle (showCompletedOverdue) un-hides them; the popover State=Done
+// filter also bypasses the hide so the user always sees what they asked for.
+const isStaleCompletedHidden = (task) => {
+  if (showCompletedOverdue.value) return false
+  if (taskFilters.value.completed === 'true') return false
+  return isCompletedOverdueTask(task)
+}
+
 const taskSections = computed(() => {
-  const relevantTasks = pagedTasks.value.filter(isTaskRelevantToCurrentGroup)
+  const relevantTasks = pagedTasks.value
+    .filter(isTaskRelevantToCurrentGroup)
+    .filter((task) => !isStaleCompletedHidden(task))
   const groupTasks = relevantTasks.filter((task) => task.taskType === 'group')
   const individualTasks = relevantTasks.filter((task) => task.taskType === 'individual')
 
@@ -2037,6 +2280,22 @@ const taskSections = computed(() => {
     createTaskSection('individual', 'Individual Tasks', 'fas fa-user-check', individualTasks),
   ]
 })
+
+// Counts driving the "Show more" footer + the hidden-stale toggle's badge
+const totalRelevantTaskCount = computed(
+  () => tasks.value.filter(isTaskRelevantToCurrentGroup).length,
+)
+const visibleSectionTaskCount = computed(
+  () => taskSections.value.reduce((sum, section) => sum + section.total, 0),
+)
+const hasMoreTasksToShow = computed(
+  () => taskShownLimit.value < totalRelevantTaskCount.value,
+)
+const hiddenStaleCompletedCount = computed(() =>
+  tasks.value.filter(
+    (task) => isTaskRelevantToCurrentGroup(task) && isCompletedOverdueTask(task),
+  ).length,
+)
 
 const selectedTaskIdList = computed(() =>
   Array.from(selectedTaskIds.value).map(Number).filter(Number.isFinite),
@@ -2091,12 +2350,48 @@ const setTaskSelected = (taskId, selected) => {
   selectedTaskIds.value = next
 }
 
-const setTaskSelectedFromEvent = (taskId, event) => {
-  setTaskSelected(taskId, Boolean(event?.target?.checked))
-}
-
 const clearTaskSelection = () => {
   selectedTaskIds.value = new Set()
+}
+
+const toggleTaskSelectionMode = () => {
+  taskSelectionMode.value = !taskSelectionMode.value
+  if (!taskSelectionMode.value) clearTaskSelection()
+}
+
+const resetTaskFilters = () => {
+  taskFilters.value = {
+    ...taskFilters.value,
+    taskType: '',
+    status: '',
+    completed: '',
+    assignedUser: '',
+    parentId: '',
+    dueDateAfter: '',
+    dueDateBefore: '',
+    showDeleted: false,
+  }
+}
+
+const getAssigneeDisplay = (task) => {
+  const assigneeId = Number(task?.assignedUser)
+  if (!Number.isFinite(assigneeId) || assigneeId <= 0) return null
+  const meId = currentUserId.value
+  if (meId && assigneeId === Number(meId)) {
+    return { label: 'You', isSelf: true }
+  }
+  const name = task?.assignedUserDetail?.name
+  if (name) return { label: name, isSelf: false }
+  return { label: `User ${assigneeId}`, isSelf: false }
+}
+
+const isTaskOverdue = (task) => {
+  if (!task?.dueDate || task.completed || task.deletedAt) return false
+  const due = new Date(task.dueDate)
+  if (Number.isNaN(due.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return due < today
 }
 
 const syncSelectedTasks = () => {
@@ -2140,6 +2435,8 @@ const canManageTask = (task) => {
   return false
 }
 
+// Visibility (`isTaskRelevantToCurrentGroup`) already scopes the task list
+// to the current group. This gate only decides who can act on a visible task.
 const canToggleTask = (task) => {
   if (!task || task.deletedAt) return false
   if (auth.isAdmin) return true
@@ -2149,7 +2446,6 @@ const canToggleTask = (task) => {
   }
 
   if (isAssigneeSelf(task)) return true
-  if (!isCurrentGroupStudent(task.assignedUser)) return false
 
   if (['global_admin', 'track_admin', 'student'].includes(task.creatorRole)) {
     return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
@@ -2358,6 +2654,7 @@ const loadTasks = async ({ resetPage = true } = {}) => {
     )
     ensureTaskPageInRange()
     syncSelectedTasks()
+    taskShownLimit.value = TASK_LOAD_BATCH
   } catch (error) {
     tasks.value = []
     taskError.value = error instanceof Error ? error.message : 'Task data could not be loaded.'
@@ -2366,31 +2663,20 @@ const loadTasks = async ({ resetPage = true } = {}) => {
   }
 }
 
-const resetTaskFilters = () => {
-  taskFilters.value = {
-    taskType: '',
-    status: '',
-    completed: '',
-    assignedUser: '',
-    parentId: '',
-    dueDateAfter: '',
-    dueDateBefore: '',
-    search: '',
-    ordering: 'due_date',
-    showDeleted: false,
-  }
-  loadTasks()
+const scheduleTaskReload = () => {
+  if (!getBackendGroupId()) return
+  if (taskFilterReloadTimer) clearTimeout(taskFilterReloadTimer)
+  taskFilterReloadTimer = setTimeout(() => {
+    taskFilterReloadTimer = null
+    loadTasks()
+  }, 300)
 }
 
-const goToTaskPage = (page) => {
-  taskPagination.value.page = Math.min(Math.max(Number(page) || 1, 1), taskTotalPages.value)
-  syncSelectedTasks()
-}
-
-const changeTaskPageSize = () => {
-  taskPagination.value.page = 1
-  syncSelectedTasks()
-}
+watch(
+  () => ({ ...taskFilters.value }),
+  () => scheduleTaskReload(),
+  { deep: true },
+)
 
 const normalizeMessage = (item) => {
   const raw = item?.message ? item.message : item
@@ -2708,6 +2994,17 @@ const closeTaskDialog = ({ force = false } = {}) => {
   taskFormError.value = ''
 }
 
+watch(taskDialogOpen, (isOpen) => {
+  if (typeof document === 'undefined') return
+  document.body.style.overflow = isOpen ? 'hidden' : ''
+  if (isOpen) {
+    nextTick(() => {
+      taskDialogNameInput.value?.focus?.()
+      try { taskDialogNameInput.value?.select?.() } catch { /* ignore */ }
+    })
+  }
+})
+
 const buildCreateTaskPayload = () => {
   const taskType = taskForm.value.taskType
   const payload = {
@@ -2775,14 +3072,19 @@ const saveTask = async () => {
   }
 }
 
-const toggleTask = async (task) => {
+const changeTaskStatus = async (task, newStatus) => {
   if (!task?.id || isUpdatingTask(task.id)) return
+  if (newStatus === task.status) {
+    closeStatusMenu()
+    return
+  }
 
   setTaskUpdating(task.id, true)
   taskError.value = ''
+  closeStatusMenu()
 
   try {
-    const updatedTask = await toggleTaskCompletion(task.id, !task.completed)
+    const updatedTask = await setTaskStatusRequest(task.id, newStatus)
     upsertTask(updatedTask)
   } catch (error) {
     taskError.value = error instanceof Error ? error.message : 'Task status could not be updated.'
@@ -4121,9 +4423,16 @@ const reloadGroupDetail = async () => {
     if (sequence !== loadSequence) return
 
     connectChatSocket()
+  } catch (error) {
+    console.error('reloadGroupDetail failed:', error)
   } finally {
+    // Always clear the page skeleton on the latest reload's completion.
+    // If a newer reload is in flight, it will set true again at its start.
     if (sequence === loadSequence) {
       isLoadingGroupDetail.value = false
+    } else if (loadSequence > 0) {
+      // Stale reload finishing while a newer one is mid-flight — leave the
+      // newer one to manage the flag (it already set it true at its start).
     }
   }
 }
@@ -4142,10 +4451,25 @@ watch(
   },
 )
 
+const onDocumentClickForStatusMenu = (event) => {
+  if (openStatusMenuTaskId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.task-state, .task-state-menu')) return
+  closeStatusMenu()
+}
+const onDocumentKeydownForStatusMenu = (event) => {
+  if (openStatusMenuTaskId.value !== null && event.key === 'Escape') {
+    closeStatusMenu()
+  }
+}
+
 onMounted(async () => {
   manageWindowTimer = window.setInterval(() => {
     manageWindowNow.value = Date.now()
   }, 30000)
+  document.addEventListener('mousedown', onDocumentClickForStatusMenu)
+  document.addEventListener('keydown', onDocumentKeydownForStatusMenu)
 
   await ensureAuthUser()
   await loadGroupOptions()
@@ -4165,7 +4489,8 @@ onBeforeUnmount(() => {
     clearInterval(manageWindowTimer)
     manageWindowTimer = null
   }
-  clearTimeout(searchHighlightTimer)
+  document.removeEventListener('mousedown', onDocumentClickForStatusMenu)
+  document.removeEventListener('keydown', onDocumentKeydownForStatusMenu)
 })
 </script>
 
@@ -4451,7 +4776,20 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 .tasks-content {
-  padding-right: 2px; /* for visible scrollbar */
+  position: relative;
+  padding-right: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .tasks-content.has-bulk-actions {
@@ -4461,125 +4799,236 @@ onBeforeUnmount(() => {
 .task-header-actions {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.task-depth-toggle.active {
-  color: var(--dark-green);
-  border-color: #b8dcc6;
-  background: #f3faf5;
-}
-
-.task-filter-bar,
-.task-bulk-bar {
-  display: flex;
-  align-items: end;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.85rem;
-}
-
-.task-filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 118px;
-  color: #5b6770;
+.task-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 32px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: #fff;
+  color: #50616c;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-
-.task-filter-field--compact {
-  min-width: 92px;
-}
-
-.task-filter-field--wide {
-  min-width: min(100%, 220px);
-}
-
-.task-filter-bar--advanced {
-  align-items: end;
-  margin-top: -0.35rem;
-  padding: 0.72rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: #f8f9fa;
-}
-
-.task-more-filters-btn.active {
-  color: var(--air-force-blue);
+.task-mode-toggle:hover {
+  background: #f4f7f9;
   border-color: var(--air-force-blue);
-  background: #eef7f9;
-}
-
-.task-filter-field input,
-.task-filter-field select,
-.task-page-size select,
-.task-form-field input,
-.task-form-field select,
-.task-form-field textarea {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.52rem 0.62rem;
-  background: var(--white);
   color: var(--charcoal);
-  font: inherit;
+}
+.task-mode-toggle.is-active {
+  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #39687b);
+  color: #fff;
 }
 
-.task-readonly-value {
-  width: 100%;
-  min-height: 38px;
+/* ---------- Toolbar (search + filter popover + sort) ---------- */
+
+.task-toolbar {
   display: flex;
   align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.task-search {
+  position: relative;
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.task-search-icon {
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3a8;
+  font-size: 0.82rem;
+  pointer-events: none;
+}
+.task-search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 0.7rem 0 2rem;
   border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.52rem 0.62rem;
-  background: #f8f9fa;
+  border-radius: 8px;
+  background: #fff;
   color: var(--charcoal);
   font: inherit;
 }
-
-.task-filter-field input:focus,
-.task-filter-field select:focus,
-.task-page-size select:focus,
-.task-form-field input:focus,
-.task-form-field select:focus,
-.task-form-field textarea:focus {
+.task-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
   box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
 }
 
-.task-deleted-toggle {
-  display: inline-flex;
+.task-toolbar-controls {
+  display: flex;
   align-items: center;
-  gap: 0.38rem;
-  min-height: 38px;
-  color: #5b6770;
-  font-size: 0.82rem;
-  font-weight: 700;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.task-bulk-bar {
-  position: absolute;
-  left: 1rem;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 6;
+.task-toolbar-btn,
+.task-toolbar-sort select {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 0;
-  padding: 0.62rem 0.7rem;
-  background: #f1f5f7;
+  gap: 0.4rem;
+  height: 36px;
+  padding: 0 0.85rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(30, 44, 56, 0.16);
+  background: #fff;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+.task-toolbar-btn:hover,
+.task-toolbar-sort select:hover {
+  border-color: var(--air-force-blue);
+  background: #f4f7f9;
   color: var(--charcoal);
-  font-size: 0.84rem;
+}
+.task-toolbar-btn.has-active {
+  border-color: var(--air-force-blue);
+  background: rgba(57, 104, 123, 0.08);
+  color: var(--charcoal);
+}
+
+.task-filter-popover { position: relative; }
+.task-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--air-force-blue, #39687b);
+  color: #fff;
+  font-size: 0.7rem;
   font-weight: 700;
 }
+.task-filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 320px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding: 0.85rem;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.task-filter-row-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.task-filter-row input[type='datetime-local'] {
+  width: 100%;
+  height: 34px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--charcoal);
+  font: inherit;
+}
+.task-filter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #5b6770;
+}
+.task-filter-row select {
+  width: 100%;
+  height: 34px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--charcoal);
+  font: inherit;
+}
+.task-filter-row--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--charcoal);
+}
+.task-filter-panel-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+.task-filter-clear,
+.task-filter-close {
+  flex: 1;
+  height: 32px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.task-filter-clear:hover:not(:disabled),
+.task-filter-close:hover {
+  border-color: var(--air-force-blue);
+  background: #f4f7f9;
+  color: var(--charcoal);
+}
+.task-filter-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: #f7f8f9;
+  color: #a3adb3;
+}
+
+/* ---------- Banners ---------- */
+
+.task-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+.task-banner.is-error {
+  background: #fdecec;
+  color: #8c1f1f;
+  border: 1px solid #f3c2c2;
+}
+
+/* ---------- Sections ---------- */
 
 .task-pagination-bar {
   display: flex;
@@ -4605,231 +5054,625 @@ onBeforeUnmount(() => {
 }
 
 .task-section {
-  border-bottom: 1px solid var(--border-light);
-  padding: 0.9rem 0;
+  margin-bottom: 1.4rem;
 }
-
-.task-section:last-child {
-  border-bottom: 0;
-}
+.task-section:last-child { margin-bottom: 0; }
 
 .task-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
-  margin-bottom: 0.7rem;
+  margin-bottom: 0.55rem;
+  padding: 0 0.1rem;
 }
 
 .task-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--charcoal);
+  font-size: 0.74rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-
 .task-section-title i {
-  margin-right: 0.45rem;
   color: var(--air-force-blue);
+  font-size: 0.85rem;
+}
+.task-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #50616c;
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.task-section-status {
+.task-section-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.74rem;
   color: #6c757d;
-  font-size: 0.84rem;
-  font-weight: 700;
+}
+.task-section-progress-bar {
+  width: 88px;
+  height: 6px;
+  background: #eef2f4;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.task-section-progress-fill {
+  height: 100%;
+  background: var(--dark-green, #4d745e);
+  transition: width 200ms ease;
+}
+.task-section-progress-label { font-weight: 700; }
+
+/* ---------- Task list & item ---------- */
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .task-item {
-  min-width: 0;
+  display: flex;
   align-items: flex-start;
-  position: relative;
-  border-radius: 8px;
-  border: 1px solid var(--task-depth-border, #e5ebef);
-  background: var(--task-depth-bg, var(--white));
+  gap: 0.7rem;
+  padding: 0.6rem 0.85rem 0.6rem calc(0.85rem + var(--task-depth, 0) * 1.1rem);
+  border-bottom: 1px solid var(--task-depth-border, var(--border-light));
+  background: var(--task-depth-bg, #fff);
   box-shadow: inset 3px 0 0 var(--task-depth-accent, transparent);
-  cursor: default;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+  position: relative;
 }
-
-.group-detail .task-item:hover {
-  margin-top: 0 !important;
-  margin-right: 0 !important;
-  margin-bottom: 0 !important;
-  padding-top: 0.5rem !important;
-  padding-right: 0 !important;
-  padding-bottom: 0.5rem !important;
-  background: var(--task-depth-bg, var(--white)) !important;
-  transform: none !important;
+.task-item:last-child { border-bottom: 0; }
+.task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
+.task-item.is-selected {
+  background: rgba(57, 104, 123, 0.08);
+  box-shadow: inset 3px 0 0 var(--air-force-blue, #39687b);
 }
-
-.task-item.is-subtask::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0.35rem;
-  width: 0.5rem;
-  height: 1px;
-  background: var(--task-depth-accent, #cfd6dd);
-  opacity: 0.82;
+.task-item.is-complete .task-label {
+  color: #94a3a8;
+  text-decoration: line-through;
+  text-decoration-color: rgba(148, 163, 168, 0.6);
 }
+.task-item.is-deleted { opacity: 0.55; }
 
+/* Depth-tinted palette: parents have a soft green hue, sub-tasks fade toward white */
 .task-depth-0 {
   --task-depth-bg: #eaf6ee;
   --task-depth-border: #d0e6d8;
   --task-depth-accent: #79a988;
 }
-
 .task-depth-1 {
   --task-depth-bg: #f3faf5;
   --task-depth-border: #dceee2;
   --task-depth-accent: #9abc9f;
 }
-
 .task-depth-2 {
   --task-depth-bg: #fbfdfb;
   --task-depth-border: #edf5ef;
   --task-depth-accent: #c2d8c8;
 }
-
-.task-depth-3 {
-  --task-depth-bg: var(--white);
-  --task-depth-border: transparent;
-  --task-depth-accent: transparent;
-}
-
+.task-depth-3,
 .task-depth-4 {
-  --task-depth-bg: var(--white);
-  --task-depth-border: transparent;
+  --task-depth-bg: #fff;
+  --task-depth-border: var(--border-light);
   --task-depth-accent: transparent;
 }
 
-.task-depth-disabled {
-  --task-depth-bg: var(--white);
-  --task-depth-border: transparent;
-  --task-depth-accent: transparent;
+/* Collapse/expand chevron for tasks with sub-tasks. Reserved-width spacer
+   so rows align consistently whether or not they have children. */
+.task-collapse,
+.task-collapse-spacer {
+  flex-shrink: 0;
+  width: 18px;
+  height: 22px;
+  margin-top: 0.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.task-collapse {
+  cursor: pointer;
+  color: #6c757d;
+  border-radius: 4px;
+  transition: background-color 120ms ease, color 120ms ease, transform 160ms ease;
+}
+.task-collapse i { font-size: 0.78rem; transition: transform 160ms ease; }
+.task-collapse:hover { background: rgba(0, 0, 0, 0.05); color: var(--charcoal); }
+.task-collapse:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-collapse.is-collapsed i { transform: rotate(-90deg); }
+
+/* ---------- State pill (leading control) -- shows status, opens menu to change ---------- */
+
+.task-state-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin-top: 0.05rem;
 }
 
-.task-body {
-  flex: 1;
-  min-width: 0;
+.task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 26px;
+  padding: 0 0.6rem 0 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+  white-space: nowrap;
+}
+.task-state i { font-size: 0.78rem; }
+.task-state-label { line-height: 1; }
+.task-state-caret { font-size: 0.7rem; opacity: 0.7; margin-left: -0.1rem; }
+
+.task-state:hover:not(:disabled) { filter: brightness(0.96); }
+.task-state:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-state.is-open { box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.18); }
+
+.task-state.is-disabled,
+.task-state:disabled {
+  cursor: default;
+  filter: none;
+  opacity: 0.85;
 }
 
-.task-item.is-individual-task .task-body {
-  flex: 1 1 220px;
-}
+/* Status color variants -- used by both .task-state and .task-state-menu-item */
+.task-state--todo        { background: #eef2f4; color: #50616c; }
+.task-state--in_progress { background: #e0eef9; color: #1f5b89; }
+.task-state--done        { background: rgba(77, 116, 94, 0.18); color: var(--dark-green, #4d745e); }
+.task-state--blocked     { background: #fdecec; color: #8c1f1f; }
 
-.task-select-control {
+/* Status menu */
+.task-state-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  padding: 0.35rem;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.task-state-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.task-state-menu-item i:first-child {
+  width: 1rem;
+  text-align: center;
+}
+.task-state-menu-item:hover { background: #f4f7f9; }
+.task-state-menu-item.is-current { background: rgba(57, 104, 123, 0.08); }
+.task-state-menu-check { margin-left: auto; color: var(--air-force-blue, #39687b); }
+
+/* Selection box (only shown in select mode) */
+.task-select-box {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
-  flex-shrink: 0;
+  height: 22px;
+  margin-top: 0.15rem;
+  padding: 0;
+  border: 2px solid #c5cdd3;
+  border-radius: 6px;
+  background: #fff;
+  color: #fff;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.task-select-box i { font-size: 0.7rem; }
+.task-select-box:hover:not(:disabled) {
+  border-color: var(--air-force-blue, #39687b);
+  background: rgba(57, 104, 123, 0.08);
+}
+.task-select-box.is-selected {
+  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #39687b);
+}
+.task-select-box:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-select-box:disabled {
+  cursor: not-allowed;
+  background: #f1f3f5;
+  border-color: #d8dee2;
 }
 
-.task-select-control input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--air-force-blue);
-}
+/* Body */
 
+.task-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-headline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.task-label {
+  color: var(--charcoal);
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+}
 .task-description {
-  margin-top: 0.18rem;
+  margin-top: 0.25rem;
   color: #6c757d;
   font-size: 0.82rem;
-  line-height: 1.45;
+  line-height: 1.5;
 }
-
 .task-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.2rem;
-  color: #6c757d;
-  font-size: 0.78rem;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
 }
 
-.task-meta span {
+.task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #50616c;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.task-chip i { font-size: 0.7rem; }
+.task-chip--date.is-overdue {
+  background: #fdecec;
+  color: #8c1f1f;
+}
+.task-chip--assignee {
+  background: rgba(57, 104, 123, 0.1);
+  color: var(--air-force-blue, #39687b);
+}
+.task-chip--assignee.is-self {
+  background: rgba(77, 116, 94, 0.18);
+  color: var(--dark-green, #4d745e);
+}
+
+/* Dedicated assignee slot on the right of the row, top-aligned with the state pill.
+   Rendered as a button now -- click to filter by that person. */
+.task-assignee {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.05rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 11rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(57, 104, 123, 0.1);
+  color: var(--air-force-blue, #39687b);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.task-assignee i { font-size: 0.72rem; flex-shrink: 0; }
+.task-assignee span {
+  overflow: hidden;
+  text-overflow: ellipsis;
   min-width: 0;
-  overflow-wrap: anywhere;
+}
+.task-assignee:hover {
+  background: rgba(57, 104, 123, 0.18);
+  transform: translateY(-1px);
+}
+.task-assignee:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-assignee.is-self {
+  background: rgba(77, 116, 94, 0.18);
+  color: var(--dark-green, #4d745e);
+}
+.task-assignee.is-self:hover {
+  background: rgba(77, 116, 94, 0.3);
+}
+.task-assignee.is-active {
+  border-color: var(--air-force-blue, #39687b);
+  background: rgba(57, 104, 123, 0.22);
+}
+.task-assignee.is-self.is-active {
+  border-color: var(--dark-green, #4d745e);
+  background: rgba(77, 116, 94, 0.3);
 }
 
-.task-meta i {
-  margin-right: 0.25rem;
+.task-chip--deleted {
+  background: #f7e7e7;
+  color: #8c1f1f;
 }
+.task-chip--status[data-status='todo'] { background: #fff3d6; color: #8a6d1f; }
+.task-chip--status[data-status='in_progress'] { background: #e0eef9; color: #1f5b89; }
+.task-chip--status[data-status='in_review'] { background: #ebe2f7; color: #5b3b8c; }
+.task-chip--status[data-status='done'] { background: rgba(77, 116, 94, 0.15); color: var(--dark-green, #4d745e); }
+.task-chip--status[data-status='blocked'] { background: #fdecec; color: #8c1f1f; }
+.task-chip--role {
+  background: #f1f3f5;
+  color: #50616c;
+}
+
+/* "Assigned by Name" -- subtle text inline with the date chip */
+.task-assigned-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+.task-assigned-by strong {
+  color: #50616c;
+  font-weight: 700;
+}
+
+/* Row actions -- hidden until hover/focus */
 
 .task-row-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.45rem;
-  flex-wrap: wrap;
+  gap: 0.25rem;
   flex-shrink: 0;
+  /* 3 icon buttons (30px) + 2 gaps (4px) -- reserved even when only the
+     always-rendered + button is present, so the assignee column lines up
+     across all rows regardless of edit/delete permission. */
+  min-width: 98px;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
+.task-item:hover .task-row-actions,
+.task-row-actions:focus-within { opacity: 1; }
 
-.task-item.is-individual-task .task-row-actions {
-  flex: 0 1 auto;
-  max-width: 100%;
-}
-
-.task-status-toggle {
+.task-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  min-height: 32px;
-  padding: 0.35rem 0.65rem;
-  border: 1px solid var(--border-light);
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
   border-radius: 6px;
+  background: transparent;
+  color: #6c757d;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.task-icon-btn:hover:not(:disabled) {
+  background: #f1f3f5;
+  border-color: var(--border-light);
+  color: var(--charcoal);
+}
+.task-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-icon-btn--danger:hover:not(:disabled) {
+  background: #fdecec;
+  border-color: #f3c2c2;
+  color: #8c1f1f;
+}
+.task-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: transparent;
+  color: #c5cdd3;
+}
+
+/* Empty + skeleton states */
+
+.task-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 1.6rem 1rem;
+  color: #6c757d;
+  font-size: 0.85rem;
+}
+.task-empty-state i { font-size: 1.4rem; color: #c5cdd3; }
+.task-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px dashed var(--air-force-blue, #39687b);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--air-force-blue, #39687b);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.task-empty-cta:hover {
+  background: var(--air-force-blue, #39687b);
+  color: #fff;
+}
+
+.task-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   background: #fff;
-  color: #50616c;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 0.5rem;
+}
+.task-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+}
+.task-skeleton-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
+  background-size: 200% 100%;
+  animation: task-skeleton-shimmer 1.4s infinite linear;
+  flex-shrink: 0;
+}
+.task-skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
+.task-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
+  background-size: 200% 100%;
+  animation: task-skeleton-shimmer 1.4s infinite linear;
+}
+.task-skeleton-line--lg { width: 70%; }
+.task-skeleton-line--sm { width: 40%; }
+@keyframes task-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Sticky bulk action bar */
+
+.task-bulk-bar {
+  position: sticky;
+  bottom: 0.75rem;
+  margin: 0.85rem auto 0;
+  width: max-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.55rem 0.7rem 0.55rem 1rem;
+  background: #1f2530;
+  color: #fff;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  z-index: 5;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+.task-bulk-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+.task-bulk-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.task-bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 30px;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.task-bulk-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+.task-bulk-btn--primary {
+  background: var(--dark-green, #4d745e);
+  border-color: var(--dark-green, #4d745e);
+}
+.task-bulk-btn--primary:hover:not(:disabled) {
+  background: #5d8a72;
+  border-color: #5d8a72;
+}
+.task-bulk-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.7);
+}
+.task-bulk-btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.task-bulk-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.task-bulk-fade-enter-from,
+.task-bulk-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.task-bulk-fade-enter-active,
+.task-bulk-fade-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
 }
 
-.task-status-toggle i {
-  color: var(--air-force-blue);
-  font-size: 0.82rem;
-}
-
-.task-status-toggle:hover:not(:disabled) {
-  border-color: var(--air-force-blue);
-  background: #f1f5f7;
-  color: var(--charcoal);
-}
-
-.task-status-toggle.is-complete {
-  border-color: rgba(77, 116, 94, 0.35);
-  background: rgba(77, 116, 94, 0.1);
-  color: var(--dark-green);
-}
-
-.task-status-toggle.is-complete i {
-  color: var(--dark-green);
-}
-
-.task-status-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-@container (max-width: 640px) {
-  .task-item.is-individual-task {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .task-item.is-individual-task .task-body {
-    flex-basis: calc(100% - 36px);
-  }
-
-  .task-item.is-individual-task .task-row-actions {
-    width: calc(100% - 36px);
-    margin-left: calc(22px + 0.75rem);
-    justify-content: flex-start;
-  }
-}
-
-.task-item.is-deleted {
-  opacity: 0.6;
-}
+/* ---------- Refined task popup ---------- */
 
 .task-dialog-backdrop {
   position: fixed;
@@ -4839,71 +5682,388 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
 }
 
 .task-dialog {
   width: min(100%, 560px);
-  max-height: min(720px, calc(100vh - 2rem));
-  overflow-y: auto;
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding: 1rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-.task-dialog-header,
-.task-dialog-actions {
+.task-dialog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--border-light);
 }
-
-.task-dialog-header h4 {
-  margin: 0;
+.task-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   color: var(--charcoal);
-  font-size: 1rem;
 }
-
-.task-dialog-close {
-  width: 34px;
-  height: 34px;
+.task-dialog-title i {
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--white);
-  color: var(--charcoal);
-  cursor: pointer;
-}
-
-.task-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.task-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.32rem;
-  color: #5b6770;
+  background: rgba(57, 104, 123, 0.1);
+  color: var(--air-force-blue, #39687b);
+  border-radius: 8px;
   font-size: 0.82rem;
+}
+.task-dialog-title h4 {
+  margin: 0;
+  font-size: 1rem;
   font-weight: 700;
 }
-
-.task-form-field--wide {
-  width: 100%;
+.task-dialog-close {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #6c757d;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.task-dialog-close:hover {
+  background: #f4f7f9;
+  color: var(--charcoal);
+}
+.task-dialog-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
 }
 
-.task-form-field textarea {
+.task-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  padding: 1rem 1.1rem;
+  overflow-y: auto;
+}
+
+.task-dialog-title-input {
+  width: 100%;
+  padding: 0.35rem 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--charcoal);
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.task-dialog-title-input::placeholder { color: #a3adb3; font-weight: 600; }
+.task-dialog-title-input:focus { border-bottom-color: var(--air-force-blue, #39687b); }
+
+.task-dialog-description-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fafbfc;
+  color: var(--charcoal);
+  font: inherit;
+  font-size: 0.88rem;
   resize: vertical;
+  min-height: 60px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.task-dialog-description-input::placeholder { color: #a3adb3; }
+.task-dialog-description-input:focus {
+  outline: none;
+  border-color: var(--air-force-blue, #39687b);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+
+.task-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.task-dialog-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+.task-dialog-field--half { min-width: 0; }
+.task-dialog-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #6c757d;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.task-dialog-label i { font-size: 0.78rem; color: #94a3a8; }
+.task-dialog-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--charcoal);
+  font: inherit;
+  font-size: 0.88rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.task-dialog-input:focus {
+  outline: none;
+  border-color: var(--air-force-blue, #39687b);
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+.task-dialog-readonly {
+  padding: 0.4rem 0.65rem;
+  background: #f4f7f9;
+  border-radius: 8px;
+  color: #50616c;
+  font-size: 0.85rem;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+/* Segmented control */
+.task-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  background: #f4f7f9;
+  border-radius: 10px;
+}
+.task-segmented-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+.task-segmented-option i { font-size: 0.78rem; opacity: 0.7; }
+.task-segmented-option:hover:not(:disabled):not(.is-active) {
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--charcoal);
+}
+.task-segmented-option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-segmented-option.is-active {
+  background: #fff;
+  color: var(--charcoal);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+.task-segmented-option.is-active i { opacity: 1; }
+.task-segmented-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Status segmented uses the row pill colors when active */
+.task-segmented-option--status.is-active.task-state--todo        { background: #eef2f4; color: #50616c; }
+.task-segmented-option--status.is-active.task-state--in_progress { background: #e0eef9; color: #1f5b89; }
+.task-segmented-option--status.is-active.task-state--done        { background: rgba(77, 116, 94, 0.18); color: var(--dark-green, #4d745e); }
+.task-segmented-option--status.is-active.task-state--blocked     { background: #fdecec; color: #8c1f1f; }
+
+.task-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--border-light);
+  background: #fafbfc;
+}
+.task-dialog-hint {
+  color: #94a3a8;
+  font-size: 0.74rem;
+}
+.task-dialog-hint kbd {
+  display: inline-block;
+  padding: 0 0.3rem;
+  min-width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.7rem;
+  font-family: inherit;
+  color: #50616c;
+  text-align: center;
+}
+.task-dialog-actions { display: flex; gap: 0.45rem; }
+.task-dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 34px;
+  padding: 0 0.95rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.task-dialog-btn:hover:not(:disabled) {
+  background: #f4f7f9;
+  border-color: var(--air-force-blue, #39687b);
+  color: var(--charcoal);
+}
+.task-dialog-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-dialog-btn--primary {
+  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #39687b);
+  color: #fff;
+}
+.task-dialog-btn--primary:hover:not(:disabled) {
+  background: #2d5365;
+  border-color: #2d5365;
+  color: #fff;
+}
+.task-dialog-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* Entrance/exit transition */
+.task-dialog-enter-from .task-dialog,
+.task-dialog-leave-to .task-dialog {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+}
+.task-dialog-enter-from,
+.task-dialog-leave-to { opacity: 0; }
+.task-dialog-enter-active,
+.task-dialog-leave-active { transition: opacity 160ms ease; }
+.task-dialog-enter-active .task-dialog,
+.task-dialog-leave-active .task-dialog {
+  transition: opacity 200ms ease, transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Tint level toggle in toolbar */
+.task-toolbar-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  color: #6c757d;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.task-toolbar-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--air-force-blue, #39687b);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.task-toolbar-icon-btn:hover {
+  background: #f4f7f9;
+  border-color: var(--air-force-blue, #39687b);
+  color: var(--charcoal);
+}
+.task-toolbar-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-toolbar-icon-btn.is-active {
+  background: rgba(77, 116, 94, 0.15);
+  border-color: var(--dark-green, #4d745e);
+  color: var(--dark-green, #4d745e);
+}
+
+/* List footer: Show more / count info */
+.task-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding: 0.4rem 0.4rem;
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+.task-list-count { font-weight: 600; }
+.task-list-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 30px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--air-force-blue, #39687b);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.task-list-more:hover {
+  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #39687b);
+  color: #fff;
+}
+.task-list-more:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+
+/* Flat (tint off) depth-class fallback */
+.task-depth-flat {
+  --task-depth-bg: #fff;
+  --task-depth-border: var(--border-light);
+  --task-depth-accent: transparent;
 }
 
 /* Discussion board: chat-container fills card, chat-messages scrolls */
@@ -5555,22 +6715,9 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-.add-subtask-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border-color: var(--border-light);
-  flex-shrink: 0;
-}
-
-.task-empty-state {
-  padding: 0.8rem;
-  color: #6c757d;
-  background: #f8f9fa;
-  border: 1px dashed var(--border-light);
-  border-radius: 8px;
-  font-size: 0.88rem;
-}
+/* Tasks pane styles defined above; the legacy .add-subtask-btn /
+   .task-empty-state overrides previously here have been replaced by
+   the .task-icon-btn and .task-empty-state rules in the modernized block. */
 
 /* Discussion header */
 .pane--discussion .chat-header {
@@ -6147,7 +7294,6 @@ onBeforeUnmount(() => {
 }
 
 .chat-status,
-.task-section-status,
 .message-date,
 .message-time,
 .typing-indicator,
@@ -6333,19 +7479,8 @@ onBeforeUnmount(() => {
   background: #f8f9fa;
 }
 
-.task-section {
-  border-bottom-color: var(--border-light);
-}
-
-.add-subtask-btn {
-  color: var(--air-force-blue);
-  border-color: var(--border-light);
-}
-
-.add-subtask-btn:hover {
-  background: #f1f5f7;
-  border-color: var(--air-force-blue);
-}
+/* Task pane theming overrides (legacy `.add-subtask-btn` and the
+   `.task-item:hover` reset removed -- handled by the modernized rules above). */
 
 .add-subtask-btn:disabled,
 .add-subtask-btn:disabled:hover {
@@ -6593,14 +7728,20 @@ onBeforeUnmount(() => {
     max-width: none;
   }
 
-  .task-filter-field {
-    min-width: min(100%, 148px);
-    flex: 1 1 140px;
-  }
+  .task-toolbar { gap: 0.5rem; }
+  .task-search { flex: 1 1 100%; }
+  .task-toolbar-controls { width: 100%; justify-content: flex-end; }
+  .task-filter-panel { left: 0; right: auto; width: calc(100vw - 2rem); max-width: 320px; }
 
   .task-row-actions {
-    width: 100%;
-    justify-content: flex-start;
+    opacity: 1; /* hover doesn't exist on touch -- always show actions */
+  }
+  .task-icon-btn { width: 34px; height: 34px; }
+
+  .task-bulk-bar {
+    bottom: 1rem;
+    width: calc(100% - 1.5rem);
+    justify-content: space-between;
   }
 
   .task-form-grid {
