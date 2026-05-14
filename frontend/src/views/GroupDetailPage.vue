@@ -5514,19 +5514,24 @@ const reloadGroupDetail = async () => {
   try {
     // First wave: everything that only needs routeGroupId (getBackendGroupId
     // already falls back to the route param). Drops 3 sequential RTTs to 1.
-    await Promise.all([loadGroup(), loadGroupMembers(), loadMessages()])
-    if (sequence !== loadSequence) return
-
-    // Tasks need the member list to fan out individual-task fetches, so
-    // they go in the second wave — still one round-trip thanks to the
-    // new ``assigned_user__in`` filter.
-    await loadTasks()
-    if (sequence !== loadSequence) return
-
-    await scrollMessagesToBottomAfterRender()
-    if (sequence !== loadSequence) return
-
+    // WS doesn't depend on any HTTP fetch — connect immediately so the
+    // socket is ready by the time messages render.
     connectChatSocket()
+
+    // Critical path: only the header data the user actually waits on.
+    // Tasks + chat have their own loading states and run in the
+    // background.
+    await Promise.all([loadGroup(), loadGroupMembers()])
+    if (sequence !== loadSequence) return
+    isLoadingGroupDetail.value = false
+
+    // Fire-and-forget: chat and tasks resolve in parallel; their own
+    // panel skeletons handle the wait. Sequence check on completion
+    // guards against navigating between groups mid-flight.
+    void loadMessages().then(() => {
+      if (sequence === loadSequence) void scrollMessagesToBottomAfterRender()
+    })
+    void loadTasks()
   } catch (error) {
     console.error('reloadGroupDetail failed:', error)
   } finally {
@@ -5640,14 +5645,13 @@ onMounted(async () => {
 
   await ensureAuthUser()
 
-  // When we already have a route id, the group switcher dropdown isn't on
-  // the critical path — kick it off in parallel with the main reload so
-  // the user doesn't wait two extra RTTs before seeing anything.
   if (routeGroupId.value) {
-    void loadGroupOptions()
+    // App.vue's sidebar already pulls /groups/ + /group-members/ for the
+    // switcher rail — re-fetching the same data here is pure waste.
     await reloadGroupDetail()
   } else {
-    // No route id: we must wait for the group list to pick a fallback.
+    // No route id: only path that needs the group list, to pick a
+    // fallback to redirect into.
     await loadGroupOptions()
     if (availableGroups.value.length) {
       await loadMentions()
