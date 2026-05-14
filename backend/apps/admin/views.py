@@ -571,10 +571,17 @@ class AnnouncementListCreateView(APIView):
 
     """POST /api/v1/announcement - Create announcement"""
     def post(self, request):
-        author_user_id = None
-        if hasattr(request, "user") and request.user.is_authenticated:
-            author_user_id = request.user.id
-        result = create_announcement(request.data, author_user_id)
+        # ``initiated_by`` carries the acting user; ``create_announcement``
+        # derives ``author_user_id`` from it. The two are split in the
+        # service signature so impersonation / service-account flows can
+        # still pass a different ``author_user_id`` if needed — see
+        # ``_resolve_author_user_id`` in apps.admin.services.announcement.
+        initiated_by = (
+            request.user
+            if hasattr(request, "user") and request.user.is_authenticated
+            else None
+        )
+        result = create_announcement(request.data, initiated_by=initiated_by)
         code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
@@ -590,7 +597,14 @@ class AnnouncementDetailView(APIView):
 
     """PUT /api/v1/announcement/{id} - Update announcement"""
     def put(self, request, announcement_id):
-        result = update_announcement(announcement_id, request.data)
+        initiated_by = (
+            request.user
+            if hasattr(request, "user") and request.user.is_authenticated
+            else None
+        )
+        result = update_announcement(
+            announcement_id, request.data, initiated_by=initiated_by,
+        )
         code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
@@ -610,8 +624,30 @@ class AnnouncementNotifyView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request, announcement_id):
-        result = send_announcement_email(announcement_id)
-        code = status.HTTP_200_OK if result.get("sent", 0) > 0 else status.HTTP_400_BAD_REQUEST
+        initiated_by = (
+            request.user
+            if hasattr(request, "user") and request.user.is_authenticated
+            else None
+        )
+        result = send_announcement_email(
+            announcement_id, initiated_by=initiated_by,
+        )
+
+        delivery_status = result.get("status")
+        # 200 — every recipient accepted.
+        # 207 — at least one delivered, at least one failed (Multi-Status).
+        # 502 — mail backend was reached but no recipient accepted (or the
+        #       backend itself errored) — distinguishes "broken pipe to SMTP"
+        #       from a client-side validation problem.
+        # 400 — no recipients to send to, or the announcement does not exist.
+        if delivery_status == "success":
+            code = status.HTTP_200_OK
+        elif delivery_status == "partial":
+            code = status.HTTP_207_MULTI_STATUS
+        elif delivery_status == "failed":
+            code = status.HTTP_502_BAD_GATEWAY
+        else:  # "skipped" — no recipients / unknown announcement
+            code = status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 

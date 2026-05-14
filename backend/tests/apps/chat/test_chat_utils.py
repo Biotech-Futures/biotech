@@ -155,6 +155,15 @@ class SanitizeTextWholeWordTests(SimpleTestCase):
         self.assertEqual(sanitize_text("kick ass"), "kick ***")
 
 
+@override_settings(
+    # Pin the shipped default explicitly. Without this, an environment that
+    # ships ``CHAT_SANITIZER_BLACKLIST=`` (empty string in ``.env``) makes
+    # decouple+Csv resolve to ``[]`` and these "are the defaults still
+    # catching the documented examples?" assertions silently lose their
+    # subject. The override keeps the test independent of dev env wiring.
+    CHAT_SANITIZER_BLACKLIST=DEFAULT_BLACKLIST,
+    CHAT_SANITIZER_REPLACEMENT="***",
+)
 class SanitizeTextDefaultsTests(SimpleTestCase):
     """Smoke tests against the shipped default blacklist (no override)."""
 

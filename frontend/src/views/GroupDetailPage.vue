@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
       <span class="sr-only">Loading group details...</span>
@@ -179,6 +179,17 @@
             <h3 class="card-title">Tasks</h3>
             <div class="task-header-actions">
               <button
+                type="button"
+                class="task-mode-toggle"
+                :class="{ 'is-active': taskSelectionMode }"
+                :title="taskSelectionMode ? 'Exit select mode' : 'Select tasks for bulk actions'"
+                :aria-pressed="taskSelectionMode"
+                @click="toggleTaskSelectionMode"
+              >
+                <i class="fas fa-check-square"></i>
+                {{ taskSelectionMode ? 'Done selecting' : 'Select' }}
+              </button>
+              <button
                 v-if="canCreateGroupTasks"
                 type="button"
                 class="btn btn-primary btn-sm"
@@ -198,445 +209,636 @@
               >
                 <i class="fas fa-user-plus"></i> Individual Task
               </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm task-depth-toggle"
-                :class="{ active: showTaskDepthColors }"
-                :aria-pressed="showTaskDepthColors"
-                title="Toggle task level colors"
-                @click="showTaskDepthColors = !showTaskDepthColors"
-              >
-                <i class="fas fa-layer-group"></i>
-                Levels
-              </button>
             </div>
           </div>
-          <div class="card-content tasks-content" :class="{ 'has-bulk-actions': selectedTaskIds.size }">
-            <div class="task-filter-bar">
-              <label class="task-filter-field">
-                <span>Search</span>
+          <div class="card-content tasks-content">
+            <div class="task-toolbar">
+              <div class="task-search">
+                <i class="fas fa-search task-search-icon" aria-hidden="true"></i>
                 <input
                   v-model.trim="taskFilters.search"
                   type="search"
-                  placeholder="Task name"
-                  @keyup.enter="loadTasks"
+                  class="task-search-input"
+                  placeholder="Search tasks..."
+                  aria-label="Search tasks"
                 />
-              </label>
-              <label class="task-filter-field">
-                <span>Status</span>
-                <select v-model="taskFilters.status">
-                  <option value="">All</option>
-                  <option
-                    v-for="option in TASK_STATUS_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
+              </div>
+              <div class="task-toolbar-controls">
+                <div class="task-filter-popover">
+                  <button
+                    type="button"
+                    class="task-toolbar-btn"
+                    :class="{ 'has-active': activeTaskFilterCount }"
+                    :aria-expanded="isTaskFiltersOpen"
+                    aria-haspopup="true"
+                    @click="isTaskFiltersOpen = !isTaskFiltersOpen"
                   >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Sort</span>
-                <select v-model="taskFilters.ordering">
-                  <option
-                    v-for="option in TASK_ORDERING_OPTIONS"
-                    :key="option.value"
-                    :value="option.value"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isLoadingTasks"
-                @click="loadTasks"
-              >
-                Apply
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm task-more-filters-btn"
-                :class="{ active: showAdvancedTaskFilters }"
-                :aria-expanded="showAdvancedTaskFilters"
-                @click="showAdvancedTaskFilters = !showAdvancedTaskFilters"
-              >
-                {{ showAdvancedTaskFilters ? 'Hide filters' : 'More filters' }}
-              </button>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="isLoadingTasks"
-                @click="resetTaskFilters"
-              >
-                Reset
-              </button>
-            </div>
-
-            <div v-if="showAdvancedTaskFilters" class="task-filter-bar task-filter-bar--advanced">
-              <label class="task-filter-field">
-                <span>Type</span>
-                <select v-model="taskFilters.taskType">
-                  <option value="">All</option>
-                  <option value="group">Group</option>
-                  <option value="individual">Individual</option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Done</span>
-                <select v-model="taskFilters.completed">
-                  <option value="">All</option>
-                  <option value="true">Done</option>
-                  <option value="false">Open</option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Assignee</span>
-                <select v-model="taskFilters.assignedUser">
-                  <option value="">All members</option>
-                  <option
-                    v-for="member in taskAssigneeOptions"
-                    :key="member.userId"
-                    :value="String(member.userId)"
-                  >
-                    {{ member.label }}
-                  </option>
-                </select>
-              </label>
-              <label class="task-filter-field task-filter-field--wide">
-                <span>Subtasks of</span>
-                <select v-model="taskFilters.parentId">
-                  <option value="">Any task</option>
-                  <option
-                    v-for="option in parentTaskFilterOptions"
-                    :key="option.id"
-                    :value="String(option.id)"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-              <label class="task-filter-field">
-                <span>Due after</span>
-                <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
-              </label>
-              <label class="task-filter-field">
-                <span>Due before</span>
-                <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
-              </label>
-              <label class="task-deleted-toggle">
-                <input
-                  v-model="taskFilters.showDeleted"
-                  type="checkbox"
-                  @change="toggleDeletedTaskVisibility"
-                />
-                Deleted
-              </label>
-            </div>
-
-            <div v-if="taskError" class="chat-alert" style="margin-bottom: 1rem">
-              {{ taskError }}
-            </div>
-            <div v-if="isLoadingTasks" class="chat-alert" style="margin-bottom: 1rem">
-              Loading tasks...
-            </div>
-
-            <div v-for="section in taskSections" :key="section.key" class="task-section">
-              <div class="task-section-header">
-                <div class="task-section-title">
-                  <i :class="section.icon"></i>
-                  {{ section.title }}
+                    <i class="fas fa-sliders-h" aria-hidden="true"></i>
+                    Filters
+                    <span v-if="activeTaskFilterCount" class="task-filter-badge">
+                      {{ activeTaskFilterCount }}
+                    </span>
+                  </button>
+                  <div v-if="isTaskFiltersOpen" class="task-filter-panel" role="dialog" aria-label="Filters">
+                    <label class="task-filter-row">
+                      <span>Type</span>
+                      <select v-model="taskFilters.taskType">
+                        <option value="">All</option>
+                        <option value="group">Group</option>
+                        <option value="individual">Individual</option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>Status</span>
+                      <select v-model="taskFilters.status">
+                        <option value="">All</option>
+                        <option
+                          v-for="option in TASK_STATUS_OPTIONS"
+                          :key="option.value"
+                          :value="option.value"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>State</span>
+                      <select v-model="taskFilters.completed">
+                        <option value="">All</option>
+                        <option value="true">Done</option>
+                        <option value="false">Open</option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>Assignee</span>
+                      <select v-model="taskFilters.assignedUser">
+                        <option value="">All members</option>
+                        <option
+                          v-for="member in taskAssigneeOptions"
+                          :key="member.userId"
+                          :value="String(member.userId)"
+                        >
+                          {{ member.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <label class="task-filter-row">
+                      <span>Subtasks of</span>
+                      <select v-model="taskFilters.parentId">
+                        <option value="">Any task</option>
+                        <option
+                          v-for="option in parentTaskFilterOptions"
+                          :key="option.id"
+                          :value="String(option.id)"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
+                    <div class="task-filter-row-pair">
+                      <label class="task-filter-row">
+                        <span>Due after</span>
+                        <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Due before</span>
+                        <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                      </label>
+                    </div>
+                    <label class="task-filter-row task-filter-row--checkbox">
+                      <input
+                        v-model="taskFilters.showDeleted"
+                        type="checkbox"
+                        @change="toggleDeletedTaskVisibility"
+                      />
+                      <span>Show deleted</span>
+                    </label>
+                    <div class="task-filter-panel-footer">
+                      <button
+                        type="button"
+                        class="task-filter-clear"
+                        :disabled="!activeTaskFilterCount"
+                        @click="resetTaskFilters"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        type="button"
+                        class="task-filter-close"
+                        @click="isTaskFiltersOpen = false"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div class="task-section-status">
-                  {{ section.completed }}/{{ section.total }} Completed
+                <label class="task-toolbar-sort">
+                  <span class="visually-hidden">Sort by</span>
+                  <select v-model="taskFilters.ordering">
+                    <option
+                      v-for="option in TASK_ORDERING_OPTIONS"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      Sort: {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  class="task-toolbar-icon-btn"
+                  :class="{ 'is-active': showTaskDepthColors }"
+                  :aria-pressed="showTaskDepthColors"
+                  :title="showTaskDepthColors ? 'Tint by nesting level: on' : 'Tint by nesting level: off'"
+                  :aria-label="showTaskDepthColors ? 'Disable level tint' : 'Enable level tint'"
+                  @click="showTaskDepthColors = !showTaskDepthColors"
+                >
+                  <i class="fas fa-layer-group" aria-hidden="true"></i>
+                </button>
+                <button
+                  v-if="hiddenStaleCompletedCount || showCompletedOverdue"
+                  type="button"
+                  class="task-toolbar-icon-btn"
+                  :class="{ 'is-active': showCompletedOverdue }"
+                  :aria-pressed="showCompletedOverdue"
+                  :title="showCompletedOverdue
+                    ? 'Hide completed tasks past their due date'
+                    : `Show ${hiddenStaleCompletedCount} completed task${hiddenStaleCompletedCount === 1 ? '' : 's'} past due`"
+                  :aria-label="showCompletedOverdue ? 'Hide completed overdue' : 'Show completed overdue'"
+                  @click="showCompletedOverdue = !showCompletedOverdue"
+                >
+                  <i :class="showCompletedOverdue ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
+                  <span v-if="!showCompletedOverdue && hiddenStaleCompletedCount" class="task-toolbar-badge">
+                    {{ hiddenStaleCompletedCount }}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+
+            <div v-if="taskError" class="task-banner is-error" role="alert">
+              <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+              <span>{{ taskError }}</span>
+            </div>
+
+            <div v-if="isLoadingTasks && !tasks.length" class="task-skeleton-list" aria-busy="true">
+              <div v-for="n in 4" :key="`task-skeleton-${n}`" class="task-skeleton-row">
+                <div class="task-skeleton-circle"></div>
+                <div class="task-skeleton-lines">
+                  <div class="task-skeleton-line task-skeleton-line--lg"></div>
+                  <div class="task-skeleton-line task-skeleton-line--sm"></div>
                 </div>
               </div>
-              <div class="task-list">
+            </div>
+
+            <div
+              v-for="section in taskSections"
+              v-else
+              :key="section.key"
+              class="task-section"
+            >
+              <div class="task-section-header">
+                <div class="task-section-title">
+                  <i :class="section.icon" aria-hidden="true"></i>
+                  <span>{{ section.title }}</span>
+                  <span v-if="section.total" class="task-section-count">{{ section.total }}</span>
+                </div>
                 <div
+                  v-if="section.total"
+                  class="task-section-progress"
+                  :title="`${section.completed} of ${section.total} complete`"
+                >
+                  <div class="task-section-progress-bar">
+                    <div
+                      class="task-section-progress-fill"
+                      :style="{ width: `${Math.round((section.completed / section.total) * 100)}%` }"
+                    ></div>
+                  </div>
+                  <span class="task-section-progress-label">
+                    {{ Math.round((section.completed / section.total) * 100) }}%
+                  </span>
+                </div>
+              </div>
+              <ul class="task-list" role="tree">
+                <li
                   v-for="row in section.rows"
                   :key="row.task.id"
                   class="task-item"
-                  :class="{
-                    'is-subtask': row.depth > 0,
-                    [`task-depth-${Math.min(row.depth, 4)}`]: showTaskDepthColors,
-                    'task-depth-disabled': !showTaskDepthColors,
-                    'is-deleted': row.task.deletedAt,
-                    'is-group-task': row.task.taskType === 'group',
-                    'is-individual-task': row.task.taskType === 'individual',
-                  }"
-                  :style="{
-                    marginLeft: row.depth ? `${Math.min(row.depth, 4) * 1.05}rem` : '0',
-                    paddingLeft: '0.85rem',
-                  }"
+                  :class="[
+                    showTaskDepthColors ? `task-depth-${Math.min(row.depth, 4)}` : 'task-depth-flat',
+                    {
+                      'is-subtask': row.depth > 0,
+                      'is-deleted': row.task.deletedAt,
+                      'is-complete': row.task.completed,
+                      'is-selected': isTaskSelected(row.task.id),
+                    },
+                  ]"
+                  :style="{ '--task-depth': row.depth }"
+                  role="treeitem"
+                  :aria-level="row.depth + 1"
+                  :aria-selected="isTaskSelected(row.task.id)"
+                  :aria-expanded="row.hasChildren ? !row.isCollapsed : undefined"
                 >
-                  <label class="task-select-control" title="Select task">
-                    <input
-                      type="checkbox"
-                      :checked="isTaskSelected(row.task.id)"
-                      :disabled="row.task.deletedAt || !canToggleTask(row.task)"
-                      @change="setTaskSelectedFromEvent(row.task.id, $event)"
-                    />
-                  </label>
-                  <div class="task-body">
-                    <div :class="['task-label', { completed: row.task.completed }]">
-                      {{ row.task.name }}
-                    </div>
-                    <div v-if="row.task.description" class="task-description">
-                      {{ row.task.description }}
-                    </div>
-                    <div class="task-meta">
-                      <span v-if="row.task.dueDate"
-                        ><i class="fas fa-calendar"></i> {{ formatDate(row.task.dueDate) }}</span
-                      >
-                      <span v-if="row.task.status"
-                        ><i class="fas fa-circle"></i> {{ formatTaskStatus(row.task.status) }}</span
-                      >
-                      <span v-if="row.task.assignedUser"
-                        ><i class="fas fa-user"></i> {{ getTaskAssigneeName(row.task.assignedUser) }}</span
-                      >
-                      <span v-if="row.task.creatorRole"
-                        ><i class="fas fa-id-badge"></i>
-                        {{ formatTaskStatus(row.task.creatorRole) }}</span
-                      >
-                      <span v-if="row.task.deletedAt"><i class="fas fa-trash"></i> Deleted</span>
-                    </div>
-                  </div>
-                  <div class="task-row-actions">
+                  <button
+                    v-if="row.hasChildren"
+                    type="button"
+                    class="task-collapse"
+                    :class="{ 'is-collapsed': row.isCollapsed }"
+                    :title="row.isCollapsed ? `Show ${row.childCount} sub-task${row.childCount === 1 ? '' : 's'}` : 'Hide sub-tasks'"
+                    :aria-label="row.isCollapsed ? `Show sub-tasks of ${row.task.name}` : `Hide sub-tasks of ${row.task.name}`"
+                    :aria-expanded="!row.isCollapsed"
+                    @click="toggleTaskCollapsed(row.task.id)"
+                  >
+                    <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                  </button>
+                  <span v-else class="task-collapse-spacer" aria-hidden="true"></span>
+
+                  <button
+                    v-if="taskSelectionMode"
+                    type="button"
+                    class="task-select-box"
+                    :class="{ 'is-selected': isTaskSelected(row.task.id) }"
+                    :disabled="
+                      row.task.deletedAt ||
+                      !canToggleTask(row.task)
+                    "
+                    :aria-label="
+                      `${isTaskSelected(row.task.id) ? 'Deselect' : 'Select'} ${row.task.name}`
+                    "
+                    :aria-pressed="isTaskSelected(row.task.id)"
+                    @click="setTaskSelected(row.task.id, !isTaskSelected(row.task.id))"
+                  >
+                    <i
+                      v-if="isTaskSelected(row.task.id)"
+                      class="fas fa-check"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+
+                  <div v-else class="task-state-wrap">
                     <button
                       type="button"
-                      :class="['task-status-toggle', { 'is-complete': row.task.completed }]"
+                      class="task-state"
+                      :class="[
+                        `task-state--${row.task.status || 'todo'}`,
+                        { 'is-open': isStatusMenuOpen(row.task.id), 'is-disabled': !canToggleTask(row.task) },
+                      ]"
+                      :data-status="row.task.status || 'todo'"
                       :disabled="
                         isUpdatingTask(row.task.id) ||
                         row.task.deletedAt ||
                         !canToggleTask(row.task)
                       "
-                      :title="
-                        canToggleTask(row.task)
-                          ? 'Toggle task status'
-                          : 'You can view this task status only'
-                      "
-                      :aria-pressed="row.task.completed"
-                      :aria-label="
-                        row.task.completed
-                          ? `Mark ${row.task.name} open`
-                          : `Mark ${row.task.name} done`
-                      "
-                      @click="toggleTask(row.task)"
+                      :aria-haspopup="canToggleTask(row.task) ? 'menu' : undefined"
+                      :aria-expanded="isStatusMenuOpen(row.task.id)"
+                      :aria-label="`Status: ${getTaskStatusMeta(row.task.status).label}. ${canToggleTask(row.task) ? 'Click to change.' : ''}`"
+                      :title="canToggleTask(row.task) ? 'Change status' : `Status: ${getTaskStatusMeta(row.task.status).label}`"
+                      @click="canToggleTask(row.task) && (isStatusMenuOpen(row.task.id) ? closeStatusMenu() : openStatusMenu(row.task.id))"
                     >
-                      <i :class="row.task.completed ? 'fas fa-check-circle' : 'fas fa-circle'"></i>
-                      <span>{{ row.task.completed ? 'Done' : 'Open' }}</span>
+                      <i :class="`fas fa-${getTaskStatusMeta(row.task.status).icon}`" aria-hidden="true"></i>
+                      <span class="task-state-label">{{ getTaskStatusMeta(row.task.status).short }}</span>
+                      <i v-if="canToggleTask(row.task)" class="fas fa-caret-down task-state-caret" aria-hidden="true"></i>
                     </button>
+
+                    <div
+                      v-if="isStatusMenuOpen(row.task.id)"
+                      class="task-state-menu"
+                      role="menu"
+                      :aria-label="`Set status for ${row.task.name}`"
+                    >
+                      <button
+                        v-for="opt in TASK_STATUS_OPTIONS"
+                        :key="opt.value"
+                        type="button"
+                        class="task-state-menu-item"
+                        :class="[
+                          `task-state--${opt.value}`,
+                          { 'is-current': row.task.status === opt.value },
+                        ]"
+                        role="menuitem"
+                        @click="changeTaskStatus(row.task, opt.value)"
+                      >
+                        <i :class="`fas fa-${getTaskStatusMeta(opt.value).icon}`" aria-hidden="true"></i>
+                        <span>{{ opt.label }}</span>
+                        <i v-if="row.task.status === opt.value" class="fas fa-check task-state-menu-check" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="task-body">
+                    <div class="task-headline">
+                      <span class="task-label">{{ row.task.name }}</span>
+                      <span
+                        v-if="row.task.deletedAt"
+                        class="task-chip task-chip--deleted"
+                      >
+                        <i class="fas fa-trash" aria-hidden="true"></i>
+                        Deleted
+                      </span>
+                    </div>
+                    <div v-if="row.task.description" class="task-description">
+                      {{ row.task.description }}
+                    </div>
+                    <div v-if="row.task.dueDate || row.task.createdBy" class="task-meta">
+                      <span
+                        v-if="row.task.dueDate"
+                        class="task-chip task-chip--date"
+                        :class="{ 'is-overdue': isTaskOverdue(row.task) }"
+                      >
+                        <i class="fas fa-calendar" aria-hidden="true"></i>
+                        {{ formatDate(row.task.dueDate) }}
+                      </span>
+                      <span
+                        v-if="row.task.createdBy && row.task.createdBy.name"
+                        class="task-assigned-by"
+                        :title="row.task.creatorRole ? `Role: ${formatTaskStatus(row.task.creatorRole)}` : ''"
+                      >
+                        Assigned by
+                        <strong>{{ row.task.createdBy.name }}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    v-if="row.task.taskType === 'individual' && getAssigneeDisplay(row.task)"
+                    type="button"
+                    class="task-assignee"
+                    :class="{
+                      'is-self': getAssigneeDisplay(row.task).isSelf,
+                      'is-active': String(taskFilters.assignedUser) === String(row.task.assignedUser),
+                    }"
+                    :title="`Filter tasks by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                    :aria-label="`Filter by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                    @click="toggleAssigneeQuickFilter(row.task.assignedUser)"
+                  >
+                    <i :class="getAssigneeDisplay(row.task).isSelf ? 'fas fa-circle-user' : 'fas fa-user'" aria-hidden="true"></i>
+                    <span>{{ getAssigneeDisplay(row.task).label }}</span>
+                  </button>
+
+                  <div class="task-row-actions">
                     <button
                       type="button"
-                      class="btn btn-outline btn-sm add-subtask-btn"
+                      class="task-icon-btn"
                       :disabled="
                         isLoadingTasks ||
                         row.task.deletedAt ||
                         !canCreateTaskType(row.task.taskType, row.task)
                       "
-                      :title="
-                        canCreateTaskType(row.task.taskType, row.task)
-                          ? 'Add a sub-task'
-                          : 'You do not have permission to add a sub-task here'
-                      "
+                      title="Add a sub-task"
+                      :aria-label="`Add a sub-task to ${row.task.name}`"
                       @click="openCreateTaskDialog(row.task.taskType, row.task)"
                     >
-                      <i class="fas fa-plus"></i>
-                      Sub-task
+                      <i class="fas fa-plus" aria-hidden="true"></i>
                     </button>
                     <button
                       v-if="canManageTask(row.task)"
                       type="button"
-                      class="btn btn-outline btn-sm"
+                      class="task-icon-btn"
                       :disabled="isLoadingTasks || row.task.deletedAt"
                       title="Edit task"
+                      :aria-label="`Edit ${row.task.name}`"
                       @click="openEditTaskDialog(row.task)"
                     >
-                      <i class="fas fa-pen"></i>
-                      Edit
+                      <i class="fas fa-pen" aria-hidden="true"></i>
                     </button>
                     <button
                       v-if="canManageTask(row.task)"
                       type="button"
-                      class="btn btn-outline btn-sm"
+                      class="task-icon-btn task-icon-btn--danger"
                       :disabled="isDeletingTask(row.task.id) || row.task.deletedAt"
                       title="Delete task"
+                      :aria-label="`Delete ${row.task.name}`"
                       @click="removeTask(row.task)"
                     >
-                      <i class="fas fa-trash"></i>
-                      Delete
+                      <i class="fas fa-trash" aria-hidden="true"></i>
                     </button>
                   </div>
-                </div>
+                </li>
 
-                <div v-if="!section.rows.length" class="task-empty-state">
-                  No {{ section.title.toLowerCase() }} are available yet.
-                </div>
-              </div>
+                <li v-if="!section.rows.length" class="task-empty-state">
+                  <i :class="section.icon" aria-hidden="true"></i>
+                  <span>No {{ section.title.toLowerCase() }} yet.</span>
+                  <button
+                    v-if="(section.key === 'group' && canCreateGroupTasks) || (section.key === 'individual' && canCreateIndividualTasks)"
+                    type="button"
+                    class="task-empty-cta"
+                    @click="openCreateTaskDialog(section.key)"
+                  >
+                    <i class="fas fa-plus" aria-hidden="true"></i>
+                    Add {{ section.key === 'group' ? 'group' : 'individual' }} task
+                  </button>
+                </li>
+              </ul>
             </div>
 
-            <div v-if="tasks.length" class="task-pagination-bar">
-              <span>
-                {{ taskPageStart }}-{{ taskPageEnd }} of {{ tasks.length }}
+            <div
+              v-if="!isLoadingTasks && totalRelevantTaskCount"
+              class="task-list-footer"
+            >
+              <span class="task-list-count">
+                Showing {{ visibleSectionTaskCount }} of {{ totalRelevantTaskCount }}
               </span>
-              <label class="task-page-size">
-                <span>Rows</span>
-                <select v-model.number="taskPagination.pageSize" @change="changeTaskPageSize">
-                  <option v-for="size in TASK_PAGE_SIZE_OPTIONS" :key="size" :value="size">
-                    {{ size }}
-                  </option>
-                </select>
-              </label>
               <button
+                v-if="hasMoreTasksToShow"
                 type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="taskPagination.page <= 1 || isLoadingTasks"
-                @click="goToTaskPage(taskPagination.page - 1)"
+                class="task-list-more"
+                @click="loadMoreTasks"
               >
-                Previous
-              </button>
-              <span>Page {{ taskPagination.page }} / {{ taskTotalPages }}</span>
-              <button
-                type="button"
-                class="btn btn-outline btn-sm"
-                :disabled="taskPagination.page >= taskTotalPages || isLoadingTasks"
-                @click="goToTaskPage(taskPagination.page + 1)"
-              >
-                Next
+                Show {{ Math.min(TASK_LOAD_BATCH, totalRelevantTaskCount - taskShownLimit) }} more
               </button>
             </div>
+
+            <transition name="task-bulk-fade">
+              <div
+                v-if="selectedTaskIds.size"
+                class="task-bulk-bar"
+                role="region"
+                aria-label="Bulk task actions"
+              >
+                <span class="task-bulk-count">
+                  <i class="fas fa-check-square" aria-hidden="true"></i>
+                  {{ selectedTaskIds.size }} selected
+                </span>
+                <div class="task-bulk-actions">
+                  <button
+                    type="button"
+                    class="task-bulk-btn task-bulk-btn--primary"
+                    :disabled="isBulkUpdatingTasks"
+                    @click="bulkSetTaskCompletion(true)"
+                  >
+                    <i class="fas fa-check" aria-hidden="true"></i> Mark done
+                  </button>
+                  <button
+                    type="button"
+                    class="task-bulk-btn"
+                    :disabled="isBulkUpdatingTasks"
+                    @click="bulkSetTaskCompletion(false)"
+                  >
+                    <i class="fas fa-undo" aria-hidden="true"></i> Reopen
+                  </button>
+                  <button
+                    type="button"
+                    class="task-bulk-btn task-bulk-btn--ghost"
+                    :disabled="isBulkUpdatingTasks"
+                    @click="clearTaskSelection"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </transition>
           </div>
 
-          <div v-if="selectedTaskIds.size" class="task-bulk-bar">
-            <span>{{ selectedTaskIds.size }} selected</span>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="bulkSetTaskCompletion(true)"
+          <Transition name="task-dialog">
+            <div
+              v-if="taskDialogOpen"
+              class="task-dialog-backdrop"
+              role="dialog"
+              aria-modal="true"
+              :aria-label="taskDialogTitle"
+              @click.self="closeTaskDialog"
+              @keydown.esc="closeTaskDialog"
             >
-              Mark done
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="bulkSetTaskCompletion(false)"
-            >
-              Mark open
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isBulkUpdatingTasks"
-              @click="clearTaskSelection"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div
-            v-if="taskDialogOpen"
-            class="task-dialog-backdrop"
-            role="dialog"
-            aria-modal="true"
-            :aria-label="taskDialogTitle"
-          >
-            <form class="task-dialog" @submit.prevent="saveTask">
-              <div class="task-dialog-header">
-                <h4>{{ taskDialogTitle }}</h4>
-                <button
-                  type="button"
-                  class="task-dialog-close"
-                  title="Close"
-                  @click="closeTaskDialog"
-                >
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-
-              <div v-if="taskFormError" class="chat-alert">
-                {{ taskFormError }}
-              </div>
-
-              <label class="task-form-field task-form-field--wide">
-                <span>Name</span>
-                <input v-model.trim="taskForm.name" type="text" maxlength="255" required />
-              </label>
-
-              <label class="task-form-field task-form-field--wide">
-                <span>Description</span>
-                <textarea v-model.trim="taskForm.description" rows="3"></textarea>
-              </label>
-
-              <div class="task-form-grid">
-                <label class="task-form-field">
-                  <span>Status</span>
-                  <select v-model="taskForm.status">
-                    <option
-                      v-for="option in TASK_STATUS_OPTIONS"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-
-                <label class="task-form-field">
-                  <span>Due date</span>
-                  <input v-model="taskForm.dueDate" type="datetime-local" />
-                </label>
-
-                <label class="task-form-field">
-                  <span>Type</span>
-                  <select
-                    v-model="taskForm.taskType"
-                    :disabled="taskDialogMode === 'edit'"
-                    @change="syncTaskAssigneeForType"
-                  >
-                    <option
-                      v-for="option in allowedTaskTypeOptions"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-
-                <label v-if="taskForm.taskType === 'individual'" class="task-form-field">
-                  <span>Assignee</span>
-                  <div
-                    v-if="taskDialogMode === 'edit' || isStudentOnlyIndividualAssignee"
-                    class="task-readonly-value"
-                  >
-                    {{ selectedTaskAssigneeLabel }}
+              <form class="task-dialog" @submit.prevent="saveTask" @keydown.meta.enter.prevent="saveTask" @keydown.ctrl.enter.prevent="saveTask">
+                <header class="task-dialog-header">
+                  <div class="task-dialog-title">
+                    <i :class="taskDialogMode === 'edit' ? 'fas fa-pen' : 'fas fa-plus'" aria-hidden="true"></i>
+                    <h4>{{ taskDialogTitle }}</h4>
                   </div>
-                  <select v-else v-model="taskForm.assignedUser" required>
-                    <option value="" disabled>Select assignee</option>
-                    <option
-                      v-for="option in individualTaskAssigneeOptions"
-                      :key="option.userId"
-                      :value="String(option.userId)"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </label>
-              </div>
+                  <button
+                    type="button"
+                    class="task-dialog-close"
+                    title="Close (Esc)"
+                    aria-label="Close dialog"
+                    @click="closeTaskDialog"
+                  >
+                    <i class="fas fa-times" aria-hidden="true"></i>
+                  </button>
+                </header>
 
-              <div class="task-dialog-actions">
-                <button type="button" class="btn btn-outline btn-sm" @click="closeTaskDialog">
-                  Cancel
-                </button>
-                <button type="submit" class="btn btn-primary btn-sm" :disabled="isSavingTask">
-                  {{ isSavingTask ? 'Saving...' : 'Save task' }}
-                </button>
-              </div>
-            </form>
-          </div>
+                <div v-if="taskFormError" class="task-banner is-error" role="alert">
+                  <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
+                  <span>{{ taskFormError }}</span>
+                </div>
+
+                <div class="task-dialog-body">
+                  <input
+                    ref="taskDialogNameInput"
+                    v-model.trim="taskForm.name"
+                    type="text"
+                    class="task-dialog-title-input"
+                    placeholder="Task name"
+                    maxlength="255"
+                    required
+                  />
+
+                  <textarea
+                    v-model.trim="taskForm.description"
+                    class="task-dialog-description-input"
+                    placeholder="Add a description..."
+                    rows="3"
+                  ></textarea>
+
+                  <!-- Type as segmented control -->
+                  <div class="task-dialog-field">
+                    <label class="task-dialog-label">
+                      <i class="fas fa-layer-group" aria-hidden="true"></i>
+                      <span>Type</span>
+                    </label>
+                    <div class="task-segmented" role="radiogroup" aria-label="Task type">
+                      <button
+                        v-for="option in allowedTaskTypeOptions"
+                        :key="option.value"
+                        type="button"
+                        class="task-segmented-option"
+                        :class="{ 'is-active': taskForm.taskType === option.value }"
+                        :disabled="taskDialogMode === 'edit'"
+                        role="radio"
+                        :aria-checked="taskForm.taskType === option.value"
+                        @click="taskForm.taskType = option.value; syncTaskAssigneeForType()"
+                      >
+                        <i :class="option.value === 'group' ? 'fas fa-users' : 'fas fa-user'" aria-hidden="true"></i>
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Status as colored pill segmented control -->
+                  <div class="task-dialog-field">
+                    <label class="task-dialog-label">
+                      <i class="fas fa-flag" aria-hidden="true"></i>
+                      <span>Status</span>
+                    </label>
+                    <div class="task-segmented task-segmented--status" role="radiogroup" aria-label="Task status">
+                      <button
+                        v-for="option in TASK_STATUS_OPTIONS"
+                        :key="option.value"
+                        type="button"
+                        class="task-segmented-option task-segmented-option--status"
+                        :class="[
+                          `task-state--${option.value}`,
+                          { 'is-active': taskForm.status === option.value },
+                        ]"
+                        role="radio"
+                        :aria-checked="taskForm.status === option.value"
+                        @click="taskForm.status = option.value"
+                      >
+                        <i :class="`fas fa-${getTaskStatusMeta(option.value).icon}`" aria-hidden="true"></i>
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="task-dialog-row">
+                    <div class="task-dialog-field task-dialog-field--half">
+                      <label class="task-dialog-label" for="task-dialog-due">
+                        <i class="fas fa-calendar" aria-hidden="true"></i>
+                        <span>Due date</span>
+                      </label>
+                      <input id="task-dialog-due" v-model="taskForm.dueDate" type="datetime-local" class="task-dialog-input" />
+                    </div>
+
+                    <div v-if="taskForm.taskType === 'individual'" class="task-dialog-field task-dialog-field--half">
+                      <label class="task-dialog-label" for="task-dialog-assignee">
+                        <i class="fas fa-user-tag" aria-hidden="true"></i>
+                        <span>Assignee</span>
+                      </label>
+                      <div
+                        v-if="taskDialogMode === 'edit' || isStudentOnlyIndividualAssignee"
+                        class="task-dialog-readonly"
+                      >
+                        {{ selectedTaskAssigneeLabel }}
+                      </div>
+                      <select v-else id="task-dialog-assignee" v-model="taskForm.assignedUser" class="task-dialog-input" required>
+                        <option value="" disabled>Select assignee</option>
+                        <option
+                          v-for="option in individualTaskAssigneeOptions"
+                          :key="option.userId"
+                          :value="String(option.userId)"
+                        >
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <footer class="task-dialog-footer">
+                  <span class="task-dialog-hint">
+                    <kbd>Esc</kbd> close &middot; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save
+                  </span>
+                  <div class="task-dialog-actions">
+                    <button type="button" class="task-dialog-btn" @click="closeTaskDialog">Cancel</button>
+                    <button type="submit" class="task-dialog-btn task-dialog-btn--primary" :disabled="isSavingTask">
+                      <i v-if="!isSavingTask" :class="taskDialogMode === 'edit' ? 'fas fa-check' : 'fas fa-plus'" aria-hidden="true"></i>
+                      <i v-else class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                      {{ isSavingTask ? 'Saving...' : (taskDialogMode === 'edit' ? 'Save changes' : 'Create task') }}
+                    </button>
+                  </div>
+                </footer>
+              </form>
+            </div>
+          </Transition>
         </section>
 
         <!-- Right column: Discussion -->
@@ -665,10 +867,37 @@
                   <i class="fas fa-at"></i>
                   <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
                 </button>
-                <span class="chat-status">
-                  <template v-if="isLoadingMessages">Loading...</template>
+                <span
+                  class="chat-status"
+                  :class="`chat-status--${isLoadingMessages ? 'loading' : (wsConnectionState === 'connected' ? 'connected' : 'offline')}`"
+                  :title="
+                    isLoadingMessages
+                      ? 'Fetching latest messages'
+                      : (wsConnectionState === 'connected'
+                          ? 'Realtime updates active'
+                          : 'Realtime updates unavailable — click Reconnect to retry')
+                  "
+                >
+                  <i
+                    class="chat-status-dot"
+                    :class="{
+                      'fas fa-circle-notch fa-spin': isLoadingMessages,
+                      'fas fa-circle': !isLoadingMessages,
+                    }"
+                    aria-hidden="true"
+                  ></i>
+                  <template v-if="isLoadingMessages">Loading…</template>
                   <template v-else-if="wsConnectionState === 'connected'">Live</template>
                   <template v-else>Offline</template>
+                  <button
+                    v-if="!isLoadingMessages && wsConnectionState !== 'connected'"
+                    type="button"
+                    class="chat-reconnect-btn"
+                    aria-label="Reconnect to live chat"
+                    @click="connectChatSocket"
+                  >
+                    Reconnect
+                  </button>
                 </span>
               </div>
             </div>
@@ -691,12 +920,21 @@
                 <button
                   type="submit"
                   class="message-action-btn"
-                  :disabled="isSearchingMessages || !messageSearchQuery.trim()"
+                  :disabled="isSearchingMessages"
                 >
                   {{ isSearchingMessages ? 'Searching...' : 'Search' }}
                 </button>
                 <button
-                  v-if="messageSearchQuery || messageSearchResults.length"
+                  type="button"
+                  class="message-action-btn"
+                  :class="{ active: showSearchFilters }"
+                  :aria-pressed="showSearchFilters"
+                  @click="showSearchFilters = !showSearchFilters"
+                >
+                  <i class="fas fa-sliders-h"></i> Filters
+                </button>
+                <button
+                  v-if="messageSearchQuery || messageSearchResults.length || hasActiveSearchFilters()"
                   type="button"
                   class="message-action-btn"
                   @click="clearMessageSearch"
@@ -704,6 +942,26 @@
                   Clear
                 </button>
               </form>
+              <div v-if="showSearchFilters" class="message-search-filters">
+                <label>
+                  <span>Type</span>
+                  <select v-model="messageSearchFilters.type">
+                    <option value="">Any</option>
+                    <option value="text">Text</option>
+                    <option value="attachment">Attachments</option>
+                    <option value="resource">Resources</option>
+                    <option value="gif">GIFs</option>
+                  </select>
+                </label>
+                <label>
+                  <span>From</span>
+                  <input type="date" v-model="messageSearchFilters.from" />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input type="date" v-model="messageSearchFilters.to" />
+                </label>
+              </div>
               <div v-if="messageSearchError" class="gif-status">{{ messageSearchError }}</div>
               <div v-if="isSearchingMessages" class="gif-status">Searching messages...</div>
               <div v-else class="message-search-list">
@@ -816,6 +1074,31 @@
             </div>
 
             <div class="chat-messages" ref="msgList" @scroll="handleMessagesScroll">
+              <div
+                v-if="isLoadingMessages && !messages.length"
+                class="chat-skeleton-list"
+                aria-hidden="true"
+              >
+                <div v-for="i in 4" :key="`msg-sk-${i}`" class="chat-skeleton-row">
+                  <div class="skeleton-message-avatar skeleton-block"></div>
+                  <div class="chat-skeleton-body">
+                    <div class="skeleton-line skeleton-block" style="width: 30%"></div>
+                    <div class="skeleton-line skeleton-block" style="width: 80%"></div>
+                    <div class="skeleton-line skeleton-block" style="width: 60%"></div>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-else-if="!isLoadingMessages && !messages.length"
+                class="chat-empty-state"
+              >
+                <span class="chat-empty-emoji" aria-hidden="true">👋</span>
+                <strong>It's quiet here</strong>
+                <span>Be the first to say hi — start the conversation below.</span>
+                <button type="button" class="btn btn-outline btn-sm" @click="composer?.focus()">
+                  <i class="fas fa-pen"></i> Write a message
+                </button>
+              </div>
               <button
                 v-if="nextMessagesBefore"
                 type="button"
@@ -846,6 +1129,94 @@
                       <span v-if="message.editedAt" class="message-edited">edited</span>
                       <span class="message-date">{{ formatDate(message.date) }}</span>
                       <span class="message-time">{{ message.time }}</span>
+                      <!-- Inline action cluster: always-visible reply + smile,
+                           and a kebab menu (Edit/Delete) shown only while the
+                           10-min self-action window is open or the caller is
+                           an admin (``canManageMessage``). -->
+                      <span class="message-inline-actions">
+                        <button
+                          type="button"
+                          class="inline-action-btn"
+                          title="Reply"
+                          aria-label="Reply"
+                          @click="setReplyTarget(message)"
+                        >
+                          <i class="fas fa-reply"></i>
+                        </button>
+                        <button
+                          v-if="supportsMessageReactions"
+                          type="button"
+                          class="inline-action-btn"
+                          :class="{ active: activeReactionPickerMessageId === message.id }"
+                          :title="hasMessageReactions(message) ? 'Add another reaction' : 'Add reaction'"
+                          aria-label="Add reaction"
+                          @click.stop="toggleReactionPicker(message.id)"
+                        >
+                          <i class="fas fa-smile"></i>
+                        </button>
+                        <span
+                          v-if="canManageMessage(message)"
+                          class="inline-kebab-wrap"
+                        >
+                          <button
+                            type="button"
+                            class="inline-action-btn"
+                            :class="{ active: openMessageKebabId === message.id }"
+                            :aria-expanded="openMessageKebabId === message.id"
+                            aria-haspopup="menu"
+                            title="More actions"
+                            aria-label="More actions"
+                            @click.stop="toggleMessageKebab(message.id)"
+                          >
+                            <i class="fas fa-ellipsis-v"></i>
+                          </button>
+                          <div
+                            v-if="openMessageKebabId === message.id"
+                            class="inline-kebab-menu"
+                            role="menu"
+                            @click.stop
+                          >
+                            <button
+                              type="button"
+                              class="inline-kebab-item"
+                              role="menuitem"
+                              @click="onKebabEdit(message)"
+                            >
+                              <i class="fas fa-pen"></i>
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="inline-kebab-item inline-kebab-item--danger"
+                              role="menuitem"
+                              :disabled="isDeletingMessageId === message.id"
+                              @click="onKebabDelete(message)"
+                            >
+                              <i class="fas fa-trash"></i>
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </span>
+                        <!-- Inline picker popout — anchors to the smile button just above. -->
+                        <div
+                          v-if="supportsMessageReactions && activeReactionPickerMessageId === message.id"
+                          class="reaction-picker reaction-picker--inline"
+                          role="menu"
+                          aria-label="Quick reactions"
+                          @click.stop
+                        >
+                          <button
+                            v-for="emoji in CHAT_REACTION_OPTIONS"
+                            :key="`${message.id}-inline-${emoji}`"
+                            type="button"
+                            class="reaction-btn"
+                            :title="`React with ${emoji}`"
+                            @click="reactToMessage(message.id, emoji)"
+                          >
+                            <span>{{ emoji }}</span>
+                          </button>
+                        </div>
+                      </span>
                     </span>
                   </div>
                   <div v-if="message.replyTo" class="message-reply">
@@ -894,28 +1265,133 @@
                   </form>
 
                   <div v-if="message.attachments?.length" class="message-attachments">
-                    <a
+                    <span
                       v-for="attachment in message.attachments"
                       :key="attachment.id || attachment.attachment_filename"
-                      :href="getAttachmentHref(attachment)"
-                      class="attachment-chip"
-                      @click.prevent="downloadAttachment(attachment)"
+                      class="resource-chip-wrap"
                     >
-                      <i class="fas fa-paperclip"></i>
-                      {{ getAttachmentLabel(attachment) }}
-                    </a>
+                      <button
+                        type="button"
+                        class="attachment-chip"
+                        :title="getAttachmentLabel(attachment)"
+                        @click.stop="toggleAttachmentChoice(message.id, attachment)"
+                      >
+                        <i class="fas fa-paperclip"></i>
+                        {{ getAttachmentLabel(attachment) }}
+                      </button>
+                      <div
+                        v-if="
+                          openAttachmentChoiceKey
+                            === `${message.id}:${attachment.id || attachment.attachment_filename}`
+                        "
+                        class="resource-choice-popover"
+                        role="menu"
+                        @click.stop
+                      >
+                        <div
+                          v-if="attachmentChoiceStatus"
+                          class="resource-choice-status"
+                        >
+                          {{ attachmentChoiceStatus }}
+                        </div>
+                        <div class="resource-choice-actions">
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Open in a new tab"
+                            aria-label="Open"
+                            :disabled="attachmentChoiceLoading"
+                            @click="openAttachmentAction(attachment, 'open')"
+                          >
+                            <i class="fas fa-eye"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Download"
+                            aria-label="Download"
+                            :disabled="attachmentChoiceLoading"
+                            @click="openAttachmentAction(attachment, 'download')"
+                          >
+                            <i class="fas fa-arrow-down"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn resource-choice-btn--danger"
+                            title="Cancel"
+                            aria-label="Cancel"
+                            @click="closeAttachmentChoice"
+                          >
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </span>
                   </div>
 
                   <div v-if="message.resources?.length" class="message-attachments">
-                    <RouterLink
+                    <span
                       v-for="resource in message.resources"
                       :key="resource.resource_id || resource.id"
-                      :to="`/resources/${resource.resource_id || resource.id}`"
-                      class="attachment-chip"
+                      class="resource-chip-wrap"
                     >
-                      <i class="fas fa-book-open"></i>
-                      {{ getResourceLabel(resource) }}
-                    </RouterLink>
+                      <button
+                        type="button"
+                        class="attachment-chip attachment-chip--resource"
+                        :title="getResourceLabel(resource)"
+                        @click.stop="toggleResourceChoice(message.id, resource)"
+                      >
+                        <i class="fas fa-book-open"></i>
+                        {{ getResourceLabel(resource) }}
+                      </button>
+                      <div
+                        v-if="
+                          openResourceChoiceKey
+                            === `${message.id}:${resource.resource_id || resource.id}`
+                        "
+                        class="resource-choice-popover"
+                        role="menu"
+                        @click.stop
+                      >
+                        <div
+                          v-if="resourceChoiceStatus"
+                          class="resource-choice-status"
+                        >
+                          {{ resourceChoiceStatus }}
+                        </div>
+                        <div class="resource-choice-actions">
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Open in a new tab"
+                            aria-label="Open"
+                            :disabled="resourceChoiceLoading"
+                            @click="openResourceAction(resource, 'open')"
+                          >
+                            <i class="fas fa-eye"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn"
+                            title="Download"
+                            aria-label="Download"
+                            :disabled="resourceChoiceLoading"
+                            @click="openResourceAction(resource, 'download')"
+                          >
+                            <i class="fas fa-arrow-down"></i>
+                          </button>
+                          <button
+                            type="button"
+                            class="resource-choice-btn resource-choice-btn--danger"
+                            title="Cancel"
+                            aria-label="Cancel"
+                            @click="closeResourceChoice"
+                          >
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </span>
                   </div>
 
                   <div v-if="message.preview" class="message-preview">
@@ -924,85 +1400,118 @@
                     <span v-if="message.preview.desc">{{ message.preview.desc }}</span>
                   </div>
 
-                  <button
-                    type="button"
-                    class="reaction-picker-toggle"
-                    :class="{ active: activeReactionPickerMessageId === message.id }"
-                    :disabled="!supportsMessageReactions"
-                    title="Add reaction"
-                    aria-label="Add reaction"
-                    @click="toggleReactionPicker(message.id)"
-                  >
-                    <i class="fas fa-smile"></i>
-                  </button>
-
+                  <!-- Reaction chips strip — always at bottom-left of bubble.
+                       The smile add-button now lives in the header (next to time)
+                       so this block is read-only display of existing reactions. -->
                   <div
-                    v-if="activeReactionPickerMessageId === message.id"
-                    class="reaction-picker"
-                    role="menu"
+                    v-if="hasMessageReactions(message)"
+                    class="reaction-pick-group has-reactions"
                   >
-                    <button
-                      v-for="emoji in CHAT_REACTION_OPTIONS"
-                      :key="`${message.id}-${emoji}`"
-                      type="button"
-                      class="reaction-btn"
-                      :disabled="!supportsMessageReactions"
-                      :title="
-                        supportsMessageReactions
-                          ? 'Add reaction'
-                          : 'Reactions are not available yet'
-                      "
-                      @click="reactToMessage(message.id, emoji)"
-                    >
-                      <span>{{ emoji }}</span>
-                    </button>
-                  </div>
-
-                  <div v-if="hasMessageReactions(message)" class="message-reactions">
-                    <button
-                      v-for="[emoji, count] in Object.entries(message.reactions)"
-                      :key="`${message.id}-${emoji}-summary`"
-                      type="button"
-                      class="reaction-summary-btn"
-                      :title="supportsMessageReactions ? 'Toggle reaction' : 'Reactions unavailable'"
-                      :disabled="!supportsMessageReactions"
-                      @click="reactToMessage(message.id, emoji)"
-                    >
-                      <span>{{ emoji }}</span>
-                      <span class="reaction-count">{{ count }}</span>
-                    </button>
+                    <div class="message-reactions" role="group" aria-label="Message reactions">
+                      <button
+                        v-for="[emoji, entry] in Object.entries(message.reactions)"
+                        :key="`${message.id}-${emoji}-summary`"
+                        type="button"
+                        class="reaction-summary-btn"
+                        :title="formatReactionUsers(entry)"
+                        :disabled="!supportsMessageReactions"
+                        @click="reactToMessage(message.id, emoji)"
+                      >
+                        <span>{{ emoji }}</span>
+                        <span class="reaction-count">{{ entry.count || entry }}</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div
-                    v-if="message.isOwn && (message.readCount || message.deliveredCount)"
-                    class="message-receipt"
+                    v-if="message.isOwn"
+                    class="message-receipt-wrap"
                   >
-                    <i class="fas fa-check-double"></i>
-                    <span v-if="message.readCount">Read by {{ message.readCount }}</span>
-                    <span v-else>Delivered to {{ message.deliveredCount }}</span>
-                  </div>
-                  <div class="message-actions">
-                    <button type="button" class="message-action-btn" @click="setReplyTarget(message)">
-                      Reply
-                    </button>
                     <button
-                      v-if="canManageMessage(message)"
                       type="button"
-                      class="message-action-btn"
-                      @click="startMessageEdit(message)"
+                      class="message-receipt message-receipt--ticks"
+                      :class="[
+                        `message-receipt--${getReceiptState(message)}`,
+                        { 'is-open': openReceiptPopoverId === message.id },
+                      ]"
+                      :aria-expanded="openReceiptPopoverId === message.id"
+                      :aria-label="getReceiptAriaLabel(message)"
+                      :title="getReceiptAriaLabel(message)"
+                      aria-haspopup="dialog"
+                      @click.stop="openMessageReceipts(message.id, $event)"
+                      @keydown.esc.stop="closeReceiptPopover"
                     >
-                      Edit
+                      <i
+                        v-if="getReceiptState(message) === 'delivered'"
+                        class="fas fa-check tick-icon"
+                      ></i>
+                      <i
+                        v-else
+                        class="fas fa-check-double tick-icon"
+                      ></i>
                     </button>
-                    <button
-                      v-if="canManageMessage(message)"
-                      type="button"
-                      class="message-action-btn"
-                      :disabled="isDeletingMessageId === message.id"
-                      @click="deleteMessage(message)"
-                    >
-                      Delete
-                    </button>
+                    <Teleport to="body">
+                      <div
+                        v-if="openReceiptPopoverId === message.id"
+                        class="message-receipt-popover message-receipt-popover--floating"
+                        role="dialog"
+                        aria-label="Read receipts"
+                        :style="receiptPopoverStyle"
+                        @click.stop
+                        @keydown.esc.stop="closeReceiptPopover"
+                      >
+                      <div v-if="isLoadingReceipts" class="message-receipt-popover-status">
+                        Loading…
+                      </div>
+                      <div v-else-if="receiptError" class="message-receipt-popover-status error">
+                        {{ receiptError }}
+                      </div>
+                      <template v-else>
+                        <div
+                          v-if="messageReceiptCache.get(message.id)?.readBy?.length"
+                          class="message-receipt-popover-section"
+                        >
+                          <strong>Read by</strong>
+                          <div
+                            v-for="reader in messageReceiptCache.get(message.id).readBy"
+                            :key="`r-${message.id}-${reader.id}`"
+                            class="message-receipt-popover-row"
+                          >
+                            <i class="fas fa-check-double"></i>
+                            <span class="receipt-name">{{ reader.name }}</span>
+                            <span class="receipt-meta">{{ formatRelativeTime(reader.read_at) }}</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="messageReceiptCache.get(message.id)?.deliveredBy?.length"
+                          class="message-receipt-popover-section"
+                        >
+                          <strong>Delivered to</strong>
+                          <div
+                            v-for="reader in messageReceiptCache.get(message.id).deliveredBy"
+                            :key="`d-${message.id}-${reader.id}`"
+                            class="message-receipt-popover-row"
+                          >
+                            <i class="fas fa-check"></i>
+                            <span class="receipt-name">{{ reader.name }}</span>
+                            <span class="receipt-meta">{{ formatRelativeTime(reader.delivered_at) }}</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="
+                            !messageReceiptCache.get(message.id)?.readBy?.length
+                            && !messageReceiptCache.get(message.id)?.deliveredBy?.length
+                          "
+                          class="message-receipt-popover-status"
+                        >
+                          Receipt details unavailable. {{ message.readCount }} read, {{ message.deliveredCount }} delivered.
+                        </div>
+                      </template>
+                    </div>
+                    </Teleport>
                   </div>
+                  <!-- Hover toolbar removed — Reply / smile / kebab(Edit+Delete) live
+                       inline in the message header (next to time). -->
                 </div>
               </div>
             </div>
@@ -1018,9 +1527,14 @@
               <i class="fas fa-arrow-down"></i>
             </button>
 
-            <div v-if="typingIndicatorText" class="typing-indicator">
-              {{ typingIndicatorText }}
-            </div>
+            <Transition name="typing">
+              <div v-if="typingIndicatorText" class="typing-indicator" aria-live="polite">
+                <span class="typing-dots" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </span>
+                <span>{{ typingIndicatorText }}</span>
+              </div>
+            </Transition>
 
             <div class="chat-input">
               <div v-if="replyTarget" class="reply-composer">
@@ -1085,27 +1599,61 @@
                     v-model.trim="gifQuery"
                     type="text"
                     class="gif-search-input"
-                    placeholder="Search GIFs"
+                    placeholder="Search Tenor GIFs"
+                    aria-label="Search GIFs"
+                    @input="scheduleGifSearch"
                     @keydown.enter.prevent="searchGifs"
                   />
                   <button type="button" class="btn btn-outline btn-sm" @click="searchGifs">
                     Search
                   </button>
                 </div>
-                <div v-if="gifError" class="gif-status">{{ gifError }}</div>
-                <div class="gif-grid">
+                <div v-if="gifError" class="gif-status gif-status--error">
+                  {{ gifError }}
+                  <button type="button" class="message-action-btn" @click="fetchGifResults(gifPanelMode)">Retry</button>
+                </div>
+                <div
+                  v-if="isLoadingGifs && !gifResults.length"
+                  class="gif-grid gif-grid--skeleton"
+                  aria-hidden="true"
+                >
+                  <div v-for="i in 6" :key="`gif-sk-${i}`" class="gif-skeleton skeleton-block"></div>
+                </div>
+                <div
+                  v-else-if="!isLoadingGifs && !gifResults.length && !gifError"
+                  class="gif-status gif-status--empty"
+                >
+                  <i class="far fa-image"></i>
+                  <span>{{ gifQuery.trim() ? `No GIFs found for "${gifQuery}"` : 'No trending GIFs right now.' }}</span>
+                </div>
+                <div
+                  v-else
+                  class="gif-grid"
+                  @scroll="handleGifGridScroll"
+                >
                   <button
                     v-for="gif in gifResults"
                     :key="gif.id"
                     type="button"
                     class="gif-card"
+                    :title="gif.title"
                     @click="sendGifMessage(gif)"
                   >
-                    <img :src="gif.previewUrl || gif.url" :alt="gif.title" />
-                    <span>{{ gif.title }}</span>
+                    <img :src="gif.previewUrl || gif.url" :alt="gif.title || 'GIF'" loading="lazy" />
                   </button>
                 </div>
-                <div v-if="isLoadingGifs" class="gif-status">Loading GIFs...</div>
+                <div v-if="gifNextPos && gifResults.length" class="gif-load-more-row">
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    :disabled="isLoadingMoreGifs"
+                    @click="loadMoreGifs"
+                  >
+                    <i v-if="isLoadingMoreGifs" class="fas fa-circle-notch fa-spin"></i>
+                    {{ isLoadingMoreGifs ? 'Loading…' : 'Load more' }}
+                  </button>
+                </div>
+                <div class="gif-attribution">Powered by Tenor</div>
               </div>
 
               <div class="chat-input-group">
@@ -1117,6 +1665,8 @@
                   rows="2"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
+                  @focus="onComposerFocus"
+                  @blur="onComposerBlur"
                 ></textarea>
                 <div v-if="showMentionSuggestions" class="mention-suggestions">
                   <button
@@ -1134,13 +1684,15 @@
                 </div>
                 <div class="chat-actions">
                   <button
-                    class="chat-btn"
+                    class="chat-btn chat-btn--toggle"
                     type="button"
-                    :title="supportsGifs ? 'GIF picker' : 'GIF search is not available yet'"
+                    :class="{ active: showGifPanel }"
+                    :aria-pressed="showGifPanel"
+                    :title="supportsGifs ? (showGifPanel ? 'Close GIF picker' : 'GIF picker') : 'GIF search is not available yet'"
                     :disabled="!supportsGifs"
                     @click="toggleGifPanel"
                   >
-                    <i class="fas fa-image"></i>
+                    <span class="chat-btn-gif-glyph" aria-hidden="true">GIF</span>
                   </button>
                   <button
                     class="chat-btn"
@@ -1152,9 +1704,11 @@
                     <i class="fas fa-paperclip"></i>
                   </button>
                   <button
-                    class="chat-btn"
+                    class="chat-btn chat-btn--toggle"
                     type="button"
-                    title="Attach resource"
+                    :class="{ active: showResourcePanel }"
+                    :aria-pressed="showResourcePanel"
+                    :title="showResourcePanel ? 'Close resources' : 'Attach resource'"
                     :disabled="isLoadingResources"
                     @click="toggleResourcePanel"
                   >
@@ -1198,7 +1752,7 @@ import {
   deleteTask as deleteTaskRequest,
   listTasks,
   retrieveTask,
-  toggleTaskCompletion,
+  setTaskStatus as setTaskStatusRequest,
   updateTask as updateTaskRequest,
 } from '@/utils/tasksAPI'
 
@@ -1206,7 +1760,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const supportsGifs = false
+const supportsGifs = true
 const supportsAttachments = true
 const supportsMessageReactions = true
 const supportsChatClientSocketActions = true
@@ -1239,8 +1793,30 @@ const updatingTaskIds = ref(new Set())
 const deletingTaskIds = ref(new Set())
 const selectedTaskIds = ref(new Set())
 const isBulkUpdatingTasks = ref(false)
-const showAdvancedTaskFilters = ref(false)
+const taskSelectionMode = ref(false)
+const isTaskFiltersOpen = ref(false)
 const showTaskDepthColors = ref(true)
+const taskDialogNameInput = ref(null)
+const taskPagination = ref({ page: 1, pageSize: 100 })
+const TASK_LOAD_BATCH = 100
+const taskShownLimit = ref(TASK_LOAD_BATCH)
+const loadMoreTasks = () => { taskShownLimit.value += TASK_LOAD_BATCH }
+const showCompletedOverdue = ref(false)
+const isCompletedOverdueTask = (task) => {
+  if (!task?.completed || !task?.dueDate) return false
+  const due = new Date(task.dueDate)
+  if (Number.isNaN(due.getTime())) return false
+  return due.getTime() < Date.now()
+}
+const collapsedTaskIds = ref(new Set())
+const toggleTaskCollapsed = (taskId) => {
+  const id = Number(taskId)
+  if (!Number.isFinite(id)) return
+  const next = new Set(collapsedTaskIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsedTaskIds.value = next
+}
 const taskFilters = ref({
   taskType: '',
   status: '',
@@ -1253,9 +1829,19 @@ const taskFilters = ref({
   ordering: 'due_date',
   showDeleted: false,
 })
-const taskPagination = ref({
-  page: 1,
-  pageSize: 20,
+let taskFilterReloadTimer = null
+const activeTaskFilterCount = computed(() => {
+  const f = taskFilters.value
+  let n = 0
+  if (f.taskType) n += 1
+  if (f.status) n += 1
+  if (f.completed !== '') n += 1
+  if (f.assignedUser) n += 1
+  if (f.parentId) n += 1
+  if (f.dueDateAfter) n += 1
+  if (f.dueDateBefore) n += 1
+  if (f.showDeleted) n += 1
+  return n
 })
 const taskDialogOpen = ref(false)
 const taskDialogMode = ref('create')
@@ -1281,6 +1867,27 @@ const TASK_STATUS_OPTIONS = [
   { value: 'blocked', label: 'Blocked' },
 ]
 
+// Visual definition for each status. icon = Font Awesome class (after `fas fa-`).
+const TASK_STATUS_META = {
+  todo:        { label: 'To do',       icon: 'circle',          short: 'To do' },
+  in_progress: { label: 'In progress', icon: 'circle-half-stroke', short: 'In progress' },
+  done:        { label: 'Done',        icon: 'circle-check',    short: 'Done' },
+  blocked:     { label: 'Blocked',     icon: 'circle-exclamation', short: 'Blocked' },
+}
+const getTaskStatusMeta = (status) => TASK_STATUS_META[status] || TASK_STATUS_META.todo
+
+// Which task's status menu is currently open (taskId or null)
+const openStatusMenuTaskId = ref(null)
+const closeStatusMenu = () => { openStatusMenuTaskId.value = null }
+const openStatusMenu = (taskId) => { openStatusMenuTaskId.value = Number(taskId) }
+const isStatusMenuOpen = (taskId) => openStatusMenuTaskId.value === Number(taskId)
+
+const toggleAssigneeQuickFilter = (userId) => {
+  const current = String(taskFilters.value.assignedUser || '')
+  const next = current === String(userId) ? '' : String(userId)
+  taskFilters.value = { ...taskFilters.value, assignedUser: next }
+}
+
 const TASK_ORDERING_OPTIONS = [
   { value: 'due_date', label: 'Due date' },
   { value: '-due_date', label: 'Due date desc' },
@@ -1291,8 +1898,6 @@ const TASK_ORDERING_OPTIONS = [
   { value: 'status', label: 'Status' },
   { value: '-status', label: 'Status desc' },
 ]
-
-const TASK_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 const messages = ref([])
 
@@ -1308,12 +1913,17 @@ const isUploadingFile = ref(false)
 const isUpdatingMessage = ref(false)
 const isDeletingMessageId = ref(null)
 const isLoadingGifs = ref(false)
+const isLoadingMoreGifs = ref(false)
 const chatError = ref('')
 const chatNotice = ref('')
 const gifError = ref('')
 const showGifPanel = ref(false)
 const gifQuery = ref('')
 const gifResults = ref([])
+const gifNextPos = ref(null)
+const gifPanelMode = ref('trending')
+let gifSearchDebounceTimer = null
+const GIF_SEARCH_DEBOUNCE_MS = 300
 const showResourcePanel = ref(false)
 const resourceQuery = ref('')
 const chatResourceOptions = ref([])
@@ -1334,6 +1944,17 @@ const showMessageSearch = ref(false)
 const messageSearchQuery = ref('')
 const messageSearchResults = ref([])
 const messageSearchNextBefore = ref(null)
+const showSearchFilters = ref(false)
+const messageSearchFilters = ref({ type: '', from: '', to: '' })
+const messageReceiptCache = ref(new Map())
+const openReceiptPopoverId = ref(null)
+const isLoadingReceipts = ref(false)
+const receiptError = ref('')
+// Anchor coordinates for the read-receipt popover. We render it via
+// ``<Teleport to="body">`` so the scrollable chat container's ``overflow``
+// can't clip it; in exchange we have to position it ourselves relative to
+// the trigger button's bounding rect.
+const receiptPopoverAnchor = ref(null)
 const isSearchingMessages = ref(false)
 const isLoadingMoreSearchResults = ref(false)
 const hasSearchedMessages = ref(false)
@@ -1347,6 +1968,7 @@ const editingMessageId = ref(null)
 const editingMessageText = ref('')
 const manageWindowNow = ref(Date.now())
 const activeReactionPickerMessageId = ref(null)
+const openMessageKebabId = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
 const highlightedSearchMessageId = ref(null)
@@ -1487,11 +2109,26 @@ const buildMentionReadUrl = (mentionId) =>
 const buildMentionMarkAllReadUrl = () =>
   `${API_BASE_URL}/api/v1/chat/mentions/mark-all-read/`
 
-const buildGifSearchUrl = (query) =>
-  `${API_BASE_URL}/api/v1/chat/gifs/search?q=${encodeURIComponent(query)}`
+const buildGifSearchUrl = (query, pos = '', limit = 30) => {
+  const params = new URLSearchParams({ q: query })
+  if (pos) params.set('pos', pos)
+  if (limit) params.set('limit', String(limit))
+  return `${API_BASE_URL}/api/v1/chat/gifs/search?${params.toString()}`
+}
 
-const buildGifTrendingUrl = () =>
-  `${API_BASE_URL}/api/v1/chat/gifs/trending`
+const buildGifTrendingUrl = (pos = '', limit = 30) => {
+  const params = new URLSearchParams()
+  if (pos) params.set('pos', pos)
+  if (limit) params.set('limit', String(limit))
+  const qs = params.toString()
+  return `${API_BASE_URL}/api/v1/chat/gifs/trending${qs ? `?${qs}` : ''}`
+}
+
+const buildChatSendGifUrl = (gid) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${gid}/messages/send-gif/`
+
+const buildChatMessageStatusUrl = (gid, messageId) =>
+  `${API_BASE_URL}/api/v1/chat/groups/${gid}/messages/${messageId}/status/`
 
 const buildChatWebSocketUrl = (groupId) => {
   try {
@@ -1717,13 +2354,22 @@ const normalizeReactionMap = (reactions) => {
   return Object.fromEntries(
     Object.entries(reactions)
       .map(([emoji, value]) => {
-        const count =
-          value && typeof value === 'object' && !Array.isArray(value)
-            ? Number(value.count)
-            : Number(value)
-        return [emoji, count || 0]
+        // Backend ships ``{count, users: [{id, name}, ...]}``; legacy callers
+        // may still pass a bare number. Normalize to the rich shape so the
+        // chip hover tooltip can render names without re-fetching.
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          const count = Number(value.count) || 0
+          const users = Array.isArray(value.users)
+            ? value.users
+                .filter((u) => u && (u.id != null || u.name))
+                .map((u) => ({ id: Number(u.id) || 0, name: u.name || '' }))
+            : []
+          return [emoji, { count, users }]
+        }
+        const count = Number(value) || 0
+        return [emoji, { count, users: [] }]
       })
-      .filter(([, count]) => count > 0),
+      .filter(([, data]) => data.count > 0),
   )
 }
 
@@ -1789,6 +2435,7 @@ const normalizeTask = (task) => ({
   taskType: task?.task_type || 'group',
   group: task?.group ?? null,
   assignedUser: task?.assigned_user ?? null,
+  assignedUserDetail: task?.assigned_user_detail || null,
   creatorRole: task?.creator_role || '',
   createdBy: task?.created_by || null,
   deletedAt: task?.deleted_at || null,
@@ -1903,27 +2550,6 @@ const selectedTaskAssigneeLabel = computed(() => {
   return option?.label || (assigneeId ? `User ${assigneeId}` : 'No assignee selected')
 })
 
-const getTaskAssigneeName = (userId) => {
-  const numericUserId = Number(userId)
-  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Unassigned'
-
-  const member = activeGroupMemberOptions.value.find((item) => item.userId === numericUserId)
-  if (member?.label) return member.label
-
-  const supervisedStudent = (auth.user?.supervised_students || []).find(
-    (student) => Number(student?.id) === numericUserId,
-  )
-  if (supervisedStudent) {
-    const fullName = [supervisedStudent.first_name, supervisedStudent.last_name]
-      .filter(Boolean)
-      .join(' ')
-      .trim()
-    return fullName || supervisedStudent.email || `User ${numericUserId}`
-  }
-
-  return `User ${numericUserId}`
-}
-
 const isCurrentGroupMentor = computed(() =>
   groupMemberships.value.some(
     (item) =>
@@ -1973,10 +2599,22 @@ const buildTaskRows = (items) => {
     return !parentId || !byId.has(parentId)
   })
 
+  const collapsed = collapsedTaskIds.value
   const rows = []
   const appendRows = (task, depth = 0) => {
-    rows.push({ task, depth })
-    ;(childrenByParent.get(Number(task.id)) || []).forEach((child) => appendRows(child, depth + 1))
+    const id = Number(task.id)
+    const children = childrenByParent.get(id) || []
+    const hasChildren = children.length > 0
+    rows.push({
+      task,
+      depth,
+      hasChildren,
+      childCount: children.length,
+      isCollapsed: hasChildren && collapsed.has(id),
+    })
+    if (hasChildren && !collapsed.has(id)) {
+      children.forEach((child) => appendRows(child, depth + 1))
+    }
   }
 
   roots.forEach((task) => appendRows(task))
@@ -2002,33 +2640,31 @@ const taskTotalPages = computed(() =>
   Math.max(1, Math.ceil(tasks.value.length / taskPagination.value.pageSize)),
 )
 
-const pagedTasks = computed(() => {
-  const page = Math.min(taskPagination.value.page, taskTotalPages.value)
-  const start = (page - 1) * taskPagination.value.pageSize
-  return tasks.value.slice(start, start + taskPagination.value.pageSize)
-})
-
-const taskPageStart = computed(() => {
-  if (!tasks.value.length) return 0
-  return (Math.min(taskPagination.value.page, taskTotalPages.value) - 1) * taskPagination.value.pageSize + 1
-})
-
-const taskPageEnd = computed(() =>
-  Math.min(taskPageStart.value + taskPagination.value.pageSize - 1, tasks.value.length),
-)
+const pagedTasks = computed(() => tasks.value.slice(0, taskShownLimit.value))
 
 const parentTaskFilterOptions = computed(() =>
   tasks.value
     .filter((task) => !task.deletedAt)
     .map((task) => ({
       id: task.id,
-      label: `${task.taskType === 'individual' ? 'Individual Task' : 'Group Task'} · ${task.name}`,
+      label: `${task.taskType === 'individual' ? 'Individual Task' : 'Group Task'} - ${task.name}`,
     }))
     .sort((a, b) => a.label.localeCompare(b.label)),
 )
 
+// Hide tasks that are completed AND past their due date by default. The
+// toolbar toggle (showCompletedOverdue) un-hides them; the popover State=Done
+// filter also bypasses the hide so the user always sees what they asked for.
+const isStaleCompletedHidden = (task) => {
+  if (showCompletedOverdue.value) return false
+  if (taskFilters.value.completed === 'true') return false
+  return isCompletedOverdueTask(task)
+}
+
 const taskSections = computed(() => {
-  const relevantTasks = pagedTasks.value.filter(isTaskRelevantToCurrentGroup)
+  const relevantTasks = pagedTasks.value
+    .filter(isTaskRelevantToCurrentGroup)
+    .filter((task) => !isStaleCompletedHidden(task))
   const groupTasks = relevantTasks.filter((task) => task.taskType === 'group')
   const individualTasks = relevantTasks.filter((task) => task.taskType === 'individual')
 
@@ -2037,6 +2673,22 @@ const taskSections = computed(() => {
     createTaskSection('individual', 'Individual Tasks', 'fas fa-user-check', individualTasks),
   ]
 })
+
+// Counts driving the "Show more" footer + the hidden-stale toggle's badge
+const totalRelevantTaskCount = computed(
+  () => tasks.value.filter(isTaskRelevantToCurrentGroup).length,
+)
+const visibleSectionTaskCount = computed(
+  () => taskSections.value.reduce((sum, section) => sum + section.total, 0),
+)
+const hasMoreTasksToShow = computed(
+  () => taskShownLimit.value < totalRelevantTaskCount.value,
+)
+const hiddenStaleCompletedCount = computed(() =>
+  tasks.value.filter(
+    (task) => isTaskRelevantToCurrentGroup(task) && isCompletedOverdueTask(task),
+  ).length,
+)
 
 const selectedTaskIdList = computed(() =>
   Array.from(selectedTaskIds.value).map(Number).filter(Number.isFinite),
@@ -2091,12 +2743,48 @@ const setTaskSelected = (taskId, selected) => {
   selectedTaskIds.value = next
 }
 
-const setTaskSelectedFromEvent = (taskId, event) => {
-  setTaskSelected(taskId, Boolean(event?.target?.checked))
-}
-
 const clearTaskSelection = () => {
   selectedTaskIds.value = new Set()
+}
+
+const toggleTaskSelectionMode = () => {
+  taskSelectionMode.value = !taskSelectionMode.value
+  if (!taskSelectionMode.value) clearTaskSelection()
+}
+
+const resetTaskFilters = () => {
+  taskFilters.value = {
+    ...taskFilters.value,
+    taskType: '',
+    status: '',
+    completed: '',
+    assignedUser: '',
+    parentId: '',
+    dueDateAfter: '',
+    dueDateBefore: '',
+    showDeleted: false,
+  }
+}
+
+const getAssigneeDisplay = (task) => {
+  const assigneeId = Number(task?.assignedUser)
+  if (!Number.isFinite(assigneeId) || assigneeId <= 0) return null
+  const meId = currentUserId.value
+  if (meId && assigneeId === Number(meId)) {
+    return { label: 'You', isSelf: true }
+  }
+  const name = task?.assignedUserDetail?.name
+  if (name) return { label: name, isSelf: false }
+  return { label: `User ${assigneeId}`, isSelf: false }
+}
+
+const isTaskOverdue = (task) => {
+  if (!task?.dueDate || task.completed || task.deletedAt) return false
+  const due = new Date(task.dueDate)
+  if (Number.isNaN(due.getTime())) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return due < today
 }
 
 const syncSelectedTasks = () => {
@@ -2140,6 +2828,8 @@ const canManageTask = (task) => {
   return false
 }
 
+// Visibility (`isTaskRelevantToCurrentGroup`) already scopes the task list
+// to the current group. This gate only decides who can act on a visible task.
 const canToggleTask = (task) => {
   if (!task || task.deletedAt) return false
   if (auth.isAdmin) return true
@@ -2149,7 +2839,6 @@ const canToggleTask = (task) => {
   }
 
   if (isAssigneeSelf(task)) return true
-  if (!isCurrentGroupStudent(task.assignedUser)) return false
 
   if (['global_admin', 'track_admin', 'student'].includes(task.creatorRole)) {
     return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
@@ -2358,6 +3047,7 @@ const loadTasks = async ({ resetPage = true } = {}) => {
     )
     ensureTaskPageInRange()
     syncSelectedTasks()
+    taskShownLimit.value = TASK_LOAD_BATCH
   } catch (error) {
     tasks.value = []
     taskError.value = error instanceof Error ? error.message : 'Task data could not be loaded.'
@@ -2366,31 +3056,20 @@ const loadTasks = async ({ resetPage = true } = {}) => {
   }
 }
 
-const resetTaskFilters = () => {
-  taskFilters.value = {
-    taskType: '',
-    status: '',
-    completed: '',
-    assignedUser: '',
-    parentId: '',
-    dueDateAfter: '',
-    dueDateBefore: '',
-    search: '',
-    ordering: 'due_date',
-    showDeleted: false,
-  }
-  loadTasks()
+const scheduleTaskReload = () => {
+  if (!getBackendGroupId()) return
+  if (taskFilterReloadTimer) clearTimeout(taskFilterReloadTimer)
+  taskFilterReloadTimer = setTimeout(() => {
+    taskFilterReloadTimer = null
+    loadTasks()
+  }, 300)
 }
 
-const goToTaskPage = (page) => {
-  taskPagination.value.page = Math.min(Math.max(Number(page) || 1, 1), taskTotalPages.value)
-  syncSelectedTasks()
-}
-
-const changeTaskPageSize = () => {
-  taskPagination.value.page = 1
-  syncSelectedTasks()
-}
+watch(
+  () => ({ ...taskFilters.value }),
+  () => scheduleTaskReload(),
+  { deep: true },
+)
 
 const normalizeMessage = (item) => {
   const raw = item?.message ? item.message : item
@@ -2407,6 +3086,14 @@ const normalizeMessage = (item) => {
   const messageType = raw?.message_type || 'text'
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
+  // Backend ships GIFs as ``{message_type: 'gif', gif: {gif_url, preview_url, title, provider_id}}``.
+  // Falling back to ``messageText`` covers any legacy pending-bubble path that stuffed the URL into ``text``.
+  const gifPayload = raw?.gif && typeof raw.gif === 'object' ? raw.gif : null
+  const gifUrl = messageType === 'gif'
+    ? (gifPayload?.gif_url || gifPayload?.url || messageText)
+    : ''
+  const gifPreviewUrl = gifPayload?.preview_url || ''
+  const gifTitle = gifPayload?.title || ''
   const author = isOwn
     ? 'You'
     : raw?.sender_name || raw?.author || getMentionLabel(senderId)
@@ -2420,7 +3107,9 @@ const normalizeMessage = (item) => {
     date: sentAt,
     isOwn,
     messageType,
-    gifUrl: messageType === 'gif' ? messageText : '',
+    gifUrl,
+    gifPreviewUrl,
+    gifTitle,
     attachments,
     resources,
     reactions: normalizeReactionMap(raw?.reactions),
@@ -2501,12 +3190,175 @@ const downloadAttachment = async (attachment) => {
   }
 }
 
+// Click a resource chip in a chat bubble → prompt the user to either
+// Open (view in a new tab) or Download (force-save). The choice popover
+// fetches the resolved URL lazily from the backend and triggers the right
+// action. ``access`` returns ``external_url`` for link-resources and a
+// signed SAS for managed files; ``download`` always returns a Content-
+// Disposition: attachment stream for managed files.
+const openResourceChoiceKey = ref(null)
+const resourceChoiceLoading = ref(false)
+const resourceChoiceStatus = ref('')
+// Same Open/Download/Cancel popover but keyed by ``messageId:attachmentId``.
+const openAttachmentChoiceKey = ref(null)
+const attachmentChoiceLoading = ref(false)
+const attachmentChoiceStatus = ref('')
+
+const toggleResourceChoice = (messageId, resource) => {
+  const rid = resource?.resource_id || resource?.id
+  if (!rid) return
+  const key = `${messageId}:${rid}`
+  if (openResourceChoiceKey.value === key) {
+    closeResourceChoice()
+    return
+  }
+  openResourceChoiceKey.value = key
+  resourceChoiceStatus.value = ''
+}
+
+const closeResourceChoice = () => {
+  openResourceChoiceKey.value = null
+  resourceChoiceLoading.value = false
+  resourceChoiceStatus.value = ''
+}
+
+const toggleAttachmentChoice = (messageId, attachment) => {
+  const key = `${messageId}:${attachment?.id || attachment?.attachment_filename}`
+  if (openAttachmentChoiceKey.value === key) {
+    closeAttachmentChoice()
+    return
+  }
+  openAttachmentChoiceKey.value = key
+  attachmentChoiceStatus.value = ''
+}
+
+const closeAttachmentChoice = () => {
+  openAttachmentChoiceKey.value = null
+  attachmentChoiceLoading.value = false
+  attachmentChoiceStatus.value = ''
+}
+
+const openAttachmentAction = async (attachment, mode) => {
+  const baseUrl = getAttachmentHref(attachment)
+  if (!baseUrl || baseUrl === '#') return
+  attachmentChoiceLoading.value = true
+  attachmentChoiceStatus.value = mode === 'download'
+    ? 'Preparing download…'
+    : 'Opening…'
+  try {
+    if (mode === 'open') {
+      // Append ``?inline=1`` so the backend serves Content-Disposition: inline
+      // and the browser previews (PDF viewer, image, etc.) instead of saving.
+      const sep = baseUrl.includes('?') ? '&' : '?'
+      window.open(`${baseUrl}${sep}inline=1`, '_blank', 'noopener,noreferrer')
+      closeAttachmentChoice()
+      return
+    }
+    // Download path — fetch as blob so the filename comes from
+    // Content-Disposition and the browser definitely saves regardless of the
+    // file type (PDFs would otherwise open inline in some browsers even with
+    // Content-Disposition: attachment when navigated to directly).
+    const response = await fetch(baseUrl, { method: 'GET', credentials: 'include' })
+    if (!response.ok) {
+      throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
+    }
+    const blob = await response.blob()
+    const filename =
+      getFilenameFromDisposition(response.headers.get('Content-Disposition')) ||
+      getAttachmentLabel(attachment)
+    triggerBrowserDownload(blob, filename)
+    closeAttachmentChoice()
+  } catch (error) {
+    attachmentChoiceStatus.value = error instanceof Error
+      ? error.message
+      : 'Attachment could not be opened.'
+    attachmentChoiceLoading.value = false
+  }
+}
+
+const openResourceAction = async (resource, mode) => {
+  const id = resource?.resource_id || resource?.id
+  if (!id) return
+  resourceChoiceLoading.value = true
+  resourceChoiceStatus.value = mode === 'download'
+    ? 'Preparing download…'
+    : 'Opening…'
+  try {
+    const data = await requestJson(`${API_BASE_URL}/resources/resource-files/${id}/access/`)
+    const externalUrl = data?.external_url
+    const downloadUrl = data?.download_url
+    const accessUrl = data?.access_url || downloadUrl
+    if (mode === 'download') {
+      // For managed files the download endpoint already streams the file
+      // with ``Content-Disposition: attachment``. For external link
+      // resources we tack on ``?force=1`` so the backend proxies the upstream
+      // bytes through us with the same header — without it the browser's
+      // ``<a download>`` hint is ignored cross-origin and the file opens
+      // inline instead of saving.
+      let target = downloadUrl || externalUrl || accessUrl
+      if (!target) {
+        resourceChoiceStatus.value = data?.detail || 'This resource has no downloadable file.'
+        resourceChoiceLoading.value = false
+        return
+      }
+      if (downloadUrl) {
+        const sep = downloadUrl.includes('?') ? '&' : '?'
+        target = `${downloadUrl}${sep}force=1`
+      }
+      const a = document.createElement('a')
+      a.href = target
+      a.rel = 'noopener noreferrer'
+      a.download = data?.file_name || ''
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } else {
+      const target = externalUrl || accessUrl || downloadUrl
+      if (!target) {
+        resourceChoiceStatus.value = data?.detail || 'This resource cannot be opened.'
+        resourceChoiceLoading.value = false
+        return
+      }
+      window.open(target, '_blank', 'noopener,noreferrer')
+    }
+    closeResourceChoice()
+  } catch (error) {
+    resourceChoiceStatus.value = error instanceof Error
+      ? error.message
+      : 'Resource could not be opened.'
+    resourceChoiceLoading.value = false
+  }
+}
+
 const getResourceLabel = (resource) =>
   resource?.resource_name || resource?.name || `Resource ${resource?.resource_id || resource?.id || ''}`
 
 const getReplyLabel = (reply) => {
   if (!reply) return ''
-  return reply.deleted ? 'Deleted message' : `Reply to ${getMentionLabel(reply.user_id)}`
+  if (reply.deleted) return 'Deleted message'
+  // Prefer the backend-supplied name (ReplyToSerializer.user_name). Fall back to
+  // any name we already loaded — group memberships, mention members, or another
+  // message in the list authored by the same user — before defaulting to the
+  // generic "User N" label.
+  const name = reply.user_name || resolveUserDisplayName(reply.user_id)
+  return `Reply to ${name}`
+}
+
+const resolveUserDisplayName = (userId) => {
+  const numericUserId = Number(userId)
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) return 'Team member'
+  // 1) Mention members (loaded with the group)
+  const member = mentionLabelMembers.value.find((item) => Number(item.userId) === numericUserId)
+  if (member?.label) return member.label
+  // 2) Self
+  if (numericUserId === currentUserId.value) return getCurrentUserMentionName()
+  // 3) Any other message we've already loaded — uses the sender_name the
+  //    backend ships on full message rows.
+  const peerMessage = messages.value.find(
+    (m) => Number(m?.senderId) === numericUserId && m?.author && m.author !== 'You',
+  )
+  if (peerMessage?.author) return peerMessage.author
+  return `User ${numericUserId}`
 }
 
 const getReplyText = (reply) => {
@@ -2708,6 +3560,17 @@ const closeTaskDialog = ({ force = false } = {}) => {
   taskFormError.value = ''
 }
 
+watch(taskDialogOpen, (isOpen) => {
+  if (typeof document === 'undefined') return
+  document.body.style.overflow = isOpen ? 'hidden' : ''
+  if (isOpen) {
+    nextTick(() => {
+      taskDialogNameInput.value?.focus?.()
+      try { taskDialogNameInput.value?.select?.() } catch { /* ignore */ }
+    })
+  }
+})
+
 const buildCreateTaskPayload = () => {
   const taskType = taskForm.value.taskType
   const payload = {
@@ -2775,14 +3638,19 @@ const saveTask = async () => {
   }
 }
 
-const toggleTask = async (task) => {
+const changeTaskStatus = async (task, newStatus) => {
   if (!task?.id || isUpdatingTask(task.id)) return
+  if (newStatus === task.status) {
+    closeStatusMenu()
+    return
+  }
 
   setTaskUpdating(task.id, true)
   taskError.value = ''
+  closeStatusMenu()
 
   try {
-    const updatedTask = await toggleTaskCompletion(task.id, !task.completed)
+    const updatedTask = await setTaskStatusRequest(task.id, newStatus)
     upsertTask(updatedTask)
   } catch (error) {
     taskError.value = error instanceof Error ? error.message : 'Task status could not be updated.'
@@ -2840,9 +3708,12 @@ const removeTask = async (task) => {
 }
 
 const typingIndicatorText = computed(() => {
-  if (!typingUsers.value.length) return ''
-  if (typingUsers.value.length === 1) return `${typingUsers.value[0]} is typing...`
-  return `${typingUsers.value[0]} and others are typing...`
+  const list = typingUsers.value
+  if (!list.length) return ''
+  if (list.length === 1) return `${list[0]} is typing…`
+  if (list.length === 2) return `${list[0]} and ${list[1]} are typing…`
+  const extra = list.length - 2
+  return `${list[0]}, ${list[1]} and ${extra} ${extra === 1 ? 'other' : 'others'} are typing…`
 })
 
 const showScrollToBottomButton = computed(
@@ -2957,12 +3828,45 @@ const addTypingUser = (name) => {
 }
 
 const hasMessageReactions = (message) =>
-  Object.values(message?.reactions || {}).some((count) => Number(count) > 0)
+  Object.values(message?.reactions || {}).some((entry) => {
+    if (entry && typeof entry === 'object') return Number(entry.count) > 0
+    return Number(entry) > 0
+  })
+
+const formatReactionUsers = (entry) => {
+  const users = Array.isArray(entry?.users) ? entry.users : []
+  if (!users.length) {
+    const count = Number(entry?.count ?? entry) || 0
+    return count === 1 ? '1 person reacted' : `${count} people reacted`
+  }
+  const names = users.map((u) => u.name).filter(Boolean)
+  if (!names.length) return `${users.length} reacted`
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`
+}
 
 const toggleReactionPicker = (messageId) => {
   if (!supportsMessageReactions) return
   activeReactionPickerMessageId.value =
     activeReactionPickerMessageId.value === messageId ? null : messageId
+  if (activeReactionPickerMessageId.value !== null) openMessageKebabId.value = null
+}
+
+const toggleMessageKebab = (messageId) => {
+  openMessageKebabId.value = openMessageKebabId.value === messageId ? null : messageId
+  if (openMessageKebabId.value !== null) activeReactionPickerMessageId.value = null
+}
+
+const onKebabEdit = (message) => {
+  openMessageKebabId.value = null
+  startMessageEdit(message)
+}
+
+const onKebabDelete = (message) => {
+  openMessageKebabId.value = null
+  deleteMessage(message)
 }
 
 const sendSocketAction = (payload) => {
@@ -3036,23 +3940,73 @@ const updateMentionQuery = () => {
   activeMentionSuggestionIndex.value = 0
 }
 
+// Tracks the @-token text we wrote into the composer for each mention so we
+// can rewrite it back to the backend's ``<@id>`` form on send. Cleared after
+// a successful send / cancel.
+const pendingComposerMentions = ref(new Map())
+
 const insertMention = (member) => {
   if (mentionStartIndex.value < 0 || !member?.userId) return
+
+  const displayName = member.label || `User ${member.userId}`
+  // Visible token: ``@Name`` — readable to the user. We keep a map so we can
+  // resolve it back to ``<@id>`` before posting. Multiple mentions with the
+  // same display name collapse to the same id (acceptable; the map keeps the
+  // last-wins entry).
+  const visible = `@${displayName}`
+  pendingComposerMentions.value.set(visible, member.userId)
 
   const cursor = composer.value?.selectionStart ?? newMessage.value.length
   const prefix = newMessage.value.slice(0, mentionStartIndex.value)
   const suffix = newMessage.value.slice(cursor)
   const spacer = suffix.startsWith(' ') || !suffix ? '' : ' '
-  newMessage.value = `${prefix}<@${member.userId}> ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
+  newMessage.value = `${prefix}${visible} ${spacer}${suffix}`.replace(/\s{2,}/g, ' ')
   mentionStartIndex.value = -1
   mentionQuery.value = ''
   activeMentionSuggestionIndex.value = 0
 
   nextTick(() => {
     composer.value?.focus()
-    const position = `${prefix}<@${member.userId}> `.length
+    const position = `${prefix}${visible} `.length
     composer.value?.setSelectionRange(position, position)
   })
+}
+
+// Convert visible ``@Name`` tokens back to backend ``<@id>`` tokens just
+// before the wire send. Longest names first so an ``@Alice Smith`` doesn't
+// get partially replaced by an unrelated ``@Alice`` entry.
+const resolveComposerMentions = (text) => {
+  if (!text || !pendingComposerMentions.value.size) return text
+  const entries = [...pendingComposerMentions.value.entries()].sort(
+    ([a], [b]) => b.length - a.length,
+  )
+  let out = text
+  for (const [visible, userId] of entries) {
+    const safe = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    out = out.replace(new RegExp(safe, 'g'), `<@${userId}>`)
+  }
+  return out
+}
+
+// Close the @-autocomplete dropdown when the composer loses focus, unless
+// the new focus target is the suggestion list itself (mousedown.prevent on
+// each item keeps focus on the composer, so this only fires on truly
+// outside clicks).
+const onComposerBlur = (event) => {
+  const next = event?.relatedTarget
+  if (next instanceof Element && next.closest('.mention-suggestions')) return
+  if (mentionStartIndex.value >= 0) {
+    mentionStartIndex.value = -1
+    mentionQuery.value = ''
+  }
+}
+
+// Tapping into the composer always returns focus to "I'm typing a message",
+// so any open side panels (GIF / Resources / Search / Mentions / kebab /
+// reaction picker) should yield. Without this, panels stayed visible after
+// the user tapped the textarea, which is unexpected.
+const onComposerFocus = () => {
+  closeAllComposerPanels({ except: null })
 }
 
 const handleComposerKeydown = (event) => {
@@ -3082,9 +4036,52 @@ const handleComposerKeydown = (event) => {
     }
   }
 
+  // Respect IME composition — never intercept while a CJK candidate is selecting.
+  if (event.isComposing || event.keyCode === 229) return
+
+  if (event.key === 'Escape') {
+    if (editingMessageId.value) {
+      event.preventDefault()
+      cancelMessageEdit()
+      return
+    }
+    if (replyTarget.value) {
+      event.preventDefault()
+      clearReplyTarget()
+      return
+    }
+    composer.value?.blur()
+    return
+  }
+
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault()
+    void sendMessage()
+    return
+  }
+
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void sendMessage()
+    return
+  }
+
+  // ArrowUp on an empty composer with no active reply/edit opens your most
+  // recent in-window own message for editing — Slack-style quick-edit.
+  if (
+    event.key === 'ArrowUp'
+    && !newMessage.value.trim()
+    && !editingMessageId.value
+    && !replyTarget.value
+  ) {
+    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+      const candidate = messages.value[i]
+      if (candidate?.isOwn && canManageMessage(candidate)) {
+        event.preventDefault()
+        startMessageEdit(candidate)
+        return
+      }
+    }
   }
 }
 
@@ -3569,9 +4566,10 @@ const loadNewerMessages = async () => {
 }
 
 const toggleMessageSearch = async () => {
-  showMessageSearch.value = !showMessageSearch.value
+  const next = !showMessageSearch.value
+  closeAllComposerPanels({ except: next ? 'search' : null })
+  showMessageSearch.value = next
   if (showMessageSearch.value) {
-    showMentionInbox.value = false
     await nextTick()
     messageSearchInputRef.value?.focus()
   }
@@ -3583,11 +4581,17 @@ const clearMessageSearch = () => {
   messageSearchNextBefore.value = null
   messageSearchError.value = ''
   hasSearchedMessages.value = false
+  messageSearchFilters.value = { type: '', from: '', to: '' }
 }
 
 const mergeSearchResults = (current, incoming) => {
   const seen = new Set(current.map((message) => String(message.id)))
   return [...current, ...incoming.filter((message) => !seen.has(String(message.id)))]
+}
+
+const hasActiveSearchFilters = () => {
+  const f = messageSearchFilters.value
+  return Boolean(f.type || f.from || f.to)
 }
 
 const searchMessages = async (reset = true) => {
@@ -3598,7 +4602,9 @@ const searchMessages = async (reset = true) => {
     messageSearchError.value = 'Live discussion needs a backend numeric group id.'
     return
   }
-  if (!query) {
+  // Allow filter-only searches (e.g. "all GIFs from last week"). Bail only if
+  // there is neither a query nor any active filter.
+  if (!query && !hasActiveSearchFilters()) {
     clearMessageSearch()
     return
   }
@@ -3613,7 +4619,12 @@ const searchMessages = async (reset = true) => {
   }
   messageSearchError.value = ''
 
-  const params = new URLSearchParams({ q: query, limit: '20' })
+  const params = new URLSearchParams({ limit: '20' })
+  if (query) params.set('q', query)
+  const filters = messageSearchFilters.value
+  if (filters.type) params.set('type', filters.type)
+  if (filters.from) params.set('from', filters.from)
+  if (filters.to) params.set('to', filters.to)
   if (!reset && messageSearchNextBefore.value) {
     params.set('before', String(messageSearchNextBefore.value))
   }
@@ -3811,6 +4822,12 @@ const sendMessage = async () => {
   stopTypingIndicator()
   await scrollMessagesToBottom()
 
+  // Visible ``@Name`` tokens in the textarea -> backend ``<@id>`` form.
+  // We snapshot the resolved string here so the optimistic bubble keeps the
+  // friendly display while the wire payload carries the canonical token.
+  const wireText = resolveComposerMentions(text)
+  pendingComposerMentions.value.clear()
+
   isSendingMessage.value = true
   try {
     await sendMessagePayload({
@@ -3819,7 +4836,7 @@ const sendMessage = async () => {
       requestOptions: {
         method: 'POST',
         body: JSON.stringify({
-          message_text: text,
+          message_text: wireText,
           ...(selectedResources.length
             ? { resources: selectedResources.map((resource) => ({ resource_id: resource.id })) }
             : {}),
@@ -3843,6 +4860,38 @@ const sendGifMessage = async (gif) => {
     return
   }
   if (!gif?.url || isSendingMessage.value) return
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) {
+    chatError.value = 'Live discussion needs a backend numeric group id.'
+    return
+  }
+  const caption = newMessage.value.trim()
+  isSendingMessage.value = true
+  chatError.value = ''
+  gifError.value = ''
+  try {
+    await requestJson(buildChatSendGifUrl(backendGroupId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'tenor',
+        provider_id: String(gif.id ?? ''),
+        gif_url: gif.url,
+        preview_url: gif.previewUrl || '',
+        title: gif.title || '',
+        ...(caption ? { message_text: caption } : {}),
+      }),
+    })
+    newMessage.value = ''
+    showGifPanel.value = false
+    // The WS ``message.created`` broadcast delivers the rendered bubble into
+    // the list — no local upsert needed.
+  } catch (error) {
+    gifError.value = error instanceof Error ? error.message : 'GIF could not be sent.'
+  } finally {
+    isSendingMessage.value = false
+    composer.value?.focus()
+  }
 }
 
 const openFilePicker = () => {
@@ -3853,6 +4902,120 @@ const openFilePicker = () => {
   fileInputRef.value?.click()
 }
 
+const closeReceiptPopover = () => {
+  openReceiptPopoverId.value = null
+  receiptError.value = ''
+  receiptPopoverAnchor.value = null
+}
+
+const getOtherRecipientCount = () => {
+  // Recipients = active group members minus the sender (current user).
+  const memberships = Array.isArray(groupMemberships.value) ? groupMemberships.value : []
+  const me = Number(auth.user?.id || 0)
+  const total = memberships.filter((m) => {
+    const uid = Number(m?.user_id ?? m?.user ?? m?.userId ?? 0)
+    return uid && uid !== me
+  }).length
+  return total
+}
+
+const getReceiptState = (message) => {
+  // Tick semantics requested by the team:
+  //   single grey  — delivered (no one has read yet)
+  //   double grey  — SOME but not ALL recipients have read
+  //   double blue  — ALL recipients have read
+  if (!message) return 'delivered'
+  const reads = Number(message.readCount) || 0
+  const recipients = getOtherRecipientCount()
+  if (recipients > 0 && reads >= recipients) return 'read'   // all-seen
+  if (reads > 0) return 'partial'                              // some-seen
+  return 'delivered'                                           // none-read yet
+}
+
+const getReceiptAriaLabel = (message) => {
+  const state = getReceiptState(message)
+  const r = Number(message.readCount) || 0
+  const recipients = getOtherRecipientCount()
+  if (state === 'read') return `Read by everyone (${r})`
+  if (state === 'partial') return `Read by ${r} of ${recipients || r}`
+  const d = Number(message.deliveredCount) || 0
+  return d > 0 ? `Delivered to ${d}` : 'Delivered'
+}
+
+const formatRelativeTime = (iso) => {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return ''
+  const diffMs = Date.now() - then
+  if (diffMs < 60_000) return 'just now'
+  const mins = Math.round(diffMs / 60_000)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.round(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+const openMessageReceipts = async (messageId, event) => {
+  if (!messageId) return
+  if (openReceiptPopoverId.value === messageId) {
+    closeReceiptPopover()
+    return
+  }
+  openReceiptPopoverId.value = messageId
+  receiptError.value = ''
+  // Capture the trigger's bounding rect so the teleported popover knows
+  // where to anchor. Flip above/below depending on available viewport space.
+  const triggerEl = event?.currentTarget instanceof Element
+    ? event.currentTarget
+    : null
+  if (triggerEl) {
+    const rect = triggerEl.getBoundingClientRect()
+    const viewportH = window.innerHeight || document.documentElement.clientHeight
+    const spaceAbove = rect.top
+    const spaceBelow = viewportH - rect.bottom
+    const placeAbove = spaceAbove > 220 || spaceAbove > spaceBelow
+    receiptPopoverAnchor.value = {
+      top: placeAbove ? rect.top : rect.bottom,
+      left: rect.left,
+      right: window.innerWidth - rect.right,
+      placement: placeAbove ? 'top' : 'bottom',
+    }
+  } else {
+    receiptPopoverAnchor.value = null
+  }
+  if (messageReceiptCache.value.has(messageId)) return
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) {
+    receiptError.value = 'Live discussion needs a backend numeric group id.'
+    return
+  }
+  isLoadingReceipts.value = true
+  try {
+    const data = await requestJson(buildChatMessageStatusUrl(backendGroupId, messageId))
+    messageReceiptCache.value.set(messageId, {
+      readBy: Array.isArray(data?.read_by) ? data.read_by : [],
+      deliveredBy: Array.isArray(data?.delivered_by) ? data.delivered_by : [],
+    })
+  } catch (error) {
+    receiptError.value = error instanceof Error
+      ? error.message
+      : 'Read receipts are unavailable right now.'
+  } finally {
+    isLoadingReceipts.value = false
+  }
+}
+
+const receiptPopoverStyle = computed(() => {
+  const a = receiptPopoverAnchor.value
+  if (!a) return null
+  const offset = 6
+  return a.placement === 'top'
+    ? { position: 'fixed', top: `${a.top - offset}px`, right: `${a.right}px`, transform: 'translateY(-100%)' }
+    : { position: 'fixed', top: `${a.top + offset}px`, right: `${a.right}px` }
+})
+
 const uploadAttachment = async (event) => {
   if (!supportsAttachments) {
     chatError.value = 'File upload is not available in the backend yet.'
@@ -3861,11 +5024,6 @@ const uploadAttachment = async (event) => {
   const input = event?.target
   const file = input?.files?.[0]
   if (!file || isUploadingFile.value) return
-  if (replyTarget.value) {
-    chatError.value = 'Attachment replies are not supported by the upload endpoint yet.'
-    if (input) input.value = ''
-    return
-  }
   if (selectedChatResources.value.length) {
     chatError.value = 'Send selected resources as a chat message before uploading a local file.'
     if (input) input.value = ''
@@ -3875,6 +5033,11 @@ const uploadAttachment = async (event) => {
   const formData = new FormData()
   formData.append('uploaded_file', file)
   if (caption) formData.append('message_text', caption)
+  // Upload endpoint now accepts reply_to_id (mirror of the JSON create path)
+  // so replies can carry attachments.
+  if (replyTarget.value?.id) {
+    formData.append('reply_to_id', String(replyTarget.value.id))
+  }
 
   isUploadingFile.value = true
   chatError.value = ''
@@ -3900,30 +5063,62 @@ const uploadAttachment = async (event) => {
   }
 }
 
-const fetchGifResults = async (mode = 'trending') => {
+const fetchGifResults = async (mode = 'trending', { append = false } = {}) => {
   if (!supportsGifs) {
     gifResults.value = []
     gifError.value = 'GIF search is not available in the backend yet.'
     return
   }
-
-  isLoadingGifs.value = true
+  gifPanelMode.value = mode
+  if (append) {
+    if (isLoadingMoreGifs.value || !gifNextPos.value) return
+    isLoadingMoreGifs.value = true
+  } else {
+    isLoadingGifs.value = true
+  }
   gifError.value = ''
 
   try {
-    const data = await requestJson(
-      mode === 'search' ? buildGifSearchUrl(gifQuery.value.trim()) : buildGifTrendingUrl(),
-      {
-        method: 'GET',
-      },
-    )
-    gifResults.value = normalizeGifResults(data)
+    const url = mode === 'search'
+      ? buildGifSearchUrl(gifQuery.value.trim(), append ? gifNextPos.value : '')
+      : buildGifTrendingUrl(append ? gifNextPos.value : '')
+    const data = await requestJson(url, { method: 'GET' })
+    const items = normalizeGifResults({ results: data?.items ?? data?.results ?? [] })
+    gifResults.value = append ? [...gifResults.value, ...items] : items
+    gifNextPos.value = data?.next_pos ?? data?.next ?? null
   } catch {
-    gifResults.value = []
+    if (!append) gifResults.value = []
     gifError.value = 'Live GIF search is unavailable right now.'
   } finally {
-    isLoadingGifs.value = false
+    if (append) isLoadingMoreGifs.value = false
+    else isLoadingGifs.value = false
   }
+}
+
+const loadMoreGifs = async () => {
+  if (!gifNextPos.value || isLoadingMoreGifs.value) return
+  await fetchGifResults(gifPanelMode.value, { append: true })
+}
+
+const handleGifGridScroll = (event) => {
+  const target = event?.currentTarget
+  if (!target || !gifNextPos.value || isLoadingMoreGifs.value) return
+  const remaining = target.scrollHeight - (target.scrollTop + target.clientHeight)
+  if (remaining < 120) {
+    void loadMoreGifs()
+  }
+}
+
+// Generic helper: only one composer-adjacent panel may be open at a time.
+// Closes the other panels + the message-search / mention-inbox / kebab /
+// reaction picker so they don't all stack on top of each other.
+const closeAllComposerPanels = ({ except } = {}) => {
+  if (except !== 'gif') showGifPanel.value = false
+  if (except !== 'resource') showResourcePanel.value = false
+  if (except !== 'search') showMessageSearch.value = false
+  if (except !== 'mentions') showMentionInbox.value = false
+  if (except !== 'kebab') openMessageKebabId.value = null
+  if (except !== 'picker') activeReactionPickerMessageId.value = null
 }
 
 const toggleGifPanel = async () => {
@@ -3931,20 +5126,29 @@ const toggleGifPanel = async () => {
     gifError.value = 'GIF search is not available in the backend yet.'
     return
   }
-  showGifPanel.value = !showGifPanel.value
-  if (showGifPanel.value) showResourcePanel.value = false
+  const next = !showGifPanel.value
+  closeAllComposerPanels({ except: next ? 'gif' : null })
+  showGifPanel.value = next
   if (showGifPanel.value) {
+    gifNextPos.value = null
     await fetchGifResults('trending')
   }
 }
 
 const searchGifs = async () => {
+  gifNextPos.value = null
   if (!gifQuery.value.trim()) {
     await fetchGifResults('trending')
     return
   }
-
   await fetchGifResults('search')
+}
+
+const scheduleGifSearch = () => {
+  if (gifSearchDebounceTimer) clearTimeout(gifSearchDebounceTimer)
+  gifSearchDebounceTimer = setTimeout(() => {
+    void searchGifs()
+  }, GIF_SEARCH_DEBOUNCE_MS)
 }
 
 const loadChatResources = async () => {
@@ -3970,8 +5174,9 @@ const loadChatResources = async () => {
 }
 
 const toggleResourcePanel = async () => {
-  showResourcePanel.value = !showResourcePanel.value
-  if (showResourcePanel.value) showGifPanel.value = false
+  const next = !showResourcePanel.value
+  closeAllComposerPanels({ except: next ? 'resource' : null })
+  showResourcePanel.value = next
   if (showResourcePanel.value && !chatResourceOptions.value.length) {
     await loadChatResources()
   }
@@ -4121,9 +5326,16 @@ const reloadGroupDetail = async () => {
     if (sequence !== loadSequence) return
 
     connectChatSocket()
+  } catch (error) {
+    console.error('reloadGroupDetail failed:', error)
   } finally {
+    // Always clear the page skeleton on the latest reload's completion.
+    // If a newer reload is in flight, it will set true again at its start.
     if (sequence === loadSequence) {
       isLoadingGroupDetail.value = false
+    } else if (loadSequence > 0) {
+      // Stale reload finishing while a newer one is mid-flight — leave the
+      // newer one to manage the flag (it already set it true at its start).
     }
   }
 }
@@ -4142,10 +5354,88 @@ watch(
   },
 )
 
+const onDocumentClickForStatusMenu = (event) => {
+  if (openStatusMenuTaskId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.task-state, .task-state-menu')) return
+  closeStatusMenu()
+}
+const onDocumentKeydownForStatusMenu = (event) => {
+  if (openStatusMenuTaskId.value !== null && event.key === 'Escape') {
+    closeStatusMenu()
+  }
+}
+
+const onDocumentClickForReceiptPopover = (event) => {
+  if (openReceiptPopoverId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.message-receipt, .message-receipt-popover')) return
+  closeReceiptPopover()
+}
+const onDocumentKeydownForReceiptPopover = (event) => {
+  if (openReceiptPopoverId.value !== null && event.key === 'Escape') {
+    closeReceiptPopover()
+  }
+}
+
+const onDocumentClickForReactionPicker = (event) => {
+  if (activeReactionPickerMessageId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest(
+    '.reaction-pick-group, .reaction-picker, .reaction-picker-toggle, .inline-action-btn'
+  )) return
+  activeReactionPickerMessageId.value = null
+}
+const onDocumentKeydownForReactionPicker = (event) => {
+  if (activeReactionPickerMessageId.value !== null && event.key === 'Escape') {
+    activeReactionPickerMessageId.value = null
+  }
+}
+
+const onDocumentClickForMessageKebab = (event) => {
+  if (openMessageKebabId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.inline-kebab-wrap, .inline-kebab-menu')) return
+  openMessageKebabId.value = null
+}
+const onDocumentKeydownForMessageKebab = (event) => {
+  if (openMessageKebabId.value !== null && event.key === 'Escape') {
+    openMessageKebabId.value = null
+  }
+}
+
+const onDocumentClickForResourceChoice = (event) => {
+  if (openResourceChoiceKey.value === null && openAttachmentChoiceKey.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (target.closest('.resource-chip-wrap')) return
+  closeResourceChoice()
+  closeAttachmentChoice()
+}
+const onDocumentKeydownForResourceChoice = (event) => {
+  if (event.key !== 'Escape') return
+  if (openResourceChoiceKey.value !== null) closeResourceChoice()
+  if (openAttachmentChoiceKey.value !== null) closeAttachmentChoice()
+}
+
 onMounted(async () => {
   manageWindowTimer = window.setInterval(() => {
     manageWindowNow.value = Date.now()
   }, 30000)
+  document.addEventListener('mousedown', onDocumentClickForStatusMenu)
+  document.addEventListener('keydown', onDocumentKeydownForStatusMenu)
+  document.addEventListener('mousedown', onDocumentClickForReceiptPopover)
+  document.addEventListener('keydown', onDocumentKeydownForReceiptPopover)
+  document.addEventListener('mousedown', onDocumentClickForReactionPicker)
+  document.addEventListener('keydown', onDocumentKeydownForReactionPicker)
+  document.addEventListener('mousedown', onDocumentClickForMessageKebab)
+  document.addEventListener('keydown', onDocumentKeydownForMessageKebab)
+  document.addEventListener('mousedown', onDocumentClickForResourceChoice)
+  document.addEventListener('keydown', onDocumentKeydownForResourceChoice)
 
   await ensureAuthUser()
   await loadGroupOptions()
@@ -4165,7 +5455,10 @@ onBeforeUnmount(() => {
     clearInterval(manageWindowTimer)
     manageWindowTimer = null
   }
-  clearTimeout(searchHighlightTimer)
+  document.removeEventListener('mousedown', onDocumentClickForStatusMenu)
+  document.removeEventListener('keydown', onDocumentKeydownForStatusMenu)
+  document.removeEventListener('mousedown', onDocumentClickForReceiptPopover)
+  document.removeEventListener('keydown', onDocumentKeydownForReceiptPopover)
 })
 </script>
 
@@ -4451,7 +5744,20 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 .tasks-content {
-  padding-right: 2px; /* for visible scrollbar */
+  position: relative;
+  padding-right: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .tasks-content.has-bulk-actions {
@@ -4461,125 +5767,236 @@ onBeforeUnmount(() => {
 .task-header-actions {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.task-depth-toggle.active {
-  color: var(--dark-green);
-  border-color: #b8dcc6;
-  background: #f3faf5;
-}
-
-.task-filter-bar,
-.task-bulk-bar {
-  display: flex;
-  align-items: end;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-  margin-bottom: 0.85rem;
-}
-
-.task-filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  min-width: 118px;
-  color: #5b6770;
+.task-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 32px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: #fff;
+  color: #50616c;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
-
-.task-filter-field--compact {
-  min-width: 92px;
-}
-
-.task-filter-field--wide {
-  min-width: min(100%, 220px);
-}
-
-.task-filter-bar--advanced {
-  align-items: end;
-  margin-top: -0.35rem;
-  padding: 0.72rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: #f8f9fa;
-}
-
-.task-more-filters-btn.active {
-  color: var(--air-force-blue);
+.task-mode-toggle:hover {
+  background: #f4f7f9;
   border-color: var(--air-force-blue);
-  background: #eef7f9;
-}
-
-.task-filter-field input,
-.task-filter-field select,
-.task-page-size select,
-.task-form-field input,
-.task-form-field select,
-.task-form-field textarea {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.52rem 0.62rem;
-  background: var(--white);
   color: var(--charcoal);
-  font: inherit;
+}
+.task-mode-toggle.is-active {
+  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #39687b);
+  color: #fff;
 }
 
-.task-readonly-value {
-  width: 100%;
-  min-height: 38px;
+/* ---------- Toolbar (search + filter popover + sort) ---------- */
+
+.task-toolbar {
   display: flex;
   align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.task-search {
+  position: relative;
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.task-search-icon {
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3a8;
+  font-size: 0.82rem;
+  pointer-events: none;
+}
+.task-search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 0.7rem 0 2rem;
   border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.52rem 0.62rem;
-  background: #f8f9fa;
+  border-radius: 8px;
+  background: #fff;
   color: var(--charcoal);
   font: inherit;
 }
-
-.task-filter-field input:focus,
-.task-filter-field select:focus,
-.task-page-size select:focus,
-.task-form-field input:focus,
-.task-form-field select:focus,
-.task-form-field textarea:focus {
+.task-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
   box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
 }
 
-.task-deleted-toggle {
-  display: inline-flex;
+.task-toolbar-controls {
+  display: flex;
   align-items: center;
-  gap: 0.38rem;
-  min-height: 38px;
-  color: #5b6770;
-  font-size: 0.82rem;
-  font-weight: 700;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.task-bulk-bar {
-  position: absolute;
-  left: 1rem;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 6;
+.task-toolbar-btn,
+.task-toolbar-sort select {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 0;
-  padding: 0.62rem 0.7rem;
-  background: #f1f5f7;
+  gap: 0.4rem;
+  height: 36px;
+  padding: 0 0.85rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(30, 44, 56, 0.16);
+  background: #fff;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+.task-toolbar-btn:hover,
+.task-toolbar-sort select:hover {
+  border-color: var(--air-force-blue);
+  background: #f4f7f9;
   color: var(--charcoal);
-  font-size: 0.84rem;
+}
+.task-toolbar-btn.has-active {
+  border-color: var(--air-force-blue);
+  background: rgba(57, 104, 123, 0.08);
+  color: var(--charcoal);
+}
+
+.task-filter-popover { position: relative; }
+.task-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--air-force-blue, #39687b);
+  color: #fff;
+  font-size: 0.7rem;
   font-weight: 700;
 }
+.task-filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 320px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding: 0.85rem;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.task-filter-row-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.task-filter-row input[type='datetime-local'] {
+  width: 100%;
+  height: 34px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--charcoal);
+  font: inherit;
+}
+.task-filter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #5b6770;
+}
+.task-filter-row select {
+  width: 100%;
+  height: 34px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--charcoal);
+  font: inherit;
+}
+.task-filter-row--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--charcoal);
+}
+.task-filter-panel-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+.task-filter-clear,
+.task-filter-close {
+  flex: 1;
+  height: 32px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.task-filter-clear:hover:not(:disabled),
+.task-filter-close:hover {
+  border-color: var(--air-force-blue);
+  background: #f4f7f9;
+  color: var(--charcoal);
+}
+.task-filter-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: #f7f8f9;
+  color: #a3adb3;
+}
+
+/* ---------- Banners ---------- */
+
+.task-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+.task-banner.is-error {
+  background: #fdecec;
+  color: #8c1f1f;
+  border: 1px solid #f3c2c2;
+}
+
+/* ---------- Sections ---------- */
 
 .task-pagination-bar {
   display: flex;
@@ -4605,231 +6022,625 @@ onBeforeUnmount(() => {
 }
 
 .task-section {
-  border-bottom: 1px solid var(--border-light);
-  padding: 0.9rem 0;
+  margin-bottom: 1.4rem;
 }
-
-.task-section:last-child {
-  border-bottom: 0;
-}
+.task-section:last-child { margin-bottom: 0; }
 
 .task-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
-  margin-bottom: 0.7rem;
+  margin-bottom: 0.55rem;
+  padding: 0 0.1rem;
 }
 
 .task-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--charcoal);
+  font-size: 0.74rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
-
 .task-section-title i {
-  margin-right: 0.45rem;
   color: var(--air-force-blue);
+  font-size: 0.85rem;
+}
+.task-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #50616c;
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-.task-section-status {
+.task-section-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.74rem;
   color: #6c757d;
-  font-size: 0.84rem;
-  font-weight: 700;
+}
+.task-section-progress-bar {
+  width: 88px;
+  height: 6px;
+  background: #eef2f4;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.task-section-progress-fill {
+  height: 100%;
+  background: var(--dark-green, #4d745e);
+  transition: width 200ms ease;
+}
+.task-section-progress-label { font-weight: 700; }
+
+/* ---------- Task list & item ---------- */
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .task-item {
-  min-width: 0;
+  display: flex;
   align-items: flex-start;
-  position: relative;
-  border-radius: 8px;
-  border: 1px solid var(--task-depth-border, #e5ebef);
-  background: var(--task-depth-bg, var(--white));
+  gap: 0.7rem;
+  padding: 0.6rem 0.85rem 0.6rem calc(0.85rem + var(--task-depth, 0) * 1.1rem);
+  border-bottom: 1px solid var(--task-depth-border, var(--border-light));
+  background: var(--task-depth-bg, #fff);
   box-shadow: inset 3px 0 0 var(--task-depth-accent, transparent);
-  cursor: default;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+  position: relative;
 }
-
-.group-detail .task-item:hover {
-  margin-top: 0 !important;
-  margin-right: 0 !important;
-  margin-bottom: 0 !important;
-  padding-top: 0.5rem !important;
-  padding-right: 0 !important;
-  padding-bottom: 0.5rem !important;
-  background: var(--task-depth-bg, var(--white)) !important;
-  transform: none !important;
+.task-item:last-child { border-bottom: 0; }
+.task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
+.task-item.is-selected {
+  background: rgba(57, 104, 123, 0.08);
+  box-shadow: inset 3px 0 0 var(--air-force-blue, #39687b);
 }
-
-.task-item.is-subtask::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0.35rem;
-  width: 0.5rem;
-  height: 1px;
-  background: var(--task-depth-accent, #cfd6dd);
-  opacity: 0.82;
+.task-item.is-complete .task-label {
+  color: #94a3a8;
+  text-decoration: line-through;
+  text-decoration-color: rgba(148, 163, 168, 0.6);
 }
+.task-item.is-deleted { opacity: 0.55; }
 
+/* Depth-tinted palette: parents have a soft green hue, sub-tasks fade toward white */
 .task-depth-0 {
   --task-depth-bg: #eaf6ee;
   --task-depth-border: #d0e6d8;
   --task-depth-accent: #79a988;
 }
-
 .task-depth-1 {
   --task-depth-bg: #f3faf5;
   --task-depth-border: #dceee2;
   --task-depth-accent: #9abc9f;
 }
-
 .task-depth-2 {
   --task-depth-bg: #fbfdfb;
   --task-depth-border: #edf5ef;
   --task-depth-accent: #c2d8c8;
 }
-
-.task-depth-3 {
-  --task-depth-bg: var(--white);
-  --task-depth-border: transparent;
-  --task-depth-accent: transparent;
-}
-
+.task-depth-3,
 .task-depth-4 {
-  --task-depth-bg: var(--white);
-  --task-depth-border: transparent;
+  --task-depth-bg: #fff;
+  --task-depth-border: var(--border-light);
   --task-depth-accent: transparent;
 }
 
-.task-depth-disabled {
-  --task-depth-bg: var(--white);
-  --task-depth-border: transparent;
-  --task-depth-accent: transparent;
+/* Collapse/expand chevron for tasks with sub-tasks. Reserved-width spacer
+   so rows align consistently whether or not they have children. */
+.task-collapse,
+.task-collapse-spacer {
+  flex-shrink: 0;
+  width: 18px;
+  height: 22px;
+  margin-top: 0.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.task-collapse {
+  cursor: pointer;
+  color: #6c757d;
+  border-radius: 4px;
+  transition: background-color 120ms ease, color 120ms ease, transform 160ms ease;
+}
+.task-collapse i { font-size: 0.78rem; transition: transform 160ms ease; }
+.task-collapse:hover { background: rgba(0, 0, 0, 0.05); color: var(--charcoal); }
+.task-collapse:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-collapse.is-collapsed i { transform: rotate(-90deg); }
+
+/* ---------- State pill (leading control) -- shows status, opens menu to change ---------- */
+
+.task-state-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin-top: 0.05rem;
 }
 
-.task-body {
-  flex: 1;
-  min-width: 0;
+.task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 26px;
+  padding: 0 0.6rem 0 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+  white-space: nowrap;
+}
+.task-state i { font-size: 0.78rem; }
+.task-state-label { line-height: 1; }
+.task-state-caret { font-size: 0.7rem; opacity: 0.7; margin-left: -0.1rem; }
+
+.task-state:hover:not(:disabled) { filter: brightness(0.96); }
+.task-state:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-state.is-open { box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.18); }
+
+.task-state.is-disabled,
+.task-state:disabled {
+  cursor: default;
+  filter: none;
+  opacity: 0.85;
 }
 
-.task-item.is-individual-task .task-body {
-  flex: 1 1 220px;
-}
+/* Status color variants -- used by both .task-state and .task-state-menu-item */
+.task-state--todo        { background: #eef2f4; color: #50616c; }
+.task-state--in_progress { background: #e0eef9; color: #1f5b89; }
+.task-state--done        { background: rgba(77, 116, 94, 0.18); color: var(--dark-green, #4d745e); }
+.task-state--blocked     { background: #fdecec; color: #8c1f1f; }
 
-.task-select-control {
+/* Status menu */
+.task-state-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  padding: 0.35rem;
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.task-state-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+.task-state-menu-item i:first-child {
+  width: 1rem;
+  text-align: center;
+}
+.task-state-menu-item:hover { background: #f4f7f9; }
+.task-state-menu-item.is-current { background: rgba(57, 104, 123, 0.08); }
+.task-state-menu-check { margin-left: auto; color: var(--air-force-blue, #39687b); }
+
+/* Selection box (only shown in select mode) */
+.task-select-box {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
-  flex-shrink: 0;
+  height: 22px;
+  margin-top: 0.15rem;
+  padding: 0;
+  border: 2px solid #c5cdd3;
+  border-radius: 6px;
+  background: #fff;
+  color: #fff;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.task-select-box i { font-size: 0.7rem; }
+.task-select-box:hover:not(:disabled) {
+  border-color: var(--air-force-blue, #39687b);
+  background: rgba(57, 104, 123, 0.08);
+}
+.task-select-box.is-selected {
+  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #39687b);
+}
+.task-select-box:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-select-box:disabled {
+  cursor: not-allowed;
+  background: #f1f3f5;
+  border-color: #d8dee2;
 }
 
-.task-select-control input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--air-force-blue);
-}
+/* Body */
 
+.task-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.task-headline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.task-label {
+  color: var(--charcoal);
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+}
 .task-description {
-  margin-top: 0.18rem;
+  margin-top: 0.25rem;
   color: #6c757d;
   font-size: 0.82rem;
-  line-height: 1.45;
+  line-height: 1.5;
 }
-
 .task-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.2rem;
-  color: #6c757d;
-  font-size: 0.78rem;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
 }
 
-.task-meta span {
+.task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #50616c;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.task-chip i { font-size: 0.7rem; }
+.task-chip--date.is-overdue {
+  background: #fdecec;
+  color: #8c1f1f;
+}
+.task-chip--assignee {
+  background: rgba(57, 104, 123, 0.1);
+  color: var(--air-force-blue, #39687b);
+}
+.task-chip--assignee.is-self {
+  background: rgba(77, 116, 94, 0.18);
+  color: var(--dark-green, #4d745e);
+}
+
+/* Dedicated assignee slot on the right of the row, top-aligned with the state pill.
+   Rendered as a button now -- click to filter by that person. */
+.task-assignee {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.05rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 11rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(57, 104, 123, 0.1);
+  color: var(--air-force-blue, #39687b);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.task-assignee i { font-size: 0.72rem; flex-shrink: 0; }
+.task-assignee span {
+  overflow: hidden;
+  text-overflow: ellipsis;
   min-width: 0;
-  overflow-wrap: anywhere;
+}
+.task-assignee:hover {
+  background: rgba(57, 104, 123, 0.18);
+  transform: translateY(-1px);
+}
+.task-assignee:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-assignee.is-self {
+  background: rgba(77, 116, 94, 0.18);
+  color: var(--dark-green, #4d745e);
+}
+.task-assignee.is-self:hover {
+  background: rgba(77, 116, 94, 0.3);
+}
+.task-assignee.is-active {
+  border-color: var(--air-force-blue, #39687b);
+  background: rgba(57, 104, 123, 0.22);
+}
+.task-assignee.is-self.is-active {
+  border-color: var(--dark-green, #4d745e);
+  background: rgba(77, 116, 94, 0.3);
 }
 
-.task-meta i {
-  margin-right: 0.25rem;
+.task-chip--deleted {
+  background: #f7e7e7;
+  color: #8c1f1f;
 }
+.task-chip--status[data-status='todo'] { background: #fff3d6; color: #8a6d1f; }
+.task-chip--status[data-status='in_progress'] { background: #e0eef9; color: #1f5b89; }
+.task-chip--status[data-status='in_review'] { background: #ebe2f7; color: #5b3b8c; }
+.task-chip--status[data-status='done'] { background: rgba(77, 116, 94, 0.15); color: var(--dark-green, #4d745e); }
+.task-chip--status[data-status='blocked'] { background: #fdecec; color: #8c1f1f; }
+.task-chip--role {
+  background: #f1f3f5;
+  color: #50616c;
+}
+
+/* "Assigned by Name" -- subtle text inline with the date chip */
+.task-assigned-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+.task-assigned-by strong {
+  color: #50616c;
+  font-weight: 700;
+}
+
+/* Row actions -- hidden until hover/focus */
 
 .task-row-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.45rem;
-  flex-wrap: wrap;
+  gap: 0.25rem;
   flex-shrink: 0;
+  /* 3 icon buttons (30px) + 2 gaps (4px) -- reserved even when only the
+     always-rendered + button is present, so the assignee column lines up
+     across all rows regardless of edit/delete permission. */
+  min-width: 98px;
+  opacity: 0;
+  transition: opacity 120ms ease;
 }
+.task-item:hover .task-row-actions,
+.task-row-actions:focus-within { opacity: 1; }
 
-.task-item.is-individual-task .task-row-actions {
-  flex: 0 1 auto;
-  max-width: 100%;
-}
-
-.task-status-toggle {
+.task-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  min-height: 32px;
-  padding: 0.35rem 0.65rem;
-  border: 1px solid var(--border-light);
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
   border-radius: 6px;
+  background: transparent;
+  color: #6c757d;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.task-icon-btn:hover:not(:disabled) {
+  background: #f1f3f5;
+  border-color: var(--border-light);
+  color: var(--charcoal);
+}
+.task-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-icon-btn--danger:hover:not(:disabled) {
+  background: #fdecec;
+  border-color: #f3c2c2;
+  color: #8c1f1f;
+}
+.task-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: transparent;
+  color: #c5cdd3;
+}
+
+/* Empty + skeleton states */
+
+.task-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 1.6rem 1rem;
+  color: #6c757d;
+  font-size: 0.85rem;
+}
+.task-empty-state i { font-size: 1.4rem; color: #c5cdd3; }
+.task-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px dashed var(--air-force-blue, #39687b);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--air-force-blue, #39687b);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.task-empty-cta:hover {
+  background: var(--air-force-blue, #39687b);
+  color: #fff;
+}
+
+.task-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   background: #fff;
-  color: #50616c;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 0.5rem;
+}
+.task-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+}
+.task-skeleton-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
+  background-size: 200% 100%;
+  animation: task-skeleton-shimmer 1.4s infinite linear;
+  flex-shrink: 0;
+}
+.task-skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
+.task-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
+  background-size: 200% 100%;
+  animation: task-skeleton-shimmer 1.4s infinite linear;
+}
+.task-skeleton-line--lg { width: 70%; }
+.task-skeleton-line--sm { width: 40%; }
+@keyframes task-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Sticky bulk action bar */
+
+.task-bulk-bar {
+  position: sticky;
+  bottom: 0.75rem;
+  margin: 0.85rem auto 0;
+  width: max-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.55rem 0.7rem 0.55rem 1rem;
+  background: #1f2530;
+  color: #fff;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  z-index: 5;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+.task-bulk-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+.task-bulk-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.task-bulk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 30px;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.task-bulk-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+.task-bulk-btn--primary {
+  background: var(--dark-green, #4d745e);
+  border-color: var(--dark-green, #4d745e);
+}
+.task-bulk-btn--primary:hover:not(:disabled) {
+  background: #5d8a72;
+  border-color: #5d8a72;
+}
+.task-bulk-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.7);
+}
+.task-bulk-btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.task-bulk-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.task-bulk-fade-enter-from,
+.task-bulk-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.task-bulk-fade-enter-active,
+.task-bulk-fade-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
 }
 
-.task-status-toggle i {
-  color: var(--air-force-blue);
-  font-size: 0.82rem;
-}
-
-.task-status-toggle:hover:not(:disabled) {
-  border-color: var(--air-force-blue);
-  background: #f1f5f7;
-  color: var(--charcoal);
-}
-
-.task-status-toggle.is-complete {
-  border-color: rgba(77, 116, 94, 0.35);
-  background: rgba(77, 116, 94, 0.1);
-  color: var(--dark-green);
-}
-
-.task-status-toggle.is-complete i {
-  color: var(--dark-green);
-}
-
-.task-status-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-@container (max-width: 640px) {
-  .task-item.is-individual-task {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .task-item.is-individual-task .task-body {
-    flex-basis: calc(100% - 36px);
-  }
-
-  .task-item.is-individual-task .task-row-actions {
-    width: calc(100% - 36px);
-    margin-left: calc(22px + 0.75rem);
-    justify-content: flex-start;
-  }
-}
-
-.task-item.is-deleted {
-  opacity: 0.6;
-}
+/* ---------- Refined task popup ---------- */
 
 .task-dialog-backdrop {
   position: fixed;
@@ -4839,71 +6650,388 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
 }
 
 .task-dialog {
   width: min(100%, 560px);
-  max-height: min(720px, calc(100vh - 2rem));
-  overflow-y: auto;
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding: 1rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-.task-dialog-header,
-.task-dialog-actions {
+.task-dialog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--border-light);
 }
-
-.task-dialog-header h4 {
-  margin: 0;
+.task-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   color: var(--charcoal);
-  font-size: 1rem;
 }
-
-.task-dialog-close {
-  width: 34px;
-  height: 34px;
+.task-dialog-title i {
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--white);
-  color: var(--charcoal);
-  cursor: pointer;
-}
-
-.task-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.task-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.32rem;
-  color: #5b6770;
+  background: rgba(57, 104, 123, 0.1);
+  color: var(--air-force-blue, #39687b);
+  border-radius: 8px;
   font-size: 0.82rem;
+}
+.task-dialog-title h4 {
+  margin: 0;
+  font-size: 1rem;
   font-weight: 700;
 }
-
-.task-form-field--wide {
-  width: 100%;
+.task-dialog-close {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #6c757d;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.task-dialog-close:hover {
+  background: #f4f7f9;
+  color: var(--charcoal);
+}
+.task-dialog-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
 }
 
-.task-form-field textarea {
+.task-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  padding: 1rem 1.1rem;
+  overflow-y: auto;
+}
+
+.task-dialog-title-input {
+  width: 100%;
+  padding: 0.35rem 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--charcoal);
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.task-dialog-title-input::placeholder { color: #a3adb3; font-weight: 600; }
+.task-dialog-title-input:focus { border-bottom-color: var(--air-force-blue, #39687b); }
+
+.task-dialog-description-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fafbfc;
+  color: var(--charcoal);
+  font: inherit;
+  font-size: 0.88rem;
   resize: vertical;
+  min-height: 60px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.task-dialog-description-input::placeholder { color: #a3adb3; }
+.task-dialog-description-input:focus {
+  outline: none;
+  border-color: var(--air-force-blue, #39687b);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+
+.task-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.task-dialog-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+.task-dialog-field--half { min-width: 0; }
+.task-dialog-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #6c757d;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.task-dialog-label i { font-size: 0.78rem; color: #94a3a8; }
+.task-dialog-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 0.65rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--charcoal);
+  font: inherit;
+  font-size: 0.88rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.task-dialog-input:focus {
+  outline: none;
+  border-color: var(--air-force-blue, #39687b);
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+}
+.task-dialog-readonly {
+  padding: 0.4rem 0.65rem;
+  background: #f4f7f9;
+  border-radius: 8px;
+  color: #50616c;
+  font-size: 0.85rem;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+/* Segmented control */
+.task-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  background: #f4f7f9;
+  border-radius: 10px;
+}
+.task-segmented-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+.task-segmented-option i { font-size: 0.78rem; opacity: 0.7; }
+.task-segmented-option:hover:not(:disabled):not(.is-active) {
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--charcoal);
+}
+.task-segmented-option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-segmented-option.is-active {
+  background: #fff;
+  color: var(--charcoal);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+.task-segmented-option.is-active i { opacity: 1; }
+.task-segmented-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Status segmented uses the row pill colors when active */
+.task-segmented-option--status.is-active.task-state--todo        { background: #eef2f4; color: #50616c; }
+.task-segmented-option--status.is-active.task-state--in_progress { background: #e0eef9; color: #1f5b89; }
+.task-segmented-option--status.is-active.task-state--done        { background: rgba(77, 116, 94, 0.18); color: var(--dark-green, #4d745e); }
+.task-segmented-option--status.is-active.task-state--blocked     { background: #fdecec; color: #8c1f1f; }
+
+.task-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid var(--border-light);
+  background: #fafbfc;
+}
+.task-dialog-hint {
+  color: #94a3a8;
+  font-size: 0.74rem;
+}
+.task-dialog-hint kbd {
+  display: inline-block;
+  padding: 0 0.3rem;
+  min-width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.7rem;
+  font-family: inherit;
+  color: #50616c;
+  text-align: center;
+}
+.task-dialog-actions { display: flex; gap: 0.45rem; }
+.task-dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 34px;
+  padding: 0 0.95rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  color: #50616c;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.task-dialog-btn:hover:not(:disabled) {
+  background: #f4f7f9;
+  border-color: var(--air-force-blue, #39687b);
+  color: var(--charcoal);
+}
+.task-dialog-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-dialog-btn--primary {
+  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #39687b);
+  color: #fff;
+}
+.task-dialog-btn--primary:hover:not(:disabled) {
+  background: #2d5365;
+  border-color: #2d5365;
+  color: #fff;
+}
+.task-dialog-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* Entrance/exit transition */
+.task-dialog-enter-from .task-dialog,
+.task-dialog-leave-to .task-dialog {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+}
+.task-dialog-enter-from,
+.task-dialog-leave-to { opacity: 0; }
+.task-dialog-enter-active,
+.task-dialog-leave-active { transition: opacity 160ms ease; }
+.task-dialog-enter-active .task-dialog,
+.task-dialog-leave-active .task-dialog {
+  transition: opacity 200ms ease, transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Tint level toggle in toolbar */
+.task-toolbar-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #fff;
+  color: #6c757d;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.task-toolbar-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--air-force-blue, #39687b);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.task-toolbar-icon-btn:hover {
+  background: #f4f7f9;
+  border-color: var(--air-force-blue, #39687b);
+  color: var(--charcoal);
+}
+.task-toolbar-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+.task-toolbar-icon-btn.is-active {
+  background: rgba(77, 116, 94, 0.15);
+  border-color: var(--dark-green, #4d745e);
+  color: var(--dark-green, #4d745e);
+}
+
+/* List footer: Show more / count info */
+.task-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding: 0.4rem 0.4rem;
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+.task-list-count { font-weight: 600; }
+.task-list-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 30px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--air-force-blue, #39687b);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.task-list-more:hover {
+  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #39687b);
+  color: #fff;
+}
+.task-list-more:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+}
+
+/* Flat (tint off) depth-class fallback */
+.task-depth-flat {
+  --task-depth-bg: #fff;
+  --task-depth-border: var(--border-light);
+  --task-depth-accent: transparent;
 }
 
 /* Discussion board: chat-container fills card, chat-messages scrolls */
@@ -4911,6 +7039,58 @@ onBeforeUnmount(() => {
   color: #6c757d;
   font-size: 0.85rem;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(108, 117, 125, 0.08);
+  border: 1px solid rgba(108, 117, 125, 0.18);
+}
+
+.chat-status-dot {
+  font-size: 0.55rem;
+  line-height: 1;
+}
+
+.chat-status--connected {
+  color: #1f7a3f;
+  background: rgba(31, 122, 63, 0.08);
+  border-color: rgba(31, 122, 63, 0.22);
+}
+
+.chat-status--connected .chat-status-dot {
+  color: #2ea44f;
+}
+
+.chat-status--offline {
+  color: #b54708;
+  background: rgba(181, 71, 8, 0.08);
+  border-color: rgba(181, 71, 8, 0.22);
+}
+
+.chat-status--offline .chat-status-dot {
+  color: #d97706;
+}
+
+.chat-status--loading {
+  color: var(--air-force-blue, #5b8c93);
+}
+
+.chat-reconnect-btn {
+  margin-left: 0.35rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chat-reconnect-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .chat-alert {
@@ -4935,6 +7115,94 @@ onBeforeUnmount(() => {
   padding: 0.55rem 0.9rem;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 2.4rem 1.4rem;
+  text-align: center;
+  color: var(--text-muted);
+  min-height: 220px;
+}
+
+.chat-empty-emoji {
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-bottom: 0.2rem;
+}
+
+.chat-empty-state strong {
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+
+.chat-empty-state span {
+  font-size: 0.88rem;
+  max-width: 320px;
+}
+
+.chat-empty-state .btn {
+  margin-top: 0.5rem;
+}
+
+.chat-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+}
+
+.chat-skeleton-row {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+}
+
+.chat-skeleton-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.message-search-filters {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.9rem;
+  margin: 0 0.9rem 0.6rem;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+}
+
+.message-search-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.message-search-filters select,
+.message-search-filters input[type="date"] {
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 0.36rem 0.55rem;
+  background: var(--surface, #fff);
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.message-action-btn.active {
+  background: rgba(31, 122, 63, 0.12);
+  color: #1f7a3f;
+  border-color: rgba(31, 122, 63, 0.32);
 }
 
 .scroll-bottom-btn {
@@ -5243,17 +7511,18 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-width: 0;
   border: 1px solid var(--border-light);
-  border-radius: 6px;
+  border-radius: 999px;
   background: var(--white);
   color: var(--charcoal);
   font: inherit;
-  padding: 0.52rem 0.62rem;
+  padding: 0.55rem 1rem;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .message-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
 }
 
 .message-search-list {
@@ -5474,15 +7743,16 @@ onBeforeUnmount(() => {
   align-items: center;
   max-width: 100%;
   border-radius: 999px;
-  background: #eef7f3;
-  color: var(--dark-green);
+  background: rgba(33, 150, 243, 0.12); /* soft blue */
+  color: #1565c0;
   font-weight: 700;
-  padding: 0.05rem 0.35rem;
+  padding: 0.05rem 0.4rem;
+  text-decoration: none;
 }
 
 .message.own .mention-token {
-  background: rgba(255, 255, 255, 0.18);
-  color: var(--white);
+  background: rgba(255, 255, 255, 0.22);
+  color: #cfe8ff;
 }
 
 .gif-panel {
@@ -5510,6 +7780,13 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.gif-grid--skeleton {
+  pointer-events: none;
 }
 
 .gif-card {
@@ -5520,6 +7797,14 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   cursor: pointer;
   padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.gif-card:hover,
+.gif-card:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  outline: none;
 }
 
 .gif-card img {
@@ -5529,11 +7814,44 @@ onBeforeUnmount(() => {
   display: block;
 }
 
-.gif-card span {
-  display: block;
-  padding: 0.45rem 0.55rem 0.6rem;
-  font-size: 0.78rem;
-  text-align: left;
+.gif-skeleton {
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+}
+
+.gif-status--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.2rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.gif-status--empty i {
+  font-size: 1.5rem;
+  opacity: 0.6;
+}
+
+.gif-status--error {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.gif-load-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.6rem;
+}
+
+.gif-attribution {
+  margin-top: 0.6rem;
+  text-align: right;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .chat-btn:disabled {
@@ -5553,24 +7871,14 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Never horizontally scroll. The hover toolbars / reactions that poke into
+     the gutter are constrained via the message row below. */
+  overflow-x: hidden;
 }
 
-.add-subtask-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border-color: var(--border-light);
-  flex-shrink: 0;
-}
-
-.task-empty-state {
-  padding: 0.8rem;
-  color: #6c757d;
-  background: #f8f9fa;
-  border: 1px dashed var(--border-light);
-  border-radius: 8px;
-  font-size: 0.88rem;
-}
+/* Tasks pane styles defined above; the legacy .add-subtask-btn /
+   .task-empty-state overrides previously here have been replaced by
+   the .task-icon-btn and .task-empty-state rules in the modernized block. */
 
 /* Discussion header */
 .pane--discussion .chat-header {
@@ -5596,6 +7904,9 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Never horizontally scroll. The hover toolbars / reactions that poke into
+     the gutter are constrained via the message row below. */
+  overflow-x: hidden;
 }
 
 /* Message date and time layout */
@@ -5661,27 +7972,54 @@ onBeforeUnmount(() => {
   font-size: 0.84rem;
 }
 
+/* Compact link-preview card — horizontal thumb + text layout, capped height
+   so a single image card can't dominate the chat scroll like before. */
 .message-preview {
   display: grid;
-  gap: 0.35rem;
-  margin-top: 0.7rem;
-  padding: 0.75rem 0.85rem;
-  border-radius: 16px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 12px;
   border: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-base) 86%, transparent);
   color: var(--text-primary);
+  max-width: 360px;
 }
 
 .message-preview img {
-  width: 100%;
-  max-height: 160px;
+  width: 56px;
+  height: 56px;
   border-radius: 8px;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.message-preview strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.88rem;
 }
 
 .message-preview span {
   color: var(--text-secondary);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Allow the strong/span pair to share the grid's second column. */
+.message-preview > :not(img) {
+  grid-column: 2;
+}
+
+.message-preview img {
+  grid-row: span 2;
 }
 
 .message-reactions {
@@ -5691,45 +8029,200 @@ onBeforeUnmount(() => {
   margin-top: 0.75rem;
 }
 
+/* Reaction chips — Telegram/Instagram style: compact, overlap the bubble */
 .reaction-btn,
 .reaction-summary-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   border-radius: 999px;
   border: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-elevated) 94%, transparent);
   color: var(--text-primary);
-  padding: 0.35rem 0.6rem;
-  font-size: 0.9rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1;
   cursor: pointer;
   transition:
     border-color 0.18s ease,
-    background 0.18s ease;
+    background 0.18s ease,
+    transform 0.12s ease;
 }
 
 .reaction-btn:hover,
 .reaction-summary-btn:hover {
-  border-color: var(--border-strong);
+  border-color: var(--air-force-blue);
+  transform: translateY(-1px);
 }
 
 .reaction-count {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
+  color: var(--text-muted);
+}
+
+.message-reactions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+}
+
+.message-reactions .reaction-summary-btn {
+  background: var(--white);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Receipt button — reset default <button> chrome since we converted it. */
+.message-receipt-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-top: 0.55rem;
+}
+
+/* Receipt wrap — anchor for the popover + slot for ticks. Pulled out of the
+   bubble's vertical flow on own messages so it sits inline at the bottom-right
+   corner (WhatsApp position) and adds zero extra height. */
+.message.own .message-receipt-wrap {
+  position: absolute;
+  bottom: 0.35rem;
+  right: 0.55rem;
 }
 
 .message-receipt {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.55rem;
+  gap: 0.25rem;
   color: var(--text-muted);
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.message-receipt:hover,
+.message-receipt.is-open {
+  color: var(--air-force-blue);
+  background: rgba(57, 104, 123, 0.10);
 }
 
 .message.own .message-receipt {
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.message.own .message-receipt:hover,
+.message.own .message-receipt.is-open {
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Tick colours.
+   - delivered:  single grey tick      (no reads yet)
+   - partial:    double grey ticks     (some but not all members read)
+   - read:       double blue ticks     (every other group member has read it) */
+.message-receipt--ticks .tick-icon {
+  font-size: 0.82rem;
+}
+
+.message-receipt--delivered .tick-icon,
+.message-receipt--partial .tick-icon {
+  color: rgba(0, 0, 0, 0.42);
+}
+
+.message.own .message-receipt--delivered .tick-icon,
+.message.own .message-receipt--partial .tick-icon {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.message-receipt--read .tick-icon {
+  color: #2196f3;
+}
+
+.message.own .message-receipt--read .tick-icon {
+  color: #6ad1ff;
+}
+
+.receipt-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.message-receipt-popover {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 240px;
+  max-width: 320px;
+  z-index: 20;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+  padding: 0.7rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+/* Teleported variant: rendered at <body> root with fixed coordinates so
+   the scrollable chat container's ``overflow: auto`` can't clip it. */
+.message-receipt-popover--floating {
+  /* Override the inline component-scoped absolute positioning baseline.
+     ``position`` is set via inline style by the component. */
+  bottom: auto;
+  right: auto;
+}
+
+.message:not(.own) .message-receipt-popover {
+  right: auto;
+  left: 0;
+}
+
+.message-receipt-popover-section + .message-receipt-popover-section {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--border-light);
+}
+
+.message-receipt-popover-section strong {
+  display: block;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.message-receipt-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0;
+}
+
+.message-receipt-popover-row .receipt-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.message-receipt-popover-row .receipt-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.message-receipt-popover-status {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.message-receipt-popover-status.error {
+  color: #b54708;
 }
 
 .hidden-file-input {
@@ -6147,7 +8640,6 @@ onBeforeUnmount(() => {
 }
 
 .chat-status,
-.task-section-status,
 .message-date,
 .message-time,
 .typing-indicator,
@@ -6182,10 +8674,15 @@ onBeforeUnmount(() => {
   background: var(--white);
   color: var(--charcoal);
   border: 1px solid var(--border-light);
-  border-radius: 4px;
+  border-radius: 22px;
+  padding: 0.7rem 1rem;
+  font: inherit;
+  line-height: 1.4;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
-.chat-input-field::placeholder {
+.chat-input-field::placeholder,
+.gif-search-input::placeholder {
   color: #8a949e;
 }
 
@@ -6193,18 +8690,34 @@ onBeforeUnmount(() => {
 .gif-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  background: var(--white);
+  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
+}
+
+.chat-input-field {
+  /* textarea-specific tweaks for a rounder, friendlier composer */
+  min-height: 2.65rem;
+  resize: none;
 }
 
 .chat-btn {
   border: 1px solid var(--border-light);
   background: var(--white);
   color: var(--air-force-blue);
+  border-radius: 999px;
+  padding: 0.55rem 0.95rem;
+  font-weight: 600;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.12s ease;
 }
 
 .chat-btn:hover {
   border-color: var(--air-force-blue);
   background: #f1f5f7;
+  transform: translateY(-1px);
+}
+
+.chat-btn:active {
+  transform: translateY(0);
 }
 
 .chat-btn:disabled,
@@ -6212,6 +8725,44 @@ onBeforeUnmount(() => {
   color: #98a2ad;
   border-color: var(--border-light);
   background: var(--white);
+  transform: none;
+}
+
+/* Icon-only chat-actions buttons (paperclip / image / resource panel) */
+.chat-actions-strip .chat-btn,
+.chat-input-actions .chat-btn {
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* "GIF" glyph mark — small caps label inside a circular button. Matches the
+   Tenor / iMessage convention better than a generic image icon. */
+.chat-btn-gif-glyph {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  padding: 0.15rem 0.32rem;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  font-family: var(--font-mono, "SFMono-Regular", "Menlo", monospace);
+}
+
+/* Panel-toggle buttons (GIF / Resources) keep an active state while their
+   panel is open so the user sees what's currently expanded. */
+.chat-btn--toggle.active {
+  background: rgba(31, 122, 63, 0.12);
+  border-color: var(--dark-green, #1f7a3f);
+  color: var(--dark-green, #1f7a3f);
+  box-shadow: inset 0 0 0 1px var(--dark-green, #1f7a3f);
+}
+
+.chat-btn--toggle.active:hover {
+  background: rgba(31, 122, 63, 0.18);
 }
 
 .message-avatar {
@@ -6227,21 +8778,467 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   background: var(--white);
   color: var(--charcoal);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
 .message-content {
   position: relative;
+  border-radius: 18px;
+  padding: 0.55rem 0.9rem 0.45rem;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+  /* Never grow a scrollbar inside a bubble. If content is unusually wide
+     (e.g. a giant URL), let it wrap rather than scroll. */
+  overflow: visible;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Ticks live in the bubble's bottom-right corner via absolute positioning.
+   No reserved right-padding on the bubble — that produced a visible empty
+   gap on short messages (e.g. "SSS"). On long messages where the last line
+   approaches the right edge, the ticks overlay the trailing characters — a
+   small inline spacer at the END of the text reserves just enough room on
+   the LAST line so the bubble width stays snug. */
+.message.own .message-text::after {
+  content: "\00a0\00a0\00a0\00a0\00a0\00a0";
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.message:hover .message-content {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .message-header {
   padding-right: 2.2rem;
 }
 
+/* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
+.message:not(.own) .message-content {
+  border-bottom-left-radius: 6px;
+}
+
 .message.own .message-content {
   background: var(--dark-green);
   color: var(--white);
   border-color: var(--dark-green);
+  border-bottom-right-radius: 6px;
+  box-shadow: 0 2px 8px rgba(31, 122, 63, 0.18);
+}
+
+.message.own:hover .message-content {
+  box-shadow: 0 4px 14px rgba(31, 122, 63, 0.26);
+}
+
+/* Resource chip + open/download popover */
+.resource-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.resource-choice-popover {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 25;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 0.35rem 0.45rem;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  animation: kebab-pop 0.14s ease-out;
+  white-space: nowrap;
+}
+
+.resource-choice-status {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding: 0 0.4rem;
+}
+
+.resource-choice-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.resource-choice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--air-force-blue);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.12s ease;
+}
+
+.resource-choice-btn:hover:not(:disabled) {
+  background: rgba(57, 104, 123, 0.10);
+  border-color: var(--air-force-blue);
+  transform: translateY(-1px);
+}
+
+.resource-choice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resource-choice-btn--danger {
+  color: #c0392b;
+  border-color: rgba(192, 57, 43, 0.4);
+}
+
+.resource-choice-btn--danger:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.10);
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+/* Attachment chips — softer, rounder */
+.attachment-chip {
+  border-radius: 14px;
+  padding: 0.5rem 0.7rem;
+  transition: border-color 0.16s ease, transform 0.12s ease;
+}
+
+.attachment-chip:hover {
+  border-color: var(--air-force-blue);
+  transform: translateY(-1px);
+}
+
+/* Message action buttons (Reply / Edit / Delete) — pill chips on hover */
+.message-action-btn {
+  border-radius: 999px;
+  padding: 0.18rem 0.6rem !important;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.message-action-btn:hover:not(:disabled) {
+  background: rgba(57, 104, 123, 0.10);
+}
+
+.message.own .message-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Inline action cluster inside the message header (sits after the time).
+   Reply + Smile are always visible; the kebab (Edit/Delete dropdown) only
+   shows up while ``canManageMessage`` is true. */
+.message-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  margin-left: 0.35rem;
+  position: relative;
+}
+
+.inline-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.72rem;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.inline-action-btn:hover:not(:disabled),
+.inline-action-btn.active {
+  background: rgba(57, 104, 123, 0.10);
+  color: var(--air-force-blue);
+}
+
+.message.own .inline-action-btn {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.message.own .inline-action-btn:hover:not(:disabled),
+.message.own .inline-action-btn.active {
+  background: rgba(255, 255, 255, 0.20);
+  color: var(--white);
+}
+
+.inline-kebab-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.inline-kebab-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  min-width: 140px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+  padding: 0.25rem;
+  animation: kebab-pop 0.14s ease-out;
+}
+
+.inline-kebab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.7rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.inline-kebab-item i {
+  width: 0.95rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.inline-kebab-item:hover:not(:disabled) {
+  background: rgba(57, 104, 123, 0.10);
+}
+
+.inline-kebab-item--danger {
+  color: #c0392b;
+}
+
+.inline-kebab-item--danger i {
+  color: #c0392b;
+}
+
+.inline-kebab-item--danger:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.10);
+}
+
+.inline-kebab-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes kebab-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Inline picker popout — pops UPWARD above the message header so it never
+   covers the message body. Anchored to the right edge of the inline action
+   cluster (where the smile button sits). */
+.reaction-picker--inline {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  top: auto;
+  right: 0;
+  left: auto;
+  z-index: 30;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  display: inline-flex;
+  gap: 0.2rem;
+  white-space: nowrap;
+  animation: kebab-pop 0.14s ease-out;
+}
+
+.reaction-picker--inline .reaction-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.reaction-picker--inline .reaction-btn:hover {
+  transform: scale(1.18);
+  background: #f1f5f7;
+}
+
+/* Floating hover toolbar — DEPRECATED: replaced by inline header actions.
+   The .message-hover-toolbar block is preserved below as ``display: none``
+   in case other places still wire it up. */
+.message-hover-toolbar {
+  display: none !important;
+}
+
+._unused_message_hover_toolbar_legacy {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--white);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  z-index: 3;
+}
+
+.message.own .message-hover-toolbar {
+  top: 0.4rem;
+  right: 0.4rem;
+  left: auto;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.18rem;
+  border-radius: 16px;
+  transform: translateX(4px);
+}
+
+.message:hover .message-hover-toolbar,
+.message-hover-toolbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.message.own:hover .message-hover-toolbar,
+.message.own .message-hover-toolbar:focus-within {
+  transform: translateX(0);
+}
+
+.hover-tool-btn {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+
+.hover-tool-btn:hover:not(:disabled) {
+  background: #f1f5f7;
+  color: var(--air-force-blue);
+  transform: scale(1.06);
+}
+
+.hover-tool-btn--danger:hover:not(:disabled) {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.10);
+}
+
+.hover-tool-btn--reaction.active {
+  background: rgba(31, 122, 63, 0.12);
+  color: var(--dark-green, #1f7a3f);
+}
+
+.hover-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Picker popout for own-messages — anchors next to the vertical toolbar
+   and pops out to the LEFT (into the bubble) so it never escapes the
+   container's right edge. */
+.reaction-picker--own {
+  bottom: auto;
+  top: 50%;
+  right: calc(100% + 0.45rem);
+  left: auto;
+  transform: translateY(-50%);
+  animation: reaction-picker-own-pop 0.14s ease-out;
+}
+
+@keyframes reaction-picker-own-pop {
+  from { opacity: 0; transform: translate(6px, -50%) scale(0.94); }
+  to { opacity: 1; transform: translate(0, -50%) scale(1); }
+}
+
+/* Animated typing indicator — three bouncing dots inside a soft pill. */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.85rem;
+  margin: 0.25rem 0.9rem 0.4rem;
+  width: fit-content;
+  border-radius: 999px;
+  background: rgba(57, 104, 123, 0.08);
+  color: var(--air-force-blue);
+  font-size: 0.78rem;
+  font-weight: 600;
+  animation: typing-pill-pop 0.18s ease-out;
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 0.18rem;
+  align-items: flex-end;
+  height: 0.7rem;
+}
+
+.typing-dots span {
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  animation: typing-dot-bounce 1.2s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+.typing-dots span:nth-child(3) { animation-delay: 0s; }
+
+@keyframes typing-dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
+@keyframes typing-pill-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Vue <Transition name="typing"> classes — slide+fade as the pill enters/leaves */
+.typing-enter-active,
+.typing-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.typing-enter-from,
+.typing-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .message.own .message-author,
@@ -6257,33 +9254,77 @@ onBeforeUnmount(() => {
   color: var(--air-force-blue);
 }
 
-.reaction-picker-toggle {
+.reaction-pick-group {
   position: absolute;
-  top: 0.55rem;
-  right: 0.55rem;
+  bottom: 0.3rem;
+  left: 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  z-index: 4;
+  min-height: 1.4rem;
+}
+
+/* Reaction chips stay at bottom-left for own and received alike — the smile
+   button for own messages lives separately in the right-side toolbar. */
+
+/* When reactions exist, the chip strip permanently occupies the slot;
+   it's always visible (not gated by hover) so the count stays readable. */
+.reaction-pick-group.has-reactions .message-reactions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Reserve room at the bottom of the bubble so the chip strip (positioned
+   ``bottom: -0.85rem``) doesn't crash into the next message. */
+.message-content:has(.reaction-pick-group.has-reactions) {
+  padding-bottom: 1.5rem;
+}
+
+.reaction-picker-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border: 1px solid var(--border-light);
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--border-default);
   border-radius: 50%;
   background: var(--white);
   color: var(--air-force-blue);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
   transition:
     opacity 0.16s ease,
     border-color 0.16s ease,
-    background 0.16s ease;
+    background 0.16s ease,
+    transform 0.16s ease;
 }
 
+.message:hover .reaction-picker-toggle,
 .message-content:hover .reaction-picker-toggle,
-.message-content:focus-within .reaction-picker-toggle,
+.reaction-pick-group:hover .reaction-picker-toggle,
+.reaction-pick-group:focus-within .reaction-picker-toggle,
+.reaction-pick-group.active .reaction-picker-toggle,
 .reaction-picker-toggle.active {
   opacity: 1;
   pointer-events: auto;
+}
+
+.reaction-picker-toggle:hover,
+.reaction-picker-toggle.active {
+  border-color: var(--air-force-blue);
+  background: #f1f5f7;
+  transform: scale(1.04);
+}
+
+/* Smaller "+" smiley when sitting next to existing chips */
+.reaction-pick-group.has-reactions .reaction-picker-toggle {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.85rem;
 }
 
 .reaction-picker-toggle:hover,
@@ -6304,27 +9345,57 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.24);
 }
 
+/* Click-only picker. Renders only when ``activeReactionPickerMessageId``
+   matches this message — no hover gating in CSS. Anchored above the smile
+   button (WhatsApp-style) so it never collides with the bubble below. */
 .reaction-picker {
   position: absolute;
-  top: 2.55rem;
-  right: 0.55rem;
-  z-index: 2;
+  bottom: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 6;
   display: inline-flex;
-  gap: 0.35rem;
-  padding: 0.35rem;
-  border: 1px solid var(--border-light);
+  gap: 0.2rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-default);
   border-radius: 999px;
   background: var(--white);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+  animation: reaction-picker-pop 0.14s ease-out;
+}
+
+.message.own .reaction-picker {
+  right: auto;
+  left: 0;
 }
 
 .reaction-picker .reaction-btn {
   width: 2rem;
   height: 2rem;
-  justify-content: center;
   padding: 0;
   border-radius: 50%;
+  border-color: transparent;
+  background: transparent;
   box-shadow: none;
+  font-size: 1.05rem;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.reaction-picker .reaction-btn:hover {
+  transform: scale(1.18);
+  background: #f1f5f7;
+  border-color: transparent;
+}
+
+@keyframes reaction-picker-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .reaction-btn:hover,
@@ -6333,19 +9404,8 @@ onBeforeUnmount(() => {
   background: #f8f9fa;
 }
 
-.task-section {
-  border-bottom-color: var(--border-light);
-}
-
-.add-subtask-btn {
-  color: var(--air-force-blue);
-  border-color: var(--border-light);
-}
-
-.add-subtask-btn:hover {
-  background: #f1f5f7;
-  border-color: var(--air-force-blue);
-}
+/* Task pane theming overrides (legacy `.add-subtask-btn` and the
+   `.task-item:hover` reset removed -- handled by the modernized rules above). */
 
 .add-subtask-btn:disabled,
 .add-subtask-btn:disabled:hover {
@@ -6593,14 +9653,20 @@ onBeforeUnmount(() => {
     max-width: none;
   }
 
-  .task-filter-field {
-    min-width: min(100%, 148px);
-    flex: 1 1 140px;
-  }
+  .task-toolbar { gap: 0.5rem; }
+  .task-search { flex: 1 1 100%; }
+  .task-toolbar-controls { width: 100%; justify-content: flex-end; }
+  .task-filter-panel { left: 0; right: auto; width: calc(100vw - 2rem); max-width: 320px; }
 
   .task-row-actions {
-    width: 100%;
-    justify-content: flex-start;
+    opacity: 1; /* hover doesn't exist on touch -- always show actions */
+  }
+  .task-icon-btn { width: 34px; height: 34px; }
+
+  .task-bulk-bar {
+    bottom: 1rem;
+    width: calc(100% - 1.5rem);
+    justify-content: space-between;
   }
 
   .task-form-grid {

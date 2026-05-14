@@ -8,6 +8,7 @@ from apps.resources.models import Resources
 
 from .models import (
     MessageAttachment,
+    MessageGif,
     MessageMention,
     MessageReaction,
     MessageResource,
@@ -70,6 +71,15 @@ class MessageStatusSerializer(serializers.ModelSerializer):
         model = MessageStatus
         fields = ["id", "user", "status", "delivered_at", "read_at"]
         read_only_fields = ["id", "delivered_at", "read_at"]
+
+
+class MessageGifSerializer(serializers.ModelSerializer):
+    """Read-side projection of the GIF sidecar attached to a ``MessageType.GIF`` message."""
+
+    class Meta:
+        model = MessageGif
+        fields = ["provider", "provider_id", "gif_url", "preview_url", "title"]
+        read_only_fields = fields
 
 
 class MessageAttachmentSerializer(serializers.ModelSerializer):
@@ -140,12 +150,24 @@ class ReplyToSerializer(serializers.ModelSerializer):
 
     text = serializers.SerializerMethodField()
     user_id = serializers.IntegerField(source="sender_user_id", read_only=True)
+    user_name = serializers.SerializerMethodField()
     deleted = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
-        fields = ["id", "text", "user_id", "deleted"]
+        fields = ["id", "text", "user_id", "user_name", "deleted"]
         read_only_fields = fields
+
+    def get_user_name(self, obj):
+        # Reply previews need the author's display name so the FE can render
+        # "Reply to Alice" rather than "Reply to User 36". For soft-deleted
+        # parents we still surface the name — the placeholder rendering uses
+        # ``deleted: true`` to suppress sensitive text but the author is
+        # already public via mentions / message history.
+        sender = getattr(obj, "sender_user", None)
+        if sender is None:
+            return ""
+        return sender.get_full_name() or sender.get_username() or ""
 
     def get_text(self, obj):
         if obj.deleted_at is not None:
@@ -215,6 +237,7 @@ class MessageSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    gif = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
@@ -239,6 +262,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_delivered_to_me",
             "reply_to",
             "reply_to_id",
+            "gif",
         ]
         read_only_fields = [
             "id", "group", "sender_user",
@@ -247,6 +271,15 @@ class MessageSerializer(serializers.ModelSerializer):
 
     def get_reactions(self, obj):
         return aggregate_reactions(obj)
+
+    def get_gif(self, obj):
+        # Reverse OneToOne raises DoesNotExist when no row — guard with
+        # ``getattr`` so messages without a GIF sidecar serialize as
+        # ``gif: null`` instead of raising.
+        gif = getattr(obj, "gif", None)
+        if gif is None:
+            return None
+        return MessageGifSerializer(gif).data
 
     def create(self, validated_data):
         resources_data = validated_data.pop("resources", [])
@@ -260,7 +293,12 @@ class MessageSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         msg = attrs.get("message_text", "").strip()
         resources_data = self.initial_data.get("resources", [])
-        if not msg and not resources_data:
+        message_type = attrs.get("message_type") or getattr(self.instance, "message_type", None)
+        # GIF messages are created via a dedicated ``send-gif`` action and
+        # may legitimately have empty caption text. Other types still
+        # require text or a resource — empty rows would render as blank
+        # bubbles, which is worse than rejecting them on the write side.
+        if message_type != MessageType.GIF and not msg and not resources_data:
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
@@ -292,6 +330,8 @@ class MessagePublicSerializer(serializers.ModelSerializer):
     # WS event so the FE renderer can be one code path. ``None`` when the
     # message has no URL or the worker hasn't completed yet.
     preview = serializers.SerializerMethodField()
+    # Nested GIF sidecar for ``message_type == 'gif'`` rows.
+    gif = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
@@ -312,6 +352,7 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             "is_delivered_to_me",
             "reply_to",
             "preview",
+            "gif",
         ]
         read_only_fields = fields
 
@@ -326,10 +367,24 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             return None
         return preview.to_payload()
 
+    def get_gif(self, obj):
+        gif = getattr(obj, "gif", None)
+        if gif is None:
+            return None
+        return MessageGifSerializer(gif).data
+
 
 class MessageAttachmentUploadSerializer(serializers.Serializer):
     message_text = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
     uploaded_file = serializers.FileField(required=True)
+    # Optional reply target so the multipart upload path supports the same
+    # quoted-reply UX as the JSON message-create path. Same queryset / cross-
+    # group invariants as :class:`ReplyToIdField`.
+    reply_to_id = ReplyToIdField(
+        source="reply_to",
+        required=False,
+        allow_null=True,
+    )
 
     def validate_message_text(self, value):
         return sanitize_text((value or "").strip())
@@ -423,3 +478,34 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
+
+
+class MessageGifCreateSerializer(serializers.Serializer):
+    """Write payload for ``POST .../messages/send-gif/``.
+
+    Caption text is optional but still runs through ``sanitize_text`` so a
+    GIF send cannot bypass the chat moderation filter. ``reply_to_id``
+    works exactly like the JSON message-create path — same group-scoped,
+    soft-delete-aware queryset via :class:`ReplyToIdField`.
+    """
+
+    provider = serializers.CharField(max_length=32, required=False, default="tenor")
+    provider_id = serializers.CharField(max_length=128)
+    gif_url = serializers.URLField(max_length=500)
+    preview_url = serializers.URLField(
+        max_length=500, required=False, allow_blank=True, default=""
+    )
+    title = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
+    message_text = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=True, default=""
+    )
+    reply_to_id = ReplyToIdField(
+        source="reply_to",
+        required=False,
+        allow_null=True,
+    )
+
+    def validate_message_text(self, value):
+        return sanitize_text((value or "").strip())

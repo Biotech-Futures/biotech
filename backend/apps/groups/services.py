@@ -2,13 +2,78 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.users.models import MentorProfile
+from apps.users.models import MentorProfile, StudentProfile
 
 from .models import GroupMembership
 
 
 MEMBER_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 MENTOR_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
+SUPERVISOR_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.SUPERVISOR
+
+
+@transaction.atomic
+def sync_supervisor_memberships(supervisor_user_id):
+    """Idempotent: ensure the given supervisor's SUPERVISOR memberships
+    match the union of active groups across all of their supervisees.
+
+    A supervisor row is added for every group containing at least one
+    active supervisee, and removed (left_at set) when no supervisee
+    remains in that group. Safe to call repeatedly.
+    """
+    if not supervisor_user_id:
+        return
+
+    supervisee_user_ids = list(
+        StudentProfile.objects
+        .filter(supervisor_id=supervisor_user_id)
+        .values_list("user_id", flat=True)
+    )
+    needed_group_ids = set(
+        GroupMembership.objects.filter(
+            user_id__in=supervisee_user_ids,
+            left_at__isnull=True,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        ).values_list("group_id", flat=True)
+    ) if supervisee_user_ids else set()
+
+    active_supervisor_qs = GroupMembership.objects.filter(
+        user_id=supervisor_user_id,
+        membership_role=SUPERVISOR_MEMBERSHIP_ROLE,
+        left_at__isnull=True,
+    )
+    active_group_ids = set(active_supervisor_qs.values_list("group_id", flat=True))
+
+    for group_id in needed_group_ids - active_group_ids:
+        GroupMembership.objects.get_or_create(
+            group_id=group_id,
+            user_id=supervisor_user_id,
+            left_at=None,
+            defaults={"membership_role": SUPERVISOR_MEMBERSHIP_ROLE},
+        )
+
+    stale_group_ids = active_group_ids - needed_group_ids
+    if stale_group_ids:
+        active_supervisor_qs.filter(group_id__in=stale_group_ids).update(
+            left_at=timezone.now(),
+        )
+
+
+def sync_supervisor_memberships_for_student(student_user_id):
+    """Convenience wrapper: triggered when a student's group memberships
+    change. Looks up the student's supervisor and syncs that supervisor's
+    rows. No-op if the student has no supervisor.
+    """
+    if not student_user_id:
+        return
+    supervisor_id = (
+        StudentProfile.objects
+        .filter(user_id=student_user_id)
+        .values_list("supervisor_id", flat=True)
+        .first()
+    )
+    if supervisor_id:
+        sync_supervisor_memberships(supervisor_id)
 
 
 def active_mentor_membership_qs(*, mentor_user=None, group=None):
