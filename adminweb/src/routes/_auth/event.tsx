@@ -99,6 +99,38 @@ interface EventFormProps {
   onSubmit: (e: React.FormEvent) => void;
 }
 
+function EventFormRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4">
+      <Label className="pt-2 sm:text-right">{label}</Label>
+      <div className="min-w-0 space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function EventDetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4">
+      <Label className="text-xs uppercase text-muted-foreground sm:text-right">
+        {label}
+      </Label>
+      <div className="min-w-0 text-sm">{children}</div>
+    </div>
+  );
+}
+
 function EventForm({
   formId,
   control,
@@ -119,35 +151,31 @@ function EventForm({
 }: EventFormProps) {
   return (
     <form id={formId} className="grid gap-5 px-4 pb-4" onSubmit={onSubmit}>
-      <div className="space-y-1.5">
-        <Label>Host</Label>
+      <EventFormRow label="Host">
         <Input
           value={currentHostName}
           readOnly
           disabled
           className="bg-muted text-muted-foreground cursor-not-allowed"
         />
-      </div>
+      </EventFormRow>
 
-      <div className="space-y-1.5">
-        <Label>Event Name</Label>
+      <EventFormRow label="Event Name">
         <Input placeholder="Event name" {...register("eventName")} />
         {errors.eventName && (
           <p className="text-sm text-destructive">{errors.eventName.message}</p>
         )}
-      </div>
+      </EventFormRow>
 
-      <div className="space-y-1.5">
-        <Label>Description</Label>
+      <EventFormRow label="Description">
         <Input placeholder="Optional" {...register("description")} />
-      </div>
+      </EventFormRow>
 
       <Controller
         control={control}
         name="isVirtual"
         render={({ field }) => (
-          <div className="space-y-1.5">
-            <Label>Event Type</Label>
+          <EventFormRow label="Event Type">
             <Select
               value={field.value ? "true" : "false"}
               onValueChange={(val) => field.onChange(val === "true")}
@@ -160,41 +188,40 @@ function EventForm({
                 <SelectItem value="true">Virtual</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </EventFormRow>
         )}
       />
 
       {!isVirtual && (
-        <div className="space-y-1.5">
-          <Label>Location</Label>
+        <EventFormRow label="Location">
           <Input
             placeholder="Venue address or room"
             {...register("location")}
           />
-        </div>
+        </EventFormRow>
       )}
 
-      <div className="space-y-1.5">
-        <Label>{isVirtual ? "Meeting Link" : "Google Map Link"}</Label>
+      <EventFormRow label={isVirtual ? "Meeting Link" : "Google Map Link"}>
         <Input
-          placeholder={isVirtual ? "https://zoom.us/..." : "https://maps.google.com/..."}
+          placeholder={
+            isVirtual ? "https://zoom.us/..." : "https://maps.google.com/..."
+          }
           {...register("locationLink")}
         />
-      </div>
+      </EventFormRow>
 
       <Controller
         control={control}
         name="startAt"
         render={({ field }) => (
-          <div className="space-y-1.5">
-            <Label>Start</Label>
+          <EventFormRow label="Start">
             <DateTimeLocalInput field={field} />
             {errors.startAt && (
               <p className="text-sm text-destructive">
                 {errors.startAt.message}
               </p>
             )}
-          </div>
+          </EventFormRow>
         )}
       />
 
@@ -202,21 +229,19 @@ function EventForm({
         control={control}
         name="endsAt"
         render={({ field }) => (
-          <div className="space-y-1.5">
-            <Label>End</Label>
+          <EventFormRow label="End">
             <DateTimeLocalInput field={field} />
             {errors.endsAt && (
               <p className="text-sm text-destructive">
                 {errors.endsAt.message}
               </p>
             )}
-          </div>
+          </EventFormRow>
         )}
       />
 
       {groups.length > 0 && (
-        <div className="space-y-2">
-          <Label>Target Groups</Label>
+        <EventFormRow label="Target Groups">
           <div className="grid grid-cols-2 gap-2">
             {groups.map((g) => (
               <label
@@ -232,12 +257,11 @@ function EventForm({
               </label>
             ))}
           </div>
-        </div>
+        </EventFormRow>
       )}
 
       {roles.length > 0 && (
-        <div className="space-y-2">
-          <Label>Target Roles</Label>
+        <EventFormRow label="Target Roles">
           <div className="grid grid-cols-2 gap-2">
             {roles.map((r) => (
               <label
@@ -253,12 +277,11 @@ function EventForm({
               </label>
             ))}
           </div>
-        </div>
+        </EventFormRow>
       )}
 
       {tracks.length > 0 && (
-        <div className="space-y-2">
-          <Label>Target Tracks</Label>
+        <EventFormRow label="Target Tracks">
           <div className="grid grid-cols-2 gap-2">
             {tracks.map((t) => (
               <label
@@ -274,7 +297,7 @@ function EventForm({
               </label>
             ))}
           </div>
-        </div>
+        </EventFormRow>
       )}
     </form>
   );
@@ -339,13 +362,18 @@ function EventPage() {
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
   const { data: tracksData } = useQueryTracks();
-  const { data: eventTargetsData } = useQueryEventTargets(editingEvent?.id ?? null);
-  const { data: viewTargetsData } = useQueryEventTargets(viewingEvent?.id ?? null);
+  const { data: eventTargetsData } = useQueryEventTargets(
+    editingEvent?.id ?? null,
+  );
+  const { data: viewTargetsData } = useQueryEventTargets(
+    viewingEvent?.id ?? null,
+  );
 
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
-  const { data: rsvpData, isPending: isRsvpLoading } = useQueryEventRsvps(rsvpEventId);
+  const { data: rsvpData, isPending: isRsvpLoading } =
+    useQueryEventRsvps(rsvpEventId);
 
   const allUsers = usersData?.data.items ?? [];
   const usersById = useMemo(
@@ -549,24 +577,22 @@ function EventPage() {
                 <TableRow key={event.id}>
                   <TableCell>{event.id}</TableCell>
                   <TableCell>{event.eventName}</TableCell>
+                  <TableCell>{formatEventHost(event, usersById)}</TableCell>
                   <TableCell>
-                    {formatEventHost(event, usersById)}
-                  </TableCell>
-                  <TableCell>
-                    {event.location
-                      ? event.location
-                      : event.locationLink
-                        ? (
-                          <a
-                            href={event.locationLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 underline"
-                          >
-                            Link
-                          </a>
-                        )
-                        : "---"}
+                    {event.location ? (
+                      event.location
+                    ) : event.locationLink ? (
+                      <a
+                        href={event.locationLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 underline"
+                      >
+                        Link
+                      </a>
+                    ) : (
+                      "---"
+                    )}
                   </TableCell>
                   <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
                   <TableCell>{formatDateTime(event.endsDatetime)}</TableCell>
@@ -678,101 +704,105 @@ function EventPage() {
             <DialogDescription>Event #{viewingEvent?.id}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-5 px-4 pb-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">Host</Label>
-              <p className="text-sm">
-                {viewingEvent ? formatEventHost(viewingEvent, usersById) : "---"}
+            <EventDetailRow label="Host">
+              <p>
+                {viewingEvent
+                  ? formatEventHost(viewingEvent, usersById)
+                  : "---"}
               </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">Description</Label>
-              <p className="text-sm">{viewingEvent?.description || "---"}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground uppercase">Event Type</Label>
-              <p className="text-sm">
-                {viewingEvent?.isVirtual ? "Virtual" : "In-person"}
-              </p>
-            </div>
+            </EventDetailRow>
+            <EventDetailRow label="Description">
+              <p>{viewingEvent?.description || "---"}</p>
+            </EventDetailRow>
+            <EventDetailRow label="Event Type">
+              <p>{viewingEvent?.isVirtual ? "Virtual" : "In-person"}</p>
+            </EventDetailRow>
             {!viewingEvent?.isVirtual && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">Location</Label>
-                <p className="text-sm">{viewingEvent?.location || "---"}</p>
-              </div>
+              <EventDetailRow label="Location">
+                <p>{viewingEvent?.location || "---"}</p>
+              </EventDetailRow>
             )}
             {viewingEvent?.locationLink && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">
-                  {viewingEvent.isVirtual ? "Meeting Link" : "Google Map Link"}
-                </Label>
-                <p className="text-sm">
+              <EventDetailRow
+                label={
+                  viewingEvent.isVirtual ? "Meeting Link" : "Google Map Link"
+                }
+              >
+                <p>
                   <a
                     href={viewingEvent.locationLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-500 underline"
+                    className="break-all text-blue-500 underline"
                   >
                     {viewingEvent.locationLink}
                   </a>
                 </p>
-              </div>
+              </EventDetailRow>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">Start</Label>
-                <p className="text-sm">
-                  {viewingEvent ? formatDateTime(viewingEvent.startDatetime) : "---"}
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">End</Label>
-                <p className="text-sm">
-                  {viewingEvent ? formatDateTime(viewingEvent.endsDatetime) : "---"}
-                </p>
-              </div>
-            </div>
+            <EventDetailRow label="Start">
+              <p>
+                {viewingEvent
+                  ? formatDateTime(viewingEvent.startDatetime)
+                  : "---"}
+              </p>
+            </EventDetailRow>
+            <EventDetailRow label="End">
+              <p>
+                {viewingEvent
+                  ? formatDateTime(viewingEvent.endsDatetime)
+                  : "---"}
+              </p>
+            </EventDetailRow>
             {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">Target Groups</Label>
+              <EventDetailRow label="Target Groups">
                 <div className="flex flex-wrap gap-1.5">
                   {viewTargetsData!.data!.groupIds.map((id) => {
                     const g = groups.find((x) => x.id === id);
                     return g ? (
-                      <Badge key={id} variant="secondary">{g.groupName}</Badge>
+                      <Badge key={id} variant="secondary">
+                        {g.groupName}
+                      </Badge>
                     ) : null;
                   })}
                 </div>
-              </div>
+              </EventDetailRow>
             )}
             {(viewTargetsData?.data?.roleIds?.length ?? 0) > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">Target Roles</Label>
+              <EventDetailRow label="Target Roles">
                 <div className="flex flex-wrap gap-1.5">
                   {viewTargetsData!.data!.roleIds.map((id) => {
                     const r = roles.find((x) => x.id === id);
                     return r ? (
-                      <Badge key={id} variant="secondary">{r.roleName}</Badge>
+                      <Badge key={id} variant="secondary">
+                        {r.roleName}
+                      </Badge>
                     ) : null;
                   })}
                 </div>
-              </div>
+              </EventDetailRow>
             )}
             {(viewTargetsData?.data?.trackIds?.length ?? 0) > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase">Target Tracks</Label>
+              <EventDetailRow label="Target Tracks">
                 <div className="flex flex-wrap gap-1.5">
                   {viewTargetsData!.data!.trackIds.map((id) => {
                     const t = tracks.find((x) => x.id === id);
                     return t ? (
-                      <Badge key={id} variant="secondary">{t.trackName}</Badge>
+                      <Badge key={id} variant="secondary">
+                        {t.trackName}
+                      </Badge>
                     ) : null;
                   })}
                 </div>
-              </div>
+              </EventDetailRow>
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setViewingEvent(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setViewingEvent(null)}
+            >
               Close
             </Button>
           </DialogFooter>
@@ -832,11 +862,19 @@ function EventPage() {
             onSubmit={handleSubmit(onSubmit)}
           />
           <DialogFooter>
-            <Button form="create-event-form" type="submit" disabled={isCreating}>
+            <Button
+              form="create-event-form"
+              type="submit"
+              disabled={isCreating}
+            >
               <CalendarIcon className="size-4" />
               {isCreating ? "Creating..." : "Create Event"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setCreateEventOpen(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateEventOpen(false)}
+            >
               Cancel
             </Button>
           </DialogFooter>
@@ -878,14 +916,18 @@ function EventPage() {
                   <TableBody>
                     {isRsvpLoading ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center">Loading...</TableCell>
+                        <TableCell colSpan={4} className="text-center">
+                          Loading...
+                        </TableCell>
                       </TableRow>
                     ) : rsvps.length > 0 ? (
                       rsvps.map((rsvp) => {
                         const student = allUsers.find(
                           (u) => Number(u.id) === rsvp.userId,
                         );
-                        const statusInfo = RSVP_STATUS_LABELS[rsvp.rsvpStatus] ?? {
+                        const statusInfo = RSVP_STATUS_LABELS[
+                          rsvp.rsvpStatus
+                        ] ?? {
                           label: rsvp.rsvpStatus,
                           variant: "outline" as const,
                         };
@@ -912,7 +954,9 @@ function EventPage() {
                       })
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center">No RSVPs yet.</TableCell>
+                        <TableCell colSpan={4} className="text-center">
+                          No RSVPs yet.
+                        </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -921,7 +965,11 @@ function EventPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRsvpEventId(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRsvpEventId(null)}
+            >
               Close
             </Button>
           </DialogFooter>
@@ -957,13 +1005,17 @@ function EventPage() {
             watchedRoleIds={editRoleIds}
             watchedTrackIds={editTrackIds}
             onToggleGroup={(id) =>
-              toggleId(editGroupIds, id, (v) => setEditValue("targetGroupIds", v))
+              toggleId(editGroupIds, id, (v) =>
+                setEditValue("targetGroupIds", v),
+              )
             }
             onToggleRole={(id) =>
               toggleId(editRoleIds, id, (v) => setEditValue("targetRoleIds", v))
             }
             onToggleTrack={(id) =>
-              toggleId(editTrackIds, id, (v) => setEditValue("targetTrackIds", v))
+              toggleId(editTrackIds, id, (v) =>
+                setEditValue("targetTrackIds", v),
+              )
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
           />
@@ -971,7 +1023,11 @@ function EventPage() {
             <Button form="edit-event-form" type="submit" disabled={isUpdating}>
               {isUpdating ? "Saving..." : "Save Changes"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setEditingEvent(null)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingEvent(null)}
+            >
               Cancel
             </Button>
           </DialogFooter>
@@ -1019,5 +1075,15 @@ function getAuthUserName(user: any) {
 function toDatetimeLocal(value: string) {
   const date = new Date(value);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes());
+  return (
+    date.getFullYear() +
+    "-" +
+    pad(date.getMonth() + 1) +
+    "-" +
+    pad(date.getDate()) +
+    "T" +
+    pad(date.getHours()) +
+    ":" +
+    pad(date.getMinutes())
+  );
 }

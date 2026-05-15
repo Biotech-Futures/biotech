@@ -263,7 +263,7 @@ def query_groups(
         Groups.objects
         .select_related("track")
         .filter(where)
-        .order_by("group_name", "id")
+        .order_by("-created_at", "-id")
         .values("id", "group_name", "track__track_name", "created_at")[offset:offset + limit]
     )
     

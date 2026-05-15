@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlusIcon, UploadIcon } from "lucide-react";
 import {
   useQueryTracks,
@@ -103,7 +102,10 @@ function UserManagementPage() {
   const status = searchParams.status ?? "all";
   const sort = searchParams.sort ?? "createdAt_desc";
   const page = searchParams.page;
-  const [sortBy, sortOrder] = sort.split("_") as ["name" | "createdAt", "asc" | "desc"];
+  const [sortBy, sortOrder] = sort.split("_") as [
+    "name" | "createdAt",
+    "asc" | "desc",
+  ];
   const [editorOpen, setEditorOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -196,10 +198,13 @@ function UserManagementPage() {
               ? values.supervisorSchoolName
               : undefined,
           mentorBackground:
-            values.role === "mentor" ? values.mentorBackground || null : undefined,
+            values.role === "mentor"
+              ? values.mentorBackground || null
+              : undefined,
           mentorInstitution:
             values.role === "mentor" ? values.mentorInstitution : undefined,
-          mentorReason: values.role === "mentor" ? values.mentorReason : undefined,
+          mentorReason:
+            values.role === "mentor" ? values.mentorReason : undefined,
           mentorMaxGroupCount:
             values.role === "mentor"
               ? (values.mentorMaxGroupCount ?? undefined)
@@ -406,30 +411,23 @@ function UserManagementPage() {
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>User Directory</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <UserTable
-            data={pageItems}
-            page={page}
-            totalPages={totalPages}
-            onPageChange={updatePage}
-            onView={openDetail}
-            onEdit={openEdit}
-            onToggleActive={handleToggleActive}
-            isPending={
-              isPending ||
-              createUser.isPending ||
-              updateUser.isPending ||
-              updateUserStatus.isPending ||
-              deleteUser.isPending ||
-              bulkCreateUsers.isPending
-            }
-          />
-        </CardContent>
-      </Card>
+      <UserTable
+        data={pageItems}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={updatePage}
+        onView={openDetail}
+        onEdit={openEdit}
+        onToggleActive={handleToggleActive}
+        isPending={
+          isPending ||
+          createUser.isPending ||
+          updateUser.isPending ||
+          updateUserStatus.isPending ||
+          deleteUser.isPending ||
+          bulkCreateUsers.isPending
+        }
+      />
 
       <UserEditorSheet
         open={editorOpen}

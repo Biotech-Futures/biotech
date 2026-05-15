@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -30,8 +29,7 @@ type SearchParams = { page: number; task_type?: TaskTypeFilter };
 
 export const Route = createFileRoute("/_auth/task")({
   validateSearch: (search): SearchParams => ({
-    page:
-      typeof search.page === "number" && search.page >= 1 ? search.page : 1,
+    page: typeof search.page === "number" && search.page >= 1 ? search.page : 1,
     task_type:
       search.task_type === "group" || search.task_type === "individual"
         ? search.task_type
@@ -61,10 +59,9 @@ function TaskManagementPage() {
   const { data: groupsData } = useQuery({
     queryKey: ["admin-groups-dropdown"],
     queryFn: async () => {
-      const res = await myFetch.get<{ data: { items: { id: number; name: string }[] } }>(
-        "/group/",
-        { params: { page: 1, limit: 200 } }
-      );
+      const res = await myFetch.get<{
+        data: { items: { id: number; name: string }[] };
+      }>("/group/", { params: { page: 1, limit: 200 } });
       return res.data;
     },
     refetchOnMount: false,
@@ -83,11 +80,11 @@ function TaskManagementPage() {
 
   const groups = useMemo(
     () => groupsData?.data?.items ?? [],
-    [groupsData?.data?.items]
+    [groupsData?.data?.items],
   );
   const users = useMemo(
     () => usersData?.data?.items ?? [],
-    [usersData?.data?.items]
+    [usersData?.data?.items],
   );
 
   const updateFilters = (filters: Partial<{ task_type: TaskTypeFilter }>) => {
@@ -131,14 +128,15 @@ function TaskManagementPage() {
       setEditorOpen(false);
     } catch (err: unknown) {
       const msg =
-        (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ??
-        "Failed to save task.";
+        (err as { response?: { data?: { msg?: string } } })?.response?.data
+          ?.msg ?? "Failed to save task.";
       toast.error(msg);
     }
   };
 
   const handleDelete = async (task: Task) => {
-    if (!window.confirm(`Delete task "${task.name}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete task "${task.name}"? This cannot be undone.`))
+      return;
     try {
       await deleteTask.mutateAsync(task.id);
     } catch {
@@ -166,7 +164,9 @@ function TaskManagementPage() {
         <div className="flex gap-2 items-center">
           <Select
             value={typeFilter}
-            onValueChange={(v) => updateFilters({ task_type: v as TaskTypeFilter })}
+            onValueChange={(v) =>
+              updateFilters({ task_type: v as TaskTypeFilter })
+            }
           >
             <SelectTrigger className="w-40">
               <SelectValue />
@@ -185,25 +185,18 @@ function TaskManagementPage() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Tasks</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <TaskTable
-            data={tasks}
-            page={page}
-            totalPages={totalPages}
-            onPageChange={updatePage}
-            onEdit={openEdit}
-            onDelete={handleDelete}
-            onToggle={handleToggle}
-            isPending={isPending || isMutating}
-            groups={groups}
-            users={users}
-          />
-        </CardContent>
-      </Card>
+      <TaskTable
+        data={tasks}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={updatePage}
+        onEdit={openEdit}
+        onDelete={handleDelete}
+        onToggle={handleToggle}
+        isPending={isPending || isMutating}
+        groups={groups}
+        users={users}
+      />
 
       <TaskEditorSheet
         open={editorOpen}

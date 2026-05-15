@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.admin.services.group import query_groups
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
@@ -38,3 +41,18 @@ class AdminGroupServiceTests(TestCase):
         self.assertNotIn("created_at", group)
         self.assertEqual(group["mentor"]["membershipId"], self.membership.id)
         self.assertNotIn("membership_id", group["mentor"])
+
+    def test_query_groups_orders_by_created_at_desc(self):
+        older = self.group
+        newer = Groups.objects.create(group_name="Group Two", track=self.track)
+
+        now = timezone.now()
+        Groups.objects.filter(id=older.id).update(created_at=now - timedelta(days=1))
+        Groups.objects.filter(id=newer.id).update(created_at=now)
+
+        result = query_groups(limit=10)
+
+        self.assertEqual(
+            [group["id"] for group in result["data"]["items"]],
+            [str(newer.id), str(older.id)],
+        )

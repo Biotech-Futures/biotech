@@ -22,7 +22,7 @@ interface ResourceColumnsOptions {
   trackOptions?: ResourceTrackOption[];
 }
 
-const truncatingCellClassName = "truncate align-top";
+const truncatingCellClassName = "truncate";
 
 function formatUploaderName(resource: Resource) {
   return `${resource.uploader.first_name} ${resource.uploader.last_name}`.trim();
