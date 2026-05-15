@@ -112,7 +112,7 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[95vw] sm:max-w-5xl max-h-[92vh] overflow-y-auto p-0">
+        <DialogContent className="w-[95vw] sm:max-w-5xl max-h-[92vh] overflow-y-auto overflow-x-hidden p-0">
           <DialogHeader className="px-8 pt-7 pb-2 border-b">
             <DialogTitle className="text-xl">
               {isEdit ? "Edit Announcement" : "New Announcement"}

@@ -32,6 +32,7 @@ const HEADING_LEVELS = [1, 2, 3, 4] as const;
 export function RichEditor({ value, onChange, placeholder }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rawMode, setRawMode] = useState(false);
+  const rawModeRef = useRef(false);
 
   const editor = useEditor({
     extensions: [
@@ -50,7 +51,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
   });
 
   useEffect(() => {
-    if (!editor || editor.isFocused) return;
+    if (!editor || editor.isFocused || rawModeRef.current) return;
     if (editor.getHTML() !== value) {
       editor.commands.setContent(value || "");
     }
@@ -74,8 +75,17 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
 
   function toggleRawMode() {
     if (!editor) return;
-    if (rawMode) editor.commands.setContent(value);
-    setRawMode((v) => !v);
+    if (rawMode) {
+      rawModeRef.current = false;
+      editor.commands.setContent(value);
+      setRawMode(false);
+    } else {
+      rawModeRef.current = true;
+      // Format HTML with newlines between tags so raw mode doesn't render
+      // one enormous single line (which causes layout expansion and lag).
+      onChange(value.replace(/></g, ">\n<"));
+      setRawMode(true);
+    }
   }
 
   function currentHeadingLabel() {
@@ -242,7 +252,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
         {/* ── Editor / Raw area ── */}
         {rawMode ? (
           <Textarea value={value} onChange={(e) => onChange(e.target.value)}
-            className="min-h-[320px] rounded-none border-0 font-mono text-sm focus-visible:ring-0 resize-none break-all"
+            className="min-h-[320px] rounded-none border-0 font-mono text-sm focus-visible:ring-0 resize-none overflow-x-hidden break-all"
             placeholder="<p>HTML content…</p>"
           />
         ) : (
