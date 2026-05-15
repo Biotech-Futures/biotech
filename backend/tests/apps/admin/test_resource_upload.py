@@ -6,7 +6,8 @@ from rest_framework.test import APIClient
 from django.test import TestCase
 from unittest.mock import patch
 
-from apps.resources.models import ResourceAudience, Resources, Roles
+from apps.groups.models import Countries, CountryStates, Tracks
+from apps.resources.models import ResourceAudience, Resources, ResourceType, Roles
 from apps.users.models import AdminScope
 
 
@@ -33,7 +34,7 @@ class AdminResourceUploadTests(TestCase):
         )
 
         response = self.client.post(
-            reverse("resource-upload"),
+            reverse("admin_api:resource-upload"),
             {
                 "file": upload,
                 "resource_name": "Admin Upload",
@@ -62,7 +63,7 @@ class AdminResourceUploadTests(TestCase):
 
     def test_admin_resource_upload_requires_file(self):
         response = self.client.post(
-            reverse("resource-upload"),
+            reverse("admin_api:resource-upload"),
             {
                 "resource_name": "Missing File",
                 "resource_description": "No file attached",
@@ -84,7 +85,7 @@ class AdminResourceUploadTests(TestCase):
         download_file_text_mock.return_value = "<p>Hello page</p>"
 
         response = self.client.post(
-            reverse("resource-list-create"),
+            reverse("admin_api:resource-list-create"),
             {
                 "resource_kind": "page",
                 "resource_name": "Admin Page",
@@ -122,7 +123,7 @@ class AdminResourceUploadTests(TestCase):
             file_size=20,
         )
 
-        response = self.client.get(reverse("resource-detail", args=[resource.id]))
+        response = self.client.get(reverse("admin_api:resource-detail", args=[resource.id]))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["content_html"], "<h1>Stored page</h1>")
@@ -144,7 +145,7 @@ class AdminResourceUploadTests(TestCase):
             file_size=20,
         )
 
-        response = self.client.get(reverse("resource-download", args=[resource.id]))
+        response = self.client.get(reverse("admin_api:resource-download", args=[resource.id]))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "text/html")
@@ -154,3 +155,45 @@ class AdminResourceUploadTests(TestCase):
         )
         self.assertEqual(response.content, b"<h1>Download me</h1>")
         download_file_bytes_mock.assert_called_once_with(resource.storage_key)
+
+    def test_resource_list_accepts_adminweb_track_and_type_filters(self):
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        nsw_track = Tracks.objects.create(track_name="AUS-NSW", state=state)
+        vic_track = Tracks.objects.create(track_name="AUS-VIC", state=state)
+        document_type = ResourceType.objects.create(type_name="document")
+        video_type = ResourceType.objects.create(type_name="video")
+
+        matching_resource = Resources.objects.create(
+            name="Matching Resource",
+            description="Visible when both filters are applied",
+            type=document_type,
+            track=nsw_track,
+            uploaded_by=self.admin_user,
+        )
+        Resources.objects.create(
+            name="Wrong Track",
+            description="Same type but different track",
+            type=document_type,
+            track=vic_track,
+            uploaded_by=self.admin_user,
+        )
+        Resources.objects.create(
+            name="Wrong Type",
+            description="Same track but different type",
+            type=video_type,
+            track=nsw_track,
+            uploaded_by=self.admin_user,
+        )
+
+        response = self.client.get(
+            reverse("admin_api:resource-list-create"),
+            {"track_id": nsw_track.id, "resource_type": "document"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["total"], 1)
+        self.assertEqual(
+            response.data["data"]["items"][0]["id"],
+            matching_resource.id,
+        )

@@ -3,8 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ResourceFilters,
   ResourceTable,
-  ResourceDetailDrawer,
-  ResourceUploadSheet,
+  ResourceDialog,
   createResourceColumns,
 } from "@/components/resource";
 import {
@@ -62,9 +61,10 @@ function ResourcePage() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [resourceDialogOpen, setResourceDialogOpen] = useState(false);
+  const [resourceDialogMode, setResourceDialogMode] = useState<
+    "create" | "view" | "edit"
+  >("view");
 
   const { data, isPending } = useQueryResources({
     page,
@@ -141,14 +141,14 @@ function ResourcePage() {
 
   const handleViewDetail = (resource: Resource) => {
     setSelectedResource(resource);
-    setDrawerMode("view");
-    setDrawerOpen(true);
+    setResourceDialogMode("view");
+    setResourceDialogOpen(true);
   };
 
   const handleEdit = (resource: Resource) => {
     setSelectedResource(resource);
-    setDrawerMode("edit");
-    setDrawerOpen(true);
+    setResourceDialogMode("edit");
+    setResourceDialogOpen(true);
   };
 
   const handleDelete = (resource: Resource) => {
@@ -305,7 +305,14 @@ function ResourcePage() {
             >
               {bulkMode ? "Exit Batch Mode" : "Batch Mode"}
             </Button>
-            <Button type="button" onClick={() => setUploadOpen(true)}>
+            <Button
+              type="button"
+              onClick={() => {
+                setSelectedResource(null);
+                setResourceDialogMode("create");
+                setResourceDialogOpen(true);
+              }}
+            >
               <UploadIcon className="size-4 mr-1" />
               Upload Resource
             </Button>
@@ -578,16 +585,14 @@ function ResourcePage() {
         isPending={isPending}
       />
 
-      <ResourceDetailDrawer
+      <ResourceDialog
         resource={selectedResource}
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        mode={drawerMode}
-        onSwitchToEdit={() => setDrawerMode("edit")}
+        open={resourceDialogOpen}
+        onOpenChange={setResourceDialogOpen}
+        mode={resourceDialogMode}
+        onModeChange={setResourceDialogMode}
         onDownload={handleDownload}
       />
-
-      <ResourceUploadSheet open={uploadOpen} onOpenChange={setUploadOpen} />
     </div>
   );
 }

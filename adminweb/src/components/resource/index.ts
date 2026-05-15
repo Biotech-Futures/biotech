@@ -1,5 +1,4 @@
 export { ResourceFilters } from "./ResourceFilters";
 export { ResourceTable } from "./ResourceTable";
-export { ResourceDetailDrawer } from "./ResourceDetailDrawer";
-export { ResourceUploadSheet } from "./ResourceUploadSheet";
+export { ResourceDialog } from "./ResourceDialog";
 export { createResourceColumns } from "./columns";

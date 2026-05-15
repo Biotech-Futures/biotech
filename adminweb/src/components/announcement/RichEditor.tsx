@@ -195,7 +195,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
 
   return (
     <div className="space-y-1.5">
-      <span className="text-sm font-medium">Content</span>
+      {/* <span className="text-sm font-medium">Content</span> */}
 
       <div className="rounded-lg border border-input bg-background shadow-sm overflow-hidden">
 

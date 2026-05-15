@@ -67,7 +67,7 @@ export function ResourceFilters({
   const availableTypeOptions = typeOptions ?? [];
 
   return (
-    <div className="rounded-md border p-4 space-y-4">
+    <div className="p-4 space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
         <div className="md:col-span-1 xl:col-span-4">
             <Label htmlFor="resource-track" className="text-sm text-muted-foreground mb-1.5 block">
