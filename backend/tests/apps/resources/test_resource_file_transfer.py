@@ -11,7 +11,14 @@ from rest_framework.test import APIClient
 
 from apps.common.storage import get_resource_storage
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
-from apps.resources.models import ResourceAudience, ResourceType, Resources, RoleAssignmentHistory, Roles
+from apps.resources.models import (
+    ResourceAudience,
+    ResourceLabel,
+    ResourceType,
+    Resources,
+    RoleAssignmentHistory,
+    Roles,
+)
 from apps.users.models import AdminScope
 from tests.apps._helpers import StorageCleanupMixin
 
@@ -417,3 +424,242 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         self.assertIsNone(access_response.data["external_url"])
         self.assertEqual(download_response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(download_response.data["detail"], "This resource has an invalid external URL.")
+
+    def _create_inline_html_resource(
+        self,
+        *,
+        name="Mentor Handbook",
+        body=b"<h1>Welcome</h1><p>Body content.</p>",
+        track=None,
+    ):
+        from django.core.files.base import ContentFile
+
+        storage_key = self.storage.save(f"resources/{name}.html", ContentFile(body))
+        self.created_storage_keys.append(storage_key)
+        resource = Resources.objects.create(
+            name=name,
+            description=f"{name} description",
+            uploaded_by=self.global_admin,
+            kind=Resources.ResourceKind.PAGE,
+            storage_key=storage_key,
+            file_mime_type="text/html",
+            file_size=len(body),
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=track or self.primary_track,
+        )
+        return resource
+
+    def test_inline_html_access_returns_body(self):
+        resource = self._create_inline_html_resource(
+            body=b"<h1>FAQ</h1><p>Hello world.</p>",
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["access_mode"], "inline_html")
+        self.assertEqual(response.data["body_html"], "<h1>FAQ</h1><p>Hello world.</p>")
+        self.assertIsNone(response.data["external_url"])
+        self.assertIsNone(response.data["detail"])
+
+    def test_external_url_page_returns_no_inline_body(self):
+        resource = Resources.objects.create(
+            name="External Page Link",
+            description="An external page",
+            uploaded_by=self.global_admin,
+            kind=Resources.ResourceKind.PAGE,
+            storage_key="https://example.org/handbook",
+            file_mime_type="text/html",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["access_mode"], "external_page")
+        self.assertIsNone(response.data["body_html"])
+
+    def test_managed_file_access_has_no_body(self):
+        _, resource = self._create_resource(
+            user=self.global_admin,
+            name="Plain PDF Guide",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["access_mode"], "managed_file")
+        self.assertIsNone(response.data["body_html"])
+
+    def test_inline_html_blob_read_failure_returns_detail(self):
+        resource = self._create_inline_html_resource(name="Broken Handbook")
+
+        self.client.force_authenticate(user=self.global_admin)
+        with patch(
+            "apps.resources.views.RESOURCE_FILE_SERVICE.open",
+            side_effect=OSError("blob missing"),
+        ):
+            response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["access_mode"], "inline_html")
+        self.assertIsNone(response.data["body_html"])
+        self.assertEqual(response.data["detail"], "Rich-text content could not be loaded.")
+
+    @override_settings(RESOURCE_INLINE_HTML_MAX_BYTES=8)
+    def test_inline_html_size_cap_skips_body(self):
+        resource = self._create_inline_html_resource(
+            name="Oversize Handbook",
+            body=b"<h1>Bigger than eight bytes for sure</h1>",
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["access_mode"], "inline_html")
+        self.assertIsNone(response.data["body_html"])
+        self.assertEqual(response.data["detail"], "Rich-text content is too large to inline.")
+
+    def test_inline_html_denied_to_unauthorized_user(self):
+        resource = self._create_inline_html_resource(name="Mentor Only Handbook")
+        ResourceAudience.objects.create(resource=resource, role=self.mentor_role)
+        # Make access scope role-based so the audience rule is enforced.
+        Resources.objects.filter(pk=resource.pk).update(
+            visibility_scope=Resources.VisibilityScope.ROLE,
+            track=None,
+        )
+
+        self.client.force_authenticate(user=self.student)
+        response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ResourceListFilterValidationTests(StorageCleanupMixin, TestCase):
+    """Filter inputs that the frontend can send: dates, integers, ordering, label ids.
+
+    Each test exercises one robustness rule. Invalid inputs must come back as
+    HTTP 400 with a field-shaped error so the FE can surface the message
+    next to the offending control. Silent ignores are not allowed.
+    """
+
+    storage_attr = "storage"
+    storage_keys_attr = "created_storage_keys"
+
+    def setUp(self):
+        self.client = APIClient()
+        self.country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
+        self.track = Tracks.objects.create(track_name="NSW", state=self.state)
+
+        self.admin = User.objects.create_user(
+            email="admin@filter-tests.local",
+            password="pass123",
+            first_name="Admin",
+            last_name="User",
+            track=self.track,
+        )
+        AdminScope.objects.create(user=self.admin, is_global=True)
+
+        self.label_mentoring = ResourceLabel.objects.create(name="Mentoring")
+        self.label_information = ResourceLabel.objects.create(name="Information")
+
+        self.created_storage_keys = []
+        self.storage = get_resource_storage()
+
+        # Two PUBLIC resources so the global admin sees both.
+        self.r_old = Resources.objects.create(
+            name="Old Resource",
+            description="Old",
+            uploaded_by=self.admin,
+            kind=Resources.ResourceKind.PAGE,
+            storage_key="https://example.org/old",
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            uploaded_at=timezone.now() - timedelta(days=30),
+        )
+        self.r_new = Resources.objects.create(
+            name="New Resource",
+            description="New",
+            uploaded_by=self.admin,
+            kind=Resources.ResourceKind.PAGE,
+            storage_key="https://example.org/new",
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            uploaded_at=timezone.now() - timedelta(days=1),
+        )
+        self.r_new.labels.add(self.label_mentoring)
+        self.r_old.labels.add(self.label_information)
+
+        self.client.force_authenticate(user=self.admin)
+
+    def _list(self, **params):
+        return self.client.get(reverse("resource-files-list"), params)
+
+    def test_label_id_filter_returns_only_tagged_resources(self):
+        response = self._list(label_id=self.label_mentoring.id)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [r["name"] for r in response.data["results"]]
+        self.assertEqual(names, ["New Resource"])
+
+    def test_label_id_non_integer_returns_400(self):
+        response = self._list(label_id="not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("label_id", response.data["fields"])
+
+    def test_label_id_unknown_returns_empty_results(self):
+        response = self._list(label_id=999999)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"], [])
+
+    def test_since_filter_includes_only_recent_resources(self):
+        cutoff = (timezone.now() - timedelta(days=7)).date().isoformat()
+        response = self._list(since=cutoff)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [r["name"] for r in response.data["results"]]
+        self.assertEqual(names, ["New Resource"])
+
+    def test_until_filter_includes_only_older_resources(self):
+        cutoff = (timezone.now() - timedelta(days=7)).date().isoformat()
+        response = self._list(until=cutoff)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [r["name"] for r in response.data["results"]]
+        self.assertEqual(names, ["Old Resource"])
+
+    def test_since_invalid_date_returns_400(self):
+        response = self._list(since="not-a-date")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("since", response.data["fields"])
+
+    def test_until_invalid_date_returns_400(self):
+        response = self._list(until="13/05/2026")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("until", response.data["fields"])
+
+    def test_since_after_until_returns_400(self):
+        response = self._list(since="2026-12-01", until="2026-01-01")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("until", response.data["fields"])
+
+    def test_order_unknown_returns_400(self):
+        response = self._list(order="random")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("order", response.data["fields"])
+
+    def test_uploader_id_non_integer_returns_400(self):
+        response = self._list(uploader_id="abc")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("uploader_id", response.data["fields"])
+
+    def test_label_endpoint_returns_per_user_counts(self):
+        response = self.client.get(reverse("resource-labels-list"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        by_name = {row["name"]: row for row in response.data}
+        self.assertEqual(by_name["Mentoring"]["resource_count"], 1)
+        self.assertEqual(by_name["Information"]["resource_count"], 1)
+        # Field shape: id + name + resource_count only — no slug, no color.
+        self.assertEqual(set(by_name["Mentoring"].keys()), {"id", "name", "resource_count"})

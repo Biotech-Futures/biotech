@@ -30,6 +30,7 @@ class Resources(models.Model):
 
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     group = models.ForeignKey("groups.Groups", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
+    labels = models.ManyToManyField("ResourceLabel", blank=True, related_name="resources")
     visibility_scope = models.CharField(
         max_length=50,
         choices=VisibilityScope.choices,

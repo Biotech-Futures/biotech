@@ -77,6 +77,11 @@ RESOURCE_FILE_MAX_UPLOAD_SIZE = config(
     default=25 * 1024 * 1024,
     cast=int,
 )
+RESOURCE_INLINE_HTML_MAX_BYTES = config(
+    "RESOURCE_INLINE_HTML_MAX_BYTES",
+    default=2 * 1024 * 1024,
+    cast=int,
+)
 CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     "CHAT_ATTACHMENT_MAX_UPLOAD_SIZE",
     default=10 * 1024 * 1024,
