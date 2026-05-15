@@ -40,7 +40,14 @@
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 import { apiErrorFromResponse } from './apiError'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
+export function buildResourceUrl(pathOrUrl: string): string {
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return pathOrUrl
+  }
+  return `${API_BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`
+}
 
 interface RequestOptions extends RequestInit {
   includeCSRF?: boolean
@@ -68,7 +75,7 @@ async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Pr
     isFormData,
   })
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(buildResourceUrl(endpoint), {
     ...fetchOptions,
     method: upperMethod,
     body,
@@ -110,21 +117,44 @@ export interface ResourceType {
 
 export interface Resource {
   id: number
-  resource_name: string
-  resource_description: string
+  name: string
+  description: string
+  type_name?: string | null
   resource_type_detail?: ResourceType | null
-  upload_datetime: string
-  uploader: {
+  kind: 'file' | 'page' | string
+  file_mime_type?: string | null
+  file_size?: number | null
+  uploaded_at: string
+  uploader_name?: string | null
+  uploader?: {
     id: number
     first_name: string
     last_name: string
     email: string
-  }
-  visible_roles: Array<{
+  } | null
+  file_name?: string | null
+  access_url?: string | null
+  download_url?: string | null
+  storage_status?: 'unavailable' | 'external_url' | 'managed_key' | string
+  visible_roles?: Array<{
     id: number
     role_name: string
   }>
-  deleted_flag?: boolean
+  deleted_at?: string | null
+}
+
+export interface ResourceAccess {
+  resource_id: number
+  kind: 'file' | 'page' | string
+  storage_status: string
+  access_mode: string
+  access_url: string | null
+  download_url: string | null
+  external_url: string | null
+  file_name: string | null
+  file_mime_type: string | null
+  file_size: number | null
+  detail: string | null
 }
 
 export async function fetchResources(params?: {
@@ -147,4 +177,22 @@ export async function fetchResources(params?: {
   const endpoint = `/resources/resource-files/${queryParams.toString() ? `?${queryParams}` : ''}`
 
   return apiRequest<{ results: Resource[]; count: number }>(endpoint)
+}
+
+export async function fetchAllResources(params?: Omit<Parameters<typeof fetchResources>[0], 'page' | 'page_size'>): Promise<Resource[]> {
+  const pageSize = 100
+  const firstPage = await fetchResources({ ...params, page: 1, page_size: pageSize })
+  const resources = [...firstPage.results]
+  const totalPages = Math.ceil(firstPage.count / pageSize)
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const nextPage = await fetchResources({ ...params, page, page_size: pageSize })
+    resources.push(...nextPage.results)
+  }
+
+  return resources
+}
+
+export async function fetchResourceAccess(resourceId: number): Promise<ResourceAccess> {
+  return apiRequest<ResourceAccess>(`/resources/resource-files/${resourceId}/access/`)
 }
