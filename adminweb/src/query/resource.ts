@@ -256,6 +256,8 @@ export type ResourceAttachment = {
   id: number;
   fileName: string;
   url: string;
+  resourceUrl?: string;
+  downloadUrl?: string;
   mimeType: string | null;
   size: number | null;
 };

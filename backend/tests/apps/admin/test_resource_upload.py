@@ -75,6 +75,34 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["msg"], "No file was uploaded.")
 
+    def test_resource_attachment_upload_returns_file_url_as_primary_url(self):
+        upload = SimpleUploadedFile(
+            "brief.pdf",
+            b"attached file content",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse("admin_api:resource-attachment-upload"),
+            {"file": upload},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        resource = Resources.objects.get(id=response.data["data"]["id"])
+        expected_resource_path = f"/media/resource_attachments/{resource.storage_key.removeprefix('resource_attachments/')}"
+        expected_download_path = reverse(
+            "admin_api:resource-attachment-download",
+            args=[resource.id],
+        )
+        self.assertEqual(response.data["data"]["url"], f"http://testserver{expected_resource_path}")
+        self.assertEqual(
+            response.data["data"]["resourceUrl"],
+            f"http://testserver{expected_resource_path}",
+        )
+        self.assertTrue(response.data["data"]["downloadUrl"].endswith(expected_download_path))
+        self.assertNotEqual(response.data["data"]["resourceUrl"], response.data["data"]["downloadUrl"])
+
     @patch("apps.admin.services.resource.download_file_text")
     @patch("apps.admin.services.resource.upload_file")
     def test_admin_page_resource_returns_content_html(

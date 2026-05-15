@@ -707,7 +707,11 @@ class ResourceAttachmentUploadView(APIView):
     download_route_name = "admin_api:resource-attachment-download"
 
     def _storage(self):
-        return FileSystemStorage(location=settings.MEDIA_ROOT / self.storage_prefix)
+        media_url = getattr(settings, "MEDIA_URL", "/media/").rstrip("/") + "/"
+        return FileSystemStorage(
+            location=settings.MEDIA_ROOT / self.storage_prefix,
+            base_url=f"{media_url}{self.storage_prefix}/",
+        )
 
     def post(self, request):
         uploaded_file = request.FILES.get("file")
@@ -753,6 +757,7 @@ class ResourceAttachmentUploadView(APIView):
             file_size=getattr(uploaded_file, "size", None),
         )
 
+        resource_url = request.build_absolute_uri(self._storage().url(saved_name))
         download_url = reverse(
             self.download_route_name,
             kwargs={"resource_id": resource.pk},
@@ -764,7 +769,9 @@ class ResourceAttachmentUploadView(APIView):
                 "data": {
                     "id": resource.id,
                     "fileName": base_name,
-                    "url": download_url,
+                    "url": resource_url,
+                    "resourceUrl": resource_url,
+                    "downloadUrl": download_url,
                     "mimeType": resource.file_mime_type,
                     "size": resource.file_size,
                 },
