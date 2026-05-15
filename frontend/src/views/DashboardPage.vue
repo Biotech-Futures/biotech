@@ -351,7 +351,15 @@
                 <p class="surface-kicker">Groups</p>
                 <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
               </div>
-              <RouterLink to="/groups" class="surface-link">View all</RouterLink>
+              <button
+                v-if="shouldBlockGroupsNavigation"
+                type="button"
+                class="surface-link surface-link-button"
+                @click="showNoMembershipPopup"
+              >
+                View all
+              </button>
+              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
             </div>
 
             <div v-if="groupsPreview.length" class="groups-grid">
@@ -442,6 +450,33 @@
         </section>
       </template>
     </div>
+
+    <div
+      v-if="showNoMembershipNotice"
+      class="dashboard-modal-backdrop"
+      role="presentation"
+      @click.self="closeNoMembershipPopup"
+    >
+      <div class="dashboard-modal" role="dialog" aria-modal="true" aria-labelledby="no-membership-title">
+        <button
+          type="button"
+          class="dashboard-modal-close"
+          aria-label="Close"
+          @click="closeNoMembershipPopup"
+        >
+          <i class="fas fa-times"></i>
+        </button>
+
+        <div class="dashboard-modal-icon">
+          <i class="fas fa-users-slash"></i>
+        </div>
+        <h3 id="no-membership-title">No group membership</h3>
+        <p>You have not been assigned to a group yet. Please contact your mentor.</p>
+        <button type="button" class="btn btn-primary" @click="closeNoMembershipPopup">
+          Got it
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -498,6 +533,7 @@ const resources = ref([])
 const announcements = ref([])
 const events = ref([])
 const upcomingEventsCount = ref(0)
+const showNoMembershipNotice = ref(false)
 
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
@@ -657,6 +693,8 @@ const heroEyebrow = computed(() => {
 const announcementsCount = computed(() => announcements.value.length)
 const resourcesCount = computed(() => resources.value.length)
 const groupsCount = computed(() => groups.value.length)
+const shouldBlockGroupsNavigation = computed(() => !isAdmin.value && groupsCount.value === 0)
+const hasNoAssignedMembership = computed(() => !isAdmin.value && groupsCount.value === 0)
 
 const nextEvent = computed(() => {
   return events.value[0] || null
@@ -786,7 +824,9 @@ const summaryWidgets = computed(() => {
       key: 'tasks',
       title: 'Tasks Completed',
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
-      subtext: 'Your progress in the current program cycle',
+      subtext: hasNoAssignedMembership.value
+        ? 'You have not been assigned to a group yet. Please contact your mentor.'
+        : 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
       accent: 'teal',
     },
@@ -807,6 +847,14 @@ const groupsSectionTitle = computed(() => {
   if (isSupervisor.value) return `Supervised Groups (${groupsCount.value})`
   return `My Active Groups (${groupsCount.value})`
 })
+
+function showNoMembershipPopup() {
+  showNoMembershipNotice.value = true
+}
+
+function closeNoMembershipPopup() {
+  showNoMembershipNotice.value = false
+}
 
 const resourcesSectionTitle = computed(() => {
   if (isAdmin.value) return 'Resource Library Snapshot'
@@ -1270,7 +1318,7 @@ async function loadGroups() {
       : DASHBOARD_ENDPOINTS.groupsPreview(true)
     const fallbackGroupUrls = isAdmin.value
       ? [DASHBOARD_ENDPOINTS.groups]
-      : [DASHBOARD_ENDPOINTS.groupsMine, DASHBOARD_ENDPOINTS.groups]
+      : [DASHBOARD_ENDPOINTS.groupsMine]
     const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
     const groupItems = extractCollectionItems(data)
 
@@ -1389,6 +1437,11 @@ async function loadAdminWorkflow() {
 }
 
 async function loadProgress() {
+  if (hasNoAssignedMembership.value) {
+    progressSnapshot.value = getEmptyProgressSnapshot()
+    return
+  }
+
   try {
     const data = await fetchJson(getProgressEndpoint())
     progressSnapshot.value = normalizeProgressSnapshot(data)
@@ -2111,6 +2164,12 @@ onMounted(async () => {
   transform: translateY(-1px);
   border-color: rgba(60, 200, 120, 0.32);
   background: rgba(60, 200, 120, 0.09);
+}
+
+.surface-link-button {
+  border: 1px solid rgba(60, 200, 120, 0.16);
+  cursor: pointer;
+  font-family: inherit;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -2974,6 +3033,72 @@ onMounted(async () => {
 .empty-state i {
   font-size: 1.4rem;
   color: var(--text-muted);
+}
+
+.dashboard-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(10, 18, 22, 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.dashboard-modal {
+  position: relative;
+  width: min(420px, 100%);
+  padding: 2rem;
+  border: 1px solid rgba(60, 200, 120, 0.18);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  color: var(--charcoal);
+  text-align: center;
+}
+
+.dashboard-modal-close {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #f8f9fa;
+  color: var(--charcoal);
+  cursor: pointer;
+}
+
+.dashboard-modal-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 1rem;
+  border-radius: 50%;
+  background: rgba(60, 200, 120, 0.12);
+  color: #218f58;
+  font-size: 1.35rem;
+}
+
+.dashboard-modal h3 {
+  margin: 0 0 0.65rem;
+  color: var(--charcoal);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.dashboard-modal p {
+  margin: 0 0 1.35rem;
+  color: #6c757d;
+  line-height: 1.5;
 }
 
 /* ──────────────────────────────────────────────────────────────

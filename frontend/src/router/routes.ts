@@ -57,6 +57,9 @@
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 
+const NO_GROUP_MEMBERSHIP_MESSAGE =
+  'You have not been assigned to a group yet. Please contact your mentor.';
+
 // /groups has no id of its own — resolve the user's first group from the
 // store and forward there. Falls back to /dashboard when the user has no
 // groups, instead of rendering a half-loaded placeholder.
@@ -65,6 +68,7 @@ const resolveGroupsLanding = async () => {
   await store.ensureLoaded();
   const first = store.firstGroup;
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
+  window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
   return { name: 'dashboard', replace: true };
 };
 
