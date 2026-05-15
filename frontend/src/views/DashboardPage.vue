@@ -205,6 +205,7 @@
                 aria-label="Select progress group"
                 @change="loadProgress"
               >
+                <option value="">All groups</option>
                 <option v-for="group in progressGroupOptions" :key="group.id" :value="group.id">
                   {{ group.label }}
                 </option>
@@ -1157,10 +1158,12 @@ function ensureSelectedProgressGroup() {
     selectedProgressGroupId.value = ''
     return
   }
-
+  // Empty string is the "All groups" sentinel — preserve it. Only reset
+  // when the saved id is no longer a real, visible group.
+  if (selectedProgressGroupId.value === '') return
   const hasSelectedGroup = options.some((group) => group.id === selectedProgressGroupId.value)
   if (!hasSelectedGroup) {
-    selectedProgressGroupId.value = options[0].id
+    selectedProgressGroupId.value = ''
   }
 }
 
