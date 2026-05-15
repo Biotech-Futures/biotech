@@ -1,9 +1,14 @@
 from django.contrib.auth import update_session_auth_hash
-from django.http import HttpResponse
+from django.conf import settings
+from django.core.files.storage import FileSystemStorage
+from django.http import FileResponse, HttpResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.reverse import reverse
 from rest_framework.views import APIView
 
 from apps.admin.permissions import IsAdminScoped
@@ -33,6 +38,9 @@ from apps.admin.services.resource import (
     list_resource_roles, list_resource_types, list_resource_tracks,
 )
 from apps.resources.services.upload import upload_resource_file
+from apps.resources.models import Resources
+from apps.common.filenames import sanitize_upload_filename
+from apps.common.upload_validation import validate_uploaded_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, send_announcement_email,
@@ -679,6 +687,146 @@ class AnnouncementRolesListView(APIView):
     def get(self, request):
         result = list_announcement_roles()
         return Response(result)
+
+
+class ResourceAttachmentUploadView(APIView):
+    """POST /api/v1/admin/resource/attachments/ - Upload a file for editor links"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+    parser_classes = [MultiPartParser, FormParser]
+
+    storage_prefix = "resource_attachments"
+    field_label = "Resource attachment"
+    fallback_name = "resource-attachment"
+    description_prefix = "Resource attachment"
+    download_route_name = "admin_api:resource-attachment-download"
+
+    def _storage(self):
+        return FileSystemStorage(location=settings.MEDIA_ROOT / self.storage_prefix)
+
+    def post(self, request):
+        uploaded_file = request.FILES.get("file")
+        if uploaded_file is None:
+            return Response(
+                {"msg": "No file was uploaded.", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_uploaded_file(
+                uploaded_file,
+                max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+                allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
+                allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
+                field_label=self.field_label,
+            )
+        except ValidationError as exc:
+            return Response(
+                {"msg": "Failed to upload attachment", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_name = sanitize_upload_filename(
+            getattr(uploaded_file, "name", "") or self.fallback_name
+        )
+        name = base_name[:220] or self.fallback_name
+        if Resources.objects.filter(name__iexact=name, deleted_at__isnull=True).exists():
+            name = f"{name[:180]} ({timezone.now().strftime('%Y%m%d%H%M%S')})"
+
+        saved_name = self._storage().save(
+            f"{timezone.now().strftime('%Y/%m/%d')}/{timezone.now().strftime('%H%M%S%f')}-{base_name}",
+            uploaded_file,
+        )
+        resource = Resources.objects.create(
+            name=name,
+            description=f"{self.description_prefix}: {base_name}"[:255],
+            kind="attachment",
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
+            uploaded_by=request.user,
+            storage_key=f"{self.storage_prefix}/{saved_name}",
+            file_mime_type=getattr(uploaded_file, "content_type", None) or None,
+            file_size=getattr(uploaded_file, "size", None),
+        )
+
+        download_url = reverse(
+            self.download_route_name,
+            kwargs={"resource_id": resource.pk},
+            request=request,
+        )
+        return Response(
+            {
+                "msg": "Attachment uploaded successfully",
+                "data": {
+                    "id": resource.id,
+                    "fileName": base_name,
+                    "url": download_url,
+                    "mimeType": resource.file_mime_type,
+                    "size": resource.file_size,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ResourceAttachmentDownloadView(APIView):
+    """GET /api/v1/admin/resource/attachments/{id}/download/"""
+    permission_classes = [IsAuthenticated]
+    storage_prefix = "resource_attachments"
+
+    def _storage(self):
+        return FileSystemStorage(location=settings.MEDIA_ROOT / self.storage_prefix)
+
+    def get(self, request, resource_id):
+        resource = Resources.objects.filter(
+            id=resource_id,
+            kind="attachment",
+            deleted_at__isnull=True,
+        ).first()
+        if resource is None or not resource.storage_key:
+            return Response(
+                {"msg": "Attachment not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        prefix = f"{self.storage_prefix}/"
+        if not resource.storage_key.startswith(prefix):
+            return Response(
+                {"msg": "Attachment storage target is invalid", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        saved_name = resource.storage_key[len(prefix):]
+        try:
+            file_handle = self._storage().open(saved_name, "rb")
+        except Exception:
+            return Response(
+                {"msg": "Attachment file not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        response = FileResponse(
+            file_handle,
+            as_attachment=True,
+            filename=sanitize_upload_filename(resource.name),
+        )
+        if resource.file_mime_type:
+            response["Content-Type"] = resource.file_mime_type
+        return response
+
+
+class AnnouncementAttachmentUploadView(ResourceAttachmentUploadView):
+    """Legacy announcement attachment route kept for existing rich content links."""
+
+    storage_prefix = "announcement_attachments"
+    field_label = "Announcement attachment"
+    fallback_name = "announcement-attachment"
+    description_prefix = "Announcement attachment"
+    download_route_name = "admin_api:announcement-attachment-download"
+
+
+class AnnouncementAttachmentDownloadView(ResourceAttachmentDownloadView):
+    """Legacy announcement attachment download route."""
+
+    storage_prefix = "announcement_attachments"
 
 
 # ============================================================================

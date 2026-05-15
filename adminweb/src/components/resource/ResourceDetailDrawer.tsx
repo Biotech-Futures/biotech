@@ -20,10 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { SaveIcon, XIcon, FileTextIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { Resource, ResourceKind, ResourceTypeName } from "@/type/resource";
-import {
-  getResourceTrackLabel,
-  getResourceTypeLabel,
-} from "@/type/resource";
+import { getResourceTrackLabel, getResourceTypeLabel } from "@/type/resource";
 import {
   useQueryResource,
   useQueryResourceRoles,
@@ -34,8 +31,15 @@ import {
 } from "@/query/resource";
 import { updateResourceSchema } from "@/schema/resource";
 import { RichEditor } from "@/components/announcement/RichEditor";
+import { toast } from "sonner";
 
 type VisibilityMode = "global" | "track_based" | "role_based";
+
+function getResourceKindLabel(kind: ResourceKind) {
+  if (kind === "attachment") return "Attachment";
+  if (kind === "page") return "Rich Content Page";
+  return "File";
+}
 
 interface ResourceDetailDrawerProps {
   resource: Resource | null;
@@ -112,7 +116,9 @@ export function ResourceDetailDrawer({
         currentResource.visibility_scope === "track_based" ||
         currentResource.visibility_scope === "role_based"
           ? (currentResource.visibility_scope as VisibilityMode)
-          : currentResource.audiences.some((audience) => audience.role?.slug !== "admin")
+          : currentResource.audiences.some(
+                (audience) => audience.role?.slug !== "admin",
+              )
             ? "role_based"
             : currentResource.track_id !== null
               ? "track_based"
@@ -123,7 +129,10 @@ export function ResourceDetailDrawer({
       role_ids: Array.from(
         new Set(
           currentResource.audiences
-            .filter((audience) => audience.role_id !== null && audience.role?.slug !== "admin")
+            .filter(
+              (audience) =>
+                audience.role_id !== null && audience.role?.slug !== "admin",
+            )
             .map((audience) => audience.role_id as number),
         ),
       ),
@@ -134,13 +143,19 @@ export function ResourceDetailDrawer({
   if (!currentResource) return null;
 
   const handleSave = async () => {
-    if (editData.visibility_mode === "track_based" && editData.track_id === null) {
-      window.alert("Track is required for track-based visibility.");
+    if (
+      editData.visibility_mode === "track_based" &&
+      editData.track_id === null
+    ) {
+      toast.error("Track is required for track-based visibility.");
       return;
     }
 
-    if (editData.visibility_mode === "role_based" && !editData.role_ids.length) {
-      window.alert("Please select at least one role for role-based visibility.");
+    if (
+      editData.visibility_mode === "role_based" &&
+      !editData.role_ids.length
+    ) {
+      toast.error("Please select at least one role for role-based visibility.");
       return;
     }
     const finalTrackId = editData.track_id;
@@ -159,7 +174,7 @@ export function ResourceDetailDrawer({
 
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? "Invalid form data.";
-      window.alert(message);
+      toast.error(message);
       return;
     }
 
@@ -180,7 +195,7 @@ export function ResourceDetailDrawer({
 
       onOpenChange(false);
     } catch {
-      window.alert("Save failed. Please try again.");
+      toast.error("Save failed. Please try again.");
     }
   };
 
@@ -206,7 +221,9 @@ export function ResourceDetailDrawer({
     const url = URL.createObjectURL(blob);
     const win = window.open(url, "_blank");
     if (!win) {
-      window.alert("Preview tab was blocked. Please allow pop-ups for this site.");
+      toast.error(
+        "Preview tab was blocked. Please allow pop-ups for this site.",
+      );
       return;
     }
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -226,7 +243,7 @@ export function ResourceDetailDrawer({
           <div className="space-y-4">
             {mode === "view" ? (
               <>
-                <div>
+                <div className="">
                   <Label className="text-muted-foreground">Resource Name</Label>
                   <p className="font-medium">{currentResource.name}</p>
                 </div>
@@ -248,19 +265,20 @@ export function ResourceDetailDrawer({
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Kind</Label>
-                  <p>{currentResource.kind === "page" ? "Rich Content Page" : "File"}</p>
+                  <p>{getResourceKindLabel(currentResource.kind)}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Track</Label>
                   <p>
-                    {currentResource.track_id === null || currentResource.track_id === undefined
+                    {currentResource.track_id === null ||
+                    currentResource.track_id === undefined
                       ? "Unassigned"
                       : (() => {
                           const trackId = Number(currentResource.track_id);
                           if (!Number.isFinite(trackId)) return "Unassigned";
                           return (
-                            trackOptions.find((item) => item.id === trackId)?.label ??
-                            getResourceTrackLabel(trackId)
+                            trackOptions.find((item) => item.id === trackId)
+                              ?.label ?? getResourceTrackLabel(trackId)
                           );
                         })()}
                   </p>
@@ -272,7 +290,9 @@ export function ResourceDetailDrawer({
                 {currentResource.kind === "page" ? (
                   <div className="space-y-3">
                     <div>
-                      <Label className="text-muted-foreground">Page Content</Label>
+                      <Label className="text-muted-foreground">
+                        Page Content
+                      </Label>
                       <div
                         className="prose prose-sm mt-2 max-w-none rounded-md border bg-muted/20 p-4"
                         dangerouslySetInnerHTML={{
@@ -285,7 +305,9 @@ export function ResourceDetailDrawer({
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          openHtmlPreviewPage(pageContentHtml || "<p>No content yet.</p>")
+                          openHtmlPreviewPage(
+                            pageContentHtml || "<p>No content yet.</p>",
+                          )
                         }
                       >
                         Open Preview Page
@@ -318,7 +340,10 @@ export function ResourceDetailDrawer({
                     id="resource-name"
                     value={editData.name}
                     onChange={(event) =>
-                      setEditData((prev) => ({ ...prev, name: event.target.value }))
+                      setEditData((prev) => ({
+                        ...prev,
+                        name: event.target.value,
+                      }))
                     }
                   />
                 </div>
@@ -328,7 +353,10 @@ export function ResourceDetailDrawer({
                     id="resource-description"
                     value={editData.description}
                     onChange={(event) =>
-                      setEditData((prev) => ({ ...prev, description: event.target.value }))
+                      setEditData((prev) => ({
+                        ...prev,
+                        description: event.target.value,
+                      }))
                     }
                   />
                 </div>
@@ -347,6 +375,7 @@ export function ResourceDetailDrawer({
                       <SelectValue placeholder="Select kind" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="attachment">Attachment</SelectItem>
                       <SelectItem value="file">File</SelectItem>
                       <SelectItem value="page">Rich Content Page</SelectItem>
                     </SelectContent>
@@ -375,7 +404,12 @@ export function ResourceDetailDrawer({
                 <div>
                   <Label htmlFor="resource-track">Track</Label>
                   <Select
-                    value={editData.track_id === null || editData.track_id === undefined ? "none" : String(editData.track_id)}
+                    value={
+                      editData.track_id === null ||
+                      editData.track_id === undefined
+                        ? "none"
+                        : String(editData.track_id)
+                    }
                     onValueChange={(value) =>
                       setEditData((prev) => ({
                         ...prev,
@@ -408,7 +442,8 @@ export function ResourceDetailDrawer({
                     onValueChange={(value) =>
                       setEditData((prev) => ({
                         ...prev,
-                        type_name: value === "none" ? null : (value as ResourceTypeName),
+                        type_name:
+                          value === "none" ? null : (value as ResourceTypeName),
                       }))
                     }
                   >
@@ -418,7 +453,10 @@ export function ResourceDetailDrawer({
                     <SelectContent>
                       <SelectItem value="none">Uncategorized</SelectItem>
                       {typeOptions.map((typeOption) => (
-                        <SelectItem key={typeOption.value} value={typeOption.value}>
+                        <SelectItem
+                          key={typeOption.value}
+                          value={typeOption.value}
+                        >
                           {typeOption.label}
                         </SelectItem>
                       ))}
@@ -434,7 +472,9 @@ export function ResourceDetailDrawer({
                           type="button"
                           variant="default"
                           size="sm"
-                          onClick={() => openHtmlPreviewPage(editData.content_html)}
+                          onClick={() =>
+                            openHtmlPreviewPage(editData.content_html)
+                          }
                         >
                           Open Preview Page
                         </Button>
@@ -443,7 +483,10 @@ export function ResourceDetailDrawer({
                           variant="outline"
                           size="sm"
                           onClick={() =>
-                            setEditData((prev) => ({ ...prev, content_html: "" }))
+                            setEditData((prev) => ({
+                              ...prev,
+                              content_html: "",
+                            }))
                           }
                         >
                           Clear
@@ -494,7 +537,9 @@ export function ResourceDetailDrawer({
               <p className="font-medium">
                 {`${currentResource.uploader.first_name} ${currentResource.uploader.last_name}`.trim()}
               </p>
-              <p className="text-sm text-muted-foreground">{currentResource.uploader.email}</p>
+              <p className="text-sm text-muted-foreground">
+                {currentResource.uploader.email}
+              </p>
             </div>
           </div>
 
@@ -515,7 +560,9 @@ export function ResourceDetailDrawer({
                     </Badge>
                   ))
                 ) : (
-                  <span className="text-sm text-muted-foreground">Admin default visibility</span>
+                  <span className="text-sm text-muted-foreground">
+                    Admin default visibility
+                  </span>
                 )}
               </div>
             ) : (
@@ -523,16 +570,24 @@ export function ResourceDetailDrawer({
                 {nonAdminRoles.map((role) => {
                   const checked = editData.role_ids.includes(role.id);
                   return (
-                    <label key={role.id} className="flex items-center gap-2 text-sm">
+                    <label
+                      key={role.id}
+                      className="flex items-center gap-2 text-sm"
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={(event) => {
                           const nextRoleIds = event.target.checked
                             ? [...editData.role_ids, role.id]
-                            : editData.role_ids.filter((item) => item !== role.id);
+                            : editData.role_ids.filter(
+                                (item) => item !== role.id,
+                              );
 
-                          setEditData((prev) => ({ ...prev, role_ids: nextRoleIds }));
+                          setEditData((prev) => ({
+                            ...prev,
+                            role_ids: nextRoleIds,
+                          }));
                         }}
                       />
                       <span>{role.slug}</span>
@@ -560,7 +615,10 @@ export function ResourceDetailDrawer({
                 <XIcon className="size-4 mr-1" />
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={isPending || isReplacingFile}>
+              <Button
+                onClick={handleSave}
+                disabled={isPending || isReplacingFile}
+              >
                 <SaveIcon className="size-4 mr-1" />
                 {isPending || isReplacingFile ? "Saving..." : "Save Changes"}
               </Button>

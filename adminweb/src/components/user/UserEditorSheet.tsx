@@ -27,6 +27,7 @@ import {
   type UserRole,
   type UserTrack,
 } from "@/type/user";
+import { toast } from "sonner";
 
 interface UserEditorSheetProps {
   open: boolean;
@@ -122,23 +123,23 @@ export function UserEditorSheet({
 
   const handleSubmit = async () => {
     if (!values.firstName.trim()) {
-      window.alert("First name is required.");
+      toast.error("First name is required.");
       return;
     }
     if (!values.lastName.trim()) {
-      window.alert("Last name is required.");
+      toast.error("Last name is required.");
       return;
     }
     if (!values.email.trim()) {
-      window.alert("Email is required.");
+      toast.error("Email is required.");
       return;
     }
     if (!isValidEmail(values.email.trim())) {
-      window.alert("Invalid email format.");
+      toast.error("Invalid email format.");
       return;
     }
     if (values.role !== "admin" && !values.track) {
-      window.alert("Track is required for non-admin users.");
+      toast.error("Track is required for non-admin users.");
       return;
     }
     if (
@@ -146,42 +147,42 @@ export function UserEditorSheet({
       !values.adminIsGlobal &&
       !values.adminTracks.length
     ) {
-      window.alert("Select global admin or at least one admin track.");
+      toast.error("Select global admin or at least one admin track.");
       return;
     }
     if (values.role === "student") {
       if (!values.schoolName.trim()) {
-        window.alert("School is required for student users.");
+        toast.error("School is required for student users.");
         return;
       }
       if (!values.yearLevel || values.yearLevel < 9 || values.yearLevel > 12) {
-        window.alert("Year level must be between 9 and 12.");
+        toast.error("Year level must be between 9 and 12.");
         return;
       }
     }
     if (values.role === "supervisor" && !values.supervisorSchoolName.trim()) {
-      window.alert("School is required for supervisor users.");
+      toast.error("School is required for supervisor users.");
       return;
     }
     if (values.role === "mentor") {
       if (!values.mentorInstitution.trim()) {
-        window.alert("Institution is required for mentor users.");
+        toast.error("Institution is required for mentor users.");
         return;
       }
       if (!values.mentorReason.trim()) {
-        window.alert("Mentor reason is required for mentor users.");
+        toast.error("Mentor reason is required for mentor users.");
         return;
       }
       if (
         values.mentorMaxGroupCount === null ||
         values.mentorMaxGroupCount < 0
       ) {
-        window.alert("Max group count must be 0 or greater.");
+        toast.error("Max group count must be 0 or greater.");
         return;
       }
     }
     if (roleUsesInterests(values.role) && !values.interests.length) {
-      window.alert(`At least one interest is required for ${values.role} users.`);
+      toast.error(`At least one interest is required for ${values.role} users.`);
       return;
     }
 

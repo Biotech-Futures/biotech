@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/resource")({
   component: ResourcePage,
@@ -161,13 +162,13 @@ function ResourcePage() {
 
   const handleDownload = async (resource: Resource) => {
     if (!resource.file_name) {
-      window.alert("This resource does not have an uploaded file.");
+      toast.error("This resource does not have an uploaded file.");
       return;
     }
     try {
       await downloadResourceFile(resource.id, resource.file_name);
     } catch {
-      window.alert("Download failed. Please try again.");
+      toast.error("Download failed. Please try again.");
     }
   };
 
@@ -192,12 +193,12 @@ function ResourcePage() {
     if (!selectedIds.length) return;
 
     if (batchVisibilityScope === "role_based" && !batchRoleIds.length) {
-      window.alert("Please select at least one role for role-based visibility.");
+      toast.error("Please select at least one role for role-based visibility.");
       return;
     }
 
     if (batchVisibilityScope === "track_based" && batchTrackId === null) {
-      window.alert("Please select a track for track-based visibility.");
+      toast.error("Please select a track for track-based visibility.");
       return;
     }
 
@@ -241,7 +242,7 @@ function ResourcePage() {
   const handleBatchApplyTrackOnly = async () => {
     if (!selectedIds.length) return;
     if (batchTrackId === null) {
-      window.alert("Please select a track.");
+      toast.error("Please select a track.");
       return;
     }
     await Promise.all(
@@ -262,7 +263,7 @@ function ResourcePage() {
   const handleBatchApplyRolesOnly = async () => {
     if (!selectedIds.length) return;
     if (!batchRoleIds.length) {
-      window.alert("Please select at least one role.");
+      toast.error("Please select at least one role.");
       return;
     }
     await Promise.all(

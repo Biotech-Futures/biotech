@@ -26,6 +26,7 @@ import {
 } from "@/query/resource";
 import type { ResourceKind, ResourceTypeName } from "@/type/resource";
 import { RichEditor } from "@/components/announcement/RichEditor";
+import { toast } from "sonner";
 
 type VisibilityMode = "global" | "track_based" | "role_based";
 
@@ -102,11 +103,11 @@ export function ResourceUploadSheet({
 
   const handleSubmit = () => {
     if (!resourceName.trim()) {
-      window.alert("Resource name is required.");
+      toast.error("Resource name is required.");
       return;
     }
     if (!resourceDescription.trim()) {
-      window.alert("Resource description is required.");
+      toast.error("Resource description is required.");
       return;
     }
     const parsedTrackId = trackId ? Number(trackId) : null;
@@ -114,12 +115,12 @@ export function ResourceUploadSheet({
     const finalRoleIds = roleIds;
 
     if (visibilityMode === "track_based" && finalTrackId === null) {
-      window.alert("Track is required for track-based visibility.");
+      toast.error("Track is required for track-based visibility.");
       return;
     }
 
     if (visibilityMode === "role_based" && !finalRoleIds.length) {
-      window.alert(
+      toast.error(
         "Please select at least one role for role-based visibility.",
       );
       return;
@@ -127,7 +128,7 @@ export function ResourceUploadSheet({
 
     if (resourceKind === "page") {
       if (!contentHtml.trim()) {
-        window.alert("HTML content is required for page resources.");
+        toast.error("HTML content is required for page resources.");
         return;
       }
 
@@ -148,7 +149,7 @@ export function ResourceUploadSheet({
             onOpenChange(false);
           },
           onError: (error) => {
-            window.alert(getErrorMessage(error));
+            toast.error(getErrorMessage(error));
           },
         },
       );
@@ -156,7 +157,7 @@ export function ResourceUploadSheet({
     }
 
     if (!file) {
-      window.alert("Please choose a file first.");
+      toast.error("Please choose a file first.");
       return;
     }
 
@@ -179,7 +180,7 @@ export function ResourceUploadSheet({
         onOpenChange(false);
       },
       onError: (error) => {
-        window.alert(getErrorMessage(error));
+        toast.error(getErrorMessage(error));
       },
     });
   };

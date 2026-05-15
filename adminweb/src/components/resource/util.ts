@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+
 export const openHtmlPreviewPage = (html: string) => {
   const documentHtml = `<!doctype html>
 <html>
@@ -21,7 +23,7 @@ export const openHtmlPreviewPage = (html: string) => {
   const url = URL.createObjectURL(blob);
   const win = window.open(url, "_blank");
   if (!win) {
-    window.alert(
+    toast.error(
       "Preview tab was blocked. Please allow pop-ups for this site.",
     );
     return;

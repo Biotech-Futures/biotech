@@ -23,6 +23,7 @@ import { myFetch } from "@/lib/myFetch";
 import { TaskTable } from "@/components/task/TaskTable";
 import { TaskEditorSheet } from "@/components/task/TaskEditorSheet";
 import type { Task, TaskCreateValues, TaskUpdateValues } from "@/type/task";
+import { toast } from "sonner";
 
 type TaskTypeFilter = "all" | "group" | "individual";
 type SearchParams = { page: number; task_type?: TaskTypeFilter };
@@ -132,7 +133,7 @@ function TaskManagementPage() {
       const msg =
         (err as { response?: { data?: { msg?: string } } })?.response?.data?.msg ??
         "Failed to save task.";
-      window.alert(msg);
+      toast.error(msg);
     }
   };
 
@@ -141,7 +142,7 @@ function TaskManagementPage() {
     try {
       await deleteTask.mutateAsync(task.id);
     } catch {
-      window.alert("Failed to delete task.");
+      toast.error("Failed to delete task.");
     }
   };
 
@@ -149,7 +150,7 @@ function TaskManagementPage() {
     try {
       await toggleTask.mutateAsync({ id: task.id, completed: !task.completed });
     } catch {
-      window.alert("Failed to update task.");
+      toast.error("Failed to update task.");
     }
   };
 

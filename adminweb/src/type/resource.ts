@@ -5,7 +5,7 @@ export type ResourceRole = {
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
-export type ResourceKind = "file" | "page";
+export type ResourceKind = "attachment" | "file" | "page";
 export type ResourceOrder = "newest" | "oldest";
 export type VisibilityScope = "global" | "track_based" | "role_based";
 

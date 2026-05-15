@@ -12,7 +12,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, ImageIcon, Quote, Code, Code2,
   Table as TableIcon, Link as LinkIcon, Minus, Undo2, Redo2,
-  ChevronDown, Trash2,
+  ChevronDown, Trash2, Paperclip,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -20,6 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { uploadResourceAttachment } from "@/query/resource";
+import { toast } from "sonner";
 
 type Props = {
   value: string;
@@ -31,7 +33,10 @@ const HEADING_LEVELS = [1, 2, 3, 4] as const;
 
 export function RichEditor({ value, onChange, placeholder }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const attachmentRangeRef = useRef<{ from: number; to: number } | null>(null);
   const [rawMode, setRawMode] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const rawModeRef = useRef(false);
 
   const editor = useEditor({
@@ -71,6 +76,49 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
     if (url === null) return;
     if (url === "") editor?.chain().focus().unsetLink().run();
     else editor?.chain().focus().setLink({ href: url }).run();
+  }
+
+  function openAttachmentPicker() {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      toast.error("Select the text you want to attach the file link to first.");
+      return;
+    }
+    attachmentRangeRef.current = { from, to };
+    attachmentInputRef.current?.click();
+  }
+
+  function insertAttachmentLink(href: string, range: { from: number; to: number } | null) {
+    if (!editor) return;
+    if (!range || range.from === range.to) return;
+
+    const maxPos = editor.state.doc.content.size;
+    const from = Math.min(Math.max(range.from, 0), maxPos);
+    const to = Math.min(Math.max(range.to, from), maxPos);
+
+    editor.chain().focus().setTextSelection({ from, to }).setLink({ href }).run();
+  }
+
+  async function handleAttachmentFiles(files: File[]) {
+    if (!files.length) return;
+    const initialRange = attachmentRangeRef.current;
+    setUploadingAttachment(true);
+    try {
+      for (const [index, file] of files.entries()) {
+        const attachment = await uploadResourceAttachment(file);
+        insertAttachmentLink(
+          attachment.url,
+          index === 0 ? initialRange : null,
+        );
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Attachment upload failed. Please check the file type and try again.");
+    } finally {
+      attachmentRangeRef.current = null;
+      setUploadingAttachment(false);
+    }
   }
 
   function toggleRawMode() {
@@ -197,6 +245,9 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
               <button type="button" title="Insert image" onMouseDown={(e) => { e.preventDefault(); fileInputRef.current?.click(); }} className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent">
                 <ImageIcon className="size-3.5" /> Image
               </button>
+              <button type="button" title="Attach file to selected text" disabled={uploadingAttachment} onMouseDown={(e) => { e.preventDefault(); openAttachmentPicker(); }} className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none">
+                <Paperclip className="size-3.5" /> {uploadingAttachment ? "Uploading" : "File"}
+              </button>
               <button type="button" title="Insert table" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); }} className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent">
                 <TableIcon className="size-3.5" /> Table
               </button>
@@ -280,6 +331,9 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
 
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
         onChange={(e) => { Array.from(e.target.files ?? []).forEach(handleImageFile); e.target.value = ""; }}
+      />
+      <input ref={attachmentInputRef} type="file" multiple className="hidden"
+        onChange={(e) => { void handleAttachmentFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
       />
     </div>
   );

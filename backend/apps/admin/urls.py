@@ -53,6 +53,8 @@ urlpatterns = [
     path('resource/<int:resource_id>/assign-role/', views.ResourceAssignRoleView.as_view(), name='resource-assign-role'),
     path('resource/<int:resource_id>/remove-role/', views.ResourceRemoveRoleView.as_view(), name='resource-remove-role'),
     path('resource/upload/', views.ResourceUploadView.as_view(), name='resource-upload'),
+    path('resource/attachments/', views.ResourceAttachmentUploadView.as_view(), name='resource-attachment-upload'),
+    path('resource/attachments/<int:resource_id>/download/', views.ResourceAttachmentDownloadView.as_view(), name='resource-attachment-download'),
     path('resource/roles/', views.ResourceRolesListView.as_view(), name='resource-roles-list'),
     path('resource/types/', views.ResourceTypesListView.as_view(), name='resource-types-list'),
     path('resource/tracks/', views.ResourceTracksListView.as_view(), name='resource-tracks-list'),
@@ -66,6 +68,8 @@ urlpatterns = [
     path('announcement/<int:announcement_id>/notify/', views.AnnouncementNotifyView.as_view(), name='announcement-notify'),
     path('announcement/tracks/', views.AnnouncementTracksListView.as_view(), name='announcement-tracks-list'),
     path('announcement/roles/', views.AnnouncementRolesListView.as_view(), name='announcement-roles-list'),
+    path('announcement/attachments/', views.AnnouncementAttachmentUploadView.as_view(), name='announcement-attachment-upload'),
+    path('announcement/attachments/<int:resource_id>/download/', views.AnnouncementAttachmentDownloadView.as_view(), name='announcement-attachment-download'),
     
     # ========================================================================
     # MENTOR ROUTES

@@ -252,6 +252,26 @@ export function useDeleteResource() {
   });
 }
 
+export type ResourceAttachment = {
+  id: number;
+  fileName: string;
+  url: string;
+  mimeType: string | null;
+  size: number | null;
+};
+
+export async function uploadResourceAttachment(file: File) {
+  const payload = new FormData();
+  payload.append("file", file);
+
+  const res = await myFetch.post<{
+    msg: string;
+    data: ResourceAttachment;
+  }>("/resource/attachments", payload);
+
+  return res.data.data;
+}
+
 export async function downloadResourceFile(id: number, fallbackName?: string) {
   const res = await myFetch.get<Blob>(`/resource/${id}/download`, {
     responseType: "blob",
