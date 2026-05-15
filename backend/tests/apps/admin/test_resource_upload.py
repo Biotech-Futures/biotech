@@ -103,6 +103,29 @@ class AdminResourceUploadTests(TestCase):
         self.assertTrue(response.data["data"]["downloadUrl"].endswith(expected_download_path))
         self.assertNotEqual(response.data["data"]["resourceUrl"], response.data["data"]["downloadUrl"])
 
+    def test_resource_attachment_download_uses_original_file_extension(self):
+        for content in (b"first file content", b"second file content"):
+            upload = SimpleUploadedFile(
+                "brief.pdf",
+                content,
+                content_type="application/pdf",
+            )
+            response = self.client.post(
+                reverse("admin_api:resource-attachment-upload"),
+                {"file": upload},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        resource = Resources.objects.order_by("-id").first()
+        response = self.client.get(
+            reverse("admin_api:resource-attachment-download", args=[resource.id])
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn('filename="brief.pdf"', response["Content-Disposition"])
+
     @patch("apps.admin.services.resource.download_file_text")
     @patch("apps.admin.services.resource.upload_file")
     def test_admin_page_resource_returns_content_html(

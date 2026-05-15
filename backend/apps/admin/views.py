@@ -3,6 +3,8 @@ from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
+from pathlib import PurePosixPath
+import re
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -784,9 +786,15 @@ class ResourceAttachmentDownloadView(APIView):
     """GET /api/v1/admin/resource/attachments/{id}/download/"""
     permission_classes = [IsAuthenticated]
     storage_prefix = "resource_attachments"
+    stored_filename_prefix_re = re.compile(r"^\d+-")
 
     def _storage(self):
         return FileSystemStorage(location=settings.MEDIA_ROOT / self.storage_prefix)
+
+    def _download_filename(self, resource, saved_name):
+        stored_name = PurePosixPath(saved_name).name
+        original_name = self.stored_filename_prefix_re.sub("", stored_name, count=1)
+        return sanitize_upload_filename(original_name or resource.name)
 
     def get(self, request, resource_id):
         resource = Resources.objects.filter(
@@ -819,7 +827,7 @@ class ResourceAttachmentDownloadView(APIView):
         response = FileResponse(
             file_handle,
             as_attachment=True,
-            filename=sanitize_upload_filename(resource.name),
+            filename=self._download_filename(resource, saved_name),
         )
         if resource.file_mime_type:
             response["Content-Type"] = resource.file_mime_type
