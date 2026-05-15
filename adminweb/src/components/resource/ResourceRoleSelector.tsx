@@ -18,7 +18,6 @@ export function ResourceRoleSelector({
   visibleRoleSlugs = [],
   visibilityScope,
   onSelectedRoleIdsChange,
-  helperText,
 }: ResourceRoleSelectorProps) {
   const nonAdminRoles = roles.filter((role) => role.slug !== "admin");
 

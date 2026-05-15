@@ -348,12 +348,18 @@ function EventPage() {
   const roles = rolesData?.data ?? [];
   const tracks = tracksData?.data ?? [];
 
+  const authUserId = Number(currentUser?.id);
   const currentAdminEmail = currentUser?.email ?? "";
   const currentUserRecord = allUsers.find((u) => u.email === currentAdminEmail);
-  const currentUserId = currentUserRecord ? Number(currentUserRecord.id) : null;
-  const currentHostName = currentUserId
-    ? formatHostName(currentUserId, usersById)
-    : "---";
+  const currentUserId = Number.isFinite(authUserId)
+    ? authUserId
+    : currentUserRecord
+      ? Number(currentUserRecord.id)
+      : null;
+  const currentHostName =
+    currentUserId && usersById.has(currentUserId)
+      ? formatHostName(currentUserId, usersById)
+      : getAuthUserName(currentUser) || "---";
 
   const {
     control,
@@ -536,9 +542,7 @@ function EventPage() {
                   <TableCell>{event.id}</TableCell>
                   <TableCell>{event.eventName}</TableCell>
                   <TableCell>
-                    {event.hostUserId
-                      ? formatHostName(event.hostUserId, usersById)
-                      : "Unassigned"}
+                    {formatEventHost(event, usersById)}
                   </TableCell>
                   <TableCell>
                     {event.location
@@ -668,9 +672,7 @@ function EventPage() {
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase">Host</Label>
               <p className="text-sm">
-                {viewingEvent?.hostUserId
-                  ? formatHostName(viewingEvent.hostUserId, usersById)
-                  : "---"}
+                {viewingEvent ? formatEventHost(viewingEvent, usersById) : "---"}
               </p>
             </div>
             <div className="space-y-1.5">
@@ -938,8 +940,8 @@ function EventPage() {
             errors={editErrors}
             isVirtual={!!editIsVirtual}
             currentHostName={
-              editingEvent?.hostUserId
-                ? formatHostName(editingEvent.hostUserId, usersById)
+              editingEvent
+                ? formatEventHost(editingEvent, usersById)
                 : currentHostName
             }
             groups={groups}
@@ -986,6 +988,26 @@ function formatHostName(
 ) {
   const user = usersById.get(hostUserId);
   return user?.name || user?.email || "Unassigned";
+}
+
+function formatEventHost(
+  event: Event,
+  usersById: Map<number, { name: string; email: string }>,
+) {
+  return (
+    event.hostName ||
+    event.hostEmail ||
+    (event.hostUserId ? formatHostName(event.hostUserId, usersById) : null) ||
+    "Unassigned"
+  );
+}
+
+function getAuthUserName(user: any) {
+  if (!user) return "";
+  const firstName = typeof user.firstName === "string" ? user.firstName : "";
+  const lastName = typeof user.lastName === "string" ? user.lastName : "";
+  const fullName = `${firstName} ${lastName}`.trim();
+  return fullName || user.name || user.email || "";
 }
 
 function toDatetimeLocal(value: string) {
