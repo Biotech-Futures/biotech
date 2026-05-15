@@ -198,7 +198,7 @@
             <span class="panel-quick-icon"><i class="fas fa-user"></i></span>
             <span class="panel-quick-copy">
               <strong>Profile</strong>
-              <small>Update your account details</small>
+              <small>Update your time zone</small>
             </span>
           </button>
         </div>
