@@ -242,7 +242,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
         {/* ── Editor / Raw area ── */}
         {rawMode ? (
           <Textarea value={value} onChange={(e) => onChange(e.target.value)}
-            className="min-h-[320px] rounded-none border-0 font-mono text-sm focus-visible:ring-0 resize-none"
+            className="min-h-[320px] rounded-none border-0 font-mono text-sm focus-visible:ring-0 resize-none break-all"
             placeholder="<p>HTML content…</p>"
           />
         ) : (
