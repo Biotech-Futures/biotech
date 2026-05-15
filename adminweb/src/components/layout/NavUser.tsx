@@ -8,12 +8,12 @@ import { useAuthContext } from "@/provider/AuthProvider";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { Button } from "../ui/button";
 import { useSignOut } from "@/fetch/auth";
 export function NavUser() {
   const { user } = useAuthContext();
@@ -56,11 +56,11 @@ export function NavUser() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <Button onClick={() => mutate()} disabled={isPending}>
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => mutate()}>
                 {isPending ? "Logging out..." : "Log out"}
-              </Button>
-            </DropdownMenuItem>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

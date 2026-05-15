@@ -1,12 +1,3 @@
-// Group detail drawer for viewing/editing group composition
-
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
 import {
   Dialog,
   DialogContent,
@@ -51,19 +42,19 @@ function getTrackColor(track: Track) {
   }
 }
 
-interface GroupDetailDrawerProps {
+interface GroupDetailModalProps {
   group: Group | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onGroupChange?: (group: Group) => void;
 }
 
-export function GroupDetailDrawer({
+export function GroupDetailModal({
   group,
   open,
   onOpenChange,
   onGroupChange,
-}: GroupDetailDrawerProps) {
+}: GroupDetailModalProps) {
   const queryClient = useQueryClient();
   const [mentorDialogOpen, setMentorDialogOpen] = useState(false);
   const [selectedMentorId, setSelectedMentorId] = useState("");
@@ -157,17 +148,17 @@ export function GroupDetailDrawer({
 
   return (
     <>
-      <Drawer open={open} onOpenChange={onOpenChange} direction="right">
-        <DrawerContent className="h-full w-full overflow-hidden sm:max-w-lg">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle className="flex items-center gap-2">
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
               <UsersIcon className="size-5" />
               {group.name}
-            </DrawerTitle>
-            <DrawerDescription>
+            </DialogTitle>
+            <DialogDescription>
               View group details and composition
-            </DrawerDescription>
-          </DrawerHeader>
+            </DialogDescription>
+          </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
             {/* Group Info */}
@@ -251,8 +242,8 @@ export function GroupDetailDrawer({
               </div>
             </div>
           </div>
-        </DrawerContent>
-      </Drawer>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={mentorDialogOpen} onOpenChange={setMentorDialogOpen}>
         <DialogContent className="sm:max-w-md">

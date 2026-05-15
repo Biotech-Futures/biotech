@@ -1,7 +1,7 @@
 // Export barrel for group components
 
 export { GroupFilters } from "./GroupFilters";
-export { GroupDetailDrawer } from "./GroupDetailDrawer";
+export { GroupDetailModal } from "./GroupDetailModal";
 export { GroupMessagesDialog } from "./GroupMessagesDialog";
 export { GroupTable } from "./GroupTable";
 export { createColumns } from "./columns";

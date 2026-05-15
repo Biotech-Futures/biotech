@@ -12,11 +12,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TASK_STATUSES, TASK_STATUS_LABELS } from "@/type/task";
 import type { Task, TaskCreateValues, TaskUpdateValues } from "@/type/task";
 import type { UserAccount } from "@/type/user";
@@ -128,11 +128,11 @@ export function TaskEditorSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>{mode === "create" ? "Create Task" : "Edit Task"}</SheetTitle>
-        </SheetHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{mode === "create" ? "Create Task" : "Edit Task"}</DialogTitle>
+        </DialogHeader>
 
         <form
           onSubmit={handleSubmit(handleFormSubmit)}
@@ -276,7 +276,7 @@ export function TaskEditorSheet({
             </Button>
           </div>
         </form>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

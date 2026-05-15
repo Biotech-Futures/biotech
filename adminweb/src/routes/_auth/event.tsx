@@ -1,13 +1,20 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,6 +62,7 @@ import {
   PencilIcon,
   UsersIcon,
   EyeIcon,
+  MoreHorizontalIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -563,57 +571,59 @@ function EventPage() {
                   <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
                   <TableCell>{formatDateTime(event.endsDatetime)}</TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setViewingEvent(
-                            viewingEvent?.id === event.id ? null : event,
-                          )
-                        }
-                      >
-                        <EyeIcon className="size-4" />
-                        View
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setRsvpEventId(
-                            rsvpEventId === event.id ? null : event.id,
-                          )
-                        }
-                      >
-                        <UsersIcon className="size-4" />
-                        RSVP
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setEditingEvent(
-                            editingEvent?.id === event.id ? null : event,
-                          )
-                        }
-                      >
-                        <PencilIcon className="size-4" />
-                        Edit
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={isDeleting}
-                        onClick={() => handleDelete(event)}
-                      >
-                        <Trash2Icon className="size-4" />
-                        Delete
-                      </Button>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Open actions for ${event.eventName}`}
+                        >
+                          <MoreHorizontalIcon className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() =>
+                            setViewingEvent(
+                              viewingEvent?.id === event.id ? null : event,
+                            )
+                          }
+                        >
+                          <EyeIcon className="size-4" />
+                          View
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            setRsvpEventId(
+                              rsvpEventId === event.id ? null : event.id,
+                            )
+                          }
+                        >
+                          <UsersIcon className="size-4" />
+                          RSVP
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            setEditingEvent(
+                              editingEvent?.id === event.id ? null : event,
+                            )
+                          }
+                        >
+                          <PencilIcon className="size-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={isDeleting}
+                          onClick={() => handleDelete(event)}
+                        >
+                          <Trash2Icon className="size-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))
@@ -654,20 +664,19 @@ function EventPage() {
         </div>
       </div>
 
-      <Drawer
-        direction="right"
+      <Dialog
         open={!!viewingEvent}
         onOpenChange={(open) => {
           if (!open) setViewingEvent(null);
         }}
       >
-        <DrawerContent className="overflow-y-auto sm:max-w-xl">
-          <DrawerHeader>
-            <DrawerTitle>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
               {viewingEvent?.eventName ?? "Event Details"}
-            </DrawerTitle>
-            <DrawerDescription>Event #{viewingEvent?.id}</DrawerDescription>
-          </DrawerHeader>
+            </DialogTitle>
+            <DialogDescription>Event #{viewingEvent?.id}</DialogDescription>
+          </DialogHeader>
           <div className="grid gap-5 px-4 pb-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase">Host</Label>
@@ -762,16 +771,15 @@ function EventPage() {
               </div>
             )}
           </div>
-          <DrawerFooter>
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setViewingEvent(null)}>
               Close
             </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Drawer
-        direction="right"
+      <Dialog
         open={createEventOpen}
         onOpenChange={(open) => {
           setCreateEventOpen(open);
@@ -792,13 +800,13 @@ function EventPage() {
           }
         }}
       >
-        <DrawerContent className="overflow-y-auto sm:max-w-xl">
-          <DrawerHeader>
-            <DrawerTitle>Create Event</DrawerTitle>
-            <DrawerDescription>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create Event</DialogTitle>
+            <DialogDescription>
               Add an event to the BIOTech Futures program calendar.
-            </DrawerDescription>
-          </DrawerHeader>
+            </DialogDescription>
+          </DialogHeader>
           <EventForm
             formId="create-event-form"
             control={control}
@@ -823,7 +831,7 @@ function EventPage() {
             }
             onSubmit={handleSubmit(onSubmit)}
           />
-          <DrawerFooter>
+          <DialogFooter>
             <Button form="create-event-form" type="submit" disabled={isCreating}>
               <CalendarIcon className="size-4" />
               {isCreating ? "Creating..." : "Create Event"}
@@ -831,27 +839,26 @@ function EventPage() {
             <Button type="button" variant="outline" onClick={() => setCreateEventOpen(false)}>
               Cancel
             </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Drawer
-        direction="right"
+      <Dialog
         open={rsvpEventId !== null}
         onOpenChange={(open) => {
           if (!open) setRsvpEventId(null);
         }}
       >
-        <DrawerContent className="overflow-y-auto sm:max-w-3xl">
-          <DrawerHeader>
-            <DrawerTitle>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>
               RSVP List {rsvpEvent ? "- " + rsvpEvent.eventName : ""}
-            </DrawerTitle>
-            <DrawerDescription>
+            </DialogTitle>
+            <DialogDescription>
               Event #{rsvpEventId} has {rsvps.length} RSVP
               {rsvps.length === 1 ? "" : "s"}.
-            </DrawerDescription>
-          </DrawerHeader>
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 px-4 pb-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -913,26 +920,25 @@ function EventPage() {
               </div>
             </div>
           </div>
-          <DrawerFooter>
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRsvpEventId(null)}>
               Close
             </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Drawer
-        direction="right"
+      <Dialog
         open={!!editingEvent}
         onOpenChange={(open) => {
           if (!open) setEditingEvent(null);
         }}
       >
-        <DrawerContent className="overflow-y-auto sm:max-w-xl">
-          <DrawerHeader>
-            <DrawerTitle>Edit Event #{editingEvent?.id}</DrawerTitle>
-            <DrawerDescription>Update the event details.</DrawerDescription>
-          </DrawerHeader>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Event #{editingEvent?.id}</DialogTitle>
+            <DialogDescription>Update the event details.</DialogDescription>
+          </DialogHeader>
           <EventForm
             formId="edit-event-form"
             control={editControl}
@@ -961,16 +967,16 @@ function EventPage() {
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
           />
-          <DrawerFooter>
+          <DialogFooter>
             <Button form="edit-event-form" type="submit" disabled={isUpdating}>
               {isUpdating ? "Saving..." : "Save Changes"}
             </Button>
             <Button type="button" variant="outline" onClick={() => setEditingEvent(null)}>
               Cancel
             </Button>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -12,13 +12,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   USER_ROLES,
   type TrackOption,
@@ -200,14 +200,14 @@ export function UserEditorSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{mode === "create" ? "Add User" : "Edit User"}</SheetTitle>
-          <SheetDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{mode === "create" ? "Add User" : "Edit User"}</DialogTitle>
+          <DialogDescription>
             Manage role, track, and account status without touching other modules.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
           <div className="space-y-1.5">
@@ -535,7 +535,7 @@ export function UserEditorSheet({
 
         </div>
 
-        <SheetFooter className="shrink-0 border-t">
+        <DialogFooter className="shrink-0 border-t">
           {mode === "edit" && user && onDelete ? (
             <Button
               variant="destructive"
@@ -551,8 +551,8 @@ export function UserEditorSheet({
           <Button onClick={handleSubmit} loading={isPending}>
             {mode === "create" ? "Create User" : "Save Changes"}
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

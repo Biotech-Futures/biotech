@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
 
 interface UserDetailSheetProps {
@@ -22,11 +22,11 @@ export function UserDetailSheet({
   if (!user) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{user.name || "User Details"}</SheetTitle>
-        </SheetHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{user.name || "User Details"}</DialogTitle>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
           <DetailSection
@@ -115,8 +115,8 @@ export function UserDetailSheet({
             />
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 

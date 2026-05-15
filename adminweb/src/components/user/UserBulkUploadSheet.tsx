@@ -4,13 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { parseCsvUsers } from "@/query/user";
 import type { CsvUserRow } from "@/type/user";
@@ -237,17 +237,17 @@ export function UserBulkUploadSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>Bulk Upload Users</SheetTitle>
-          <SheetDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Upload Users</DialogTitle>
+          <DialogDescription>
             Upload a CSV with either a single name column or split firstName and
             lastName columns, plus email, role, track, adminTracks, adminIsGlobal, school,
             yearLevel, interests, institution, mentorReason, maxGroupCount,
             background, joinPermissionReceived, and status.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
           <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-4 py-3">
@@ -327,16 +327,16 @@ export function UserBulkUploadSheet({
           </div>
         </div>
 
-        <SheetFooter className="shrink-0 border-t">
+        <DialogFooter className="shrink-0 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleImport} loading={isPending}>
             Import Users
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
