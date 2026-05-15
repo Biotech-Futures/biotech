@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
+import { buildUrl } from "@/util/url";
 import type { CreateResource, UpdateResource } from "@/schema/resource";
 import type {
   Resource,
@@ -252,26 +253,46 @@ export function useDeleteResource() {
   });
 }
 
-export type ResourceAttachment = {
+export type UploadedResourceLink = {
   id: number;
   fileName: string;
   url: string;
-  resourceUrl?: string;
   downloadUrl?: string;
   mimeType: string | null;
   size: number | null;
 };
 
-export async function uploadResourceAttachment(file: File) {
+export async function uploadLinkedResourceFile(file: File): Promise<UploadedResourceLink> {
   const payload = new FormData();
   payload.append("file", file);
+  payload.append("name", file.name);
+  payload.append("description", `Linked resource file: ${file.name}`);
+  payload.append("visibility_scope", "global");
 
   const res = await myFetch.post<{
     msg: string;
-    data: ResourceAttachment;
-  }>("/resource/attachments", payload);
+    data: ApiResource;
+  }>("/resource/upload", payload);
 
-  return res.data.data;
+  const resource = normalizeResource(res.data.data);
+  const downloadUrl = buildUrl(
+    import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000",
+    "api",
+    "v1",
+    "admin",
+    "resource",
+    String(resource.id),
+    "download",
+  );
+
+  return {
+    id: resource.id,
+    fileName: resource.file_name ?? file.name,
+    url: downloadUrl,
+    downloadUrl,
+    mimeType: resource.file_mime_type,
+    size: resource.file_size,
+  };
 }
 
 export async function downloadResourceFile(id: number, fallbackName?: string) {

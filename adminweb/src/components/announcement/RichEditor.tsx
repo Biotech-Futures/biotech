@@ -39,7 +39,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { uploadResourceAttachment } from "@/query/resource";
+import { uploadLinkedResourceFile } from "@/query/resource";
 import { toast } from "sonner";
 
 type Props = {
@@ -142,9 +142,9 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
     setUploadingAttachment(true);
     try {
       for (const [index, file] of files.entries()) {
-        const attachment = await uploadResourceAttachment(file);
+        const resource = await uploadLinkedResourceFile(file);
         insertAttachmentLink(
-          attachment.downloadUrl ?? attachment.resourceUrl ?? attachment.url,
+          resource.downloadUrl ?? resource.url,
           index === 0 ? initialRange : null,
         );
       }
