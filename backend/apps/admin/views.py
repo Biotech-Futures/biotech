@@ -1,4 +1,5 @@
 from django.contrib.auth import update_session_auth_hash
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -399,7 +400,10 @@ class ResourceListCreateView(APIView):
             "limit": int(request.query_params.get("limit", 10)),
             "uploader_user_id": request.query_params.get("uploaderUserId"),
             "group_id": request.query_params.get("groupId"),
-            "resource_kind": request.query_params.get("resourceKind"),
+            "resource_kind": (
+                request.query_params.get("resourceKind")
+                or request.query_params.get("resource_kind")
+            ),
             "resource_type_id": request.query_params.get("resourceTypeId"),
             "resource_type": request.query_params.get("resourceType"),
             "track_id": request.query_params.get("trackId"),
@@ -454,8 +458,16 @@ class ResourceDownloadView(APIView):
 
     def get(self, request, resource_id):
         result = download_resource(resource_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
-        return Response(result, status=code)
+        data = result.get("data")
+        if not data:
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+
+        response = HttpResponse(
+            data["content"],
+            content_type=data.get("mime_type") or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{data["file_name"]}"'
+        return response
 
 
 class ResourceUploadView(APIView):

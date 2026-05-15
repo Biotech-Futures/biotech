@@ -1,9 +1,9 @@
 import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ import {
   useUpdateResource,
 } from "@/query/resource";
 import { updateResourceSchema } from "@/schema/resource";
+import { RichEditor } from "@/components/announcement/RichEditor";
 
 type VisibilityMode = "global" | "track_based" | "role_based";
 
@@ -61,6 +62,7 @@ export function ResourceDetailDrawer({
   const { data: tracksData } = useQueryResourceTracks();
   const { data: typesData } = useQueryResourceTypes();
   const currentResource = detailData?.data ?? resource;
+  const pageContentHtml = currentResource?.content_html?.trim() || "";
 
   const allRoles = rolesData?.data ?? [];
   const nonAdminRoles = allRoles.filter((role) => role.slug !== "admin");
@@ -89,10 +91,7 @@ export function ResourceDetailDrawer({
     content_html: "",
     role_ids: [],
   });
-  const [htmlFileName, setHtmlFileName] = useState("");
   const [replacementFile, setReplacementFile] = useState<File | null>(null);
-  const [showHtmlEditor, setShowHtmlEditor] = useState(false);
-  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   const visibleRoleSlugs = useMemo(() => {
     if (!currentResource) return [] as string[];
@@ -129,10 +128,7 @@ export function ResourceDetailDrawer({
         ),
       ),
     });
-    setHtmlFileName("");
     setReplacementFile(null);
-    setShowHtmlEditor(false);
-    setShowHtmlPreview(false);
   }, [currentResource]);
 
   if (!currentResource) return null;
@@ -188,24 +184,6 @@ export function ResourceDetailDrawer({
     }
   };
 
-  const handleChooseHtmlFile = async (selectedFile: File | null) => {
-    if (!selectedFile) {
-      setHtmlFileName("");
-      return;
-    }
-
-    try {
-      const htmlText = await selectedFile.text();
-      setHtmlFileName(selectedFile.name);
-      setEditData((prev) => ({
-        ...prev,
-        content_html: htmlText,
-      }));
-    } catch {
-      window.alert("Failed to read the HTML file.");
-    }
-  };
-
   const openHtmlPreviewPage = (html: string) => {
     const documentHtml = `<!doctype html>
 <html>
@@ -235,19 +213,16 @@ export function ResourceDetailDrawer({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} direction="right">
-      <DrawerContent className="w-full sm:max-w-lg h-dvh max-h-dvh min-h-0 overflow-hidden">
-        <DrawerHeader className="shrink-0 border-b">
-          <DrawerTitle className="flex items-center gap-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 border-b px-6 py-4 pr-12">
+          <DialogTitle className="flex items-center gap-2">
             <FileTextIcon className="size-5" />
             {mode === "view" ? currentResource.name : "Edit Resource"}
-          </DrawerTitle>
-        </DrawerHeader>
+          </DialogTitle>
+        </DialogHeader>
 
-        <div
-          data-vaul-no-drag
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-6 p-4 pb-24"
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-6 p-4 pb-24">
           <div className="space-y-4">
             {mode === "view" ? (
               <>
@@ -273,7 +248,7 @@ export function ResourceDetailDrawer({
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Kind</Label>
-                  <p>{currentResource.kind === "page" ? "HTML Page" : "File"}</p>
+                  <p>{currentResource.kind === "page" ? "Rich Content Page" : "File"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">Track</Label>
@@ -295,14 +270,22 @@ export function ResourceDetailDrawer({
                   <p>{currentResource.visibility_scope}</p>
                 </div>
                 {currentResource.kind === "page" ? (
-                  <div>
-                    <Label className="text-muted-foreground">Page Preview</Label>
-                    <div className="mt-2">
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-muted-foreground">Page Content</Label>
+                      <div
+                        className="prose prose-sm mt-2 max-w-none rounded-md border bg-muted/20 p-4"
+                        dangerouslySetInnerHTML={{
+                          __html: pageContentHtml || "<p>No content yet.</p>",
+                        }}
+                      />
+                    </div>
+                    <div>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          openHtmlPreviewPage(currentResource.content_html || "<p>No content yet.</p>")
+                          openHtmlPreviewPage(pageContentHtml || "<p>No content yet.</p>")
                         }
                       >
                         Open Preview Page
@@ -365,7 +348,7 @@ export function ResourceDetailDrawer({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="file">File</SelectItem>
-                      <SelectItem value="page">HTML Page</SelectItem>
+                      <SelectItem value="page">Rich Content Page</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -445,7 +428,7 @@ export function ResourceDetailDrawer({
                 {editData.kind === "page" ? (
                   <div>
                     <div className="space-y-2">
-                      <Label htmlFor="resource-content-html">HTML Content</Label>
+                      <Label>HTML Content</Label>
                       <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
@@ -466,67 +449,17 @@ export function ResourceDetailDrawer({
                           Clear
                         </Button>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowHtmlEditor((prev) => !prev)}
-                        >
-                          {showHtmlEditor ? "Hide Editor" : "Show Editor"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setShowHtmlPreview((prev) => !prev)}
-                        >
-                          {showHtmlPreview ? "Hide Preview" : "Show Preview"}
-                        </Button>
-                      </div>
                     </div>
-                    <div className="mt-3 space-y-1.5">
-                      <Label htmlFor="edit-resource-html-file">HTML File</Label>
-                      <Input
-                        id="edit-resource-html-file"
-                        type="file"
-                        accept=".html,.htm,text/html"
-                        onChange={(event) =>
-                          handleChooseHtmlFile(event.target.files?.[0] ?? null)
-                        }
-                      />
-                      {htmlFileName ? (
-                        <p className="text-xs text-muted-foreground">{htmlFileName}</p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          Upload an HTML file or edit content manually below.
-                        </p>
-                      )}
-                    </div>
-                    {showHtmlEditor ? (
-                      <Textarea
-                        id="resource-content-html"
-                        className="min-h-44 font-mono text-xs"
+                    <div className="mt-3">
+                      <RichEditor
+                        key={currentResource.id}
                         value={editData.content_html}
-                        onChange={(event) =>
-                          setEditData((prev) => ({
-                            ...prev,
-                            content_html: event.target.value,
-                          }))
+                        onChange={(content_html) =>
+                          setEditData((prev) => ({ ...prev, content_html }))
                         }
+                        placeholder="Write resource page content..."
                       />
-                    ) : null}
-                    {showHtmlPreview ? (
-                      <div className="mt-3 space-y-2">
-                        <Label className="text-muted-foreground">Live Preview</Label>
-                        <div
-                          className="prose prose-sm max-w-none rounded-md border bg-muted/20 p-3"
-                          dangerouslySetInnerHTML={{
-                            __html: editData.content_html || "<p>No content yet.</p>",
-                          }}
-                        />
-                      </div>
-                    ) : null}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -634,7 +567,7 @@ export function ResourceDetailDrawer({
             </div>
           )}
         </div>
-      </DrawerContent>
-    </Drawer>
+      </DialogContent>
+    </Dialog>
   );
 }

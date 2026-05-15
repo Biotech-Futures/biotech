@@ -13,7 +13,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType
 from apps.groups.models import Tracks, Groups
 from apps.users.models import User
-from azure_blob_utils import upload_file, generate_sas_url
+from azure_blob_utils import upload_file, download_file_text, download_file_bytes
 from apps.admin.scope_utils import get_admin_track_ids
 
 
@@ -197,6 +197,43 @@ def extract_file_name_from_storage_key(storage_key: Optional[str]) -> Optional[s
     return raw[dash_index + 1:] or None
 
 
+def get_page_content_html(resource: Resources) -> Optional[str]:
+    """Read stored HTML for page resources."""
+    if resource.kind != RESOURCE_KIND_PAGE or not resource.storage_key:
+        return None
+
+    try:
+        return download_file_text(resource.storage_key)
+    except Exception:
+        return None
+
+
+def resource_to_row(resource: Resources, include_page_content: bool = False) -> ResourceRowDict:
+    track_id = resource.track_id
+    if not track_id and resource.group:
+        track_id = resource.group.track_id
+
+    return {
+        'id': resource.id,
+        'uploader_user_id': resource.uploaded_by_id,
+        'group_id': resource.group_id,
+        'track_id': track_id,
+        'visibility_scope': resource.visibility_scope,
+        'uploaded_at': resource.uploaded_at.isoformat(),
+        'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
+        'resource_kind': resource.kind,
+        'resource_name': resource.name,
+        'resource_description': resource.description,
+        'resource_type_id': resource.type_id,
+        'resource_type': resource.type.type_name if resource.type else None,
+        'content_html': get_page_content_html(resource) if include_page_content else None,
+        'file_name': None,
+        'file_mime_type': resource.file_mime_type,
+        'file_size': resource.file_size,
+        'storage_key': resource.storage_key,
+    }
+
+
 def get_roles_from_db() -> List[RoleDict]:
     """Fetch all roles from database."""
     roles = Roles.objects.all().order_by('id')
@@ -302,34 +339,7 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     else:
         queryset = queryset.order_by('-uploaded_at', 'name')
     
-    # Convert to dict format
-    rows = []
-    for resource in queryset:
-        track_id = resource.track_id
-        if not track_id and resource.group:
-            track_id = resource.group.track_id
-        
-        rows.append({
-            'id': resource.id,
-            'uploader_user_id': resource.uploaded_by_id,
-            'group_id': resource.group_id,
-            'track_id': track_id,
-            'visibility_scope': resource.visibility_scope,
-            'uploaded_at': resource.uploaded_at.isoformat(),
-            'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
-            'resource_kind': resource.kind,
-            'resource_name': resource.name,
-            'resource_description': resource.description,
-            'resource_type_id': resource.type_id,
-            'resource_type': resource.type.type_name if resource.type else None,
-            'content_html': None,
-            'file_name': None,
-            'file_mime_type': resource.file_mime_type,
-            'file_size': resource.file_size,
-            'storage_key': resource.storage_key,
-        })
-    
-    return rows
+    return [resource_to_row(resource) for resource in queryset]
 
 
 def fetch_resource_by_id_from_db(resource_id: int) -> Optional[ResourceRowDict]:
@@ -341,29 +351,7 @@ def fetch_resource_by_id_from_db(resource_id: int) -> Optional[ResourceRowDict]:
     except Resources.DoesNotExist:
         return None
     
-    track_id = resource.track_id
-    if not track_id and resource.group:
-        track_id = resource.group.track_id
-    
-    return {
-        'id': resource.id,
-        'uploader_user_id': resource.uploaded_by_id,
-        'group_id': resource.group_id,
-        'track_id': track_id,
-        'visibility_scope': resource.visibility_scope,
-        'uploaded_at': resource.uploaded_at.isoformat(),
-        'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
-        'resource_kind': resource.kind,
-        'resource_name': resource.name,
-        'resource_description': resource.description,
-        'resource_type_id': resource.type_id,
-        'resource_type': resource.type.type_name if resource.type else None,
-        'content_html': None,
-        'file_name': None,
-        'file_mime_type': resource.file_mime_type,
-        'file_size': resource.file_size,
-        'storage_key': resource.storage_key,
-    }
+    return resource_to_row(resource, include_page_content=True)
 
 
 def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict]:
@@ -529,16 +517,6 @@ def query_resource_by_id(resource_id: int) -> Dict[str, Any]:
     
     resources = hydrate_resources([resource_row])
     resource = resources[0] if resources else None
-    
-    if resource and resource['resource_kind'] == RESOURCE_KIND_PAGE and resource['storage_key']:
-        try:
-            # Download HTML content from blob storage
-            sas_url = generate_sas_url(resource['storage_key'], expiry_minutes=5)
-            # In a real scenario, you'd fetch the content from the SAS URL
-            # For now, this is placeholder - you'd use requests or similar
-            resource['content_html'] = None
-        except Exception:
-            pass
     
     return {
         'msg': 'Resource retrieved successfully',
@@ -740,36 +718,28 @@ def replace_resource_file(
 
 def download_resource(resource_id: int) -> Dict[str, Any]:
     """Download resource file."""
-    resource_result = query_resource_by_id(resource_id)
-    if not resource_result.get('data'):
+    try:
+        resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
+    except Resources.DoesNotExist:
         return {
             'msg': 'Resource not found',
             'data': None,
         }
-    
-    resource_data = resource_result['data']
-    
-    if resource_data['resource_kind'] == RESOURCE_KIND_PAGE:
-        return {
-            'msg': 'This resource is an HTML page and cannot be downloaded as a file',
-            'data': None,
-        }
-    
-    if not resource_data.get('storage_key'):
+
+    if not resource.storage_key:
         return {
             'msg': 'This resource has no uploaded file',
             'data': None,
         }
-    
-    # Generate SAS URL for downloading
+
     try:
-        sas_url = generate_sas_url(resource_data['storage_key'], expiry_minutes=60)
+        content = download_file_bytes(resource.storage_key)
         return {
-            'msg': 'Resource download prepared',
+            'msg': 'Resource download ready',
             'data': {
-                'file_name': resource_data.get('file_name') or f"resource-{resource_id}",
-                'mime_type': resource_data.get('file_mime_type', 'application/octet-stream'),
-                'sas_url': sas_url,
+                'file_name': extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}",
+                'mime_type': resource.file_mime_type or 'application/octet-stream',
+                'content': content,
             },
         }
     except Exception as e:
