@@ -609,6 +609,14 @@ def _deliver_announcement_to_recipients(
                     "announcement_id=%s recipient=%s error=%s",
                     announcement_id, addr, _sanitize_error(exc),
                 )
+                # Reset the SMTP transaction so the connection is not left in
+                # a mid-transaction state ("nested MAIL command") for the next
+                # recipient after a per-address send failure.
+                try:
+                    if getattr(connection, "connection", None):
+                        connection.connection.rset()
+                except Exception:
+                    pass
             else:
                 if result:
                     succeeded += 1
