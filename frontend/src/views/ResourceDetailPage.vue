@@ -276,6 +276,9 @@ const downloadTarget = computed(() => {
 
 const openTarget = computed(() => {
   if (!access.value || accessError.value) return null
+  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
+    return resourceDownloadEndpoint.value ? buildResourceUrl(resourceDownloadEndpoint.value) : null
+  }
   if (accessMode.value !== 'external_page' && accessMode.value !== 'external_file') return null
   return access.value.external_url ? buildResourceUrl(access.value.external_url) : null
 })
@@ -353,43 +356,7 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
-  if (
-    !mimeType.value.startsWith('image/') &&
-    !mimeType.value.startsWith('video/') &&
-    !mimeType.value.startsWith('audio/') &&
-    !canFrameMime.value &&
-    !isTextLike.value
-  ) {
-    previewError.value = 'This file type cannot be displayed in the browser.'
-    return
-  }
-
-  previewLoading.value = true
-  try {
-    const response = await fetch(buildResourceUrl(target), {
-      credentials: 'include'
-    })
-    if (!response.ok) {
-      throw new Error(`Preview could not be loaded. HTTP ${response.status}`)
-    }
-    const blob = await response.blob()
-    if (isTextLike.value && mimeType.value !== 'text/html') {
-      textPreview.value = await blob.text()
-      previewMode.value = 'text'
-      return
-    }
-
-    objectUrl = window.URL.createObjectURL(blob)
-    previewUrl.value = objectUrl
-    if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
-    else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
-    else if (mimeType.value.startsWith('audio/')) previewMode.value = 'audio'
-    else previewMode.value = 'frame'
-  } catch (err: unknown) {
-    previewError.value = err instanceof Error ? err.message : 'Preview could not be loaded.'
-  } finally {
-    previewLoading.value = false
-  }
+  previewError.value = 'Open or download this file to view it.'
 }
 
 const loadResource = async (): Promise<void> => {
