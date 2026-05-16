@@ -3229,18 +3229,30 @@ watch(
 const normalizeMessage = (item) => {
   const raw = item?.message ? item.message : item
   const sentAt = resolveMessageSentAt(raw)
-  const senderId = Number(raw?.sender_user || raw?.sender_id || raw?.sender_user_id || 0)
+  const senderId = Number(
+    raw?.sender_user ||
+    raw?.sender_id ||
+    raw?.sender_user_id ||
+    raw?.senderId ||
+    0,
+  )
   const currentUserId = Number(auth.user?.id || 0)
   const displayName = auth.displayName || ''
-  const senderName = raw?.sender_name || raw?.author || ''
+  const senderName = raw?.sender_name || raw?.senderName || raw?.author || ''
   const isOwn =
     raw?.isOwn === true ||
     (currentUserId > 0 && senderId === currentUserId) ||
     (senderName && displayName && senderName === displayName)
-  const messageText = raw?.message_text || raw?.text || ''
-  const messageType = raw?.message_type || 'text'
+  const messageText = raw?.message_text ?? raw?.messageText ?? raw?.text ?? ''
+  const messageType = String(raw?.message_type ?? raw?.messageType ?? 'text').toLowerCase()
   const isDeleted = Boolean(raw?.is_deleted || raw?.isDeleted || raw?.deleted_at)
-  const deletedById = Number(raw?.deleted_by || raw?.deletedBy || raw?.deleted_by_id || 0)
+  const deletedById = Number(
+    raw?.deleted_by ||
+    raw?.deletedBy ||
+    raw?.deleted_by_id ||
+    raw?.deletedById ||
+    0,
+  )
   const deletedByName = raw?.deleted_by_name || raw?.deletedByName || ''
   const deletedByIsAdmin =
     raw?.deleted_by_is_admin === true ||
@@ -3251,13 +3263,27 @@ const normalizeMessage = (item) => {
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
   // Backend ships GIFs as ``{message_type: 'gif', gif: {gif_url, preview_url, title, provider_id}}``.
-  // Falling back to ``messageText`` covers any legacy pending-bubble path that stuffed the URL into ``text``.
+  // Keep this idempotent because recent-message sync can pass already-normalized
+  // frontend objects back through this function before upserting them.
   const gifPayload = raw?.gif && typeof raw.gif === 'object' ? raw.gif : null
+  const fallbackGifUrl = /^https?:\/\//i.test(messageText) ? messageText : ''
   const gifUrl = messageType === 'gif'
-    ? (gifPayload?.gif_url || gifPayload?.url || messageText)
+    ? (
+        gifPayload?.gif_url ||
+        gifPayload?.gifUrl ||
+        gifPayload?.url ||
+        raw?.gif_url ||
+        raw?.gifUrl ||
+        fallbackGifUrl
+      )
     : ''
-  const gifPreviewUrl = gifPayload?.preview_url || ''
-  const gifTitle = gifPayload?.title || ''
+  const gifPreviewUrl =
+    gifPayload?.preview_url ||
+    gifPayload?.previewUrl ||
+    raw?.gif_preview_url ||
+    raw?.gifPreviewUrl ||
+    ''
+  const gifTitle = gifPayload?.title || raw?.gif_title || raw?.gifTitle || ''
   const author = isOwnMessage
     ? 'You'
     : raw?.sender_name || raw?.author || getMentionLabel(senderId)
