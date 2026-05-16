@@ -24,14 +24,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: adminweb/package-lock.json
+          cache: pnpm
+          cache-dependency-path: adminweb/pnpm-lock.yaml
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
       - name: Install dependencies
         working-directory: ./adminweb
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Build adminweb
         working-directory: ./adminweb
-        run: npm run build
+        run: pnpm build
 
   build_and_deploy_job:
     if: github.event_name == 'push'
@@ -42,18 +46,34 @@ jobs:
         with:
           submodules: true
           lfs: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: adminweb/pnpm-lock.yaml
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+      - name: Install dependencies
+        working-directory: ./adminweb
+        run: pnpm install --frozen-lockfile
+      - name: Build adminweb
+        working-directory: ./adminweb
+        env:
+          VITE_PUBLIC_API_URL: https://api.biotechfutures.org
+        run: pnpm build
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
-        env:
-          VITE_PUBLIC_API_URL: https://api.biotechfutures.org
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_ADMIN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "./adminweb"
+          app_location: "./adminweb/dist"
           api_location: ""
-          output_location: "dist"
+          skip_app_build: true
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

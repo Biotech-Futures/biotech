@@ -11,6 +11,8 @@ pnpm dev
 
 The local dev server runs on http://localhost:3000.
 
+Use pnpm for this package. Keep `pnpm-lock.yaml` as the dependency lockfile and do not regenerate `adminweb/package-lock.json`.
+
 ## Environment
 
 Create `.env` in this directory when you need to point the app at a local API.
