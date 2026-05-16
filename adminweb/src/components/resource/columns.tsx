@@ -51,7 +51,6 @@ export function createResourceColumns({
   onViewDetail,
   onEdit,
   onDelete,
-  onAccess,
   onDownload,
   trackOptions,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
