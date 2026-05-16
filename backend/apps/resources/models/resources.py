@@ -12,6 +12,7 @@ class Resources(models.Model):
         SCOPED = "scoped", "Scoped"
 
     class ResourceKind(models.TextChoices):
+        ATTACHMENT = "attachment", "Attachment"
         FILE = "file", "File"
         PAGE = "page", "Page"
 

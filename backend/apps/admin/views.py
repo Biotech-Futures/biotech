@@ -791,6 +791,7 @@ class ResourceAttachmentUploadView(APIView):
                 "msg": "Attachment uploaded successfully",
                 "data": {
                     "id": resource.id,
+                    "kind": resource.kind,
                     "fileName": base_name,
                     "url": resource_url,
                     "resourceUrl": resource_url,

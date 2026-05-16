@@ -209,28 +209,51 @@ def stream_blob_chunks(download_stream):
         yield chunk
 
 
-def get_resource_blob_client(storage_key: str):
-    """Build a blob client for the configured resource storage container."""
+def _configured_resource_container_names() -> List[str]:
+    """Return resource containers in read-preference order.
+
+    Older admin upload code writes through azure_blob_utils, which uses
+    AZURE_CONTAINER. Newer managed resource storage reads from
+    AZURE_RESOURCE_CONTAINER. Trying both keeps existing uploads readable while
+    still preferring the resource-specific container.
+    """
+    names = [
+        getattr(settings, "AZURE_STORAGE_CONTAINER_NAME", ""),
+        getattr(settings, "AZURE_RESOURCE_CONTAINER", ""),
+        getattr(settings, "AZURE_CONTAINER", ""),
+    ]
+    ordered = []
+    for name in names:
+        if name and name not in ordered:
+            ordered.append(name)
+    return ordered
+
+
+def _get_blob_service_client():
+    """Build an Azure blob service client from the configured credentials."""
     connection_string = (
         getattr(settings, "AZURE_CONNECTION_STRING", "")
         or getattr(settings, "AZURE_STORAGE_CONNECTION_STRING", "")
     )
-    container_name = (
-        getattr(settings, "AZURE_STORAGE_CONTAINER_NAME", "")
-        or getattr(settings, "AZURE_RESOURCE_CONTAINER", "")
-        or getattr(settings, "AZURE_CONTAINER", "")
+    if connection_string:
+        return BlobServiceClient.from_connection_string(connection_string)
+    return BlobServiceClient(
+        f"https://{settings.AZURE_ACCOUNT_NAME}.blob.core.windows.net",
+        credential=settings.AZURE_ACCOUNT_KEY,
     )
 
-    if connection_string:
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-    else:
-        blob_service_client = BlobServiceClient(
-            f"https://{settings.AZURE_ACCOUNT_NAME}.blob.core.windows.net",
-            credential=settings.AZURE_ACCOUNT_KEY,
-        )
 
-    container_client = blob_service_client.get_container_client(container_name)
-    return container_client.get_blob_client(storage_key)
+def iter_resource_blob_clients(storage_key: str):
+    """Yield blob clients for all configured resource storage containers."""
+    blob_service_client = _get_blob_service_client()
+    for container_name in _configured_resource_container_names():
+        container_client = blob_service_client.get_container_client(container_name)
+        yield container_client.get_blob_client(storage_key)
+
+
+def get_resource_blob_client(storage_key: str):
+    """Build a blob client for the preferred resource storage container."""
+    return next(iter_resource_blob_clients(storage_key))
 
 
 def get_page_content_html(resource: Resources) -> Optional[str]:
@@ -769,7 +792,20 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
         }
 
     try:
-        content = download_file_bytes(resource.storage_key)
+        try:
+            content = download_file_bytes(resource.storage_key)
+        except Exception:
+            content = None
+            for blob_client in iter_resource_blob_clients(resource.storage_key):
+                try:
+                    if blob_client.exists():
+                        content = blob_client.download_blob().readall()
+                        break
+                except Exception:
+                    continue
+            if content is None:
+                raise
+
         return {
             'msg': 'Resource download ready',
             'data': {
@@ -804,8 +840,13 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
     file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
 
     try:
-        blob_client = get_resource_blob_client(resource.storage_key)
-        if not blob_client.exists():
+        for blob_client in iter_resource_blob_clients(resource.storage_key):
+            try:
+                if blob_client.exists():
+                    break
+            except Exception:
+                continue
+        else:
             return {
                 'msg': 'File not found in storage',
                 'data': None,

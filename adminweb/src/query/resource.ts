@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
-import { buildUrl } from "@/util/url";
 import type { CreateResource, UpdateResource } from "@/schema/resource";
 import type {
   Resource,
@@ -257,6 +256,7 @@ export function useDeleteResource() {
 export type UploadedResourceLink = {
   id: number;
   fileName: string;
+  kind?: ResourceKind;
   url: string;
   accessUrl?: string;
   downloadUrl?: string;
@@ -267,44 +267,32 @@ export type UploadedResourceLink = {
 export async function uploadLinkedResourceFile(file: File): Promise<UploadedResourceLink> {
   const payload = new FormData();
   payload.append("file", file);
-  payload.append("name", file.name);
-  payload.append("description", `Linked resource file: ${file.name}`);
-  payload.append("visibility_scope", "global");
 
   const res = await myFetch.post<{
     msg: string;
-    data: ApiResource;
-  }>("/resource/upload", payload);
+    data: {
+      id: number;
+      kind?: ResourceKind;
+      fileName: string;
+      url: string;
+      resourceUrl?: string;
+      downloadUrl?: string;
+      mimeType: string | null;
+      size: number | null;
+    };
+  }>("/resource/attachments/", payload);
 
-  const resource = normalizeResource(res.data.data);
-  const apiUrl = import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000";
-  const accessUrl = buildUrl(
-    apiUrl,
-    "api",
-    "v1",
-    "admin",
-    "resource",
-    String(resource.id),
-    "access",
-  );
-  const downloadUrl = buildUrl(
-    apiUrl,
-    "api",
-    "v1",
-    "admin",
-    "resource",
-    String(resource.id),
-    "download",
-  );
+  const attachment = res.data.data;
 
   return {
-    id: resource.id,
-    fileName: resource.file_name ?? file.name,
-    url: accessUrl,
-    accessUrl,
-    downloadUrl,
-    mimeType: resource.file_mime_type,
-    size: resource.file_size,
+    id: attachment.id,
+    kind: attachment.kind ?? "attachment",
+    fileName: attachment.fileName ?? file.name,
+    url: attachment.resourceUrl ?? attachment.url,
+    accessUrl: attachment.resourceUrl ?? attachment.url,
+    downloadUrl: attachment.downloadUrl,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
   };
 }
 
