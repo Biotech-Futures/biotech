@@ -9,7 +9,7 @@ from apps.common.filenames import sanitize_upload_filename
 from apps.common.upload_validation import validate_uploaded_file
 from apps.users.models import User
 
-from .models import RoleAssignmentHistory, ResourceAudience, Resources, ResourceType, Roles
+from .models import RoleAssignmentHistory, ResourceAudience, ResourceLabel, Resources, ResourceType, Roles
 from .services.storage import (
     RESOURCE_FILE_SERVICE,
     is_external_storage_key,
@@ -33,6 +33,14 @@ class ResourceTypeSerializer(serializers.ModelSerializer):
         fields = ['id', 'type_name', 'type_description']
 
 
+class ResourceLabelSerializer(serializers.ModelSerializer):
+    resource_count = serializers.IntegerField(read_only=True, required=False)
+
+    class Meta:
+        model = ResourceLabel
+        fields = ['id', 'name', 'resource_count']
+
+
 class ResourceAccessSerializer(serializers.Serializer):
     resource_id = serializers.IntegerField()
     kind = serializers.CharField()
@@ -44,6 +52,7 @@ class ResourceAccessSerializer(serializers.Serializer):
     file_name = serializers.CharField(allow_null=True)
     file_mime_type = serializers.CharField(allow_null=True)
     file_size = serializers.IntegerField(allow_null=True)
+    body_html = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     detail = serializers.CharField(allow_null=True)
 
 
@@ -144,6 +153,7 @@ class _ResourcePublicFieldsMixin(serializers.Serializer):
     access_url = serializers.SerializerMethodField()
     download_url = serializers.SerializerMethodField()
     storage_status = serializers.SerializerMethodField()
+    labels = ResourceLabelSerializer(many=True, read_only=True)
 
     def get_uploader_name(self, obj):
         if obj.uploaded_by_id is None:
@@ -390,6 +400,7 @@ class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
             'access_url',
             'download_url',
             'storage_status',
+            'labels',
         ]
 
 
@@ -412,4 +423,5 @@ class ResourcePublicDetailSerializer(_BaseResourcePublicSerializer):
             'access_url',
             'download_url',
             'storage_status',
+            'labels',
         ]

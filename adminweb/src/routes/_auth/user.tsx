@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlusIcon, UploadIcon } from "lucide-react";
 import {
   useQueryTracks,
@@ -25,6 +24,7 @@ import { UserTable } from "@/components/user/UserTable";
 import { UserEditorSheet } from "@/components/user/UserEditorSheet";
 import { UserBulkUploadSheet } from "@/components/user/UserBulkUploadSheet";
 import { UserDetailSheet } from "@/components/user/UserDetailSheet";
+import { toast } from "sonner";
 
 const PAGE_SIZE = 10;
 type UserStatusFilter = "all" | "active" | "inactive";
@@ -102,7 +102,10 @@ function UserManagementPage() {
   const status = searchParams.status ?? "all";
   const sort = searchParams.sort ?? "createdAt_desc";
   const page = searchParams.page;
-  const [sortBy, sortOrder] = sort.split("_") as ["name" | "createdAt", "asc" | "desc"];
+  const [sortBy, sortOrder] = sort.split("_") as [
+    "name" | "createdAt",
+    "asc" | "desc",
+  ];
   const [editorOpen, setEditorOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -195,10 +198,13 @@ function UserManagementPage() {
               ? values.supervisorSchoolName
               : undefined,
           mentorBackground:
-            values.role === "mentor" ? values.mentorBackground || null : undefined,
+            values.role === "mentor"
+              ? values.mentorBackground || null
+              : undefined,
           mentorInstitution:
             values.role === "mentor" ? values.mentorInstitution : undefined,
-          mentorReason: values.role === "mentor" ? values.mentorReason : undefined,
+          mentorReason:
+            values.role === "mentor" ? values.mentorReason : undefined,
           mentorMaxGroupCount:
             values.role === "mentor"
               ? (values.mentorMaxGroupCount ?? undefined)
@@ -219,13 +225,13 @@ function UserManagementPage() {
         });
 
         if (!response.data) {
-          window.alert(response.msg || "Unable to create user.");
+          toast.error(response.msg || "Unable to create user.");
           return;
         }
 
         setEditorOpen(false);
       } catch {
-        window.alert("Unable to create the user right now.");
+        toast.error("Unable to create the user right now.");
       }
       return;
     }
@@ -264,7 +270,7 @@ function UserManagementPage() {
       });
 
       if (!response.data) {
-        window.alert(response.msg || "Unable to update user.");
+        toast.error(response.msg || "Unable to update user.");
         return;
       }
 
@@ -275,7 +281,7 @@ function UserManagementPage() {
         });
 
         if (!statusResponse.data) {
-          window.alert(
+          toast.error(
             statusResponse.msg || "Unable to update the account status.",
           );
           return;
@@ -284,7 +290,7 @@ function UserManagementPage() {
 
       setEditorOpen(false);
     } catch {
-      window.alert("Unable to update the user right now.");
+      toast.error("Unable to update the user right now.");
     }
   };
 
@@ -296,10 +302,10 @@ function UserManagementPage() {
       });
 
       if (!response.data) {
-        window.alert(response.msg || "Unable to update the account status.");
+        toast.error(response.msg || "Unable to update the account status.");
       }
     } catch {
-      window.alert("Unable to update the account status right now.");
+      toast.error("Unable to update the account status right now.");
     }
   };
 
@@ -312,7 +318,7 @@ function UserManagementPage() {
     try {
       const response = await deleteUser.mutateAsync(user.id);
       if (!response.data && response.msg !== "User deleted successfully") {
-        window.alert(response.msg || "Unable to delete user.");
+        toast.error(response.msg || "Unable to delete user.");
         return;
       }
 
@@ -322,7 +328,7 @@ function UserManagementPage() {
         setSelectedUser(null);
       }
     } catch {
-      window.alert("Unable to delete the user right now.");
+      toast.error("Unable to delete the user right now.");
     }
   };
 
@@ -365,14 +371,14 @@ function UserManagementPage() {
       const skippedCount = response.data?.skipped?.length ?? 0;
 
       if (!createdCount && skippedCount) {
-        window.alert(response.msg || "No users were imported.");
+        toast.error(response.msg || "No users were imported.");
         return;
       }
 
-      window.alert(response.msg || `Imported ${createdCount} users.`);
+      toast.error(response.msg || `Imported ${createdCount} users.`);
       setBulkOpen(false);
     } catch {
-      window.alert("Bulk upload failed.");
+      toast.error("Bulk upload failed.");
     }
   };
 
@@ -405,30 +411,23 @@ function UserManagementPage() {
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>User Directory</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <UserTable
-            data={pageItems}
-            page={page}
-            totalPages={totalPages}
-            onPageChange={updatePage}
-            onView={openDetail}
-            onEdit={openEdit}
-            onToggleActive={handleToggleActive}
-            isPending={
-              isPending ||
-              createUser.isPending ||
-              updateUser.isPending ||
-              updateUserStatus.isPending ||
-              deleteUser.isPending ||
-              bulkCreateUsers.isPending
-            }
-          />
-        </CardContent>
-      </Card>
+      <UserTable
+        data={pageItems}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={updatePage}
+        onView={openDetail}
+        onEdit={openEdit}
+        onToggleActive={handleToggleActive}
+        isPending={
+          isPending ||
+          createUser.isPending ||
+          updateUser.isPending ||
+          updateUserStatus.isPending ||
+          deleteUser.isPending ||
+          bulkCreateUsers.isPending
+        }
+      />
 
       <UserEditorSheet
         open={editorOpen}

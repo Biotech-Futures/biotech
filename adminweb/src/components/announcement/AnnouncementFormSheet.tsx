@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetFooter,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,7 +55,6 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
     if (editing) {
       setTitle(editing.title);
       setBody(editing.body ?? "");
-      // Populate track IDs from audience records
       const existingTrackIds = editing.audiences
         .map((a) => a.trackId)
         .filter((id): id is number => id !== null);
@@ -112,15 +111,15 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
 
   return (
     <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto p-4">
-          <SheetHeader>
-            <SheetTitle>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-[95vw] sm:max-w-5xl max-h-[92vh] overflow-y-auto overflow-x-hidden p-0">
+          <DialogHeader className="px-8 pt-7 pb-2 border-b">
+            <DialogTitle className="text-xl">
               {isEdit ? "Edit Announcement" : "New Announcement"}
-            </SheetTitle>
-          </SheetHeader>
+            </DialogTitle>
+          </DialogHeader>
 
-          <div className="space-y-5 py-4">
+          <div className="space-y-6 px-8 py-6">
             <div className="space-y-1.5">
               <Label htmlFor="ann-title">Title</Label>
               <Input
@@ -131,7 +130,7 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
               />
             </div>
 
-            <RichEditor value={body} onChange={setBody} />
+            <RichEditor key={editing?.id ?? "new"} value={body} onChange={setBody} />
 
             {(tracks?.length ?? 0) > 0 && (
               <div className="space-y-2">
@@ -192,7 +191,7 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
             )}
           </div>
 
-          <SheetFooter className="flex gap-2">
+          <DialogFooter className="px-8 pb-7 pt-2 border-t flex gap-2">
             {isEdit ? (
               <>
                 <Button
@@ -220,9 +219,9 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
                 Publish & Notify
               </Button>
             )}
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>

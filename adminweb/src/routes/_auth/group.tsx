@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import {
   GroupFilters,
   GroupTable,
-  GroupDetailDrawer,
+  GroupDetailModal,
   GroupMessagesDialog,
   createColumns,
 } from "@/components/group";
@@ -67,11 +67,11 @@ function GroupPage() {
   const { groupId, page, searchName, searchGroup, track, mentorStatus } =
     Route.useSearch();
 
-  // Drawer state
+  // Detail modal state
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [messageGroup, setMessageGroup] = useState<Group | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -124,11 +124,11 @@ function GroupPage() {
     if (!groupById?.data) return;
 
     setSelectedGroup(groupById.data);
-    setSheetOpen(true);
+    setDetailOpen(true);
   }, [groupId, groupById?.data]);
 
-  const handleDrawerOpenChange = (open: boolean) => {
-    setSheetOpen(open);
+  const handleDetailOpenChange = (open: boolean) => {
+    setDetailOpen(open);
 
     if (!open && groupId) {
       navigate({
@@ -149,7 +149,7 @@ function GroupPage() {
   // Handlers
   const handleViewDetail = (group: Group) => {
     setSelectedGroup(group);
-    setSheetOpen(true);
+    setDetailOpen(true);
   };
 
   const handleViewMessages = (group: Group) => {
@@ -211,11 +211,10 @@ function GroupPage() {
         isPending={isPending}
       />
 
-      {/* Detail Drawer */}
-      <GroupDetailDrawer
+      <GroupDetailModal
         group={selectedGroup}
-        open={sheetOpen}
-        onOpenChange={handleDrawerOpenChange}
+        open={detailOpen}
+        onOpenChange={handleDetailOpenChange}
         onGroupChange={setSelectedGroup}
       />
 

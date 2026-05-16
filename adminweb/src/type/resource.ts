@@ -5,7 +5,7 @@ export type ResourceRole = {
 };
 
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
-export type ResourceKind = "file" | "page";
+export type ResourceKind = "attachment" | "file" | "page";
 export type ResourceOrder = "newest" | "oldest";
 export type VisibilityScope = "global" | "track_based" | "role_based";
 
@@ -55,6 +55,17 @@ export type Resource = {
   storage_key: string;
   uploader: ResourceUploader;
   audiences: ResourceAudience[];
+};
+
+export type ResourceAccess = {
+  resource_id: number;
+  access_type: "content" | "temporary_url";
+  file_name: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  content: string | null;
+  temporary_url: string | null;
+  expires_in_seconds: number | null;
 };
 
 export type PaginatedResponse<T> = {

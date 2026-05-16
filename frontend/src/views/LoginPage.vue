@@ -1908,7 +1908,7 @@ onBeforeUnmount(() => {
   }
 
   .otp-box {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    //grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -1976,23 +1976,12 @@ onBeforeUnmount(() => {
 }
 
 .auth-card {
-  backdrop-filter: blur(24px);
+  backdrop-filter: none;
 }
 
 .auth-shell {
   position: relative;
   z-index: 1;
-}
-
-.meta-chip,
-.top-badge,
-.language-option,
-.primary-button,
-.secondary-button,
-.text-link,
-.otp-input,
-.field-shell {
-  will-change: transform;
 }
 
 .auth-card {
@@ -2009,7 +1998,7 @@ onBeforeUnmount(() => {
 }
 
 .top-badge {
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
 }
 
 .language-option {
@@ -2176,7 +2165,6 @@ onBeforeUnmount(() => {
   filter: blur(18px);
   opacity: 0.78;
   mix-blend-mode: screen;
-  will-change: transform;
 }
 
 .shell-aurora-orb--one {
@@ -2190,7 +2178,6 @@ onBeforeUnmount(() => {
     rgba(74, 209, 176, 0.08) 58%,
     transparent 76%
   );
-  animation: ambientFloatA 16s ease-in-out infinite;
 }
 
 .shell-aurora-orb--two {
@@ -2204,7 +2191,6 @@ onBeforeUnmount(() => {
     rgba(116, 184, 255, 0.06) 54%,
     transparent 76%
   );
-  animation: ambientFloatB 19s ease-in-out infinite;
 }
 
 .shell-aurora-orb--three {
@@ -2218,7 +2204,6 @@ onBeforeUnmount(() => {
     rgba(32, 124, 103, 0.06) 52%,
     transparent 78%
   );
-  animation: ambientFloatA 22s ease-in-out infinite reverse;
 }
 
 .shell-mesh {
@@ -2332,7 +2317,7 @@ onBeforeUnmount(() => {
 }
 
 .otp-input {
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
 }
 
 .otp-input-filled {
@@ -2345,7 +2330,7 @@ onBeforeUnmount(() => {
 .status-message,
 .error-message,
 .support-row {
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
 }
 
 .support-row {

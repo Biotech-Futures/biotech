@@ -3,12 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ResourceFilters,
   ResourceTable,
-  ResourceDetailDrawer,
-  ResourceUploadSheet,
+  ResourceDialog,
   createResourceColumns,
 } from "@/components/resource";
 import {
+  accessResourceFile,
   downloadResourceFile,
+  openResourceAccess,
   useDeleteResource,
   useQueryResourceRoles,
   useQueryResourceTracks,
@@ -31,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/resource")({
   component: ResourcePage,
@@ -61,9 +63,10 @@ function ResourcePage() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
     null,
   );
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<"view" | "edit">("view");
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [resourceDialogOpen, setResourceDialogOpen] = useState(false);
+  const [resourceDialogMode, setResourceDialogMode] = useState<
+    "create" | "view" | "edit"
+  >("view");
 
   const { data, isPending } = useQueryResources({
     page,
@@ -140,14 +143,14 @@ function ResourcePage() {
 
   const handleViewDetail = (resource: Resource) => {
     setSelectedResource(resource);
-    setDrawerMode("view");
-    setDrawerOpen(true);
+    setResourceDialogMode("view");
+    setResourceDialogOpen(true);
   };
 
   const handleEdit = (resource: Resource) => {
     setSelectedResource(resource);
-    setDrawerMode("edit");
-    setDrawerOpen(true);
+    setResourceDialogMode("edit");
+    setResourceDialogOpen(true);
   };
 
   const handleDelete = (resource: Resource) => {
@@ -161,13 +164,26 @@ function ResourcePage() {
 
   const handleDownload = async (resource: Resource) => {
     if (!resource.file_name) {
-      window.alert("This resource does not have an uploaded file.");
+      toast.error("This resource does not have an uploaded file.");
       return;
     }
     try {
       await downloadResourceFile(resource.id, resource.file_name);
     } catch {
-      window.alert("Download failed. Please try again.");
+      toast.error("Download failed. Please try again.");
+    }
+  };
+
+  const handleAccess = async (resource: Resource) => {
+    if (!resource.file_name) {
+      toast.error("This resource does not have an uploaded file.");
+      return;
+    }
+    try {
+      const access = await accessResourceFile(resource.id);
+      openResourceAccess(access);
+    } catch {
+      toast.error("Resource access failed. Please try again.");
     }
   };
 
@@ -175,6 +191,7 @@ function ResourcePage() {
     onViewDetail: handleViewDetail,
     onEdit: handleEdit,
     onDelete: handleDelete,
+    onAccess: handleAccess,
     onDownload: handleDownload,
     trackOptions: tracksData?.data ?? [],
   });
@@ -192,12 +209,12 @@ function ResourcePage() {
     if (!selectedIds.length) return;
 
     if (batchVisibilityScope === "role_based" && !batchRoleIds.length) {
-      window.alert("Please select at least one role for role-based visibility.");
+      toast.error("Please select at least one role for role-based visibility.");
       return;
     }
 
     if (batchVisibilityScope === "track_based" && batchTrackId === null) {
-      window.alert("Please select a track for track-based visibility.");
+      toast.error("Please select a track for track-based visibility.");
       return;
     }
 
@@ -241,7 +258,7 @@ function ResourcePage() {
   const handleBatchApplyTrackOnly = async () => {
     if (!selectedIds.length) return;
     if (batchTrackId === null) {
-      window.alert("Please select a track.");
+      toast.error("Please select a track.");
       return;
     }
     await Promise.all(
@@ -262,7 +279,7 @@ function ResourcePage() {
   const handleBatchApplyRolesOnly = async () => {
     if (!selectedIds.length) return;
     if (!batchRoleIds.length) {
-      window.alert("Please select at least one role.");
+      toast.error("Please select at least one role.");
       return;
     }
     await Promise.all(
@@ -304,7 +321,14 @@ function ResourcePage() {
             >
               {bulkMode ? "Exit Batch Mode" : "Batch Mode"}
             </Button>
-            <Button type="button" onClick={() => setUploadOpen(true)}>
+            <Button
+              type="button"
+              onClick={() => {
+                setSelectedResource(null);
+                setResourceDialogMode("create");
+                setResourceDialogOpen(true);
+              }}
+            >
               <UploadIcon className="size-4 mr-1" />
               Upload Resource
             </Button>
@@ -577,16 +601,14 @@ function ResourcePage() {
         isPending={isPending}
       />
 
-      <ResourceDetailDrawer
+      <ResourceDialog
         resource={selectedResource}
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        mode={drawerMode}
-        onSwitchToEdit={() => setDrawerMode("edit")}
+        open={resourceDialogOpen}
+        onOpenChange={setResourceDialogOpen}
+        mode={resourceDialogMode}
+        onModeChange={setResourceDialogMode}
         onDownload={handleDownload}
       />
-
-      <ResourceUploadSheet open={uploadOpen} onOpenChange={setUploadOpen} />
     </div>
   );
 }

@@ -4,7 +4,11 @@ import { StudentFilters } from "@/components/user/StudentFilters";
 import { StudentTable } from "@/components/user/StudentTable";
 import { studentColumns } from "@/components/user/columns";
 import { Button } from "@/components/ui/button";
-import { useQueryStudents, useQueryTracks, useQueryHasUngroupedStudents } from "@/query/student";
+import {
+  useQueryStudents,
+  useQueryTracks,
+  useQueryHasUngroupedStudents,
+} from "@/query/student";
 import type { StudentTrack, StudentUser } from "@/type/user";
 import { ShuffleIcon } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";

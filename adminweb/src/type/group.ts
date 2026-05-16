@@ -22,6 +22,20 @@ export type Group = {
   updatedAt: string;
 };
 
+export type MessageAttachment = {
+  id: number;
+  filename: string;
+  mime_type: string;
+  size: number;
+  download_url: string;
+};
+
+export type MessageGif = {
+  gif_url: string;
+  preview_url: string;
+  title: string;
+};
+
 export type GroupMessage = {
   id: string;
   group_id: string;
@@ -31,7 +45,10 @@ export type GroupMessage = {
     email: string;
     role: "student" | "mentor" | null;
   };
-  text: string;
+  message_type: "text" | "gif" | "attachment" | "resource" | "system";
+  text: string | null;
+  attachments: MessageAttachment[];
+  gif: MessageGif | null;
   sent_at: string;
   edited_at: string | null;
 };

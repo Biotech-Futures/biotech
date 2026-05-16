@@ -4,16 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { parseCsvUsers } from "@/query/user";
 import type { CsvUserRow } from "@/type/user";
+import { toast } from "sonner";
 
 interface UserBulkUploadSheetProps {
   open: boolean;
@@ -147,7 +148,7 @@ export function UserBulkUploadSheet({
       setRows(parsed);
     } catch (error) {
       setRows([]);
-      window.alert(
+      toast.error(
         error instanceof Error ? error.message : "Failed to parse the CSV file.",
       );
     }
@@ -155,7 +156,7 @@ export function UserBulkUploadSheet({
 
   const handleImport = async () => {
     if (!rows.length) {
-      window.alert("Please choose a valid CSV file first.");
+      toast.error("Please choose a valid CSV file first.");
       return;
     }
     const rowMissingSchool = rows.find(
@@ -164,7 +165,7 @@ export function UserBulkUploadSheet({
         (row.role === "supervisor" && !row.supervisorSchoolName.trim()),
     );
     if (rowMissingSchool) {
-      window.alert(
+      toast.error(
         `School is required for ${rowMissingSchool.role} user ${rowMissingSchool.email}.`,
       );
       return;
@@ -174,7 +175,7 @@ export function UserBulkUploadSheet({
         row.role === "admin" && !row.adminIsGlobal && !row.adminTracks.length,
     );
     if (adminMissingTracks) {
-      window.alert(
+      toast.error(
         `Select global admin or at least one admin track for admin user ${adminMissingTracks.email}.`,
       );
       return;
@@ -188,7 +189,7 @@ export function UserBulkUploadSheet({
           row.mentorMaxGroupCount < 0),
     );
     if (mentorMissingProfile) {
-      window.alert(
+      toast.error(
         `Institution, mentor reason, and max group count are required for mentor user ${mentorMissingProfile.email}.`,
       );
       return;
@@ -199,7 +200,7 @@ export function UserBulkUploadSheet({
         (!row.yearLevel || row.yearLevel < 9 || row.yearLevel > 12),
     );
     if (studentMissingYearLevel) {
-      window.alert(
+      toast.error(
         `Year level must be between 9 and 12 for student user ${studentMissingYearLevel.email}.`,
       );
       return;
@@ -210,7 +211,7 @@ export function UserBulkUploadSheet({
         !row.interests.length,
     );
     if (roleMissingInterests) {
-      window.alert(
+      toast.error(
         `At least one interest is required for ${roleMissingInterests.role} user ${roleMissingInterests.email}.`,
       );
       return;
@@ -236,17 +237,17 @@ export function UserBulkUploadSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>Bulk Upload Users</SheetTitle>
-          <SheetDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Upload Users</DialogTitle>
+          <DialogDescription>
             Upload a CSV with either a single name column or split firstName and
             lastName columns, plus email, role, track, adminTracks, adminIsGlobal, school,
             yearLevel, interests, institution, mentorReason, maxGroupCount,
             background, joinPermissionReceived, and status.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
           <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-4 py-3">
@@ -326,16 +327,16 @@ export function UserBulkUploadSheet({
           </div>
         </div>
 
-        <SheetFooter className="shrink-0 border-t">
+        <DialogFooter className="shrink-0 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleImport} loading={isPending}>
             Import Users
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,4 +1,5 @@
 from django.contrib.auth import update_session_auth_hash
+from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -27,11 +28,12 @@ from apps.admin.services.event import (
 )
 from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
-    delete_resource, replace_resource_file, download_resource,
+    delete_resource, replace_resource_file, download_resource, access_resource,
     assign_role_to_resource, remove_role_from_resource,
     list_resource_roles, list_resource_types, list_resource_tracks,
 )
 from apps.resources.services.upload import upload_resource_file
+from apps.resources.models import Resources
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, send_announcement_email,
@@ -399,10 +401,19 @@ class ResourceListCreateView(APIView):
             "limit": int(request.query_params.get("limit", 10)),
             "uploader_user_id": request.query_params.get("uploaderUserId"),
             "group_id": request.query_params.get("groupId"),
-            "resource_kind": request.query_params.get("resourceKind"),
+            "resource_kind": (
+                request.query_params.get("resourceKind")
+                or request.query_params.get("resource_kind")
+            ),
             "resource_type_id": request.query_params.get("resourceTypeId"),
-            "resource_type": request.query_params.get("resourceType"),
-            "track_id": request.query_params.get("trackId"),
+            "resource_type": (
+                request.query_params.get("resourceType")
+                or request.query_params.get("resource_type")
+            ),
+            "track_id": (
+                request.query_params.get("trackId")
+                or request.query_params.get("track_id")
+            ),
             "search": request.query_params.get("search"),
             "order": request.query_params.get("order", "newest"),
             "uploader": request.query_params.get("uploader"),
@@ -454,8 +465,37 @@ class ResourceDownloadView(APIView):
 
     def get(self, request, resource_id):
         result = download_resource(resource_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
-        return Response(result, status=code)
+        data = result.get("data")
+        if not data:
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+
+        response = HttpResponse(
+            data["content"],
+            content_type=data.get("mime_type") or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{data["file_name"]}"'
+        return response
+
+
+class ResourceAccessView(APIView):
+    """GET /api/v1/resource/{id}/access - Stream resource content inline"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, resource_id):
+        result = access_resource(resource_id)
+        data = result.get("data")
+        if not data:
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+
+        response = StreamingHttpResponse(
+            data["stream"],
+            content_type=data.get("mime_type") or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'inline; filename="{data["file_name"]}"'
+        response["Cache-Control"] = "private, max-age=300"
+        if data.get("file_size") is not None:
+            response["Content-Length"] = str(data["file_size"])
+        return response
 
 
 class ResourceUploadView(APIView):

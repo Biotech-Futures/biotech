@@ -25,13 +25,14 @@
 from rest_framework import mixins, pagination, permissions, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
 from urllib.parse import urlparse
-from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience
+from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience, ResourceLabel
 from .serializers import (
     RoleSerializer,
     RoleAssignmentHistorySerializer,
     ResourceAccessSerializer,
+    ResourceLabelSerializer,
     ResourcePublicDetailSerializer,
     ResourcePublicListSerializer,
     ResourcesSerializer,
@@ -68,7 +69,12 @@ from .permissions import IsResourceAdmin
 from .services.storage import (
     RESOURCE_FILE_SERVICE,
     is_external_storage_key,
+    is_managed_storage_key,
 )
+from django.conf import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CanManageResourceCollection(permissions.BasePermission):
@@ -300,7 +306,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
     pagination_class = ResourcesPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
-    queryset = Resources.objects.select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track').all()
+    queryset = Resources.objects.select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track', 'labels').all()
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -323,7 +329,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         )
         queryset = Resources.objects.select_related(
             'uploaded_by', 'track', 'group'
-        ).prefetch_related('audiences__role', 'audiences__track')
+        ).prefetch_related('audiences__role', 'audiences__track', 'labels')
         if not include_deleted:
             queryset = queryset.filter(deleted_at__isnull=True)
 
@@ -342,16 +348,16 @@ class ResourcesViewSet(mixins.ListModelMixin,
     def _apply_filters(self, queryset):
         params = self.request.query_params
 
-        uploader_id = params.get('uploader_id')
-        if uploader_id:
+        uploader_id = self._parse_int_param(params, 'uploader_id')
+        if uploader_id is not None:
             queryset = queryset.filter(uploaded_by_id=uploader_id)
 
         role = params.get('role')
         if role:
             queryset = queryset.filter(audiences__role__role_name__icontains=role)
 
-        track_id = params.get("track_id")
-        if track_id:
+        track_id = self._parse_int_param(params, 'track_id')
+        if track_id is not None:
             queryset = queryset.filter(
                 Q(track_id=track_id) | Q(audiences__track_id=track_id)
             )
@@ -360,6 +366,10 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if resource_type:
             queryset = queryset.filter(type__type_name__iexact=resource_type)
 
+        label_id = self._parse_int_param(params, 'label_id')
+        if label_id is not None:
+            queryset = queryset.filter(labels__id=label_id)
+
         search = params.get('search')
         if search:
             queryset = queryset.filter(
@@ -367,7 +377,20 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 Q(description__icontains=search)
             )
 
+        since = self._parse_date_param(params, 'since')
+        if since:
+            queryset = queryset.filter(uploaded_at__date__gte=since)
+
+        until = self._parse_date_param(params, 'until')
+        if until:
+            queryset = queryset.filter(uploaded_at__date__lte=until)
+
+        if since and until and until < since:
+            raise DRFValidationError({"until": "until must be on or after since."})
+
         order = params.get('order', 'newest')
+        if order not in ('newest', 'oldest', 'name'):
+            raise DRFValidationError({"order": "order must be one of: newest, oldest, name."})
         if order == 'oldest':
             queryset = queryset.order_by('uploaded_at')
         elif order == 'name':
@@ -376,6 +399,26 @@ class ResourcesViewSet(mixins.ListModelMixin,
             queryset = queryset.order_by('-uploaded_at')
 
         return queryset
+
+    @staticmethod
+    def _parse_int_param(params, name):
+        raw = params.get(name)
+        if raw in (None, ''):
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as exc:
+            raise DRFValidationError({name: f"{name} must be an integer."}) from exc
+
+    @staticmethod
+    def _parse_date_param(params, name):
+        raw = params.get(name)
+        if raw in (None, ''):
+            return None
+        parsed = parse_date(raw)
+        if parsed is None:
+            raise DRFValidationError({name: f"{name} must be an ISO date (YYYY-MM-DD)."})
+        return parsed
 
     def get_permissions(self):
         if self.action in ['create', 'partial_update', 'destroy', 'restore']:
@@ -514,6 +557,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
         storage_key = (resource.storage_key or "").strip()
         external_url = self._validated_external_resource_url(storage_key)
         invalid_external_url = bool(storage_key) and is_external_storage_key(storage_key) and external_url is None
+        mime_type = (resource.file_mime_type or "").lower()
+        body_html = None
         if not storage_key:
             access_mode = "unavailable"
             detail = "This resource does not have a configured storage target yet."
@@ -526,6 +571,13 @@ class ResourcesViewSet(mixins.ListModelMixin,
         elif external_url and resource.kind == Resources.ResourceKind.FILE:
             access_mode = "external_file"
             detail = None
+        elif (
+            resource.kind == Resources.ResourceKind.PAGE
+            and mime_type == "text/html"
+            and is_managed_storage_key(storage_key)
+        ):
+            access_mode = "inline_html"
+            body_html, detail = self._read_inline_html_body(resource)
         else:
             access_mode = "managed_file" if resource.kind == Resources.ResourceKind.FILE else "managed_page"
             detail = None
@@ -543,8 +595,29 @@ class ResourcesViewSet(mixins.ListModelMixin,
             "file_name": resource_data["file_name"],
             "file_mime_type": resource.file_mime_type,
             "file_size": resource.file_size,
+            "body_html": body_html,
             "detail": detail,
         }
+
+    def _read_inline_html_body(self, resource):
+        # Returns (body_html, detail). On any failure, body is None and detail
+        # explains so the client can show a fallback message instead of a 500.
+        max_bytes = getattr(settings, "RESOURCE_INLINE_HTML_MAX_BYTES", 2 * 1024 * 1024)
+        if resource.file_size and resource.file_size > max_bytes:
+            return None, "Rich-text content is too large to inline."
+        try:
+            with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
+                raw = fp.read(max_bytes + 1)
+        except (IOError, OSError) as exc:
+            logger.warning("Failed to read inline HTML for resource %s: %s", resource.pk, exc)
+            return None, "Rich-text content could not be loaded."
+        if len(raw) > max_bytes:
+            return None, "Rich-text content is too large to inline."
+        try:
+            return raw.decode("utf-8", errors="replace"), None
+        except UnicodeDecodeError as exc:
+            logger.warning("Failed to decode inline HTML for resource %s: %s", resource.pk, exc)
+            return None, "Rich-text content could not be decoded."
 
     def _validated_external_resource_url(self, storage_key: str | None):
         value = (storage_key or "").strip()
@@ -728,3 +801,43 @@ class ResourceTypeViewSet(mixins.ListModelMixin,
     serializer_class = ResourceTypeSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "head", "options"]
+
+
+class ResourceLabelViewSet(mixins.ListModelMixin,
+                           mixins.RetrieveModelMixin,
+                           viewsets.GenericViewSet):
+    """Read-only labels with a `resource_count` that respects the caller's audience.
+
+    The count is the number of live resources visible to *this* user that carry
+    the label, so the UI sidebar shows the same numbers Chronus does.
+    """
+    serializer_class = ResourceLabelSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "head", "options"]
+    pagination_class = None
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return ResourceLabel.objects.none()
+
+        visible = filter_resources_for_user(
+            Resources.objects.filter(deleted_at__isnull=True),
+            user,
+        )
+        # ``filter_resources_for_user`` may add a join to the audiences table,
+        # which makes ``Count('resources')`` double-count. Restrict the count
+        # to visible IDs.
+        from django.db.models import Count, Q
+
+        visible_ids = list(visible.values_list('id', flat=True).distinct())
+        return (
+            ResourceLabel.objects.annotate(
+                resource_count=Count(
+                    'resources',
+                    filter=Q(resources__id__in=visible_ids),
+                    distinct=True,
+                )
+            )
+            .order_by('name')
+        )

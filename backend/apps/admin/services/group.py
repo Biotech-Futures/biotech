@@ -263,7 +263,7 @@ def query_groups(
         Groups.objects
         .select_related("track")
         .filter(where)
-        .order_by("group_name", "id")
+        .order_by("-created_at", "-id")
         .values("id", "group_name", "track__track_name", "created_at")[offset:offset + limit]
     )
     
@@ -361,14 +361,39 @@ def query_group_messages(
             deleted_at__isnull=True
         )
         .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
+        .prefetch_related("attachments", "gif")
         .order_by("sent_at", "id")[offset:offset + limit]
     )
-    
+
     items = []
     for msg in message_records:
         sender_user = msg.sender_user
         role = _get_member_role(sender_user.id)
-        
+
+        attachments = []
+        for att in msg.attachments.all():
+            attachments.append({
+                "id": att.id,
+                "filename": att.attachment_filename,
+                "mime_type": att.attachment_mime_type,
+                "size": att.attachment_size,
+                "download_url": (
+                    f"/api/v1/chat/groups/{gid}/messages/{msg.id}"
+                    f"/attachments/{att.id}/download"
+                ),
+            })
+
+        gif = None
+        try:
+            g = msg.gif
+            gif = {
+                "gif_url": g.gif_url,
+                "preview_url": g.preview_url,
+                "title": g.title,
+            }
+        except Exception:
+            pass
+
         items.append({
             "id": str(msg.id),
             "group_id": str(msg.group_id),
@@ -378,7 +403,10 @@ def query_group_messages(
                 "email": sender_user.email,
                 "role": role,
             },
+            "message_type": msg.message_type,
             "text": msg.message_text,
+            "attachments": attachments,
+            "gif": gif,
             "sent_at": msg.sent_at.isoformat(),
             "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
         })

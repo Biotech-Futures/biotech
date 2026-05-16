@@ -61,6 +61,8 @@ class EventSerializer(serializers.ModelSerializer):
     target_groups = serializers.SerializerMethodField()
     target_tracks = serializers.SerializerMethodField()
     target_roles = serializers.SerializerMethodField()
+    accepted_count = serializers.SerializerMethodField()
+    waitlist_count = serializers.SerializerMethodField()
     # event_image is a CharField on the model but should behave like the other
     # URL-bearing fields (location_link is URLField; dashboard exposes
     # event_image as URLField). Promoting it here keeps validation uniform —
@@ -89,6 +91,9 @@ class EventSerializer(serializers.ModelSerializer):
             "deleted_at",
             "event_image",
             "is_virtual",
+            "max_attendees",
+            "accepted_count",
+            "waitlist_count",
             "accepted",
             "target_groups",
             "target_tracks",
@@ -102,6 +107,8 @@ class EventSerializer(serializers.ModelSerializer):
             "host_user",
             "deleted_at",
             "accepted",
+            "accepted_count",
+            "waitlist_count",
             "target_groups",
             "target_tracks",
             "target_roles",
@@ -111,19 +118,40 @@ class EventSerializer(serializers.ModelSerializer):
         accepted_event_ids = self.context.get("accepted_event_ids") or set()
         return event.id in accepted_event_ids
 
+    # Iterate the reverse accessors so prefetch_related on the viewset
+    # collapses these into a constant number of queries. The default
+    # related_name is `<lowercase_class>_set` since the through models
+    # don't set one.
     def get_target_groups(self, event):
-        return list(
-            EventTargetGroup.objects.filter(event=event).values_list("group_id", flat=True)
-        )
+        return [t.group_id for t in event.eventtargetgroup_set.all()]
 
     def get_target_tracks(self, event):
-        return list(
-            EventTargetTrack.objects.filter(event=event).values_list("track_id", flat=True)
-        )
+        return [t.track_id for t in event.eventtargettrack_set.all()]
 
     def get_target_roles(self, event):
-        return list(
-            EventTargetRole.objects.filter(event=event).values_list("role_id", flat=True)
+        return [t.role_id for t in event.eventtargetrole_set.all()]
+
+    # Counts come from Count annotations on the viewset's queryset
+    # (``_accepted_count`` / ``_waitlist_count``). Single-instance
+    # serialization paths — audit logging, manual ``EventSerializer(ev)``
+    # calls — won't have the annotation, so we fall back to a single
+    # aggregate query.
+    def _count_status(self, event, attr, status_value):
+        annotated = getattr(event, attr, None)
+        if annotated is not None:
+            return annotated
+        return EventRsvp.objects.filter(
+            event=event, rsvp_status=status_value
+        ).count()
+
+    def get_accepted_count(self, event):
+        return self._count_status(
+            event, "_accepted_count", EventRsvp.RsvpStatus.ACCEPTED
+        )
+
+    def get_waitlist_count(self, event):
+        return self._count_status(
+            event, "_waitlist_count", EventRsvp.RsvpStatus.WAITLISTED
         )
 
     def validate(self, attrs):

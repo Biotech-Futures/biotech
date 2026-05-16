@@ -11,6 +11,8 @@ export type Event = {
   "eventImage(img)": string | null;
   isVirtual: boolean;
   hostUserId: number | null;
+  hostName: string | null;
+  hostEmail: string | null;
 };
 
 export type EventRsvp = {

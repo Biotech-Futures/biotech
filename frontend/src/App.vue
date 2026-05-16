@@ -12,6 +12,16 @@
         </div>
 
         <div class="header-nav">
+          <button
+            type="button"
+            class="theme-toggle"
+            :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+            :aria-pressed="isDark"
+            @click="toggleTheme"
+          >
+            <i :class="isDark ? 'fas fa-sun' : 'fas fa-moon'" aria-hidden="true"></i>
+          </button>
+
           <div class="user-menu">
             <button
               class="user-avatar"
@@ -21,7 +31,7 @@
               aria-label="Open account menu"
             >
               <span class="user-avatar-text">{{ auth.initials }}</span>
-              <span v-if="hasUserMenuBadge" class="notification-badge"></span>
+<!--              <span v-if="hasUserMenuBadge" class="notification-badge"></span>-->
             </button>
           </div>
         </div>
@@ -29,7 +39,7 @@
     </header>
 
     <div class="main-layout" v-if="!isLoginPage">
-      <aside class="sidebar">
+      <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
             <li class="sidebar-item">
@@ -58,7 +68,7 @@
               <RouterLink
                 to="/events"
                 class="sidebar-link"
-                :class="{ active: route.path === '/events' }"
+                :class="{ active: route.path.startsWith('/events') }"
               >
                 <i class="fas fa-calendar sidebar-icon"></i>
                 <span>Events</span>
@@ -99,11 +109,70 @@
             </li>
           </ul>
         </nav>
+
+        <button
+          type="button"
+          class="sidebar-collapse-toggle"
+          :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :aria-pressed="isSidebarCollapsed"
+          :title="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          @click="toggleSidebarCollapsed"
+        >
+          <i
+            :class="isSidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"
+            aria-hidden="true"
+          ></i>
+        </button>
+
+        <section
+          v-if="showSidebarGroupSwitcher"
+          class="sidebar-group-switcher"
+          aria-label="Group switcher"
+        >
+          <div class="sidebar-group-switcher-header">
+            <span>Groups</span>
+            <i v-if="isLoadingSidebarGroups" class="fas fa-circle-notch fa-spin"></i>
+          </div>
+
+          <p v-if="sidebarGroupError" class="sidebar-group-message">
+            {{ sidebarGroupError }}
+          </p>
+          <p
+            v-else-if="!isLoadingSidebarGroups && !sidebarGroups.length"
+            class="sidebar-group-message"
+          >
+            No groups available
+          </p>
+
+          <div v-else class="sidebar-group-list">
+            <RouterLink
+              v-for="groupOption in sidebarGroups"
+              :key="groupOption.id"
+              :to="{ name: 'group-detail', params: { id: groupOption.id } }"
+              class="sidebar-group-link"
+              :class="{
+                active: isSidebarGroupActive(groupOption.id),
+                unread: groupOption.hasUnread && !isSidebarGroupActive(groupOption.id),
+              }"
+            >
+              <span class="sidebar-group-copy">
+                <span class="sidebar-group-name">{{ groupOption.name }}</span>
+                <small>{{ formatSidebarGroupMeta(groupOption) }}</small>
+              </span>
+              <span
+                v-if="groupOption.hasUnread && !isSidebarGroupActive(groupOption.id)"
+                class="sidebar-group-badge"
+              >
+                New
+              </span>
+            </RouterLink>
+          </div>
+        </section>
       </aside>
 
       <main
         class="main-content"
-        :class="{ 'main-content--events': route.path === '/events' }"
+        :class="{ 'main-content--events': route.path.startsWith('/events') }"
       >
         <RouterView />
       </main>
@@ -143,7 +212,7 @@
             <span class="panel-quick-icon"><i class="fas fa-user"></i></span>
             <span class="panel-quick-copy">
               <strong>Profile</strong>
-              <small>Update your account details</small>
+              <small>Update your time zone</small>
             </span>
           </button>
         </div>
@@ -163,25 +232,75 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import { useGroupsStore } from './stores/groups'
+import { buildSessionHeaders } from '@/utils/csrf'
+import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const groupsStore = useGroupsStore()
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
+
+interface CollectionResponse {
+  results?: unknown[]
+  items?: unknown[]
+}
+
+interface SidebarGroupOption {
+  id: string
+  name: string
+  memberCount: number
+  hasUnread: boolean
+  latestAt: string
+}
 
 const handleLogout = async () => {
   await auth.logout()
+  // Drop the previous user's group cache so the next session re-fetches.
+  groupsStore.reset()
   go('/login')
+}
+
+const THEME_STORAGE_KEY = 'biotech-theme'
+const isDark = ref(false)
+
+const applyTheme = (dark: boolean) => {
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+}
+
+const toggleTheme = () => {
+  isDark.value = !isDark.value
+  applyTheme(isDark.value)
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, isDark.value ? 'dark' : 'light')
+  } catch {
+    // localStorage may be unavailable (private mode, quota); fail silently.
+  }
 }
 
 const isLoginPage = computed(() =>
   ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
 )
+const showSidebarGroupSwitcher = computed(
+  () => !isLoginPage.value && route.path.startsWith('/groups'),
+)
+const sidebarGroups = ref<SidebarGroupOption[]>([])
+const isLoadingSidebarGroups = ref(false)
+const sidebarGroupError = ref('')
+let sidebarGroupLoadSequence = 0
 
 const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
+const isSidebarCollapsed = ref(false)
+
+const toggleSidebarCollapsed = () => {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+}
 
 const toggleUserMenu = () => {
   showUserMenu.value = !showUserMenu.value
@@ -191,6 +310,151 @@ const toggleUserMenu = () => {
 const go = (path: string) => {
   showUserMenu.value = false
   router.push(path)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const extractCollectionItems = (data: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(data)) return data.filter(isRecord)
+  if (!isRecord(data)) return []
+  const collection = data as CollectionResponse
+  if (Array.isArray(collection.results)) return collection.results.filter(isRecord)
+  if (Array.isArray(collection.items)) return collection.items.filter(isRecord)
+  return []
+}
+
+const requestJson = async (url: string, options: RequestInit = {}) => {
+  const headers = buildSessionHeaders({ headers: options.headers })
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+
+  const response = await fetch(url, {
+    credentials: 'include',
+    ...options,
+    headers,
+  })
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+
+  if (response.status === 204) return null
+  return response.json()
+}
+
+const getCurrentUserDisplayNames = () =>
+  new Set(
+    [
+      auth.displayName,
+      auth.user?.email,
+      [auth.user?.first_name, auth.user?.last_name].filter(Boolean).join(' '),
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  )
+
+const loadSidebarLatestMessageState = async (
+  groups: SidebarGroupOption[],
+  sequence: number,
+) => {
+  if (!groups.length) return
+
+  const currentUserId = Number(auth.user?.id || 0)
+  const currentNames = getCurrentUserDisplayNames()
+  const results = await Promise.allSettled(
+    groups.map(async (groupOption) => {
+      const data = await requestJson(
+        `${API_BASE_URL}/api/v1/chat/groups/${groupOption.id}/messages/?limit=1`,
+      )
+      const latest = extractCollectionItems(data)[0]
+      if (!latest) return { ...groupOption, hasUnread: false, latestAt: '' }
+
+      const senderId = Number(
+        latest.sender_user ?? latest.sender_id ?? latest.sender_user_id ?? 0,
+      )
+      const senderName = String(latest.sender_name ?? latest.author ?? '').trim()
+      const isOwn =
+        (currentUserId > 0 && senderId === currentUserId) ||
+        (senderName && currentNames.has(senderName))
+      const latestAt = String(latest.sent_at ?? latest.created_at ?? latest.sent_datetime ?? '')
+      const hasUnread = latest.is_read_by_me === false && !isOwn
+
+      return { ...groupOption, hasUnread, latestAt }
+    }),
+  )
+
+  if (sequence !== sidebarGroupLoadSequence) return
+
+  sidebarGroups.value = groups.map((groupOption, index) => {
+    const result = results[index]
+    return result?.status === 'fulfilled' ? result.value : groupOption
+  })
+}
+
+const loadSidebarGroups = async () => {
+  if (!showSidebarGroupSwitcher.value) {
+    sidebarGroupLoadSequence += 1
+    sidebarGroups.value = []
+    sidebarGroupError.value = ''
+    isLoadingSidebarGroups.value = false
+    return
+  }
+
+  const sequence = ++sidebarGroupLoadSequence
+  isLoadingSidebarGroups.value = true
+  sidebarGroupError.value = ''
+
+  await groupsStore.ensureLoaded()
+  if (sequence !== sidebarGroupLoadSequence) return
+
+  if (groupsStore.error) {
+    sidebarGroups.value = []
+    sidebarGroupError.value = groupsStore.error
+    isLoadingSidebarGroups.value = false
+    return
+  }
+
+  const groups: SidebarGroupOption[] = groupsStore.sorted.map((g) => ({
+    id: g.id,
+    name: g.name,
+    memberCount: g.memberCount,
+    hasUnread: false,
+    latestAt: '',
+  }))
+  sidebarGroups.value = groups
+  isLoadingSidebarGroups.value = false
+
+  // N requests (one per group) — defer behind idle so the page is
+  // interactive before unread/latest-at indicators light up.
+  const runLatest = () => void loadSidebarLatestMessageState(groups, sequence)
+  const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
+    .requestIdleCallback
+  if (typeof ric === 'function') ric(runLatest)
+  else window.setTimeout(runLatest, 250)
+}
+
+const isSidebarGroupActive = (groupId: string) => String(route.params.id || '') === groupId
+
+const clearSidebarGroupUnread = (groupId: string | number | undefined | null) => {
+  const targetGroupId = String(groupId || '')
+  if (!targetGroupId) return
+
+  sidebarGroups.value = sidebarGroups.value.map((groupOption) =>
+    groupOption.id === targetGroupId && groupOption.hasUnread
+      ? { ...groupOption, hasUnread: false }
+      : groupOption,
+  )
+}
+
+const handleSidebarGroupRead = (event: Event) => {
+  const detail = (event as CustomEvent<{ groupId?: string | number }>).detail
+  clearSidebarGroupUnread(detail?.groupId)
+}
+
+const formatSidebarGroupMeta = (groupOption: SidebarGroupOption) => {
+  const count = groupOption.memberCount
+  if (count > 0) return `${count} ${count === 1 ? 'member' : 'members'}`
+  return 'Group workspace'
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -214,21 +478,71 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
+// Sidebar group list is non-critical — defer behind requestIdleCallback
+// so we don't fight the main page's fetches for connection budget.
+const scheduleSidebarLoad = () => {
+  const run = () => loadSidebarGroups()
+  const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
+    .requestIdleCallback
+  if (typeof ric === 'function') ric(run)
+  else window.setTimeout(run, 200)
+}
+
 watch(
   () => route.fullPath,
   () => {
+    // Only close the user menu — the sidebar group list doesn't change
+    // per-route, so re-fetching here is pure waste.
     showUserMenu.value = false
   },
 )
 
+watch(showSidebarGroupSwitcher, (isVisible) => {
+  if (isVisible) {
+    scheduleSidebarLoad()
+    return
+  }
+  sidebarGroupLoadSequence += 1
+  sidebarGroups.value = []
+  sidebarGroupError.value = ''
+  isLoadingSidebarGroups.value = false
+})
+
+watch(
+  () => [auth.user?.id, auth.isAdmin, showSidebarGroupSwitcher.value],
+  ([newUserId, , nowVisible], old) => {
+    const oldUserId = Array.isArray(old) ? old[0] : undefined
+    const wasVisible = Array.isArray(old) ? old[2] : undefined
+    // The cached list belongs to whoever was logged in. If the identity
+    // changes (login, account switch) drop it so the next load fetches fresh.
+    if (oldUserId !== undefined && oldUserId !== newUserId) {
+      groupsStore.reset()
+    }
+    // Skip the no-op transition where the switcher stays hidden — avoids
+    // refetching while the user is bouncing between non-/groups routes.
+    if (wasVisible === false && nowVisible === false) return
+    scheduleSidebarLoad()
+  },
+)
+
 onMounted(() => {
+  try {
+    isDark.value = window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark'
+  } catch {
+    isDark.value = false
+  }
+  applyTheme(isDark.value)
+
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
+  window.addEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
+  scheduleSidebarLoad()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
 })
 </script>
 
@@ -352,6 +666,38 @@ select {
 .header-nav {
   display: flex;
   align-items: center;
+  gap: 0.75rem;
+}
+
+.theme-toggle {
+  width: 40px;
+  height: 40px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--white);
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--white);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--white);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle {
+    transition: none;
+  }
 }
 
 .user-menu {
@@ -402,6 +748,9 @@ select {
 }
 
 .sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   width: 250px;
   min-width: 250px;
   flex-shrink: 0;
@@ -409,6 +758,50 @@ select {
   padding: 1.5rem 0;
   background-color: var(--white);
   border-right: 1px solid var(--border-light);
+  transition:
+    width 0.2s ease,
+    min-width 0.2s ease;
+}
+
+.sidebar.is-collapsed {
+  width: 72px;
+  min-width: 72px;
+}
+
+.sidebar-collapse-toggle {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  z-index: 3;
+  width: 28px;
+  height: 44px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(17, 30, 25, 0.08);
+  transform: translateY(-50%);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.sidebar-collapse-toggle:hover {
+  border-color: rgba(35, 70, 59, 0.24);
+  background: var(--light-green);
+  color: var(--dark-green);
+  box-shadow: 0 10px 22px rgba(17, 30, 25, 0.12);
+}
+
+.sidebar-collapse-toggle:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
 }
 
 .sidebar-nav {
@@ -439,6 +832,16 @@ select {
     border-color 0.2s ease;
 }
 
+.sidebar.is-collapsed .sidebar-link {
+  justify-content: center;
+  gap: 0;
+  padding: 0.78rem 0;
+}
+
+.sidebar.is-collapsed .sidebar-link span {
+  display: none;
+}
+
 .sidebar-icon {
   width: 20px;
   text-align: center;
@@ -455,6 +858,116 @@ select {
   color: var(--dark-green);
   border-left-color: var(--dark-green);
   font-weight: 500;
+}
+
+.sidebar-group-switcher {
+  margin-top: auto;
+  padding: 1rem 0.85rem 0;
+}
+
+.sidebar.is-collapsed .sidebar-group-switcher {
+  display: none;
+}
+
+.sidebar-group-switcher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.65rem 0.5rem;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-group-list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: min(360px, 42vh);
+  overflow-y: auto;
+}
+
+.sidebar-group-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  min-height: 52px;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--charcoal);
+  text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.sidebar-group-link:hover {
+  border-color: var(--line-mid);
+  background: #f4f8f6;
+  color: var(--dark-green);
+}
+
+.sidebar-group-link.active {
+  border-color: rgba(35, 70, 59, 0.2);
+  background: var(--light-green);
+  color: var(--dark-green);
+}
+
+.sidebar-group-link.unread {
+  border-color: rgba(61, 106, 91, 0.24);
+  background: #eef7f2;
+}
+
+.sidebar-group-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.sidebar-group-name {
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-group-link.unread .sidebar-group-name {
+  font-weight: 800;
+}
+
+.sidebar-group-copy small {
+  overflow: hidden;
+  color: #6c757d;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-group-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0.14rem 0.42rem;
+  background: var(--dark-green);
+  color: var(--white);
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.sidebar-group-message {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  color: #6c757d;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .main-content {
@@ -680,6 +1193,49 @@ select {
     overflow-y: visible;
     padding: 0.75rem;
     z-index: auto;
+    margin-bottom: -300px;
+  }
+
+  .sidebar.is-collapsed {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .sidebar-collapse-toggle {
+    display: none;
+  }
+
+  .sidebar.is-collapsed .sidebar-link {
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+  }
+
+  .sidebar.is-collapsed .sidebar-link span {
+    display: inline;
+  }
+
+  .sidebar.is-collapsed .sidebar-group-switcher {
+    display: block;
+  }
+
+  .sidebar-group-switcher {
+    margin-top: 0.75rem;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid var(--border-light);
+  }
+
+  .sidebar-group-list {
+    display: flex;
+    gap: 0.5rem;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.15rem;
+  }
+
+  .sidebar-group-link {
+    flex: 0 0 min(220px, 78vw);
   }
 
   .main-content {

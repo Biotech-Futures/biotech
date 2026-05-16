@@ -48,6 +48,7 @@ urlpatterns = [
     # ========================================================================
     path('resource/', views.ResourceListCreateView.as_view(), name='resource-list-create'),
     path('resource/<int:resource_id>/', views.ResourceDetailView.as_view(), name='resource-detail'),
+    path('resource/<int:resource_id>/access/', views.ResourceAccessView.as_view(), name='resource-access'),
     path('resource/<int:resource_id>/download/', views.ResourceDownloadView.as_view(), name='resource-download'),
     path('resource/<int:resource_id>/upload/', views.ResourceFileReplaceView.as_view(), name='resource-file-replace'),
     path('resource/<int:resource_id>/assign-role/', views.ResourceAssignRoleView.as_view(), name='resource-assign-role'),

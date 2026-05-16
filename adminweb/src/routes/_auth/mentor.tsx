@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
-import { useQueryMentorDetail, useMutationSetMentorActive, type MentorDetail } from "@/query/mentor";
+import {
+  useQueryMentorDetail,
+  useMutationSetMentorActive,
+  type MentorDetail,
+} from "@/query/mentor";
 import {
   useQueryMatchedGroups,
   useQueryMentorList,
@@ -46,7 +50,10 @@ function daysSince(dateStr: string | null): number | null {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-function isEffectivelyInactive(mentor: MentorDetail, inactiveDays: number): boolean {
+function isEffectivelyInactive(
+  mentor: MentorDetail,
+  inactiveDays: number,
+): boolean {
   if (!mentor.isActive) return true;
   const days = daysSince(mentor.lastMessageAt);
   if (days === null) return true; // never sent a message
@@ -59,9 +66,11 @@ function MentorPage() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
 
-  const { data: mentorDetailData, isPending: isLoadingMentors } = useQueryMentorDetail();
+  const { data: mentorDetailData, isPending: isLoadingMentors } =
+    useQueryMentorDetail();
   const setMentorActive = useMutationSetMentorActive();
-  const { data: matchedData, refetch: refetchMatched } = useQueryMatchedGroups();
+  const { data: matchedData, refetch: refetchMatched } =
+    useQueryMatchedGroups();
   const { data: mentorListData } = useQueryMentorList();
   const confirmAssignments = useMutationConfirmMentorAssignments();
   const unassignMentors = useMutationUnassignMentors();
@@ -77,7 +86,9 @@ function MentorPage() {
         .filter((m) => isEffectivelyInactive(m, inactiveDays))
         .map((m) => m.mentorId),
     );
-    return matchedGroups.filter((g) => inactiveMentorIds.has(g.mentor.mentorId));
+    return matchedGroups.filter((g) =>
+      inactiveMentorIds.has(g.mentor.mentorId),
+    );
   }, [mentors, matchedGroups, inactiveDays]);
 
   function toggleExpand(mentorId: number) {
@@ -95,8 +106,12 @@ function MentorPage() {
   ) {
     try {
       await Promise.all([
-        assignments.length > 0 ? confirmAssignments.mutateAsync({ assignments }) : Promise.resolve(),
-        unassigns.length > 0 ? unassignMentors.mutateAsync(unassigns) : Promise.resolve(),
+        assignments.length > 0
+          ? confirmAssignments.mutateAsync({ assignments })
+          : Promise.resolve(),
+        unassigns.length > 0
+          ? unassignMentors.mutateAsync(unassigns)
+          : Promise.resolve(),
       ]);
       setBulkDialogOpen(false);
       await Promise.all([
@@ -113,7 +128,8 @@ function MentorPage() {
     } catch (error) {
       const msg =
         error instanceof AxiosError
-          ? ((error.response?.data as { msg?: string } | undefined)?.msg ?? error.message)
+          ? ((error.response?.data as { msg?: string } | undefined)?.msg ??
+            error.message)
           : "Bulk replace failed. Please try again.";
       toast.error(`Bulk replace failed: ${msg}`);
     }
@@ -128,7 +144,6 @@ function MentorPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Mentors</h1>
           <p className="text-sm text-muted-foreground">
             {mentors.length} mentor{mentors.length === 1 ? "" : "s"} registered
           </p>
@@ -143,7 +158,9 @@ function MentorPage() {
               type="number"
               min={1}
               value={inactiveDays}
-              onChange={(e) => setInactiveDays(Math.max(1, Number(e.target.value)))}
+              onChange={(e) =>
+                setInactiveDays(Math.max(1, Number(e.target.value)))
+              }
               className="h-8 w-20 text-sm"
             />
             <span className="text-sm text-muted-foreground">days</span>
@@ -192,19 +209,31 @@ function MentorPage() {
                 return [
                   <TableRow
                     key={mentor.mentorId}
-                    className={cn("cursor-pointer", inactive && "bg-destructive/5")}
+                    className={cn(
+                      "cursor-pointer",
+                      inactive && "bg-destructive/5",
+                    )}
                     onClick={() => toggleExpand(mentor.mentorId)}
                   >
                     <TableCell>
-                      <button onClick={(e) => { e.stopPropagation(); toggleExpand(mentor.mentorId); }}>
-                        {isExpanded
-                          ? <ChevronDownIcon className="size-4 text-muted-foreground" />
-                          : <ChevronRightIcon className="size-4 text-muted-foreground" />}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleExpand(mentor.mentorId);
+                        }}
+                      >
+                        {isExpanded ? (
+                          <ChevronDownIcon className="size-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRightIcon className="size-4 text-muted-foreground" />
+                        )}
                       </button>
                     </TableCell>
                     <TableCell>
                       <p className="font-medium">{mentor.name}</p>
-                      <p className="text-xs text-muted-foreground">{mentor.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {mentor.email}
+                      </p>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{mentor.trackCode}</Badge>
@@ -220,8 +249,18 @@ function MentorPage() {
                     </TableCell>
                     <TableCell className="text-sm">
                       {mentor.lastMessageAt ? (
-                        <span className={cn(days !== null && days >= inactiveDays && "text-destructive")}>
-                          {days === 0 ? "Today" : days === 1 ? "Yesterday" : `${days} days ago`}
+                        <span
+                          className={cn(
+                            days !== null &&
+                              days >= inactiveDays &&
+                              "text-destructive",
+                          )}
+                        >
+                          {days === 0
+                            ? "Today"
+                            : days === 1
+                              ? "Yesterday"
+                              : `${days} days ago`}
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -262,7 +301,10 @@ function MentorPage() {
                   </TableRow>,
 
                   isExpanded && (
-                    <TableRow key={`detail-${mentor.mentorId}`} className="hover:bg-transparent">
+                    <TableRow
+                      key={`detail-${mentor.mentorId}`}
+                      className="hover:bg-transparent"
+                    >
                       <TableCell colSpan={7} className="p-0">
                         <div className="border-t bg-muted/20 px-6 py-4 space-y-4">
                           {/* Basic Info */}
@@ -272,19 +314,29 @@ function MentorPage() {
                             </p>
                             <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
                               <div className="flex gap-2">
-                                <span className="text-muted-foreground">User ID:</span>
-                                <span className="font-mono">{mentor.mentorId}</span>
+                                <span className="text-muted-foreground">
+                                  User ID:
+                                </span>
+                                <span className="font-mono">
+                                  {mentor.mentorId}
+                                </span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-muted-foreground">Email:</span>
+                                <span className="text-muted-foreground">
+                                  Email:
+                                </span>
                                 <span>{mentor.email}</span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-muted-foreground">Institution:</span>
+                                <span className="text-muted-foreground">
+                                  Institution:
+                                </span>
                                 <span>{mentor.institution ?? "—"}</span>
                               </div>
                               <div className="flex gap-2">
-                                <span className="text-muted-foreground">Max Groups:</span>
+                                <span className="text-muted-foreground">
+                                  Max Groups:
+                                </span>
                                 <span>{mentor.maxGroupCount}</span>
                               </div>
                             </div>
@@ -298,13 +350,19 @@ function MentorPage() {
                             {mentor.interests.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {mentor.interests.map((i) => (
-                                  <Badge key={i} variant="secondary" className="text-xs">
+                                  <Badge
+                                    key={i}
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
                                     {i}
                                   </Badge>
                                 ))}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground">No interests listed.</p>
+                              <p className="text-xs text-muted-foreground">
+                                No interests listed.
+                              </p>
                             )}
                           </div>
 
@@ -318,45 +376,68 @@ function MentorPage() {
                                 {[...mentor.availability]
                                   .sort((a, b) => a.weekday - b.weekday)
                                   .map((slot, idx) => (
-                                    <div key={idx} className="rounded-md border bg-background px-2 py-1 text-xs">
-                                      <span className="font-medium">{WEEKDAYS[slot.weekday]}</span>
+                                    <div
+                                      key={idx}
+                                      className="rounded-md border bg-background px-2 py-1 text-xs"
+                                    >
+                                      <span className="font-medium">
+                                        {WEEKDAYS[slot.weekday]}
+                                      </span>
                                       <span className="ml-1 text-muted-foreground">
-                                        {slot.startTime.slice(0, 5)}–{slot.endTime.slice(0, 5)}
+                                        {slot.startTime.slice(0, 5)}–
+                                        {slot.endTime.slice(0, 5)}
                                       </span>
                                     </div>
                                   ))}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground">No availability set.</p>
+                              <p className="text-xs text-muted-foreground">
+                                No availability set.
+                              </p>
                             )}
                           </div>
 
                           {/* Certificates */}
                           <div>
                             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-                              <ShieldCheckIcon className="size-3" /> Certificates
+                              <ShieldCheckIcon className="size-3" />{" "}
+                              Certificates
                             </p>
                             {mentor.certificates.length > 0 ? (
                               <div className="space-y-2">
                                 {mentor.certificates.map((cert, idx) => (
-                                  <div key={idx} className="rounded-md border bg-background px-3 py-2 text-xs space-y-0.5">
+                                  <div
+                                    key={idx}
+                                    className="rounded-md border bg-background px-3 py-2 text-xs space-y-0.5"
+                                  >
                                     <div className="flex items-center gap-2">
-                                      <span className="font-medium">{cert.certificateTypeName}</span>
+                                      <span className="font-medium">
+                                        {cert.certificateTypeName}
+                                      </span>
                                       {cert.verifiedAt ? (
                                         <span className="flex items-center gap-0.5 text-green-600">
-                                          <ShieldCheckIcon className="size-3" /> Verified
+                                          <ShieldCheckIcon className="size-3" />{" "}
+                                          Verified
                                         </span>
                                       ) : (
-                                        <span className="text-muted-foreground">Unverified</span>
+                                        <span className="text-muted-foreground">
+                                          Unverified
+                                        </span>
                                       )}
                                     </div>
                                     <div className="flex flex-wrap gap-x-4 text-muted-foreground">
                                       {cert.certificateNumber && (
-                                        <span>No. {cert.certificateNumber}</span>
+                                        <span>
+                                          No. {cert.certificateNumber}
+                                        </span>
                                       )}
-                                      {cert.issuedBy && <span>Issued by: {cert.issuedBy}</span>}
+                                      {cert.issuedBy && (
+                                        <span>Issued by: {cert.issuedBy}</span>
+                                      )}
                                       <span>Issued: {cert.issuedAt}</span>
-                                      {cert.expiresAt && <span>Expires: {cert.expiresAt}</span>}
+                                      {cert.expiresAt && (
+                                        <span>Expires: {cert.expiresAt}</span>
+                                      )}
                                     </div>
                                     {cert.fileUrl && (
                                       <a
@@ -373,7 +454,9 @@ function MentorPage() {
                                 ))}
                               </div>
                             ) : (
-                              <p className="text-xs text-muted-foreground">No certificates on file.</p>
+                              <p className="text-xs text-muted-foreground">
+                                No certificates on file.
+                              </p>
                             )}
                           </div>
                         </div>

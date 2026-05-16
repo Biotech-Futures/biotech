@@ -3,6 +3,7 @@ from rest_framework.routers import SimpleRouter
 
 from .views import (
     EventBulkInviteView,
+    EventIcalExportView,
     EventInviteCreateView,
     EventInviteListHTMLView,
     EventInviteListMeHTMLView,
@@ -29,6 +30,7 @@ canonical_urlpatterns = [
     path("<int:id>/rsvp/bulk/", EventBulkInviteView.as_view(), name="event-bulk-invite"),
     path("<int:id>/rsvp/<int:uid>/", EventInviteCreateView.as_view(), name="create-event-rsvp"),
     path("<int:id>/rsvps/", EventInviteListHTMLView.as_view(), name="list-event-rsvp"),
+    path("<int:id>/ical/", EventIcalExportView.as_view(), name="event-ical-export"),
     # Cron-trigger for the 24h RSVP reminder dispatcher. Hit hourly by
     # .github/workflows/rsvp-reminders.yml with a shared-secret header.
     # Listed under the canonical root so it's also reachable at

@@ -94,23 +94,6 @@
               Members
               <span>{{ visibleGroupMembers.length }}</span>
             </button>
-            <label class="group-switcher" for="group-switcher">
-              <span>Group</span>
-              <select
-                id="group-switcher"
-                :value="backendGroupId"
-                :disabled="isLoadingGroupOptions || availableGroups.length <= 1"
-                @change="switchGroup"
-              >
-                <option v-if="isLoadingGroupOptions" value="">Loading groups...</option>
-                <option v-for="option in availableGroups" :key="option.id" :value="option.id">
-                  {{ option.memberCount ? `${option.name} (${option.memberCount})` : option.name }}
-                </option>
-              </select>
-            </label>
-            <span v-if="groupOptionsError" class="group-switcher-error">{{
-              groupOptionsError
-            }}</span>
           </div>
         </div>
       </div>
@@ -226,12 +209,13 @@
               <div class="task-toolbar-controls">
                 <div class="task-filter-popover">
                   <button
+                    ref="taskFilterButtonRef"
                     type="button"
                     class="task-toolbar-btn"
                     :class="{ 'has-active': activeTaskFilterCount }"
                     :aria-expanded="isTaskFiltersOpen"
                     aria-haspopup="true"
-                    @click="isTaskFiltersOpen = !isTaskFiltersOpen"
+                    @click="toggleTaskFilters"
                   >
                     <i class="fas fa-sliders-h" aria-hidden="true"></i>
                     Filters
@@ -239,98 +223,107 @@
                       {{ activeTaskFilterCount }}
                     </span>
                   </button>
-                  <div v-if="isTaskFiltersOpen" class="task-filter-panel" role="dialog" aria-label="Filters">
-                    <label class="task-filter-row">
-                      <span>Type</span>
-                      <select v-model="taskFilters.taskType">
-                        <option value="">All</option>
-                        <option value="group">Group</option>
-                        <option value="individual">Individual</option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>Status</span>
-                      <select v-model="taskFilters.status">
-                        <option value="">All</option>
-                        <option
-                          v-for="option in TASK_STATUS_OPTIONS"
-                          :key="option.value"
-                          :value="option.value"
-                        >
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>State</span>
-                      <select v-model="taskFilters.completed">
-                        <option value="">All</option>
-                        <option value="true">Done</option>
-                        <option value="false">Open</option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>Assignee</span>
-                      <select v-model="taskFilters.assignedUser">
-                        <option value="">All members</option>
-                        <option
-                          v-for="member in taskAssigneeOptions"
-                          :key="member.userId"
-                          :value="String(member.userId)"
-                        >
-                          {{ member.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>Subtasks of</span>
-                      <select v-model="taskFilters.parentId">
-                        <option value="">Any task</option>
-                        <option
-                          v-for="option in parentTaskFilterOptions"
-                          :key="option.id"
-                          :value="String(option.id)"
-                        >
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <div class="task-filter-row-pair">
+                  <Teleport to="body">
+                    <div
+                      v-if="isTaskFiltersOpen"
+                      ref="taskFilterPanelRef"
+                      class="task-filter-panel"
+                      :style="taskFilterPanelStyle"
+                      role="dialog"
+                      aria-label="Filters"
+                    >
                       <label class="task-filter-row">
-                        <span>Due after</span>
-                        <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                        <span>Type</span>
+                        <select v-model="taskFilters.taskType">
+                          <option value="">All</option>
+                          <option value="group">Group</option>
+                          <option value="individual">Individual</option>
+                        </select>
                       </label>
                       <label class="task-filter-row">
-                        <span>Due before</span>
-                        <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                        <span>Status</span>
+                        <select v-model="taskFilters.status">
+                          <option value="">All</option>
+                          <option
+                            v-for="option in TASK_STATUS_OPTIONS"
+                            :key="option.value"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
                       </label>
+                      <label class="task-filter-row">
+                        <span>State</span>
+                        <select v-model="taskFilters.completed">
+                          <option value="">All</option>
+                          <option value="true">Done</option>
+                          <option value="false">Open</option>
+                        </select>
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Assignee</span>
+                        <select v-model="taskFilters.assignedUser">
+                          <option value="">All members</option>
+                          <option
+                            v-for="member in taskAssigneeOptions"
+                            :key="member.userId"
+                            :value="String(member.userId)"
+                          >
+                            {{ member.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Subtasks of</span>
+                        <select v-model="taskFilters.parentId">
+                          <option value="">Any task</option>
+                          <option
+                            v-for="option in parentTaskFilterOptions"
+                            :key="option.id"
+                            :value="String(option.id)"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <div class="task-filter-row-pair">
+                        <label class="task-filter-row">
+                          <span>Due after</span>
+                          <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                        </label>
+                        <label class="task-filter-row">
+                          <span>Due before</span>
+                          <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                        </label>
+                      </div>
+                      <label class="task-filter-row task-filter-row--checkbox">
+                        <input
+                          v-model="taskFilters.showDeleted"
+                          type="checkbox"
+                          @change="toggleDeletedTaskVisibility"
+                        />
+                        <span>Show deleted</span>
+                      </label>
+                      <div class="task-filter-panel-footer">
+                        <button
+                          type="button"
+                          class="task-filter-clear"
+                          :disabled="!activeTaskFilterCount"
+                          @click="resetTaskFilters"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          class="task-filter-close"
+                          @click="isTaskFiltersOpen = false"
+                        >
+                          Close
+                        </button>
+                      </div>
                     </div>
-                    <label class="task-filter-row task-filter-row--checkbox">
-                      <input
-                        v-model="taskFilters.showDeleted"
-                        type="checkbox"
-                        @change="toggleDeletedTaskVisibility"
-                      />
-                      <span>Show deleted</span>
-                    </label>
-                    <div class="task-filter-panel-footer">
-                      <button
-                        type="button"
-                        class="task-filter-clear"
-                        :disabled="!activeTaskFilterCount"
-                        @click="resetTaskFilters"
-                      >
-                        Clear
-                      </button>
-                      <button
-                        type="button"
-                        class="task-filter-close"
-                        @click="isTaskFiltersOpen = false"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
+                  </Teleport>
                 </div>
                 <label class="task-toolbar-sort">
                   <span class="visually-hidden">Sort by</span>
@@ -1099,28 +1092,48 @@
                   <i class="fas fa-pen"></i> Write a message
                 </button>
               </div>
+              <div
+                v-if="isLoadingOlderMessages"
+                class="load-older-status"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="loading load-older-spinner" aria-hidden="true"></span>
+                <span>Loading older messages...</span>
+              </div>
               <button
-                v-if="nextMessagesBefore"
+                v-else-if="nextMessagesBefore"
                 type="button"
                 class="load-older-messages"
-                :disabled="isLoadingOlderMessages"
                 @click="loadOlderMessages"
               >
-                {{ isLoadingOlderMessages ? 'Loading...' : 'Load older messages' }}
+                Load older messages
               </button>
               <div
                 v-for="message in messages"
                 :key="message.id"
-                :data-message-id="message.id"
-                :class="[
-                  'message',
-                  {
-                    own: message.isOwn,
-                    pending: message.isLocalOnly,
-                    'search-hit': String(highlightedSearchMessageId) === String(message.id),
-                  },
-                ]"
+                class="message-thread-item"
               >
+                <div
+                  v-if="isMissedMessageAnchor(message.id)"
+                  class="missed-message-divider"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span>{{ missedMessageDividerText }}</span>
+                  <button type="button" @click="scrollMessagesToBottom">Jump to latest</button>
+                </div>
+                <div
+                  :data-message-id="message.id"
+                  :class="[
+                    'message',
+                    {
+                      own: message.isOwn,
+                      pending: message.isLocalOnly,
+                      'search-hit': String(highlightedSearchMessageId) === String(message.id),
+                    },
+                  ]"
+                >
                 <div class="message-avatar">{{ getInitials(message.author) }}</div>
                 <div class="message-content">
                   <div class="message-header">
@@ -1150,7 +1163,7 @@
                           :class="{ active: activeReactionPickerMessageId === message.id }"
                           :title="hasMessageReactions(message) ? 'Add another reaction' : 'Add reaction'"
                           aria-label="Add reaction"
-                          @click.stop="toggleReactionPicker(message.id)"
+                          @click.stop="toggleReactionPicker(message.id, $event)"
                         >
                           <i class="fas fa-smile"></i>
                         </button>
@@ -1166,56 +1179,61 @@
                             aria-haspopup="menu"
                             title="More actions"
                             aria-label="More actions"
-                            @click.stop="toggleMessageKebab(message.id)"
+                            @click.stop="toggleMessageKebab(message.id, $event)"
                           >
                             <i class="fas fa-ellipsis-v"></i>
                           </button>
+                          <Teleport to="body">
+                            <div
+                              v-if="openMessageKebabId === message.id"
+                              class="inline-kebab-menu inline-kebab-menu--floating"
+                              :style="messageKebabStyle"
+                              role="menu"
+                              @click.stop
+                            >
+                              <button
+                                type="button"
+                                class="inline-kebab-item"
+                                role="menuitem"
+                                @click="onKebabEdit(message)"
+                              >
+                                <i class="fas fa-pen"></i>
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                class="inline-kebab-item inline-kebab-item--danger"
+                                role="menuitem"
+                                :disabled="isDeletingMessageId === message.id"
+                                @click="onKebabDelete(message)"
+                              >
+                                <i class="fas fa-trash"></i>
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </Teleport>
+                        </span>
+                        <Teleport to="body">
                           <div
-                            v-if="openMessageKebabId === message.id"
-                            class="inline-kebab-menu"
+                            v-if="supportsMessageReactions && activeReactionPickerMessageId === message.id"
+                            class="reaction-picker reaction-picker--inline reaction-picker--floating"
+                            :style="reactionPickerStyle"
                             role="menu"
+                            aria-label="Quick reactions"
                             @click.stop
                           >
                             <button
+                              v-for="emoji in CHAT_REACTION_OPTIONS"
+                              :key="`${message.id}-inline-${emoji}`"
                               type="button"
-                              class="inline-kebab-item"
-                              role="menuitem"
-                              @click="onKebabEdit(message)"
+                              class="reaction-btn"
+                              :title="`React with ${emoji}`"
+                              @click="reactToMessage(message.id, emoji)"
                             >
-                              <i class="fas fa-pen"></i>
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="inline-kebab-item inline-kebab-item--danger"
-                              role="menuitem"
-                              :disabled="isDeletingMessageId === message.id"
-                              @click="onKebabDelete(message)"
-                            >
-                              <i class="fas fa-trash"></i>
-                              <span>Delete</span>
+                              <span>{{ emoji }}</span>
                             </button>
                           </div>
-                        </span>
-                        <!-- Inline picker popout — anchors to the smile button just above. -->
-                        <div
-                          v-if="supportsMessageReactions && activeReactionPickerMessageId === message.id"
-                          class="reaction-picker reaction-picker--inline"
-                          role="menu"
-                          aria-label="Quick reactions"
-                          @click.stop
-                        >
-                          <button
-                            v-for="emoji in CHAT_REACTION_OPTIONS"
-                            :key="`${message.id}-inline-${emoji}`"
-                            type="button"
-                            class="reaction-btn"
-                            :title="`React with ${emoji}`"
-                            @click="reactToMessage(message.id, emoji)"
-                          >
-                            <span>{{ emoji }}</span>
-                          </button>
-                        </div>
+                        </Teleport>
                       </span>
                     </span>
                   </div>
@@ -1228,6 +1246,10 @@
                     :src="message.gifUrl"
                     :alt="message.text || 'GIF message'"
                     class="message-gif"
+                    width="280"
+                    height="210"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <div v-else-if="editingMessageId !== message.id" class="message-text">
                     <template
@@ -1395,7 +1417,15 @@
                   </div>
 
                   <div v-if="message.preview" class="message-preview">
-                    <img v-if="message.preview.img" :src="message.preview.img" alt="" />
+                    <img
+                      v-if="message.preview.img"
+                      :src="message.preview.img"
+                      :alt="message.preview.title || 'Link preview'"
+                      width="320"
+                      height="180"
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <strong v-if="message.preview.title">{{ message.preview.title }}</strong>
                     <span v-if="message.preview.desc">{{ message.preview.desc }}</span>
                   </div>
@@ -1515,6 +1545,7 @@
                 </div>
               </div>
             </div>
+            </div>
 
             <button
               v-if="showScrollToBottomButton"
@@ -1525,6 +1556,19 @@
               @click="scrollMessagesToBottom"
             >
               <i class="fas fa-arrow-down"></i>
+            </button>
+
+            <button
+              v-if="showMissedMessageJumpButton"
+              type="button"
+              class="missed-message-jump-btn"
+              :class="{ 'has-scroll-bottom': showScrollToBottomButton }"
+              :title="`Jump to ${missedMessageDividerText.toLowerCase()}`"
+              :aria-label="`Jump to ${missedMessageDividerText.toLowerCase()}`"
+              @click="jumpToMissedMessagesFromButton"
+            >
+              <i class="fas fa-location-arrow"></i>
+              <span>{{ missedMessageJumpText }}</span>
             </button>
 
             <Transition name="typing">
@@ -1639,7 +1683,14 @@
                     :title="gif.title"
                     @click="sendGifMessage(gif)"
                   >
-                    <img :src="gif.previewUrl || gif.url" :alt="gif.title || 'GIF'" loading="lazy" />
+                    <img
+                      :src="gif.previewUrl || gif.url"
+                      :alt="gif.title || 'GIF'"
+                      width="170"
+                      height="170"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   </button>
                 </div>
                 <div v-if="gifNextPos && gifResults.length" class="gif-load-more-row">
@@ -1671,13 +1722,13 @@
                 <div v-if="showMentionSuggestions" class="mention-suggestions">
                   <button
                     v-for="(member, index) in mentionSuggestions"
-                    :key="member.userId"
+                    :key="member.key || member.userId"
                     type="button"
                     class="mention-suggestion"
                     :class="{ active: index === activeMentionSuggestionIndex }"
                     @mousedown.prevent="insertMention(member)"
                   >
-                    <i class="fas fa-at"></i>
+                    <i :class="member.icon || 'fas fa-at'"></i>
                     <span>{{ member.label }}</span>
                     <small>{{ member.role }}</small>
                   </button>
@@ -1743,6 +1794,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { fetchResources } from '@/utils/resourcesAPI'
@@ -1759,7 +1811,9 @@ import {
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 const supportsGifs = true
 const supportsAttachments = true
 const supportsMessageReactions = true
@@ -1829,7 +1883,63 @@ const taskFilters = ref({
   ordering: 'due_date',
   showDeleted: false,
 })
+const taskFilterButtonRef = ref(null)
+const taskFilterPanelRef = ref(null)
+const taskFilterPanelStyle = ref({})
 let taskFilterReloadTimer = null
+
+const updateTaskFilterPanelPosition = () => {
+  const button = taskFilterButtonRef.value
+  if (!button || typeof button.getBoundingClientRect !== 'function') return
+
+  const rect = button.getBoundingClientRect()
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
+  const margin = 16
+  const panelWidth = Math.min(320, Math.max(280, viewportWidth - margin * 2))
+  const preferredLeft = rect.right - panelWidth
+  const left = Math.min(
+    Math.max(margin, preferredLeft),
+    Math.max(margin, viewportWidth - panelWidth - margin),
+  )
+  const top = rect.bottom + 6
+  const maxHeight = Math.max(220, viewportHeight - top - margin)
+
+  taskFilterPanelStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${panelWidth}px`,
+    maxHeight: `${maxHeight}px`,
+  }
+}
+
+const addTaskFilterPositionListeners = () => {
+  window.addEventListener('resize', updateTaskFilterPanelPosition)
+  document.addEventListener('scroll', updateTaskFilterPanelPosition, true)
+}
+
+const removeTaskFilterPositionListeners = () => {
+  window.removeEventListener('resize', updateTaskFilterPanelPosition)
+  document.removeEventListener('scroll', updateTaskFilterPanelPosition, true)
+}
+
+const toggleTaskFilters = async () => {
+  const shouldOpen = !isTaskFiltersOpen.value
+  if (shouldOpen) updateTaskFilterPanelPosition()
+  isTaskFiltersOpen.value = shouldOpen
+  if (shouldOpen) {
+    await nextTick()
+    updateTaskFilterPanelPosition()
+  }
+}
+
+watch(isTaskFiltersOpen, async (isOpen) => {
+  removeTaskFilterPositionListeners()
+  if (!isOpen) return
+  await nextTick()
+  updateTaskFilterPanelPosition()
+  addTaskFilterPositionListeners()
+})
 const activeTaskFilterCount = computed(() => {
   const f = taskFilters.value
   let n = 0
@@ -1968,12 +2078,20 @@ const editingMessageId = ref(null)
 const editingMessageText = ref('')
 const manageWindowNow = ref(Date.now())
 const activeReactionPickerMessageId = ref(null)
+const reactionPickerAnchor = ref(null)
 const openMessageKebabId = ref(null)
+const messageKebabAnchor = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
 const highlightedSearchMessageId = ref(null)
+const missedMessageAnchorId = ref(null)
+const missedMessageCount = ref(0)
+const isMissedMessageJumpDismissed = ref(false)
 
 let chatSocket = null
+// First successful WS open per page load is a no-op catch-up; subsequent
+// reopens (reconnect after a drop) trigger a resync.
+let hasConnectedChatSocket = false
 let typingStopTimer = null
 let manageWindowTimer = null
 let searchHighlightTimer = null
@@ -1989,16 +2107,25 @@ const getInitials = (name) =>
     .join('')
     .toUpperCase()
 
+// Module-level cache: Intl.DateTimeFormat is expensive to construct;
+// reuse per (locale, options) shape across renders.
+const _dateFmt = new Intl.DateTimeFormat('en-AU', {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+})
+const _timeFmt = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+
 const formatDate = (d) => {
   const date = new Date(d)
   if (Number.isNaN(date.getTime())) return d
-  return date.toLocaleDateString('en-AU', { year: 'numeric', month: 'short', day: 'numeric' })
+  return _dateFmt.format(date)
 }
 
 const formatTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return _timeFmt.format(date)
 }
 
 const formatTaskStatus = (value) => {
@@ -2246,59 +2373,11 @@ const loadGroupOptions = async () => {
   isLoadingGroupOptions.value = true
   groupOptionsError.value = ''
 
-  try {
-    const [groupsData, membershipsData] = await Promise.all([
-      requestJson(`${API_BASE_URL}/groups/groups/?page_size=100`),
-      requestJson(`${API_BASE_URL}/groups/group-members/?page_size=100`),
-    ])
-    const groupItems = extractCollectionItems(groupsData)
-    const memberships = extractCollectionItems(membershipsData)
-      .map(normalizeMembership)
-      .filter((item) => !item.leftAt)
-    const currentUserId = Number(auth.user?.id || 0)
-    const visibleGroupIds = auth.isAdmin
-      ? null
-      : new Set(
-          memberships
-            .filter((item) => currentUserId > 0 && String(item.userId) === String(currentUserId))
-            .map((item) => String(item.groupId)),
-        )
-    const memberCounts = new Map()
+  // Single source of truth for "this user's groups" — shared with the
+  // sidebar via the Pinia store, so this never refires its own bulk fetch.
+  await groupsStore.ensureLoaded()
 
-    memberships.forEach((item) => {
-      const groupId = String(item.groupId || '')
-      if (!groupId) return
-      memberCounts.set(groupId, Number(memberCounts.get(groupId) || 0) + 1)
-    })
-
-    let options = groupItems
-      .filter((item) => {
-        const groupId = String(item?.id || '')
-        return groupId && (visibleGroupIds === null || visibleGroupIds.has(groupId))
-      })
-      .map((item) => normalizeGroupOption(item, memberCounts.get(String(item?.id || ''))))
-      .sort((a, b) => a.name.localeCompare(b.name))
-
-    const currentGroupId = getBackendGroupId() || routeGroupId.value
-    if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
-      options = [
-        normalizeGroupOption(
-          {
-            id: currentGroupId,
-            group_name: group.value?.name || `Group ${currentGroupId}`,
-            created_at: group.value?.createdAt,
-          },
-          group.value?.members,
-        ),
-        ...options,
-      ]
-    }
-
-    availableGroups.value = options
-    if (!options.length) {
-      groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
-    }
-  } catch {
+  if (groupsStore.error) {
     const currentGroupId = getBackendGroupId() || routeGroupId.value
     availableGroups.value = currentGroupId
       ? [
@@ -2309,9 +2388,39 @@ const loadGroupOptions = async () => {
         ]
       : []
     groupOptionsError.value = 'Group list unavailable'
-  } finally {
     isLoadingGroupOptions.value = false
+    return
   }
+
+  let options = groupsStore.sorted.map((g) =>
+    normalizeGroupOption(
+      { id: g.id, group_name: g.name, created_at: g.createdAt },
+      g.memberCount,
+    ),
+  )
+
+  // Keep the currently-viewed group visible even if it isn't in the store
+  // (e.g. an admin viewing a group they're not a member of).
+  const currentGroupId = getBackendGroupId() || routeGroupId.value
+  if (currentGroupId && !options.some((option) => String(option.id) === String(currentGroupId))) {
+    options = [
+      normalizeGroupOption(
+        {
+          id: currentGroupId,
+          group_name: group.value?.name || `Group ${currentGroupId}`,
+          created_at: group.value?.createdAt,
+        },
+        group.value?.members,
+      ),
+      ...options,
+    ]
+  }
+
+  availableGroups.value = options
+  if (!options.length) {
+    groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
+  }
+  isLoadingGroupOptions.value = false
 }
 
 const loadGroupMembers = async () => {
@@ -2406,13 +2515,27 @@ const loadGroup = async () => {
     if (currentRouteGroupId) {
       const data = await requestJson(`${API_BASE_URL}/groups/groups/${currentRouteGroupId}/`)
       group.value = normalizeGroup(data)
+      // Push the freshly-fetched detail (with authoritative member_count)
+      // into the shared store so the sidebar can use the richer payload.
+      groupsStore.upsert(data)
       return
     }
 
-    const data = await requestJson(`${API_BASE_URL}/groups/groups/?page_size=1`)
-    const firstGroup = extractCollectionItems(data)[0]
-    if (firstGroup) {
-      group.value = normalizeGroup(firstGroup)
+    // The /groups landing route is handled by the router guard now — it
+    // resolves to the user's first group before this view mounts. If we
+    // somehow arrive here without an id, fall back to the store rather
+    // than fetching a stranger group.
+    await groupsStore.ensureLoaded()
+    const first = groupsStore.firstGroup
+    if (first) {
+      group.value = {
+        id: first.id,
+        name: first.name,
+        members: first.memberCount,
+        createdAt: first.createdAt,
+      }
+    } else {
+      group.value = { id: null, name: 'No groups yet', members: 0, createdAt: '' }
     }
   } catch {
     group.value = {
@@ -2674,20 +2797,20 @@ const taskSections = computed(() => {
   ]
 })
 
-// Counts driving the "Show more" footer + the hidden-stale toggle's badge
-const totalRelevantTaskCount = computed(
-  () => tasks.value.filter(isTaskRelevantToCurrentGroup).length,
+// Shared base set — both counts below + taskSections downstream all
+// repeatedly walked tasks.value for the same relevance test.
+const groupRelevantTasks = computed(() =>
+  tasks.value.filter(isTaskRelevantToCurrentGroup),
 )
+const totalRelevantTaskCount = computed(() => groupRelevantTasks.value.length)
 const visibleSectionTaskCount = computed(
   () => taskSections.value.reduce((sum, section) => sum + section.total, 0),
 )
 const hasMoreTasksToShow = computed(
   () => taskShownLimit.value < totalRelevantTaskCount.value,
 )
-const hiddenStaleCompletedCount = computed(() =>
-  tasks.value.filter(
-    (task) => isTaskRelevantToCurrentGroup(task) && isCompletedOverdueTask(task),
-  ).length,
+const hiddenStaleCompletedCount = computed(
+  () => groupRelevantTasks.value.filter(isCompletedOverdueTask).length,
 )
 
 const selectedTaskIdList = computed(() =>
@@ -3017,15 +3140,25 @@ const loadTasks = async ({ resetPage = true } = {}) => {
           ? [requestedAssignee]
           : Array.from(groupMemberUserIds.value)
 
-      assigneeIds.forEach((assignedUser) => {
+      if (assigneeIds.length === 1) {
         taskRequests.push(
           fetchAllTaskPages({
             ...baseParams,
             task_type: 'individual',
-            assigned_user: assignedUser,
+            assigned_user: assigneeIds[0],
           }),
         )
-      })
+      } else if (assigneeIds.length > 1) {
+        // One round-trip across every group member; backend
+        // ``assigned_user__in`` accepts a comma-separated id list.
+        taskRequests.push(
+          fetchAllTaskPages({
+            ...baseParams,
+            task_type: 'individual',
+            assigned_user__in: assigneeIds.join(','),
+          }),
+        )
+      }
     }
 
     const taskBatches = await Promise.all(taskRequests)
@@ -3383,15 +3516,25 @@ const getMentionSenderLabel = (mention) => {
 const getMessageTextSegments = (text) => {
   const source = String(text || '')
   const segments = []
-  const pattern = /<@(\d+)>/g
+  const pattern = /<@(\d+)>|(?<![\w@])@(here|channel)\b/gi
   let cursor = 0
+  let isHidingBroadcastExpansion = false
   let match = pattern.exec(source)
 
   while (match) {
-    if (match.index > cursor) {
-      segments.push({ type: 'text', text: source.slice(cursor, match.index) })
+    const gap = source.slice(cursor, match.index)
+    if (match[1] && isHidingBroadcastExpansion && /^\s*$/.test(gap)) {
+      cursor = match.index + match[0].length
+      match = pattern.exec(source)
+      continue
     }
-    segments.push({ type: 'mention', text: `@${getMentionLabel(match[1])}` })
+
+    if (match.index > cursor) {
+      segments.push({ type: 'text', text: gap })
+    }
+    const label = match[1] ? getMentionLabel(match[1]) : String(match[2] || '').toLowerCase()
+    segments.push({ type: 'mention', text: `@${label}` })
+    isHidingBroadcastExpansion = Boolean(match[2])
     cursor = match.index + match[0].length
     match = pattern.exec(source)
   }
@@ -3437,11 +3580,24 @@ const clearSelectedResources = () => {
 }
 
 const getBackendGroupId = () => {
-  const id = group.value?.id || routeGroupId.value
+  const id = routeGroupId.value || group.value?.id
   return /^\d+$/.test(String(id || '')) ? String(id) : ''
 }
 
+const isCurrentBackendGroupId = (groupId) => String(groupId || '') === String(getBackendGroupId())
+
 const backendGroupId = computed(() => getBackendGroupId())
+
+const notifySidebarGroupRead = (groupId) => {
+  const targetGroupId = String(groupId || '')
+  if (!targetGroupId) return
+
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_GROUP_READ_EVENT, {
+      detail: { groupId: targetGroupId },
+    }),
+  )
+}
 
 const resolveIndividualTaskAssignee = (parentTask = null) => {
   if (parentTask?.assignedUser) return Number(parentTask.assignedUser)
@@ -3720,6 +3876,22 @@ const showScrollToBottomButton = computed(
   () => hasScrollableMessages.value && isChatAwayFromBottom.value,
 )
 
+const showMissedMessageJumpButton = computed(
+  () => missedMessageAnchorId.value !== null && !isMissedMessageJumpDismissed.value,
+)
+
+const missedMessageDividerText = computed(() => {
+  const count = Number(missedMessageCount.value || 0)
+  if (count <= 1) return 'New message'
+  return `${count} new messages`
+})
+
+const missedMessageJumpText = computed(() => {
+  const count = Number(missedMessageCount.value || 0)
+  if (count <= 1) return 'Unread'
+  return `${count} unread`
+})
+
 const canSendChatMessage = computed(
   () => Boolean(newMessage.value.trim()) || selectedChatResources.value.length > 0,
 )
@@ -3736,15 +3908,35 @@ const mentionMembers = computed(() =>
     .filter((member) => member.userId && member.userId !== currentUserId.value),
 )
 
+const broadcastMentionOptions = computed(() => [
+  {
+    key: 'broadcast-here',
+    token: 'here',
+    label: 'here',
+    role: 'Notify everyone in this group',
+    icon: 'fas fa-bullhorn',
+    isBroadcast: true,
+  },
+  {
+    key: 'broadcast-channel',
+    token: 'channel',
+    label: 'channel',
+    role: 'Notify everyone in this group',
+    icon: 'fas fa-bullhorn',
+    isBroadcast: true,
+  },
+])
+
 const mentionSuggestions = computed(() => {
   const query = mentionQuery.value.toLowerCase()
-  return mentionMembers.value
+  return [...broadcastMentionOptions.value, ...mentionMembers.value]
     .filter((member) => {
       if (!query) return true
       return (
         member.label.toLowerCase().includes(query) ||
+        String(member.token || '').toLowerCase().includes(query) ||
         member.role.toLowerCase().includes(query) ||
-        String(member.userId).includes(query)
+        (member.userId && String(member.userId).includes(query))
       )
     })
     .slice(0, 6)
@@ -3803,6 +3995,72 @@ const upsertMessage = (message) => {
   })
 }
 
+const getMissedMessages = (messageList = messages.value) =>
+  (messageList || []).filter(
+    (message) => !message.isOwn && !message.isLocalOnly && message.isReadByMe === false,
+  )
+
+const shouldLoadOlderMissedMessages = (messageList, nextBefore) => {
+  if (!nextBefore || !getMissedMessages(messageList).length) return false
+  const firstPeerMessage = (messageList || []).find(
+    (message) => !message.isOwn && !message.isLocalOnly,
+  )
+  return firstPeerMessage?.isReadByMe === false
+}
+
+const expandMissedMessageWindow = async (messageList, initialNextBefore) => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId) return { messages: messageList, nextBefore: initialNextBefore }
+
+  let combinedMessages = [...messageList]
+  let nextBefore = initialNextBefore
+  const MAX_MISSED_LOOKBACK_PAGES = 5
+
+  for (
+    let page = 0;
+    page < MAX_MISSED_LOOKBACK_PAGES && shouldLoadOlderMissedMessages(combinedMessages, nextBefore);
+    page += 1
+  ) {
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(
+        backendGroupId,
+        `?limit=100&before=${encodeURIComponent(nextBefore)}`,
+      ),
+    )
+    const olderMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    if (!olderMessages.length) {
+      nextBefore = null
+      break
+    }
+
+    const existingIds = new Set(combinedMessages.map((message) => String(message.id)))
+    combinedMessages = [
+      ...olderMessages.filter((message) => !existingIds.has(String(message.id))),
+      ...combinedMessages,
+    ]
+    nextBefore = data?.next_before || null
+  }
+
+  return { messages: combinedMessages, nextBefore }
+}
+
+const setMissedMessageAnchor = (messageList = messages.value) => {
+  const missedMessages = getMissedMessages(messageList)
+  missedMessageAnchorId.value = missedMessages[0]?.id || null
+  missedMessageCount.value = missedMessages.length
+  isMissedMessageJumpDismissed.value = false
+}
+
+const clearMissedMessageAnchor = () => {
+  missedMessageAnchorId.value = null
+  missedMessageCount.value = 0
+  isMissedMessageJumpDismissed.value = false
+}
+
+const isMissedMessageAnchor = (messageId) =>
+  missedMessageAnchorId.value !== null &&
+  String(missedMessageAnchorId.value) === String(messageId)
+
 const removeTypingUser = (name) => {
   const timer = typingUserTimers.get(name)
   if (timer) {
@@ -3847,25 +4105,117 @@ const formatReactionUsers = (entry) => {
   return `${names[0]}, ${names[1]} and ${names.length - 2} others`
 }
 
-const toggleReactionPicker = (messageId) => {
-  if (!supportsMessageReactions) return
-  activeReactionPickerMessageId.value =
-    activeReactionPickerMessageId.value === messageId ? null : messageId
-  if (activeReactionPickerMessageId.value !== null) openMessageKebabId.value = null
+const setReactionPickerAnchor = (event) => {
+  const triggerEl = event?.currentTarget instanceof Element
+    ? event.currentTarget
+    : null
+  if (!triggerEl) {
+    reactionPickerAnchor.value = null
+    return
+  }
+
+  const rect = triggerEl.getBoundingClientRect()
+  const viewportW = window.innerWidth || document.documentElement.clientWidth
+  const viewportH = window.innerHeight || document.documentElement.clientHeight
+  const pickerWidth = 124
+  const pickerHeight = 42
+  const margin = 12
+  const gap = 6
+  const spaceAbove = rect.top
+  const spaceBelow = viewportH - rect.bottom
+  const placeAbove = spaceAbove > pickerHeight + gap || spaceAbove > spaceBelow
+  const left = Math.min(
+    Math.max(margin, rect.right - pickerWidth),
+    Math.max(margin, viewportW - pickerWidth - margin),
+  )
+  const top = placeAbove
+    ? Math.max(margin, rect.top - pickerHeight - gap)
+    : Math.min(viewportH - pickerHeight - margin, rect.bottom + gap)
+
+  reactionPickerAnchor.value = { top, left }
 }
 
-const toggleMessageKebab = (messageId) => {
-  openMessageKebabId.value = openMessageKebabId.value === messageId ? null : messageId
-  if (openMessageKebabId.value !== null) activeReactionPickerMessageId.value = null
+const toggleReactionPicker = (messageId, event = null) => {
+  if (!supportsMessageReactions) return
+  const shouldOpen = activeReactionPickerMessageId.value !== messageId
+  activeReactionPickerMessageId.value = shouldOpen ? messageId : null
+  reactionPickerAnchor.value = null
+  if (shouldOpen) setReactionPickerAnchor(event)
+  if (activeReactionPickerMessageId.value !== null) {
+    openMessageKebabId.value = null
+    messageKebabAnchor.value = null
+  }
 }
+
+const reactionPickerStyle = computed(() => {
+  const anchor = reactionPickerAnchor.value
+  if (!anchor) return null
+  return {
+    position: 'fixed',
+    top: `${anchor.top}px`,
+    left: `${anchor.left}px`,
+  }
+})
+
+const setMessageKebabAnchor = (event) => {
+  const triggerEl = event?.currentTarget instanceof Element
+    ? event.currentTarget
+    : null
+  if (!triggerEl) {
+    messageKebabAnchor.value = null
+    return
+  }
+
+  const rect = triggerEl.getBoundingClientRect()
+  const viewportW = window.innerWidth || document.documentElement.clientWidth
+  const viewportH = window.innerHeight || document.documentElement.clientHeight
+  const menuWidth = 150
+  const menuHeight = 86
+  const margin = 12
+  const gap = 6
+  const spaceBelow = viewportH - rect.bottom
+  const placeAbove = spaceBelow < menuHeight + gap && rect.top > spaceBelow
+  const left = Math.min(
+    Math.max(margin, rect.right - menuWidth),
+    Math.max(margin, viewportW - menuWidth - margin),
+  )
+  const top = placeAbove
+    ? Math.max(margin, rect.top - menuHeight - gap)
+    : Math.min(viewportH - menuHeight - margin, rect.bottom + gap)
+
+  messageKebabAnchor.value = { top, left }
+}
+
+const toggleMessageKebab = (messageId, event = null) => {
+  const shouldOpen = openMessageKebabId.value !== messageId
+  openMessageKebabId.value = shouldOpen ? messageId : null
+  messageKebabAnchor.value = null
+  if (shouldOpen) setMessageKebabAnchor(event)
+  if (shouldOpen) {
+    activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
+  }
+}
+
+const messageKebabStyle = computed(() => {
+  const anchor = messageKebabAnchor.value
+  if (!anchor) return null
+  return {
+    position: 'fixed',
+    top: `${anchor.top}px`,
+    left: `${anchor.left}px`,
+  }
+})
 
 const onKebabEdit = (message) => {
   openMessageKebabId.value = null
+  messageKebabAnchor.value = null
   startMessageEdit(message)
 }
 
 const onKebabDelete = (message) => {
   openMessageKebabId.value = null
+  messageKebabAnchor.value = null
   deleteMessage(message)
 }
 
@@ -3946,15 +4296,20 @@ const updateMentionQuery = () => {
 const pendingComposerMentions = ref(new Map())
 
 const insertMention = (member) => {
-  if (mentionStartIndex.value < 0 || !member?.userId) return
+  if (mentionStartIndex.value < 0 || !member) return
 
-  const displayName = member.label || `User ${member.userId}`
+  const displayName = member.isBroadcast
+    ? String(member.token || member.label || '').toLowerCase()
+    : member.label || `User ${member.userId}`
+  if (!displayName || (!member.isBroadcast && !member.userId)) return
   // Visible token: ``@Name`` — readable to the user. We keep a map so we can
   // resolve it back to ``<@id>`` before posting. Multiple mentions with the
   // same display name collapse to the same id (acceptable; the map keeps the
   // last-wins entry).
   const visible = `@${displayName}`
-  pendingComposerMentions.value.set(visible, member.userId)
+  if (!member.isBroadcast) {
+    pendingComposerMentions.value.set(visible, member.userId)
+  }
 
   const cursor = composer.value?.selectionStart ?? newMessage.value.length
   const prefix = newMessage.value.slice(0, mentionStartIndex.value)
@@ -3972,11 +4327,12 @@ const insertMention = (member) => {
   })
 }
 
-// Convert visible ``@Name`` tokens back to backend ``<@id>`` tokens just
-// before the wire send. Longest names first so an ``@Alice Smith`` doesn't
-// get partially replaced by an unrelated ``@Alice`` entry.
+// Convert visible mention tokens to backend ``<@id>`` tokens just before
+// sending. ``@here`` / ``@channel`` remain in the stored text; we append
+// machine-readable user tokens after them so the unchanged backend can still
+// create normal mention rows.
 const resolveComposerMentions = (text) => {
-  if (!text || !pendingComposerMentions.value.size) return text
+  if (!text) return text
   const entries = [...pendingComposerMentions.value.entries()].sort(
     ([a], [b]) => b.length - a.length,
   )
@@ -3985,6 +4341,26 @@ const resolveComposerMentions = (text) => {
     const safe = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     out = out.replace(new RegExp(safe, 'g'), `<@${userId}>`)
   }
+
+  if (/@(here|channel)\b/i.test(out)) {
+    let didExpandBroadcast = false
+    out = out.replace(/(?<![\w@])@(here|channel)\b/gi, (token) => {
+      if (didExpandBroadcast) return token
+
+      const alreadyMentioned = new Set(
+        [...out.matchAll(/<@(\d+)>/g)].map((match) => Number(match[1])),
+      )
+      const broadcastMentions = mentionMembers.value
+        .map((member) => Number(member.userId))
+        .filter((userId) => Number.isFinite(userId) && !alreadyMentioned.has(userId))
+        .map((userId) => `<@${userId}>`)
+
+      if (!broadcastMentions.length) return token
+      didExpandBroadcast = true
+      return `${token} ${broadcastMentions.join(' ')}`
+    })
+  }
+
   return out
 }
 
@@ -4150,38 +4526,45 @@ const applyDeliveredCursor = (userId, upToId) => {
   })
 }
 
-const markMessagesAsRead = async (messageIds) => {
+const markMessagesAsRead = async (messageIds, groupId = getBackendGroupId()) => {
   const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
   if (!ids.length) return
 
-  const backendGroupId = getBackendGroupId()
+  const backendGroupId = String(groupId || '')
   if (!backendGroupId) return
+  if (!isCurrentBackendGroupId(backendGroupId)) return
 
   const upToId = Math.max(...ids)
   try {
     const data = await requestJson(buildChatReadUrl(backendGroupId, upToId), {
       method: 'POST',
     })
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     applyReadCursor(auth.user?.id, data?.up_to_id || upToId)
+    notifySidebarGroupRead(backendGroupId)
   } catch (error) {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     console.error('Failed to mark messages as read:', error)
   }
 }
 
-const markMessagesAsDelivered = async (messageIds) => {
+const markMessagesAsDelivered = async (messageIds, groupId = getBackendGroupId()) => {
   const ids = (messageIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id))
   if (!ids.length) return
 
-  const backendGroupId = getBackendGroupId()
+  const backendGroupId = String(groupId || '')
   if (!backendGroupId) return
+  if (!isCurrentBackendGroupId(backendGroupId)) return
 
   const upToId = Math.max(...ids)
   try {
     const data = await requestJson(buildChatDeliveredUrl(backendGroupId, upToId), {
       method: 'POST',
     })
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     applyDeliveredCursor(auth.user?.id, data?.up_to_id || upToId)
   } catch (error) {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     console.error('Failed to mark messages as delivered:', error)
   }
 }
@@ -4201,8 +4584,19 @@ const updateScrollToBottomState = () => {
     hasScrollableMessages.value && distanceFromBottom > SCROLL_BOTTOM_THRESHOLD
 }
 
+const CHAT_TOP_TRIGGER_PX = 80
+
 const handleMessagesScroll = () => {
   updateScrollToBottomState()
+  const el = msgList.value
+  if (!el) return
+  if (
+    el.scrollTop <= CHAT_TOP_TRIGGER_PX &&
+    nextMessagesBefore.value &&
+    !isLoadingOlderMessages.value
+  ) {
+    void loadOlderMessages()
+  }
 }
 
 const scrollMessagesToBottom = async () => {
@@ -4265,8 +4659,9 @@ const saveMessageEdit = async (message) => {
   try {
     const updated = await requestJson(buildChatMessageUrl(backendGroupId, message.id), {
       method: 'PATCH',
-      body: JSON.stringify({ message_text: text }),
+      body: JSON.stringify({ message_text: resolveComposerMentions(text) }),
     })
+    pendingComposerMentions.value.clear()
     upsertMessage(updated)
     cancelMessageEdit()
   } catch (error) {
@@ -4312,6 +4707,15 @@ const disconnectChatSocket = () => {
 const handleSocketPayload = async (payload) => {
   if (!payload || typeof payload !== 'object') return
   const eventName = payload.event || payload.type
+  const payloadGroupId = payload.group_id || payload.message?.group || payload.message?.group_id
+  if (
+    eventName &&
+    String(eventName).startsWith('message.') &&
+    payloadGroupId &&
+    !isCurrentBackendGroupId(payloadGroupId)
+  ) {
+    return
+  }
 
   if (eventName === 'user.typing') {
     const currentUserId = Number(auth.user?.id || 0)
@@ -4444,10 +4848,17 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
-    void loadNewerMessages()
-    void markMessagesAsRead(
-      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
-    )
+    // No catch-up fetch on first open — loadMessages already pulled the
+    // freshest batch. Only resync on reconnect, where messages may have
+    // arrived while the socket was down.
+    if (hasConnectedChatSocket) {
+      void loadNewerMessages()
+      void markMessagesAsRead(
+        messages.value.filter((message) => !message.isOwn).map((message) => message.id),
+        backendGroupId,
+      )
+    }
+    hasConnectedChatSocket = true
   })
 
   chatSocket.addEventListener('message', async (event) => {
@@ -4471,11 +4882,17 @@ const connectChatSocket = () => {
   })
 }
 
+// Initial page size for the chat. Older pages are auto-fetched on
+// scroll-up; the visible button is a fallback for no-JS or screen readers.
+const CHAT_INITIAL_LIMIT = 11
+const CHAT_PAGE_LIMIT = 11
+
 const loadMessages = async () => {
   const backendGroupId = getBackendGroupId()
   if (!backendGroupId) {
     chatError.value = 'Live discussion needs a backend numeric group id.'
     messages.value = []
+    clearMissedMessageAnchor()
     await scrollMessagesToBottom()
     return
   }
@@ -4484,27 +4901,46 @@ const loadMessages = async () => {
   chatError.value = ''
 
   try {
-    const data = await requestJson(buildChatMessageCollectionUrl(backendGroupId, '?limit=50'))
-    const liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(backendGroupId, `?limit=${CHAT_INITIAL_LIMIT}`),
+    )
+    let liveMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+    let nextBefore = data?.next_before || null
+
+    if (shouldLoadOlderMissedMessages(liveMessages, nextBefore)) {
+      const expanded = await expandMissedMessageWindow(liveMessages, nextBefore)
+      liveMessages = expanded.messages
+      nextBefore = expanded.nextBefore
+    }
+
+    if (!isCurrentBackendGroupId(backendGroupId)) return
 
     messages.value = liveMessages.length ? liveMessages : []
+    setMissedMessageAnchor(messages.value)
     nextMessagesAfter.value = data?.next_after || null
-    nextMessagesBefore.value = data?.next_before || null
+    nextMessagesBefore.value = nextBefore
   } catch (error) {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     chatError.value =
       error instanceof Error ? error.message : 'Live discussion is unavailable right now.'
     messages.value = []
+    clearMissedMessageAnchor()
     nextMessagesAfter.value = null
     nextMessagesBefore.value = null
   } finally {
+    if (!isCurrentBackendGroupId(backendGroupId)) return
     isLoadingMessages.value = false
-    await scrollMessagesToBottomAfterRender()
-    await markMessagesAsDelivered(
-      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
-    )
-    await markMessagesAsRead(
-      messages.value.filter((message) => !message.isOwn).map((message) => message.id),
-    )
+    // Fire-and-forget — scroll + delivery/read receipts must not gate the UI.
+    const incomingIds = messages.value
+      .filter((message) => !message.isOwn)
+      .map((message) => message.id)
+    if (missedMessageAnchorId.value) {
+      void scrollToMissedMessages()
+    } else {
+      void scrollMessagesToBottomAfterRender()
+    }
+    void markMessagesAsDelivered(incomingIds, backendGroupId)
+    void markMessagesAsRead(incomingIds, backendGroupId)
   }
 }
 
@@ -4515,11 +4951,16 @@ const loadOlderMessages = async () => {
   isLoadingOlderMessages.value = true
   chatError.value = ''
 
+  // Anchor scroll so prepending older messages doesn't yank the user up.
+  const scroller = msgList.value
+  const prevScrollHeight = scroller?.scrollHeight ?? 0
+  const prevScrollTop = scroller?.scrollTop ?? 0
+
   try {
     const data = await requestJson(
       buildChatMessageCollectionUrl(
         backendGroupId,
-        `?limit=50&before=${encodeURIComponent(nextMessagesBefore.value)}`,
+        `?limit=${CHAT_PAGE_LIMIT}&before=${encodeURIComponent(nextMessagesBefore.value)}`,
       ),
     )
     const olderMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
@@ -4529,6 +4970,11 @@ const loadOlderMessages = async () => {
       ...messages.value,
     ]
     nextMessagesBefore.value = data?.next_before || null
+
+    await nextTick()
+    if (scroller) {
+      scroller.scrollTop = scroller.scrollHeight - prevScrollHeight + prevScrollTop
+    }
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Older messages could not be loaded.'
   } finally {
@@ -4692,6 +5138,18 @@ const scrollToMessageId = async (messageId) => {
     highlightedSearchMessageId.value = null
   }, 2200)
   return true
+}
+
+const scrollToMissedMessages = async () => {
+  if (!missedMessageAnchorId.value) return false
+  return scrollToMessageId(missedMessageAnchorId.value)
+}
+
+const jumpToMissedMessagesFromButton = async () => {
+  const didScroll = await scrollToMissedMessages()
+  if (didScroll) {
+    isMissedMessageJumpDismissed.value = true
+  }
 }
 
 const openSearchResult = async (result) => {
@@ -4866,6 +5324,7 @@ const sendGifMessage = async (gif) => {
     return
   }
   const caption = newMessage.value.trim()
+  const wireCaption = resolveComposerMentions(caption)
   isSendingMessage.value = true
   chatError.value = ''
   gifError.value = ''
@@ -4879,9 +5338,10 @@ const sendGifMessage = async (gif) => {
         gif_url: gif.url,
         preview_url: gif.previewUrl || '',
         title: gif.title || '',
-        ...(caption ? { message_text: caption } : {}),
+        ...(wireCaption ? { message_text: wireCaption } : {}),
       }),
     })
+    pendingComposerMentions.value.clear()
     newMessage.value = ''
     showGifPanel.value = false
     // The WS ``message.created`` broadcast delivers the rendered bubble into
@@ -5030,9 +5490,10 @@ const uploadAttachment = async (event) => {
     return
   }
   const caption = newMessage.value.trim()
+  const wireCaption = resolveComposerMentions(caption)
   const formData = new FormData()
   formData.append('uploaded_file', file)
-  if (caption) formData.append('message_text', caption)
+  if (wireCaption) formData.append('message_text', wireCaption)
   // Upload endpoint now accepts reply_to_id (mirror of the JSON create path)
   // so replies can carry attachments.
   if (replyTarget.value?.id) {
@@ -5051,6 +5512,7 @@ const uploadAttachment = async (event) => {
       },
     })
     if (savedMessage) {
+      pendingComposerMentions.value.clear()
       newMessage.value = ''
       clearReplyTarget()
     }
@@ -5117,8 +5579,14 @@ const closeAllComposerPanels = ({ except } = {}) => {
   if (except !== 'resource') showResourcePanel.value = false
   if (except !== 'search') showMessageSearch.value = false
   if (except !== 'mentions') showMentionInbox.value = false
-  if (except !== 'kebab') openMessageKebabId.value = null
-  if (except !== 'picker') activeReactionPickerMessageId.value = null
+  if (except !== 'kebab') {
+    openMessageKebabId.value = null
+    messageKebabAnchor.value = null
+  }
+  if (except !== 'picker') {
+    activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
+  }
 }
 
 const toggleGifPanel = async () => {
@@ -5283,6 +5751,7 @@ const reactToMessage = async (messageId, emoji) => {
       reactions: normalizeReactionMap(data?.reactions),
     }))
     activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Reaction could not be updated.'
   }
@@ -5290,42 +5759,48 @@ const reactToMessage = async (messageId, emoji) => {
 
 let loadSequence = 0
 
-const switchGroup = async (event) => {
-  const selectedGroupId = event?.target?.value
-  if (!selectedGroupId || String(selectedGroupId) === String(backendGroupId.value)) return
-  await router.push(`/groups/${selectedGroupId}`)
-}
-
 const reloadGroupDetail = async () => {
   const sequence = ++loadSequence
 
   isLoadingGroupDetail.value = true
   disconnectChatSocket()
+  hasConnectedChatSocket = false
   tasks.value = []
   messages.value = []
   taskError.value = ''
   chatError.value = ''
   chatNotice.value = ''
   activeReactionPickerMessageId.value = null
+  reactionPickerAnchor.value = null
+  openMessageKebabId.value = null
+  messageKebabAnchor.value = null
   showGroupMembersDialog.value = false
   showMessageSearch.value = false
   clearMessageSearch()
   highlightedSearchMessageId.value = null
+  clearMissedMessageAnchor()
 
   try {
-    await loadGroup()
-    if (sequence !== loadSequence) return
-
-    await loadGroupMembers()
-    if (sequence !== loadSequence) return
-
-    await Promise.all([loadTasks(), loadMessages()])
-    if (sequence !== loadSequence) return
-
-    await scrollMessagesToBottomAfterRender()
-    if (sequence !== loadSequence) return
-
+    // First wave: everything that only needs routeGroupId (getBackendGroupId
+    // already falls back to the route param). Drops 3 sequential RTTs to 1.
+    // WS doesn't depend on any HTTP fetch — connect immediately so the
+    // socket is ready by the time messages render.
     connectChatSocket()
+
+    // Critical path: only the header data the user actually waits on.
+    // Tasks + chat have their own loading states and run in the
+    // background.
+    await Promise.all([loadGroup(), loadGroupMembers()])
+    if (sequence !== loadSequence) return
+    isLoadingGroupDetail.value = false
+
+    // Fire-and-forget: chat and tasks resolve in parallel; their own
+    // panel skeletons handle the wait. Sequence check on completion
+    // guards against navigating between groups mid-flight.
+    void loadMessages().then(() => {
+      if (sequence === loadSequence) void scrollMessagesToBottomAfterRender()
+    })
+    void loadTasks()
   } catch (error) {
     console.error('reloadGroupDetail failed:', error)
   } finally {
@@ -5388,10 +5863,12 @@ const onDocumentClickForReactionPicker = (event) => {
     '.reaction-pick-group, .reaction-picker, .reaction-picker-toggle, .inline-action-btn'
   )) return
   activeReactionPickerMessageId.value = null
+  reactionPickerAnchor.value = null
 }
 const onDocumentKeydownForReactionPicker = (event) => {
   if (activeReactionPickerMessageId.value !== null && event.key === 'Escape') {
     activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
   }
 }
 
@@ -5401,10 +5878,12 @@ const onDocumentClickForMessageKebab = (event) => {
   if (!(target instanceof Element)) return
   if (target.closest('.inline-kebab-wrap, .inline-kebab-menu')) return
   openMessageKebabId.value = null
+  messageKebabAnchor.value = null
 }
 const onDocumentKeydownForMessageKebab = (event) => {
   if (openMessageKebabId.value !== null && event.key === 'Escape') {
     openMessageKebabId.value = null
+    messageKebabAnchor.value = null
   }
 }
 
@@ -5422,6 +5901,21 @@ const onDocumentKeydownForResourceChoice = (event) => {
   if (openAttachmentChoiceKey.value !== null) closeAttachmentChoice()
 }
 
+const onDocumentClickForTaskFilters = (event) => {
+  if (!isTaskFiltersOpen.value) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (taskFilterButtonRef.value?.contains?.(target)) return
+  if (taskFilterPanelRef.value?.contains?.(target)) return
+  isTaskFiltersOpen.value = false
+}
+
+const onDocumentKeydownForTaskFilters = (event) => {
+  if (isTaskFiltersOpen.value && event.key === 'Escape') {
+    isTaskFiltersOpen.value = false
+  }
+}
+
 onMounted(async () => {
   manageWindowTimer = window.setInterval(() => {
     manageWindowNow.value = Date.now()
@@ -5436,21 +5930,36 @@ onMounted(async () => {
   document.addEventListener('keydown', onDocumentKeydownForMessageKebab)
   document.addEventListener('mousedown', onDocumentClickForResourceChoice)
   document.addEventListener('keydown', onDocumentKeydownForResourceChoice)
+  document.addEventListener('mousedown', onDocumentClickForTaskFilters)
+  document.addEventListener('keydown', onDocumentKeydownForTaskFilters)
 
   await ensureAuthUser()
-  await loadGroupOptions()
-  if (!routeGroupId.value && availableGroups.value.length) {
-    await loadMentions()
-    await router.replace(`/groups/${availableGroups.value[0].id}`)
-    return
-  }
 
-  await reloadGroupDetail()
+  if (routeGroupId.value) {
+    // App.vue's sidebar already pulls /groups/ + /group-members/ for the
+    // switcher rail — re-fetching the same data here is pure waste.
+    await reloadGroupDetail()
+  } else {
+    // No route id: only path that needs the group list, to pick a
+    // fallback to redirect into.
+    await loadGroupOptions()
+    if (availableGroups.value.length) {
+      await loadMentions()
+      await router.replace(`/groups/${availableGroups.value[0].id}`)
+      return
+    }
+    await reloadGroupDetail()
+  }
 })
 
 onBeforeUnmount(() => {
   disconnectChatSocket()
   clearTimeout(typingStopTimer)
+  clearTimeout(taskFilterReloadTimer)
+  clearTimeout(searchHighlightTimer)
+  clearTimeout(gifSearchDebounceTimer)
+  typingUserTimers.forEach((timer) => clearTimeout(timer))
+  typingUserTimers.clear()
   if (manageWindowTimer) {
     clearInterval(manageWindowTimer)
     manageWindowTimer = null
@@ -5459,6 +5968,15 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onDocumentKeydownForStatusMenu)
   document.removeEventListener('mousedown', onDocumentClickForReceiptPopover)
   document.removeEventListener('keydown', onDocumentKeydownForReceiptPopover)
+  document.removeEventListener('mousedown', onDocumentClickForReactionPicker)
+  document.removeEventListener('keydown', onDocumentKeydownForReactionPicker)
+  document.removeEventListener('mousedown', onDocumentClickForMessageKebab)
+  document.removeEventListener('keydown', onDocumentKeydownForMessageKebab)
+  document.removeEventListener('mousedown', onDocumentClickForResourceChoice)
+  document.removeEventListener('keydown', onDocumentKeydownForResourceChoice)
+  document.removeEventListener('mousedown', onDocumentClickForTaskFilters)
+  document.removeEventListener('keydown', onDocumentKeydownForTaskFilters)
+  removeTaskFilterPositionListeners()
 })
 </script>
 
@@ -5537,34 +6055,6 @@ onBeforeUnmount(() => {
   color: var(--air-force-blue);
   text-align: center;
 }
-.group-switcher {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: #6c757d;
-  font-size: 0.85rem;
-  font-weight: 700;
-}
-.group-switcher select {
-  min-width: 150px;
-  max-width: 240px;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 0.45rem 0.65rem;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--charcoal);
-  font-weight: 600;
-}
-.group-switcher select:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-.group-switcher-error {
-  color: #8a5a00;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
 .group-members-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -5742,10 +6232,12 @@ onBeforeUnmount(() => {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 .tasks-content {
   position: relative;
   padding-right: 2px;
+  overflow-x: hidden;
 }
 
 .visually-hidden {
@@ -5806,6 +6298,12 @@ onBeforeUnmount(() => {
   gap: 0.6rem;
   margin-bottom: 0.85rem;
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 0.5rem 0;
+  background: var(--surface-elevated, #fff);
+  box-shadow: 0 1px 0 var(--border-light, rgba(0, 0, 0, 0.08));
 }
 
 .task-search {
@@ -5889,9 +6387,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 .task-filter-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
   width: 320px;
   max-height: calc(100vh - 220px);
   overflow-y: auto;
@@ -5900,7 +6396,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
-  z-index: 6;
+  z-index: 1300;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -6094,7 +6590,9 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  overflow: hidden;
+  /* overflow stays visible so the status-menu popup can extend below the
+     last (or only) task without being clipped. Rounded corners are kept
+     by rounding the first/last task-item directly. */
 }
 
 .task-item {
@@ -6108,7 +6606,8 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, box-shadow 120ms ease;
   position: relative;
 }
-.task-item:last-child { border-bottom: 0; }
+.task-item:first-child { border-top-left-radius: 11px; border-top-right-radius: 11px; }
+.task-item:last-child { border-bottom: 0; border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
 .task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
 .task-item.is-selected {
   background: rgba(57, 104, 123, 0.08);
@@ -6541,25 +7040,17 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
-  background-size: 200% 100%;
-  animation: task-skeleton-shimmer 1.4s infinite linear;
+  background: #eef2f4;
   flex-shrink: 0;
 }
 .task-skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
 .task-skeleton-line {
   height: 10px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #eef2f4 0%, #f6f8f9 50%, #eef2f4 100%);
-  background-size: 200% 100%;
-  animation: task-skeleton-shimmer 1.4s infinite linear;
+  background: #eef2f4;
 }
 .task-skeleton-line--lg { width: 70%; }
 .task-skeleton-line--sm { width: 40%; }
-@keyframes task-skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
 
 /* Sticky bulk action bar */
 
@@ -7233,6 +7724,53 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 
+.missed-message-jump-btn {
+  position: absolute;
+  right: 1rem;
+  bottom: 8.75rem;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  max-width: calc(100% - 2rem);
+  min-height: 2.2rem;
+  border: 1px solid rgba(57, 104, 123, 0.28);
+  border-radius: 999px;
+  background: #eef7f9;
+  color: var(--air-force-blue);
+  box-shadow: 0 4px 12px rgba(24, 38, 50, 0.12);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.42rem 0.72rem;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.missed-message-jump-btn.has-scroll-bottom {
+  bottom: 8.75rem;
+}
+
+.missed-message-jump-btn:not(.has-scroll-bottom) {
+  bottom: 5.9rem;
+}
+
+.missed-message-jump-btn:hover {
+  border-color: var(--air-force-blue);
+  background: #f6fbfc;
+  box-shadow: 0 6px 16px rgba(24, 38, 50, 0.16);
+  transform: translateY(-1px);
+}
+
+.missed-message-jump-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .load-older-messages {
   align-self: center;
   border: 1px solid var(--border-light);
@@ -7248,6 +7786,69 @@ onBeforeUnmount(() => {
 .load-older-messages:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.message-thread-item {
+  display: contents;
+}
+
+.missed-message-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.7rem 0;
+  color: var(--air-force-blue);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.missed-message-divider::before,
+.missed-message-divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(57, 104, 123, 0.28);
+}
+
+.missed-message-divider span {
+  flex: 0 0 auto;
+  border: 1px solid rgba(57, 104, 123, 0.24);
+  border-radius: 999px;
+  background: #eef7f9;
+  padding: 0.22rem 0.6rem;
+}
+
+.missed-message-divider button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(57, 104, 123, 0.28);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--air-force-blue);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 0.22rem 0.58rem;
+}
+
+.missed-message-divider button:hover {
+  border-color: var(--air-force-blue);
+  background: #f3f8f7;
+}
+
+.load-older-status {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--air-force-blue);
+}
+
+.load-older-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
 }
 
 .message.pending {
@@ -7798,6 +8399,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 0;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
+  /* Pause off-screen GIFs in the picker grid. */
+  content-visibility: auto;
+  contain-intrinsic-size: 170px 170px;
 }
 
 .gif-card:hover,
@@ -7907,6 +8511,15 @@ onBeforeUnmount(() => {
   /* Never horizontally scroll. The hover toolbars / reactions that poke into
      the gutter are constrained via the message row below. */
   overflow-x: hidden;
+}
+
+/* Stop animating off-screen GIFs (and skip paint for off-screen text) by
+   letting the browser skip rendering work for messages outside the viewport.
+   contain-intrinsic-size keeps the scrollbar honest while the browser
+   learns each message's real height. */
+.chat-messages .message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
 }
 
 /* Message date and time layout */
@@ -8696,7 +9309,13 @@ onBeforeUnmount(() => {
 
 .chat-input-field {
   /* textarea-specific tweaks for a rounder, friendlier composer */
+  height: 2.65rem;
   min-height: 2.65rem;
+  max-height: 6.8rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  line-height: 1.35rem;
+  overflow-y: auto;
   resize: none;
 }
 
@@ -8994,6 +9613,17 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
   padding: 0.25rem;
   animation: kebab-pop 0.14s ease-out;
+}
+
+.inline-kebab-menu--floating {
+  position: fixed;
+  top: auto;
+  right: auto;
+  width: max-content;
+  min-width: 140px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  z-index: 1400;
 }
 
 .inline-kebab-item {
@@ -9387,6 +10017,16 @@ onBeforeUnmount(() => {
   border-color: transparent;
 }
 
+.reaction-picker.reaction-picker--floating {
+  position: fixed;
+  bottom: auto;
+  right: auto;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  z-index: 1400;
+}
+
 @keyframes reaction-picker-pop {
   from {
     opacity: 0;
@@ -9531,15 +10171,6 @@ onBeforeUnmount(() => {
   background: #e8edf1;
 }
 
-.skeleton-block::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: group-loading-shimmer 1.35s ease-in-out infinite;
-}
-
 .skeleton-title {
   width: min(360px, 78%);
   height: 2rem;
@@ -9615,12 +10246,6 @@ onBeforeUnmount(() => {
   margin-top: 1rem;
 }
 
-@keyframes group-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
 @media (max-width: 1180px) {
   .group-loading-grid {
     grid-template-columns: 1fr;
@@ -9643,20 +10268,9 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 
-  .group-switcher {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .group-switcher select {
-    flex: 1;
-    max-width: none;
-  }
-
   .task-toolbar { gap: 0.5rem; }
   .task-search { flex: 1 1 100%; }
   .task-toolbar-controls { width: 100%; justify-content: flex-end; }
-  .task-filter-panel { left: 0; right: auto; width: calc(100vw - 2rem); max-width: 320px; }
 
   .task-row-actions {
     opacity: 1; /* hover doesn't exist on touch -- always show actions */

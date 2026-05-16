@@ -19,6 +19,9 @@ class TaskFilter(django_filters.FilterSet):
     completed = django_filters.BooleanFilter(field_name="completed")
     group_id = django_filters.NumberFilter(field_name="group_id")
     assigned_user = django_filters.NumberFilter(field_name="assigned_user_id")
+    # Comma-separated list — lets the FE pull every individual task for a
+    # group's members in one round-trip instead of N per-member fetches.
+    assigned_user__in = django_filters.BaseInFilter(field_name="assigned_user_id")
     parent_id = django_filters.NumberFilter(field_name="parent_id")
     due_date_after = django_filters.IsoDateTimeFilter(field_name="due_date", lookup_expr="gte")
     due_date_before = django_filters.IsoDateTimeFilter(field_name="due_date", lookup_expr="lte")
@@ -32,6 +35,7 @@ class TaskFilter(django_filters.FilterSet):
             "completed",
             "group_id",
             "assigned_user",
+            "assigned_user__in",
             "parent_id",
             "due_date_after",
             "due_date_before",

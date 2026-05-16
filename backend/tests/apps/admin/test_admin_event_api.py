@@ -41,6 +41,9 @@ class AdminEventApiTests(APITestCase):
         event = Events.objects.get(event_name="Admin Created Event")
         self.assertEqual(event.host_user, self.admin)
         self.assertIsNone(event.location)
+        self.assertEqual(response.data["data"]["hostUserId"], self.admin.id)
+        self.assertEqual(response.data["data"]["hostName"], "Event Admin")
+        self.assertEqual(response.data["data"]["hostEmail"], self.admin.email)
 
     def test_create_event_returns_400_for_missing_datetimes(self):
         self.client.force_authenticate(user=self.admin)
@@ -69,3 +72,21 @@ class AdminEventApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["total"], 1)
         self.assertEqual(response.data["data"]["items"][0]["eventName"], "Upcoming Event")
+
+    def test_event_list_returns_host_from_host_user_id(self):
+        self.client.force_authenticate(user=self.admin)
+        Events.objects.create(
+            event_name="Hosted Event",
+            host_user=self.admin,
+            start_datetime=timezone.now() + timezone.timedelta(days=1),
+            ends_datetime=timezone.now() + timezone.timedelta(days=1, hours=2),
+            is_virtual=True,
+        )
+
+        response = self.client.get(self.url, {"page": 1, "limit": 10, "upcoming": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        event = response.data["data"]["items"][0]
+        self.assertEqual(event["hostUserId"], self.admin.id)
+        self.assertEqual(event["hostName"], "Event Admin")
+        self.assertEqual(event["hostEmail"], self.admin.email)

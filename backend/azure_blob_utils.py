@@ -35,6 +35,19 @@ def upload_file(local_path: str, blob_name: str):
     return blob_name
 
 
+def download_file_text(blob_name: str, encoding: str = "utf-8"):
+    """Downloads a private text blob and decodes it."""
+    container = _get_container_client()
+    data = container.download_blob(blob_name).readall()
+    return data.decode(encoding, errors="replace")
+
+
+def download_file_bytes(blob_name: str):
+    """Downloads a private blob as bytes."""
+    container = _get_container_client()
+    return container.download_blob(blob_name).readall()
+
+
 def generate_sas_url(blob_name: str, expiry_minutes: int = 60):
     """Generates a temporary signed URL for a private blob."""
     sas = generate_blob_sas(

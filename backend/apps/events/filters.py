@@ -61,10 +61,18 @@ class EventFilter(django_filters.FilterSet):
         statuses = [v for v in (values or []) if v in self._VALID_STATUSES]
         if not statuses:
             return queryset.none()
-        event_ids = EventRsvp.objects.filter(
+        explicit_event_ids = EventRsvp.objects.filter(
             user=caller, rsvp_status__in=statuses
         ).values_list("event_id", flat=True)
-        return queryset.filter(id__in=event_ids)
+        # `pending` is treated as "not responded yet" — admin invites
+        # default to PENDING, and an event the caller has never touched
+        # is functionally the same state. Include both.
+        if EventRsvp.RsvpStatus.PENDING in statuses:
+            no_row_for_caller = ~Exists(
+                EventRsvp.objects.filter(event_id=OuterRef("id"), user=caller)
+            )
+            return queryset.filter(Q(id__in=explicit_event_ids) | no_row_for_caller)
+        return queryset.filter(id__in=explicit_event_ids)
 
     def filter_user(self, queryset, name, user_id):
         caller = self._caller()

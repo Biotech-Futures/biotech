@@ -116,7 +116,11 @@ def list_admin_tasks(
     Returns:
         Dictionary with tasks list and pagination info
     """
-    qs = _admin_visible_tasks(requesting_user).select_related("created_by")
+    qs = (
+        _admin_visible_tasks(requesting_user)
+        .select_related("created_by")
+        .order_by("-created_at", "-id")
+    )
     if task_type:
         qs = qs.filter(task_type=task_type)
 

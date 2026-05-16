@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -43,34 +44,44 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
-def get_user_accepted_event_ids(user):
+def get_user_accepted_event_ids(user, event_ids=None):
     """Return event ids the user has ACCEPTED.
 
     The set is the truth behind both `EventSerializer.accepted` and the
     `?accepted=true` filter, so the contract change happens here only.
     Tentative / declined / pending all serialize as `accepted: false`.
+
+    If ``event_ids`` is provided, the query is restricted to that set
+    so a power user with hundreds of historical RSVPs doesn't pay for
+    rows that won't appear on the current page anyway.
     """
     if not user or not user.is_authenticated:
         return set()
-    return set(
-        EventRsvp.objects.filter(
-            user=user,
-            rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
-        ).values_list("event_id", flat=True)
+    qs = EventRsvp.objects.filter(
+        user=user,
+        rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
     )
+    if event_ids is not None:
+        qs = qs.filter(event_id__in=event_ids)
+    return set(qs.values_list("event_id", flat=True))
 
 
 def get_request_accepted_event_ids(request):
     """Per-request memoized wrapper around `get_user_accepted_event_ids`.
 
     The list view's filter and serializer context both need this set;
-    caching on `request` keeps it to one query per request.
+    caching on `request` keeps it to one query per request. If the
+    viewset has already paginated and stashed ``_page_event_ids`` on the
+    request, the query is scoped to that page only.
     """
     if request is None:
         return set()
     cached = getattr(request, "_cached_accepted_event_ids", None)
     if cached is None:
-        cached = get_user_accepted_event_ids(getattr(request, "user", None))
+        cached = get_user_accepted_event_ids(
+            getattr(request, "user", None),
+            event_ids=getattr(request, "_page_event_ids", None),
+        )
         request._cached_accepted_event_ids = cached
     return cached
 
@@ -363,6 +374,16 @@ def set_user_rsvp(user, event_id, rsvp_status):
         NotFound          — event missing or soft-deleted.
         ValidationError   — event already ended, or status not user-submittable.
         PermissionDenied  — user is not a target of the event.
+
+    Capacity behavior:
+        * If ``event.max_attendees`` is set and the cap is reached, an
+          incoming ACCEPTED is coerced to WAITLISTED (the row stores
+          ``waitlisted`` but ``set_user_rsvp`` returns the event /
+          rsvp / created tuple unchanged — callers introspect
+          ``rsvp.rsvp_status`` to detect coercion).
+        * If the caller already held an ACCEPTED row and switches to
+          anything else, the freed slot triggers auto-promotion of the
+          oldest WAITLISTED row.
     """
     if rsvp_status not in USER_SUBMITTABLE_RSVP_STATUSES:
         raise ValidationError(
@@ -381,15 +402,109 @@ def set_user_rsvp(user, event_id, rsvp_status):
         # here would be theatre.
         raise PermissionDenied("You are not a target of this event.")
 
-    rsvp, created = EventRsvp.objects.update_or_create(
-        event=event,
-        user=user,
-        defaults={
-            "rsvp_status": rsvp_status,
-            "responded_at": timezone.now(),
-        },
-    )
+    promoted_user_id = None
+    with transaction.atomic():
+        # Lock the event row so concurrent RSVPs against the same cap
+        # serialize cleanly — no risk of overselling.
+        Events.objects.select_for_update().get(pk=event.pk)
+
+        prior = (
+            EventRsvp.objects.select_for_update()
+            .filter(event=event, user=user)
+            .first()
+        )
+        prior_status = prior.rsvp_status if prior else None
+
+        effective_status = _apply_capacity(
+            event,
+            requested_status=rsvp_status,
+            prior_status=prior_status,
+        )
+
+        rsvp, created = EventRsvp.objects.update_or_create(
+            event=event,
+            user=user,
+            defaults={
+                "rsvp_status": effective_status,
+                "responded_at": timezone.now(),
+            },
+        )
+
+        # If the caller was previously ACCEPTED and is now leaving the
+        # accepted bucket, a slot opened — promote the oldest waitlisted
+        # user. Skip promotion if the caller's new effective state is
+        # ACCEPTED (no slot really freed) or WAITLISTED (still full).
+        if (
+            prior_status == EventRsvp.RsvpStatus.ACCEPTED
+            and effective_status != EventRsvp.RsvpStatus.ACCEPTED
+        ):
+            promoted_user_id = _promote_oldest_waitlisted(event)
+
+    if promoted_user_id is not None:
+        # Email outside the txn so a slow SMTP doesn't hold the lock.
+        from .promotion_email import notify_waitlist_promoted
+
+        notify_waitlist_promoted(event_id=event.id, user_id=promoted_user_id)
+
     return event, rsvp, created
+
+
+# Statuses that consume a slot under the cap.
+_CAPACITY_STATUSES = (EventRsvp.RsvpStatus.ACCEPTED,)
+
+
+def _apply_capacity(event, *, requested_status, prior_status):
+    """Return the status to persist, accounting for ``max_attendees``.
+
+    Coerces an incoming ACCEPTED to WAITLISTED when the cap is full and
+    the caller wasn't already occupying a slot. Everything else passes
+    through unchanged.
+    """
+    cap = event.max_attendees
+    if not cap or requested_status != EventRsvp.RsvpStatus.ACCEPTED:
+        return requested_status
+
+    if prior_status == EventRsvp.RsvpStatus.ACCEPTED:
+        # Already occupying a slot; idempotent re-accept stays accepted.
+        return EventRsvp.RsvpStatus.ACCEPTED
+
+    accepted_count = EventRsvp.objects.filter(
+        event=event, rsvp_status=EventRsvp.RsvpStatus.ACCEPTED
+    ).count()
+    if accepted_count >= cap:
+        return EventRsvp.RsvpStatus.WAITLISTED
+    return EventRsvp.RsvpStatus.ACCEPTED
+
+
+def _promote_oldest_waitlisted(event):
+    """Promote the oldest WAITLISTED row to ACCEPTED. Returns user id or None.
+
+    Caller must hold ``select_for_update`` on the event row so the
+    accepted-count check can't race a concurrent RSVP.
+    """
+    cap = event.max_attendees
+    if not cap:
+        return None
+
+    accepted_count = EventRsvp.objects.filter(
+        event=event, rsvp_status=EventRsvp.RsvpStatus.ACCEPTED
+    ).count()
+    if accepted_count >= cap:
+        return None
+
+    promoted = (
+        EventRsvp.objects.select_for_update()
+        .filter(event=event, rsvp_status=EventRsvp.RsvpStatus.WAITLISTED)
+        .order_by("responded_at", "id")
+        .first()
+    )
+    if promoted is None:
+        return None
+
+    promoted.rsvp_status = EventRsvp.RsvpStatus.ACCEPTED
+    promoted.responded_at = timezone.now()
+    promoted.save(update_fields=["rsvp_status", "responded_at"])
+    return promoted.user_id
 
 
 # ---------------------------------------------------------------------------

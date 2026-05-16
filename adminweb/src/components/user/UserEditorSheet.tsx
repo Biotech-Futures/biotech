@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -12,13 +12,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   USER_ROLES,
   type TrackOption,
@@ -27,6 +27,7 @@ import {
   type UserRole,
   type UserTrack,
 } from "@/type/user";
+import { toast } from "sonner";
 
 interface UserEditorSheetProps {
   open: boolean;
@@ -66,6 +67,25 @@ function isValidEmail(email: string) {
 
 function roleUsesInterests(role: UserRole) {
   return role === "student" || role === "mentor";
+}
+
+function UserFormRow({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4">
+      <Label htmlFor={htmlFor} className="pt-2 sm:text-right">
+        {label}
+      </Label>
+      <div className="min-w-0 space-y-1.5">{children}</div>
+    </div>
+  );
 }
 
 export function UserEditorSheet({
@@ -122,23 +142,23 @@ export function UserEditorSheet({
 
   const handleSubmit = async () => {
     if (!values.firstName.trim()) {
-      window.alert("First name is required.");
+      toast.error("First name is required.");
       return;
     }
     if (!values.lastName.trim()) {
-      window.alert("Last name is required.");
+      toast.error("Last name is required.");
       return;
     }
     if (!values.email.trim()) {
-      window.alert("Email is required.");
+      toast.error("Email is required.");
       return;
     }
     if (!isValidEmail(values.email.trim())) {
-      window.alert("Invalid email format.");
+      toast.error("Invalid email format.");
       return;
     }
     if (values.role !== "admin" && !values.track) {
-      window.alert("Track is required for non-admin users.");
+      toast.error("Track is required for non-admin users.");
       return;
     }
     if (
@@ -146,42 +166,42 @@ export function UserEditorSheet({
       !values.adminIsGlobal &&
       !values.adminTracks.length
     ) {
-      window.alert("Select global admin or at least one admin track.");
+      toast.error("Select global admin or at least one admin track.");
       return;
     }
     if (values.role === "student") {
       if (!values.schoolName.trim()) {
-        window.alert("School is required for student users.");
+        toast.error("School is required for student users.");
         return;
       }
       if (!values.yearLevel || values.yearLevel < 9 || values.yearLevel > 12) {
-        window.alert("Year level must be between 9 and 12.");
+        toast.error("Year level must be between 9 and 12.");
         return;
       }
     }
     if (values.role === "supervisor" && !values.supervisorSchoolName.trim()) {
-      window.alert("School is required for supervisor users.");
+      toast.error("School is required for supervisor users.");
       return;
     }
     if (values.role === "mentor") {
       if (!values.mentorInstitution.trim()) {
-        window.alert("Institution is required for mentor users.");
+        toast.error("Institution is required for mentor users.");
         return;
       }
       if (!values.mentorReason.trim()) {
-        window.alert("Mentor reason is required for mentor users.");
+        toast.error("Mentor reason is required for mentor users.");
         return;
       }
       if (
         values.mentorMaxGroupCount === null ||
         values.mentorMaxGroupCount < 0
       ) {
-        window.alert("Max group count must be 0 or greater.");
+        toast.error("Max group count must be 0 or greater.");
         return;
       }
     }
     if (roleUsesInterests(values.role) && !values.interests.length) {
-      window.alert(`At least one interest is required for ${values.role} users.`);
+      toast.error(`At least one interest is required for ${values.role} users.`);
       return;
     }
 
@@ -199,18 +219,17 @@ export function UserEditorSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{mode === "create" ? "Add User" : "Edit User"}</SheetTitle>
-          <SheetDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{mode === "create" ? "Add User" : "Edit User"}</DialogTitle>
+          <DialogDescription>
             Manage role, track, and account status without touching other modules.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="user-first-name">First Name</Label>
+          <UserFormRow label="First Name" htmlFor="user-first-name">
             <Input
               id="user-first-name"
               value={values.firstName}
@@ -219,10 +238,9 @@ export function UserEditorSheet({
               }
               placeholder="Jane"
             />
-          </div>
+          </UserFormRow>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="user-last-name">Last Name</Label>
+          <UserFormRow label="Last Name" htmlFor="user-last-name">
             <Input
               id="user-last-name"
               value={values.lastName}
@@ -231,10 +249,9 @@ export function UserEditorSheet({
               }
               placeholder="Doe"
             />
-          </div>
+          </UserFormRow>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="user-email">Email</Label>
+          <UserFormRow label="Email" htmlFor="user-email">
             <Input
               id="user-email"
               type="email"
@@ -247,10 +264,9 @@ export function UserEditorSheet({
               disabled={mode === "edit"}
               placeholder="jane@example.com"
             />
-          </div>
+          </UserFormRow>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="user-role-select">Role</Label>
+          <UserFormRow label="Role" htmlFor="user-role-select">
             <Select
               value={values.role}
               onValueChange={(value) =>
@@ -274,64 +290,67 @@ export function UserEditorSheet({
                 ))}
               </SelectContent>
             </Select>
-          </div>
+          </UserFormRow>
 
           {values.role === "admin" ? (
-            <div className="space-y-3">
-              <label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm">
-                <Checkbox
-                  checked={values.adminIsGlobal}
-                  onCheckedChange={(checked) =>
-                    setValues((current) => ({
-                      ...current,
-                      adminIsGlobal: checked === true,
-                    }))
-                  }
-                />
-                <span className="font-medium">Global admin</span>
-              </label>
+            <UserFormRow label="Admin Scope">
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm">
+                  <Checkbox
+                    checked={values.adminIsGlobal}
+                    onCheckedChange={(checked) =>
+                      setValues((current) => ({
+                        ...current,
+                        adminIsGlobal: checked === true,
+                      }))
+                    }
+                  />
+                  <span className="font-medium">Global admin</span>
+                </label>
 
-              <Label>Admin Tracks</Label>
-              <div className="max-h-40 overflow-auto rounded-md border p-3">
-                {availableTracks.length ? (
-                  <div className="space-y-2">
-                    {availableTracks.map((track) => {
-                      const checked = values.adminTracks.includes(track);
+                <Label>Admin Tracks</Label>
+                <div className="max-h-40 overflow-auto rounded-md border p-3">
+                  {availableTracks.length ? (
+                    <div className="space-y-2">
+                      {availableTracks.map((track) => {
+                        const checked = values.adminTracks.includes(track);
 
-                      return (
-                        <label
-                          key={track}
-                          className="flex cursor-pointer items-center gap-2 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            className="size-4 rounded border-border"
-                            checked={checked}
-                            disabled={values.adminIsGlobal}
-                            onChange={() =>
-                              setValues((current) => ({
-                                ...current,
-                                adminTracks: checked
-                                  ? current.adminTracks.filter((item) => item !== track)
-                                  : [...current.adminTracks, track],
-                              }))
-                            }
-                          />
-                          <span>{track}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No tracks are available.
-                  </p>
-                )}
+                        return (
+                          <label
+                            key={track}
+                            className="flex cursor-pointer items-center gap-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              className="size-4 rounded border-border"
+                              checked={checked}
+                              disabled={values.adminIsGlobal}
+                              onChange={() =>
+                                setValues((current) => ({
+                                  ...current,
+                                  adminTracks: checked
+                                    ? current.adminTracks.filter(
+                                        (item) => item !== track,
+                                      )
+                                    : [...current.adminTracks, track],
+                                }))
+                              }
+                            />
+                            <span>{track}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No tracks are available.
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            </UserFormRow>
           ) : (
-            <div className="space-y-1.5">
-              <Label htmlFor="user-track-select">Track</Label>
+            <UserFormRow label="Track" htmlFor="user-track-select">
               <Select
                 value={values.track ?? "none"}
                 onValueChange={(value) =>
@@ -353,13 +372,12 @@ export function UserEditorSheet({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </UserFormRow>
           )}
 
           {values.role === "student" ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="user-school-name">School</Label>
+              <UserFormRow label="School" htmlFor="user-school-name">
                 <Input
                   id="user-school-name"
                   value={values.schoolName}
@@ -371,10 +389,9 @@ export function UserEditorSheet({
                   }
                   placeholder="Sydney High School"
                 />
-              </div>
+              </UserFormRow>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="user-year-level">Year Level</Label>
+              <UserFormRow label="Year Level" htmlFor="user-year-level">
                 <Input
                   id="user-year-level"
                   type="number"
@@ -391,10 +408,9 @@ export function UserEditorSheet({
                   }
                   placeholder="10"
                 />
-              </div>
+              </UserFormRow>
 
-              <div className="space-y-2">
-                <Label>Join Permission Received</Label>
+              <UserFormRow label="Join Permission">
                 <div className="flex gap-2">
                   <Button
                     variant={values.joinPermissionReceived ? "default" : "outline"}
@@ -421,13 +437,12 @@ export function UserEditorSheet({
                     No
                   </Button>
                 </div>
-              </div>
+              </UserFormRow>
             </>
           ) : null}
 
           {values.role === "supervisor" ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="user-supervisor-school-name">School</Label>
+            <UserFormRow label="School" htmlFor="user-supervisor-school-name">
               <Input
                 id="user-supervisor-school-name"
                 value={values.supervisorSchoolName}
@@ -439,13 +454,12 @@ export function UserEditorSheet({
                 }
                 placeholder="Sydney High School"
               />
-            </div>
+            </UserFormRow>
           ) : null}
 
           {values.role === "mentor" ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="user-mentor-institution">Institution</Label>
+              <UserFormRow label="Institution" htmlFor="user-mentor-institution">
                 <Input
                   id="user-mentor-institution"
                   value={values.mentorInstitution}
@@ -457,10 +471,9 @@ export function UserEditorSheet({
                   }
                   placeholder="University of Sydney"
                 />
-              </div>
+              </UserFormRow>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="user-mentor-background">Background</Label>
+              <UserFormRow label="Background" htmlFor="user-mentor-background">
                 <Input
                   id="user-mentor-background"
                   value={values.mentorBackground}
@@ -472,10 +485,9 @@ export function UserEditorSheet({
                   }
                   placeholder="Research"
                 />
-              </div>
+              </UserFormRow>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="user-mentor-reason">Mentor Reason</Label>
+              <UserFormRow label="Mentor Reason" htmlFor="user-mentor-reason">
                 <Textarea
                   id="user-mentor-reason"
                   value={values.mentorReason}
@@ -487,10 +499,12 @@ export function UserEditorSheet({
                   }
                   placeholder="Interested in supporting student research projects."
                 />
-              </div>
+              </UserFormRow>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="user-mentor-max-group-count">Max Groups</Label>
+              <UserFormRow
+                label="Max Groups"
+                htmlFor="user-mentor-max-group-count"
+              >
                 <Input
                   id="user-mentor-max-group-count"
                   type="number"
@@ -506,15 +520,17 @@ export function UserEditorSheet({
                   }
                   placeholder="2"
                 />
-              </div>
+              </UserFormRow>
             </>
           ) : null}
 
           {roleUsesInterests(values.role) ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="user-interests">
-                {values.role === "mentor" ? "Interests / Expertise" : "Interests"}
-              </Label>
+            <UserFormRow
+              label={
+                values.role === "mentor" ? "Interests / Expertise" : "Interests"
+              }
+              htmlFor="user-interests"
+            >
               <Textarea
                 id="user-interests"
                 value={values.interests.join(", ")}
@@ -529,12 +545,12 @@ export function UserEditorSheet({
                 }
                 placeholder="biology, genetics, ai"
               />
-            </div>
+            </UserFormRow>
           ) : null}
 
         </div>
 
-        <SheetFooter className="shrink-0 border-t">
+        <DialogFooter className="shrink-0 border-t">
           {mode === "edit" && user && onDelete ? (
             <Button
               variant="destructive"
@@ -550,8 +566,8 @@ export function UserEditorSheet({
           <Button onClick={handleSubmit} loading={isPending}>
             {mode === "create" ? "Create User" : "Save Changes"}
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -118,16 +118,27 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Only restore and operational-admin recovery views can see tombstoned groups.
+        include_deleted = (self.request.query_params.get('include_deleted') or '').lower().strip() == 'true'
         if self.action == "restore":
-            return Groups.objects.order_by("group_name", "id")
-        raw = (self.request.query_params.get('include_deleted') or '').lower().strip()
-        if raw == 'true' and is_operational_admin(self.request.user):
-            queryset = Groups.objects.order_by("group_name", "id")
+            queryset = Groups.objects.all()
+        elif include_deleted and is_operational_admin(self.request.user):
+            queryset = Groups.objects.all()
             track_ids = get_admin_track_ids(self.request.user)
             if track_ids is not None:
                 queryset = queryset.filter(track_id__in=track_ids)
-            return queryset
-        return Groups.objects.filter(deleted_at__isnull=True).order_by("group_name", "id")
+        else:
+            queryset = Groups.objects.filter(deleted_at__isnull=True)
+
+        mine = (self.request.query_params.get('mine') or '').lower().strip() == 'true'
+        if mine and self.request.user.is_authenticated:
+            # Active memberships only — a user who has left the group should
+            # not see it in their "my groups" feed.
+            queryset = queryset.filter(
+                groupmembership__user=self.request.user,
+                groupmembership__left_at__isnull=True,
+            ).distinct()
+
+        return queryset.order_by("group_name", "id")
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:

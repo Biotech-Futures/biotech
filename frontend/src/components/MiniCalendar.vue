@@ -112,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { fetchEvents, type BackendEvent } from '@/utils/eventsAPI'
 import {
@@ -225,6 +225,12 @@ const todayLabel = computed(() => {
 })
 
 const eventSource = ref<CalendarItem[]>([])
+let calendarLoadHandle: number | null = null
+
+type IdleSchedulerWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
+  cancelIdleCallback?: (handle: number) => void
+}
 
 const isDateWithinAllowedWindow = (dateKey: string) => {
   return dateKey >= minAllowedDate.value && dateKey <= maxAllowedDate.value
@@ -413,7 +419,7 @@ const normalizeCalendarEvent = (event: BackendEvent): CalendarItem | null => {
 
 async function loadCalendarEvents() {
   try {
-    const data = await fetchEvents()
+    const data = await fetchEvents({ when: 'upcoming', page_size: 30, ordering: 'start_datetime' })
     eventSource.value = extractEventItems(data)
       .map(normalizeCalendarEvent)
       .filter((item): item is CalendarItem => item !== null)
@@ -423,8 +429,42 @@ async function loadCalendarEvents() {
   }
 }
 
-onMounted(() => {
-  loadCalendarEvents()
+const scheduleCalendarEventLoad = () => {
+  if (typeof window === 'undefined') {
+    void loadCalendarEvents()
+    return
+  }
+
+  const idleWindow = window as IdleSchedulerWindow
+  if (idleWindow.requestIdleCallback) {
+    calendarLoadHandle = idleWindow.requestIdleCallback(
+      () => {
+        calendarLoadHandle = null
+        void loadCalendarEvents()
+      },
+      { timeout: 1200 },
+    )
+    return
+  }
+
+  calendarLoadHandle = window.setTimeout(() => {
+    calendarLoadHandle = null
+    void loadCalendarEvents()
+  }, 250)
+}
+
+onMounted(scheduleCalendarEventLoad)
+
+onBeforeUnmount(() => {
+  if (calendarLoadHandle === null || typeof window === 'undefined') return
+
+  const idleWindow = window as IdleSchedulerWindow
+  if (idleWindow.cancelIdleCallback) {
+    idleWindow.cancelIdleCallback(calendarLoadHandle)
+  } else {
+    window.clearTimeout(calendarLoadHandle)
+  }
+  calendarLoadHandle = null
 })
 </script>
 

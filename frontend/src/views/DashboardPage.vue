@@ -3,7 +3,6 @@
   <div
     ref="dashboardShellRef"
     class="content-area dashboard-page-shell"
-    :class="{ 'is-fx-disabled': !isDashboardFxRunningAllowed }"
     :style="dashboardThemeStyle"
   >
     <div class="dashboard-page-inner">
@@ -352,7 +351,15 @@
                 <p class="surface-kicker">Groups</p>
                 <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
               </div>
-              <RouterLink to="/groups" class="surface-link">View all</RouterLink>
+              <button
+                v-if="shouldBlockGroupsNavigation"
+                type="button"
+                class="surface-link surface-link-button"
+                @click="showNoMembershipPopup"
+              >
+                View all
+              </button>
+              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
             </div>
 
             <div v-if="groupsPreview.length" class="groups-grid">
@@ -443,20 +450,46 @@
         </section>
       </template>
     </div>
+
+    <div
+      v-if="showNoMembershipNotice"
+      class="dashboard-modal-backdrop"
+      role="presentation"
+      @click.self="closeNoMembershipPopup"
+    >
+      <div class="dashboard-modal" role="dialog" aria-modal="true" aria-labelledby="no-membership-title">
+        <button
+          type="button"
+          class="dashboard-modal-close"
+          aria-label="Close"
+          @click="closeNoMembershipPopup"
+        >
+          <i class="fas fa-times"></i>
+        </button>
+
+        <div class="dashboard-modal-icon">
+          <i class="fas fa-users-slash"></i>
+        </div>
+        <h3 id="no-membership-title">No group membership</h3>
+        <p>You have not been assigned to a group yet. Please contact your mentor.</p>
+        <button type="button" class="btn btn-primary" @click="closeNoMembershipPopup">
+          Got it
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 // Dashboard page
 // Core imports
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 import { RouterLink } from 'vue-router'
 
 import { storeToRefs } from 'pinia'
 
 import { useAuthStore } from '@/stores/auth'
-import * as THREE from 'three'
 
 import {
   formatAnnouncementDateAU,
@@ -482,7 +515,6 @@ const DASHBOARD_ENDPOINTS = {
     `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
   groupsMine: `${API_BASE_URL}/groups/groups/?page_size=20&mine=true`,
-  groupMembers: `${API_BASE_URL}/groups/group-members/?page_size=100`,
   tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
@@ -502,6 +534,7 @@ const resources = ref([])
 const announcements = ref([])
 const events = ref([])
 const upcomingEventsCount = ref(0)
+const showNoMembershipNotice = ref(false)
 
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
@@ -541,20 +574,6 @@ const nextEventDateParts = computed(() => {
 })
 
 const dashboardShellRef = ref(null)
-const dashboardFxCanvasRef = ref(null)
-const prefersReducedMotion = ref(false)
-const isDashboardFxRunningAllowed = computed(() => !prefersReducedMotion.value)
-
-let reduceMotionQuery = null
-let dashboardResizeRaf = null
-
-const dashboardFxState = {
-  renderer: null,
-  scene: null,
-  camera: null,
-  material: null,
-  clock: null,
-}
 
 const dashboardPalette = {
   textPrimary: '#174243',
@@ -675,6 +694,8 @@ const heroEyebrow = computed(() => {
 const announcementsCount = computed(() => announcements.value.length)
 const resourcesCount = computed(() => resources.value.length)
 const groupsCount = computed(() => groups.value.length)
+const shouldBlockGroupsNavigation = computed(() => !isAdmin.value && groupsCount.value === 0)
+const hasNoAssignedMembership = computed(() => !isAdmin.value && groupsCount.value === 0)
 
 const nextEvent = computed(() => {
   return events.value[0] || null
@@ -804,7 +825,9 @@ const summaryWidgets = computed(() => {
       key: 'tasks',
       title: 'Tasks Completed',
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
-      subtext: 'Your progress in the current program cycle',
+      subtext: hasNoAssignedMembership.value
+        ? 'You have not been assigned to a group yet. Please contact your mentor.'
+        : 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
       accent: 'teal',
     },
@@ -825,6 +848,14 @@ const groupsSectionTitle = computed(() => {
   if (isSupervisor.value) return `Supervised Groups (${groupsCount.value})`
   return `My Active Groups (${groupsCount.value})`
 })
+
+function showNoMembershipPopup() {
+  showNoMembershipNotice.value = true
+}
+
+function closeNoMembershipPopup() {
+  showNoMembershipNotice.value = false
+}
 
 const resourcesSectionTitle = computed(() => {
   if (isAdmin.value) return 'Resource Library Snapshot'
@@ -854,14 +885,6 @@ function extractCollectionItems(data) {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
   return []
-}
-
-function getCurrentUserId() {
-  return user.value?.id ?? auth.user?.id ?? null
-}
-
-function toNumberSet(items) {
-  return new Set(items.map((item) => Number(item)).filter((item) => Number.isFinite(item)))
 }
 
 function truncateText(value, maxLength = 160) {
@@ -1064,21 +1087,6 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
       (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
     track: trackLabel || 'General',
   }
-}
-
-function filterGroupsForDashboard(items, memberships = []) {
-  if (isAdmin.value) return items
-
-  const currentUserId = getCurrentUserId()
-  if (!currentUserId || !Array.isArray(memberships)) return items
-
-  const groupIds = toNumberSet(
-    memberships
-      .filter((item) => String(item?.user) === String(currentUserId))
-      .map((item) => item?.group),
-  )
-
-  return items.filter((group) => groupIds.has(Number(group?.id)))
 }
 
 function normalizeResource(resource) {
@@ -1303,12 +1311,15 @@ function loadSummary() {
 
 async function loadGroups() {
   try {
+    // For non-admin users we rely on the server's ?mine=true filter (added to
+    // GroupViewSet) — no more pulling every group + every membership row just
+    // to filter client-side. Admins still get the full list.
     const primaryGroupUrl = isAdmin.value
       ? DASHBOARD_ENDPOINTS.groupsPreview(false)
       : DASHBOARD_ENDPOINTS.groupsPreview(true)
     const fallbackGroupUrls = isAdmin.value
       ? [DASHBOARD_ENDPOINTS.groups]
-      : [DASHBOARD_ENDPOINTS.groupsMine, DASHBOARD_ENDPOINTS.groups]
+      : [DASHBOARD_ENDPOINTS.groupsMine]
     const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
     const groupItems = extractCollectionItems(data)
 
@@ -1326,15 +1337,7 @@ async function loadGroups() {
       return
     }
 
-    let memberships = null
     let trackById = new Map()
-
-    try {
-      memberships = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.groupMembers))
-    } catch {
-      memberships = null
-    }
-
     try {
       const tracks = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.tracks))
       trackById = new Map(
@@ -1344,12 +1347,7 @@ async function loadGroups() {
       trackById = new Map()
     }
 
-    if (!isAdmin.value && memberships === null) {
-      throw new Error('Group memberships unavailable')
-    }
-
-    const liveGroups = filterGroupsForDashboard(groupItems, memberships || [])
-    groups.value = liveGroups.map((group) => normalizeGroup(group, memberships || [], trackById))
+    groups.value = groupItems.map((group) => normalizeGroup(group, [], trackById))
   } catch {
     groups.value = []
   }
@@ -1440,6 +1438,11 @@ async function loadAdminWorkflow() {
 }
 
 async function loadProgress() {
+  if (hasNoAssignedMembership.value) {
+    progressSnapshot.value = getEmptyProgressSnapshot()
+    return
+  }
+
   try {
     const data = await fetchJson(getProgressEndpoint())
     progressSnapshot.value = normalizeProgressSnapshot(data)
@@ -1500,284 +1503,8 @@ function getGroupSecondaryLabel(group) {
   return String(source).slice(0, 2).toUpperCase()
 }
 
-const DASHBOARD_FX_VERT = `
-varying vec2 vUv;
-
-void main() {
-  vUv = uv;
-  gl_Position = vec4(position.xy, 0.0, 1.0);
-}
-`
-
-const DASHBOARD_FX_FRAG = `
-precision highp float;
-
-varying vec2 vUv;
-
-uniform float uTime;
-uniform vec2 uResolution;
-
-mat2 rotate2d(float angle) {
-  float s = sin(angle);
-  float c = cos(angle);
-  return mat2(c, -s, s, c);
-}
-
-float hash12(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-vec2 hash22(vec2 p) {
-  float n = hash12(p);
-  return vec2(n, hash12(p + n + 19.19));
-}
-
-float noise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-
-  float a = hash12(i);
-  float b = hash12(i + vec2(1.0, 0.0));
-  float c = hash12(i + vec2(0.0, 1.0));
-  float d = hash12(i + vec2(1.0, 1.0));
-
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-float fbm(vec2 p) {
-  float value = 0.0;
-  float amplitude = 0.56;
-
-  for (int i = 0; i < 5; i++) {
-    value += amplitude * noise(p);
-    p = rotate2d(0.67) * p * 2.03 + vec2(4.81, 3.17);
-    amplitude *= 0.52;
-  }
-
-  return value;
-}
-
-float voronoi(vec2 x) {
-  vec2 n = floor(x);
-  vec2 f = fract(x);
-  float minDist = 10.0;
-
-  for (int j = -1; j <= 1; j++) {
-    for (int i = -1; i <= 1; i++) {
-      vec2 g = vec2(float(i), float(j));
-      vec2 o = hash22(n + g);
-      o = 0.5 + 0.35 * sin(uTime * 0.22 + 6.283185 * o);
-      vec2 r = g + o - f;
-      minDist = min(minDist, dot(r, r));
-    }
-  }
-
-  return sqrt(minDist);
-}
-
-void main() {
-  vec2 uv = vUv;
-  vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
-  vec2 p = (uv - 0.5) * aspect;
-
-  vec2 warpA = vec2(
-    fbm(p * 1.25 + vec2(uTime * 0.032, -uTime * 0.018)),
-    fbm(rotate2d(0.74) * p * 1.5 + vec2(-uTime * 0.024, uTime * 0.028))
-  );
-
-  vec2 warpB = vec2(
-    fbm(rotate2d(-0.38) * p * 2.1 + warpA * 1.2 + vec2(uTime * 0.014, uTime * 0.018)),
-    fbm(rotate2d(0.46) * p * 2.45 - warpA * 1.1 + vec2(-uTime * 0.016, uTime * 0.01))
-  );
-
-  vec2 q = p + (warpA - 0.5) * 0.42 + (warpB - 0.5) * 0.16;
-
-  float fieldA = fbm(q * 1.45 + vec2(0.0, uTime * 0.022));
-  float fieldB = fbm(rotate2d(0.85) * q * 2.25 - vec2(uTime * 0.018, 0.0));
-  float fieldC = fbm(rotate2d(-0.52) * q * 3.15 + vec2(uTime * 0.011, uTime * 0.014));
-
-  float membraneDistance = voronoi(q * 3.25 + warpA * 1.6);
-  float membrane = 1.0 - smoothstep(0.13, 0.24, abs(membraneDistance - 0.22));
-
-  float nebula = smoothstep(0.42, 0.98, fieldA * 0.82 + fieldB * 0.28);
-  float stream = smoothstep(0.5, 1.05, fieldB * 0.86 + fieldC * 0.24);
-  float bloom = smoothstep(0.58, 1.08, fieldC * 0.92 + fieldA * 0.18);
-
-  float pulseA = exp(-pow((q.y + 0.18 + sin(uTime * 0.34 + q.x * 2.7) * 0.09) / 0.34, 2.0));
-  float pulseB = exp(-pow((q.y - 0.24 + cos(uTime * 0.26 - q.x * 2.2) * 0.07) / 0.28, 2.0));
-
-  float spores = smoothstep(0.88, 0.995, noise(q * 16.0 + vec2(uTime * 0.08, -uTime * 0.05)));
-  spores *= 0.16 + membrane * 0.12;
-
-  vec3 base = vec3(0.018, 0.028, 0.064);
-  vec3 teal = vec3(0.08, 0.82, 0.72);
-  vec3 azure = vec3(0.21, 0.56, 0.98);
-  vec3 violet = vec3(0.62, 0.38, 0.98);
-  vec3 coral = vec3(0.97, 0.47, 0.66);
-  vec3 amber = vec3(0.95, 0.72, 0.33);
-  vec3 pearl = vec3(0.92, 0.98, 1.0);
-
-  vec3 color = base;
-  color += teal * nebula * 0.24;
-  color += azure * stream * 0.26;
-  color += violet * bloom * 0.18;
-  color += coral * membrane * 0.12;
-  color += amber * (pulseA * 0.035 + pulseB * 0.025);
-  color += pearl * spores * 0.22;
-
-  float vignette = smoothstep(1.22, 0.14, length((uv - 0.5) * vec2(1.02, 0.9)));
-  float alpha = clamp((nebula * 0.18 + stream * 0.16 + bloom * 0.12 + membrane * 0.12 + spores * 0.12 + pulseA * 0.04 + pulseB * 0.03) * vignette, 0.0, 0.42);
-
-  gl_FragColor = vec4(color, alpha);
-}
-`
-
-function handleReduceMotionChange(event) {
-  prefersReducedMotion.value = event.matches
-
-  if (prefersReducedMotion.value) {
-    disposeDashboardFx()
-  } else {
-    initDashboardFx()
-  }
-}
-
-function initDashboardFx() {
-  if (!dashboardFxCanvasRef.value || prefersReducedMotion.value || dashboardFxState.renderer) return
-
-  const shell = dashboardShellRef.value
-  if (!shell) return
-
-  const rect = shell.getBoundingClientRect()
-
-  dashboardFxState.renderer = new THREE.WebGLRenderer({
-    canvas: dashboardFxCanvasRef.value,
-    alpha: true,
-    antialias: true,
-    powerPreference: 'high-performance',
-  })
-  dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
-  dashboardFxState.renderer.setSize(rect.width, rect.height, false)
-  dashboardFxState.renderer.setClearColor(0x000000, 0)
-
-  dashboardFxState.scene = new THREE.Scene()
-  dashboardFxState.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
-  dashboardFxState.camera.position.z = 1
-  dashboardFxState.clock = new THREE.Clock()
-
-  dashboardFxState.material = new THREE.ShaderMaterial({
-    vertexShader: DASHBOARD_FX_VERT,
-    fragmentShader: DASHBOARD_FX_FRAG,
-    transparent: true,
-    depthWrite: false,
-    depthTest: false,
-    uniforms: {
-      uTime: { value: 0 },
-      uResolution: { value: new THREE.Vector2(rect.width, rect.height) },
-    },
-  })
-
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), dashboardFxState.material)
-  dashboardFxState.scene.add(plane)
-
-  renderDashboardFx()
-}
-
-function resizeDashboardFx() {
-  if (!dashboardFxState.renderer || !dashboardShellRef.value || !dashboardFxState.material) return
-
-  if (dashboardResizeRaf) cancelAnimationFrame(dashboardResizeRaf)
-
-  dashboardResizeRaf = requestAnimationFrame(() => {
-    dashboardResizeRaf = null
-
-    const rect = dashboardShellRef.value.getBoundingClientRect()
-    dashboardFxState.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.1))
-    dashboardFxState.renderer.setSize(rect.width, rect.height, false)
-    dashboardFxState.material.uniforms.uResolution.value.set(rect.width, rect.height)
-    renderDashboardFx()
-  })
-}
-
-function renderDashboardFx() {
-  if (
-    !dashboardFxState.renderer ||
-    !dashboardFxState.scene ||
-    !dashboardFxState.camera ||
-    !dashboardFxState.material ||
-    !dashboardFxState.clock
-  ) {
-    return
-  }
-
-  const elapsed = dashboardFxState.clock.getElapsedTime()
-
-  dashboardFxState.material.uniforms.uTime.value = elapsed
-
-  dashboardFxState.renderer.render(dashboardFxState.scene, dashboardFxState.camera)
-}
-
-function disposeDashboardFx() {
-  if (dashboardResizeRaf) {
-    cancelAnimationFrame(dashboardResizeRaf)
-    dashboardResizeRaf = null
-  }
-
-  if (dashboardFxState.material) {
-    dashboardFxState.material.dispose()
-    dashboardFxState.material = null
-  }
-
-  if (dashboardFxState.scene) {
-    dashboardFxState.scene.traverse((item) => {
-      if (item.geometry) item.geometry.dispose()
-    })
-    dashboardFxState.scene = null
-  }
-
-  if (dashboardFxState.renderer) {
-    dashboardFxState.renderer.dispose()
-    dashboardFxState.renderer = null
-  }
-
-  dashboardFxState.camera = null
-  dashboardFxState.clock = null
-}
-
 onMounted(async () => {
   await loadDashboardData()
-
-  window.addEventListener('resize', resizeDashboardFx)
-
-  reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-  prefersReducedMotion.value = reduceMotionQuery.matches
-
-  if (reduceMotionQuery.addEventListener) {
-    reduceMotionQuery.addEventListener('change', handleReduceMotionChange)
-  } else if (reduceMotionQuery.addListener) {
-    reduceMotionQuery.addListener(handleReduceMotionChange)
-  }
-
-  await nextTick()
-  initDashboardFx()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', resizeDashboardFx)
-  disposeDashboardFx()
-
-  if (reduceMotionQuery) {
-    if (reduceMotionQuery.removeEventListener) {
-      reduceMotionQuery.removeEventListener('change', handleReduceMotionChange)
-    } else if (reduceMotionQuery.removeListener) {
-      reduceMotionQuery.removeListener(handleReduceMotionChange)
-    }
-
-    reduceMotionQuery = null
-  }
 })
 </script>
 
@@ -2385,7 +2112,6 @@ onBeforeUnmount(() => {
   margin-bottom: 1.1rem;
 }
 
-/* HUD-style kicker: animated dot + label */
 .surface-kicker {
   margin: 0 0 0.22rem;
   font-size: 0.72rem;
@@ -2407,19 +2133,6 @@ onBeforeUnmount(() => {
   background: #3cc87a;
   box-shadow: 0 0 8px rgba(60, 200, 110, 0.85);
   flex-shrink: 0;
-  animation: hud-pulse 2.2s ease-in-out infinite;
-}
-
-@keyframes hud-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow: 0 0 8px rgba(60, 200, 110, 0.85);
-  }
-  50% {
-    opacity: 0.52;
-    box-shadow: 0 0 4px rgba(60, 200, 110, 0.38);
-  }
 }
 
 .surface-card-title {
@@ -2452,6 +2165,12 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
   border-color: rgba(60, 200, 120, 0.32);
   background: rgba(60, 200, 120, 0.09);
+}
+
+.surface-link-button {
+  border: 1px solid rgba(60, 200, 120, 0.16);
+  cursor: pointer;
+  font-family: inherit;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -3196,15 +2915,6 @@ onBeforeUnmount(() => {
   background: #e8edf1;
 }
 
-.dashboard-skeleton-block::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
-  animation: dashboard-loading-shimmer 1.35s ease-in-out infinite;
-}
-
 .dashboard-skeleton-eyebrow {
   width: 116px;
   height: 1.15rem;
@@ -3306,12 +3016,6 @@ onBeforeUnmount(() => {
   height: 1.8rem;
 }
 
-@keyframes dashboard-loading-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
 .empty-state {
   min-height: 140px;
   border-radius: 18px;
@@ -3330,6 +3034,72 @@ onBeforeUnmount(() => {
 .empty-state i {
   font-size: 1.4rem;
   color: var(--text-muted);
+}
+
+.dashboard-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(10, 18, 22, 0.58);
+  backdrop-filter: blur(8px);
+}
+
+.dashboard-modal {
+  position: relative;
+  width: min(420px, 100%);
+  padding: 2rem;
+  border: 1px solid rgba(60, 200, 120, 0.18);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  color: var(--charcoal);
+  text-align: center;
+}
+
+.dashboard-modal-close {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: #f8f9fa;
+  color: var(--charcoal);
+  cursor: pointer;
+}
+
+.dashboard-modal-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 1rem;
+  border-radius: 50%;
+  background: rgba(60, 200, 120, 0.12);
+  color: #218f58;
+  font-size: 1.35rem;
+}
+
+.dashboard-modal h3 {
+  margin: 0 0 0.65rem;
+  color: var(--charcoal);
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.dashboard-modal p {
+  margin: 0 0 1.35rem;
+  color: #6c757d;
+  line-height: 1.5;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -3845,6 +3615,7 @@ onBeforeUnmount(() => {
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
+.hero-eyebrow,
 .status-pill,
 .event-detail-card,
 .dashboard-alert {

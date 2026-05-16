@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
 
 interface UserDetailSheetProps {
@@ -22,11 +22,11 @@ export function UserDetailSheet({
   if (!user) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-hidden sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{user.name || "User Details"}</SheetTitle>
-        </SheetHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{user.name || "User Details"}</DialogTitle>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
           <DetailSection
@@ -61,11 +61,15 @@ export function UserDetailSheet({
                 { label: "Year Level", value: user.age ?? "-" },
                 {
                   label: "Join Permission",
-                  value: user.joinPermissionReceived ? "Received" : "Not received",
+                  value: user.joinPermissionReceived
+                    ? "Received"
+                    : "Not received",
                 },
                 {
                   label: "Interests",
-                  value: user.interests.length ? user.interests.join(", ") : "-",
+                  value: user.interests.length
+                    ? user.interests.join(", ")
+                    : "-",
                 },
                 { label: "Group", value: user.groupName || "-" },
               ]}
@@ -78,7 +82,9 @@ export function UserDetailSheet({
               items={[
                 {
                   label: "Interests / Expertise",
-                  value: user.interests.length ? user.interests.join(", ") : "-",
+                  value: user.interests.length
+                    ? user.interests.join(", ")
+                    : "-",
                 },
                 { label: "Institution", value: user.mentorInstitution || "-" },
                 { label: "Background", value: user.mentorBackground || "-" },
@@ -109,14 +115,16 @@ export function UserDetailSheet({
                 },
                 {
                   label: "Managed Tracks",
-                  value: user.adminTracks.length ? user.adminTracks.join(", ") : "-",
+                  value: user.adminTracks.length
+                    ? user.adminTracks.join(", ")
+                    : "-",
                 },
               ]}
             />
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -130,16 +138,16 @@ function DetailSection({
   return (
     <section className="space-y-3">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      <div className="space-y-3 rounded-md border p-4">
+      <div className="space-y-3 rounded-md">
         {items.map((item) => (
           <div
             key={item.label}
-            className="flex flex-col gap-1 border-b pb-3 last:border-b-0 last:pb-0"
+            className="grid gap-1.5 last:border-b-0 last:pb-0 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4"
           >
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground sm:text-left">
               {item.label}
             </span>
-            <div className="text-sm text-foreground">{item.value}</div>
+            <div className="min-w-0 text-sm text-foreground">{item.value}</div>
           </div>
         ))}
       </div>

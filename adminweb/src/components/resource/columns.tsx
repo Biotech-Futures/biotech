@@ -18,9 +18,12 @@ interface ResourceColumnsOptions {
   onViewDetail?: (resource: Resource) => void;
   onEdit?: (resource: Resource) => void;
   onDelete?: (resource: Resource) => void;
+  onAccess?: (resource: Resource) => void;
   onDownload?: (resource: Resource) => void;
   trackOptions?: ResourceTrackOption[];
 }
+
+const truncatingCellClassName = "truncate";
 
 function formatUploaderName(resource: Resource) {
   return `${resource.uploader.first_name} ${resource.uploader.last_name}`.trim();
@@ -51,7 +54,9 @@ export function createResourceColumns({
   onDownload,
   trackOptions,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
-  const trackLabelById = new Map((trackOptions ?? []).map((item) => [item.id, item.label]));
+  const trackLabelById = new Map(
+    (trackOptions ?? []).map((item) => [item.id, item.label]),
+  );
 
   return [
     {
@@ -59,13 +64,13 @@ export function createResourceColumns({
       header: "Resource",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         const resource = row.original;
         return (
           <button
-            className="font-medium hover:underline text-left break-words"
+            className="block w-full truncate font-medium hover:underline text-left"
             onClick={() => onViewDetail?.(resource)}
           >
             {resource.name}
@@ -78,7 +83,7 @@ export function createResourceColumns({
       header: "Type",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         return <span>{getResourceTypeLabel(row.original.type_name)}</span>;
@@ -89,7 +94,7 @@ export function createResourceColumns({
       header: "Visibility",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         return <span>{row.original.visibility_scope}</span>;
@@ -100,7 +105,7 @@ export function createResourceColumns({
       header: "Role",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         const roleSlugs = getVisibleRoleSlugs(row.original);
@@ -115,14 +120,19 @@ export function createResourceColumns({
       header: "Track",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         const rawTrackId = row.original.track_id;
-        if (rawTrackId === null || rawTrackId === undefined) return <span>Unassigned</span>;
+        if (rawTrackId === null || rawTrackId === undefined)
+          return <span>Unassigned</span>;
         const trackId = Number(rawTrackId);
         if (!Number.isFinite(trackId)) return <span>Unassigned</span>;
-        return <span>{trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId)}</span>;
+        return (
+          <span>
+            {trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId)}
+          </span>
+        );
       },
     },
     {
@@ -130,7 +140,7 @@ export function createResourceColumns({
       header: "Uploader",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         return <span>{formatUploaderName(row.original)}</span>;
@@ -141,11 +151,12 @@ export function createResourceColumns({
       header: "Uploaded Time",
       meta: {
         headClassName: "",
-        cellClassName: "whitespace-normal break-words align-top",
+        cellClassName: truncatingCellClassName,
       },
       cell: ({ row }) => {
         const parsed = parseResourceDate(row.original.uploaded_at);
-        if (Number.isNaN(parsed)) return <span className="text-muted-foreground">N/A</span>;
+        if (Number.isNaN(parsed))
+          return <span className="text-muted-foreground">N/A</span>;
         return new Date(parsed).toLocaleString();
       },
     },
@@ -172,6 +183,11 @@ export function createResourceColumns({
               <DropdownMenuItem onClick={() => onEdit?.(resource)}>
                 Edit Resource
               </DropdownMenuItem>
+              {/* {resource.file_name ? (
+                <DropdownMenuItem onClick={() => onAccess?.(resource)}>
+                  Access Resource
+                </DropdownMenuItem>
+              ) : null} */}
               {resource.file_name ? (
                 <DropdownMenuItem onClick={() => onDownload?.(resource)}>
                   Download File

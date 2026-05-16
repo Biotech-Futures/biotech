@@ -8,12 +8,18 @@ import tempfile
 from django.db.models import Q, F, Exists, OuterRef, Value, CharField
 from django.db import transaction
 from django.utils import timezone
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType
 from apps.groups.models import Tracks, Groups
 from apps.users.models import User
-from azure_blob_utils import upload_file, generate_sas_url
+from azure_blob_utils import (
+    upload_file,
+    download_file_text,
+    download_file_bytes,
+)
+from azure.storage.blob import BlobServiceClient
 from apps.admin.scope_utils import get_admin_track_ids
 
 
@@ -197,6 +203,96 @@ def extract_file_name_from_storage_key(storage_key: Optional[str]) -> Optional[s
     return raw[dash_index + 1:] or None
 
 
+def stream_blob_chunks(download_stream):
+    """Yield Azure blob chunks for a Django streaming response."""
+    for chunk in download_stream.chunks():
+        yield chunk
+
+
+def _configured_resource_container_names() -> List[str]:
+    """Return resource containers in read-preference order.
+
+    Older admin upload code writes through azure_blob_utils, which uses
+    AZURE_CONTAINER. Newer managed resource storage reads from
+    AZURE_RESOURCE_CONTAINER. Trying both keeps existing uploads readable while
+    still preferring the resource-specific container.
+    """
+    names = [
+        getattr(settings, "AZURE_STORAGE_CONTAINER_NAME", ""),
+        getattr(settings, "AZURE_RESOURCE_CONTAINER", ""),
+        getattr(settings, "AZURE_CONTAINER", ""),
+    ]
+    ordered = []
+    for name in names:
+        if name and name not in ordered:
+            ordered.append(name)
+    return ordered
+
+
+def _get_blob_service_client():
+    """Build an Azure blob service client from the configured credentials."""
+    connection_string = (
+        getattr(settings, "AZURE_CONNECTION_STRING", "")
+        or getattr(settings, "AZURE_STORAGE_CONNECTION_STRING", "")
+    )
+    if connection_string:
+        return BlobServiceClient.from_connection_string(connection_string)
+    return BlobServiceClient(
+        f"https://{settings.AZURE_ACCOUNT_NAME}.blob.core.windows.net",
+        credential=settings.AZURE_ACCOUNT_KEY,
+    )
+
+
+def iter_resource_blob_clients(storage_key: str):
+    """Yield blob clients for all configured resource storage containers."""
+    blob_service_client = _get_blob_service_client()
+    for container_name in _configured_resource_container_names():
+        container_client = blob_service_client.get_container_client(container_name)
+        yield container_client.get_blob_client(storage_key)
+
+
+def get_resource_blob_client(storage_key: str):
+    """Build a blob client for the preferred resource storage container."""
+    return next(iter_resource_blob_clients(storage_key))
+
+
+def get_page_content_html(resource: Resources) -> Optional[str]:
+    """Read stored HTML for page resources."""
+    if resource.kind != RESOURCE_KIND_PAGE or not resource.storage_key:
+        return None
+
+    try:
+        return download_file_text(resource.storage_key)
+    except Exception:
+        return None
+
+
+def resource_to_row(resource: Resources, include_page_content: bool = False) -> ResourceRowDict:
+    track_id = resource.track_id
+    if not track_id and resource.group:
+        track_id = resource.group.track_id
+
+    return {
+        'id': resource.id,
+        'uploader_user_id': resource.uploaded_by_id,
+        'group_id': resource.group_id,
+        'track_id': track_id,
+        'visibility_scope': resource.visibility_scope,
+        'uploaded_at': resource.uploaded_at.isoformat(),
+        'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
+        'resource_kind': resource.kind,
+        'resource_name': resource.name,
+        'resource_description': resource.description,
+        'resource_type_id': resource.type_id,
+        'resource_type': resource.type.type_name if resource.type else None,
+        'content_html': get_page_content_html(resource) if include_page_content else None,
+        'file_name': None,
+        'file_mime_type': resource.file_mime_type,
+        'file_size': resource.file_size,
+        'storage_key': resource.storage_key,
+    }
+
+
 def get_roles_from_db() -> List[RoleDict]:
     """Fetch all roles from database."""
     roles = Roles.objects.all().order_by('id')
@@ -302,34 +398,7 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     else:
         queryset = queryset.order_by('-uploaded_at', 'name')
     
-    # Convert to dict format
-    rows = []
-    for resource in queryset:
-        track_id = resource.track_id
-        if not track_id and resource.group:
-            track_id = resource.group.track_id
-        
-        rows.append({
-            'id': resource.id,
-            'uploader_user_id': resource.uploaded_by_id,
-            'group_id': resource.group_id,
-            'track_id': track_id,
-            'visibility_scope': resource.visibility_scope,
-            'uploaded_at': resource.uploaded_at.isoformat(),
-            'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
-            'resource_kind': resource.kind,
-            'resource_name': resource.name,
-            'resource_description': resource.description,
-            'resource_type_id': resource.type_id,
-            'resource_type': resource.type.type_name if resource.type else None,
-            'content_html': None,
-            'file_name': None,
-            'file_mime_type': resource.file_mime_type,
-            'file_size': resource.file_size,
-            'storage_key': resource.storage_key,
-        })
-    
-    return rows
+    return [resource_to_row(resource) for resource in queryset]
 
 
 def fetch_resource_by_id_from_db(resource_id: int) -> Optional[ResourceRowDict]:
@@ -341,29 +410,7 @@ def fetch_resource_by_id_from_db(resource_id: int) -> Optional[ResourceRowDict]:
     except Resources.DoesNotExist:
         return None
     
-    track_id = resource.track_id
-    if not track_id and resource.group:
-        track_id = resource.group.track_id
-    
-    return {
-        'id': resource.id,
-        'uploader_user_id': resource.uploaded_by_id,
-        'group_id': resource.group_id,
-        'track_id': track_id,
-        'visibility_scope': resource.visibility_scope,
-        'uploaded_at': resource.uploaded_at.isoformat(),
-        'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
-        'resource_kind': resource.kind,
-        'resource_name': resource.name,
-        'resource_description': resource.description,
-        'resource_type_id': resource.type_id,
-        'resource_type': resource.type.type_name if resource.type else None,
-        'content_html': None,
-        'file_name': None,
-        'file_mime_type': resource.file_mime_type,
-        'file_size': resource.file_size,
-        'storage_key': resource.storage_key,
-    }
+    return resource_to_row(resource, include_page_content=True)
 
 
 def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict]:
@@ -529,16 +576,6 @@ def query_resource_by_id(resource_id: int) -> Dict[str, Any]:
     
     resources = hydrate_resources([resource_row])
     resource = resources[0] if resources else None
-    
-    if resource and resource['resource_kind'] == RESOURCE_KIND_PAGE and resource['storage_key']:
-        try:
-            # Download HTML content from blob storage
-            sas_url = generate_sas_url(resource['storage_key'], expiry_minutes=5)
-            # In a real scenario, you'd fetch the content from the SAS URL
-            # For now, this is placeholder - you'd use requests or similar
-            resource['content_html'] = None
-        except Exception:
-            pass
     
     return {
         'msg': 'Resource retrieved successfully',
@@ -740,39 +777,104 @@ def replace_resource_file(
 
 def download_resource(resource_id: int) -> Dict[str, Any]:
     """Download resource file."""
-    resource_result = query_resource_by_id(resource_id)
-    if not resource_result.get('data'):
+    try:
+        resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
+    except Resources.DoesNotExist:
         return {
             'msg': 'Resource not found',
             'data': None,
         }
-    
-    resource_data = resource_result['data']
-    
-    if resource_data['resource_kind'] == RESOURCE_KIND_PAGE:
-        return {
-            'msg': 'This resource is an HTML page and cannot be downloaded as a file',
-            'data': None,
-        }
-    
-    if not resource_data.get('storage_key'):
+
+    if not resource.storage_key:
         return {
             'msg': 'This resource has no uploaded file',
             'data': None,
         }
-    
-    # Generate SAS URL for downloading
+
     try:
-        sas_url = generate_sas_url(resource_data['storage_key'], expiry_minutes=60)
+        try:
+            content = download_file_bytes(resource.storage_key)
+        except Exception:
+            content = None
+            for blob_client in iter_resource_blob_clients(resource.storage_key):
+                try:
+                    if blob_client.exists():
+                        content = blob_client.download_blob().readall()
+                        break
+                except Exception:
+                    continue
+            if content is None:
+                raise
+
         return {
-            'msg': 'Resource download prepared',
+            'msg': 'Resource download ready',
             'data': {
-                'file_name': resource_data.get('file_name') or f"resource-{resource_id}",
-                'mime_type': resource_data.get('file_mime_type', 'application/octet-stream'),
-                'sas_url': sas_url,
+                'file_name': extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}",
+                'mime_type': resource.file_mime_type or 'application/octet-stream',
+                'content': content,
             },
         }
     except Exception as e:
+        return {
+            'msg': 'File not found in storage',
+            'data': None,
+        }
+
+
+def access_resource(resource_id: int) -> Dict[str, Any]:
+    """Open a resource blob for inline streaming."""
+    try:
+        resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
+    except Resources.DoesNotExist:
+        return {
+            'msg': 'Resource not found',
+            'data': None,
+        }
+
+    if not resource.storage_key:
+        return {
+            'msg': 'This resource has no uploaded file',
+            'data': None,
+        }
+
+    file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
+
+    try:
+        for blob_client in iter_resource_blob_clients(resource.storage_key):
+            try:
+                if blob_client.exists():
+                    break
+            except Exception:
+                continue
+        else:
+            return {
+                'msg': 'File not found in storage',
+                'data': None,
+            }
+
+        properties = blob_client.get_blob_properties()
+        content_settings = getattr(properties, "content_settings", None)
+        storage_content_type = getattr(content_settings, "content_type", None)
+        mime_type = (
+            resource.file_mime_type
+            or storage_content_type
+            or 'application/octet-stream'
+        )
+        download_stream = blob_client.download_blob()
+        file_size = resource.file_size or getattr(properties, "size", None)
+
+        return {
+            'msg': 'Resource stream ready',
+            'data': {
+                'resource_id': resource.id,
+                'access_type': 'stream',
+                'file_name': file_name,
+                'mime_type': mime_type,
+                'file_size': file_size,
+                'stream': stream_blob_chunks(download_stream),
+            },
+        }
+    except Exception:
         return {
             'msg': 'File not found in storage',
             'data': None,

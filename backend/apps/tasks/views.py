@@ -43,7 +43,9 @@ class TaskListCreateView(generics.ListCreateAPIView):
         deleted = (self.request.query_params.get("deleted") or "").lower().strip()
         # deleted=true opens the recovery list; normal task lists stay active-only.
         include_deleted = deleted == "true"
-        qs = visible_tasks(self.request.user, include_deleted=include_deleted)
+        qs = visible_tasks(self.request.user, include_deleted=include_deleted).select_related(
+            "created_by", "assigned_user"
+        )
         if deleted == "true":
             qs = qs.filter(deleted_at__isnull=False)
         elif deleted == "false":
@@ -81,7 +83,9 @@ class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         # Detail lookups use the visibility filter so non-visible tasks 404.
-        return visible_tasks(self.request.user)
+        return visible_tasks(self.request.user).select_related(
+            "created_by", "assigned_user"
+        )
 
     def get_serializer_class(self):
         if self.request.method in ("PATCH", "PUT"):

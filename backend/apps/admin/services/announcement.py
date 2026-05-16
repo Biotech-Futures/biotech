@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, TypedDict, Optional, List, Dict, Any, Tuple
 from datetime import datetime
-import html as html_lib
 import logging
 import re
 
@@ -9,6 +8,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.conf import settings
+from django.template.loader import render_to_string
 
 from apps.announcements.models import (
     Announcement,
@@ -90,11 +90,6 @@ class AnnouncementResponseDict(TypedDict):
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
-def _escape_html(value: str) -> str:
-    """Escape HTML special characters."""
-    return html_lib.escape(value)
-
-
 def _strip_html(html: str) -> str:
     """Remove HTML tags and normalize whitespace."""
     # Remove HTML tags
@@ -118,36 +113,12 @@ def _render_announcement_email_html(
     detail_url: str,
 ) -> str:
     """Render announcement email HTML template."""
-    return f"""<!doctype html>
-<html>
-  <body style="margin:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f5f7fb;padding:32px 16px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #e3e8f2;border-radius:8px;overflow:hidden;">
-            <tr>
-              <td style="background:#17324d;color:#ffffff;padding:24px 28px;">
-                <div style="font-size:13px;opacity:.82;">BioTech Platform</div>
-                <h1 style="margin:8px 0 0;font-size:24px;line-height:32px;font-weight:700;">{_escape_html(title)}</h1>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:28px;font-size:15px;line-height:24px;">
-                <p style="margin:0 0 16px;">{_escape_html(excerpt)}</p>
-                <p style="margin:0;"><a href="{_escape_html(detail_url)}" style="color:#17324d;">View full announcement →</a></p>
-              </td>
-            </tr>
-            <tr>
-              <td style="border-top:1px solid #e3e8f2;padding:18px 28px;color:#667085;font-size:12px;">
-                You are receiving this because you are part of the BioTech platform.
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>"""
+    return render_to_string("emails/announcement.html", {
+        "title": title,
+        "excerpt": excerpt,
+        "detail_url": detail_url,
+        "contact_email": settings.DEFAULT_FROM_EMAIL,
+    })
 
 
 def _resolve_recipient_emails(
@@ -638,6 +609,14 @@ def _deliver_announcement_to_recipients(
                     "announcement_id=%s recipient=%s error=%s",
                     announcement_id, addr, _sanitize_error(exc),
                 )
+                # Reset the SMTP transaction so the connection is not left in
+                # a mid-transaction state ("nested MAIL command") for the next
+                # recipient after a per-address send failure.
+                try:
+                    if getattr(connection, "connection", None):
+                        connection.connection.rset()
+                except Exception:
+                    pass
             else:
                 if result:
                     succeeded += 1
@@ -723,8 +702,8 @@ def send_announcement_email(
         return _skipped_send_result("No recipients found")
 
     excerpt = _build_excerpt(row.get("body", ""))
-    platform_url = getattr(settings, "PLATFORM_URL", "")
-    detail_url = f"{platform_url}/announcements/{announcement_id}"
+    platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
+    detail_url = f"{platform_url}/#/announcements/{announcement_id}"
     subject = f"[BioTech] {row.get('title')}"
     text_body = (
         f"{row.get('title')}\n\n{excerpt}\n\n"

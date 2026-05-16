@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const resourceTypeSchema = z.enum(["document", "guide", "video", "template"]);
-const resourceKindSchema = z.enum(["file", "page"]);
+const resourceKindSchema = z.enum(["attachment", "file", "page"]);
 const visibilityScopeSchema = z.enum(["global", "track_based", "role_based"]);
 
 export const createResourceSchema = z.object({

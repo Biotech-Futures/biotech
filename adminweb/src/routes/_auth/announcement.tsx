@@ -89,7 +89,7 @@ function AnnouncementPage() {
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Announcements</h1>
+        <span />
         <Button onClick={openCreate}>
           <Plus className="size-4 mr-1" />
           New Announcement

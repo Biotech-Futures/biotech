@@ -1,16 +1,19 @@
 import hmac
+import re
+from datetime import timezone as dt_timezone
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from rest_framework import filters, generics, permissions, status, viewsets
+from rest_framework import filters, generics, permissions, status, throttling, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -40,6 +43,19 @@ from .services import (
 )
 
 
+def _get_event_for_user_or_404(user, event_pk):
+    """Resolve an event through ``visible_events_queryset`` or raise 404.
+
+    Routes lookups through the same scoping logic the viewset uses so a
+    Track-A caller hitting a Track-B event id gets a 404 instead of
+    seeing roster data they shouldn't.
+    """
+    event_qs = visible_events_queryset(
+        user, Events.objects.filter(deleted_at__isnull=True)
+    )
+    return get_object_or_404(event_qs, pk=event_pk)
+
+
 class EventManagePermission(permissions.BasePermission):
     """Events are admin-pushed, not user-created.
 
@@ -55,16 +71,20 @@ class EventManagePermission(permissions.BasePermission):
         return is_operational_admin(request.user)
 
 
-class EventPagination(PageNumberPagination):
-    """Used by EventViewSet only. Honours `?page_size=` up to 100.
+class EventCursorPagination(CursorPagination):
+    """Cursor pagination — skips COUNT(*) over visible_events_queryset."""
 
-    The invite list views keep their own page_size=10 default.
-    """
-
+    # ``-id`` is the unique tiebreaker; without it cursors are ambiguous.
     page_size = 20
-    page_query_param = "page"
     page_size_query_param = "page_size"
     max_page_size = 100
+    ordering = ("start_datetime", "-id")
+
+
+class EventCursorPaginationDesc(EventCursorPagination):
+    """``?when=past`` variant — newest first."""
+
+    ordering = ("-start_datetime", "-id")
 
 
 class EventInvitePagination(PageNumberPagination):
@@ -84,7 +104,7 @@ class EventViewSet(viewsets.ModelViewSet):
     queryset = Events.objects.all()
     serializer_class = EventSerializer
     permission_classes = [EventManagePermission]
-    pagination_class = EventPagination
+    pagination_class = EventCursorPagination
     lookup_field = "pk"
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -96,9 +116,10 @@ class EventViewSet(viewsets.ModelViewSet):
     _WHEN_VALUES = {"upcoming", "past", "all"}
 
     def get_queryset(self):
+        action = getattr(self, "action", None)
         # Restore and admin recovery lists are the only paths that opt into deleted events.
         include_deleted = (
-            getattr(self, "action", None) == "restore"
+            action == "restore"
             or (
                 is_operational_admin(self.request.user)
                 and (
@@ -108,9 +129,9 @@ class EventViewSet(viewsets.ModelViewSet):
             )
         )
         base_qs = Events.objects.all() if include_deleted else Events.objects.filter(deleted_at__isnull=True)
-        # ?when= only narrows the list view. Detail/update/destroy must
-        # still see past events so admins can edit a finished one.
-        if getattr(self, "action", None) == "list":
+        # ?when= only narrows the list; detail/update/destroy keep past
+        # events visible so admins can still edit a finished one.
+        if action == "list":
             if (self.request.query_params.get("deleted") or "").lower().strip() == "true":
                 base_qs = base_qs.filter(deleted_at__isnull=False)
             when = (self.request.query_params.get("when") or "upcoming").lower()
@@ -121,7 +142,33 @@ class EventViewSet(viewsets.ModelViewSet):
                 base_qs = base_qs.filter(ends_datetime__gte=now)
             elif when == "past":
                 base_qs = base_qs.filter(ends_datetime__lt=now)
-        return visible_events_queryset(self.request.user, base_qs)
+                # Newest-first paging for the past view.
+                self.pagination_class = EventCursorPaginationDesc
+
+        qs = visible_events_queryset(self.request.user, base_qs).prefetch_related(
+            "eventtargetgroup_set",
+            "eventtargettrack_set",
+            "eventtargetrole_set",
+        )
+        # host_user/track are only read by audit-log serialization on
+        # writes; skip the join on list to keep the row narrower.
+        if action != "list":
+            qs = qs.select_related("host_user", "track")
+        return qs.annotate(
+            _accepted_count=Count("rsvps", filter=Q(rsvps__rsvp_status="accepted")),
+            _waitlist_count=Count("rsvps", filter=Q(rsvps__rsvp_status="waitlisted")),
+        )
+
+    def list(self, request, *args, **kwargs):
+        qs = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            # Scope accepted_event_ids to the current page only.
+            request._page_event_ids = [e.id for e in page]
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
 
     def get_serializer_context(self):
         # `accepted_event_ids` powers the per-row `accepted` field.
@@ -386,7 +433,11 @@ class EventInviteListHTMLView(generics.ListAPIView):
     pagination_class = EventInvitePagination
 
     def get_queryset(self):
-        event = get_object_or_404(Events, pk=self.kwargs.get("id"))
+        # Scope the event lookup through visible_events_queryset so a
+        # mentor/supervisor can't pull the roster for an event outside
+        # their track/scope. Returns 404 (not 403) on cross-track ids
+        # to match the existing visibility semantics.
+        event = _get_event_for_user_or_404(self.request.user, self.kwargs.get("id"))
         return EventRsvp.objects.select_related("event", "user").filter(event=event).order_by("id")
 
 
@@ -396,7 +447,16 @@ class EventInviteListMeHTMLView(generics.ListAPIView):
     pagination_class = EventInvitePagination
 
     def get_queryset(self):
-        return EventRsvp.objects.select_related("event", "user").filter(user=self.request.user).order_by("id")
+        qs = EventRsvp.objects.filter(user=self.request.user)
+        # ``?event__in=1,2,3`` lets the FE pull just the rows it'll
+        # display — avoids dragging the user's full RSVP history when
+        # only the current event page needs status badges.
+        raw = self.request.query_params.get("event__in")
+        if raw:
+            ids = [int(p) for p in raw.split(",") if p.strip().isdigit()]
+            if ids:
+                qs = qs.filter(event_id__in=ids)
+        return qs.order_by("id")
 
 
 class EventBulkInviteView(APIView):
@@ -407,6 +467,8 @@ class EventBulkInviteView(APIView):
     """
 
     permission_classes = [IsNotStudent]
+    throttle_classes = [throttling.ScopedRateThrottle]
+    throttle_scope = "event_bulk_invite"
 
     @extend_schema(
         request=EventBulkInviteSerializer,
@@ -523,3 +585,125 @@ class RsvpReminderTriggerView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# iCalendar (.ics) export
+# ---------------------------------------------------------------------------
+
+
+_ICS_DT_FMT = "%Y%m%dT%H%M%SZ"
+
+
+def _ics_escape(value):
+    """Escape per RFC 5545: backslash, comma, semicolon, and newlines.
+
+    Returns an empty string for ``None`` so callers can drop the field
+    by passing the model attribute directly.
+    """
+    if value is None:
+        return ""
+    text = str(value)
+    text = text.replace("\\", "\\\\")
+    text = text.replace(",", "\\,")
+    text = text.replace(";", "\\;")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\n", "\\n")
+
+
+def _ics_fold(line):
+    """Fold long lines per RFC 5545 §3.1: max 75 octets per line.
+
+    Continuation lines start with a single space. Done in bytes since
+    multi-byte chars must not split mid-codepoint, but Django's iCal
+    consumers are tolerant; we fold on UTF-8 byte boundaries.
+    """
+    encoded = line.encode("utf-8")
+    if len(encoded) <= 75:
+        return line
+    parts = []
+    while len(encoded) > 75:
+        # Walk back to avoid splitting a multi-byte codepoint.
+        cut = 75
+        while cut > 0 and (encoded[cut] & 0xC0) == 0x80:
+            cut -= 1
+        parts.append(encoded[:cut].decode("utf-8"))
+        encoded = encoded[cut:]
+    parts.append(encoded.decode("utf-8"))
+    return "\r\n ".join(parts)
+
+
+def _filename_slug(text, fallback):
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", (text or "").strip()).strip("-")
+    return (slug or fallback).lower()[:60]
+
+
+class EventIcalExportView(APIView):
+    """GET /events/v1/<id>/ical/ — download a one-event .ics file.
+
+    Visibility scoped through ``visible_events_queryset`` so a caller
+    only gets events they could already see in the regular list view.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        operation_id="event_ical_export",
+        responses={
+            (200, "text/calendar"): bytes,
+            404: None,
+        },
+    )
+    def get(self, request, *args, **kwargs):
+        event = _get_event_for_user_or_404(request.user, kwargs.get("id"))
+
+        now_utc = timezone.now().astimezone(dt_timezone.utc)
+        dtstamp = now_utc.strftime(_ICS_DT_FMT)
+        dtstart = event.start_datetime.astimezone(dt_timezone.utc).strftime(_ICS_DT_FMT)
+        dtend = event.ends_datetime.astimezone(dt_timezone.utc).strftime(_ICS_DT_FMT)
+
+        # Stable UID per event id so re-downloads update the same
+        # calendar entry instead of creating duplicates.
+        uid = f"event-{event.id}@biotechfutures"
+
+        location = ""
+        if event.is_virtual:
+            location = event.location_link or "Virtual event"
+        elif event.location:
+            location = event.location
+
+        url_field = ""
+        if event.location_link:
+            url_field = event.location_link
+
+        summary = _ics_escape(event.event_name or f"Event {event.id}")
+        description = _ics_escape(event.description or "")
+        location_escaped = _ics_escape(location)
+
+        lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//BIOTech Futures//Events//EN",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART:{dtstart}",
+            f"DTEND:{dtend}",
+            f"SUMMARY:{summary}",
+        ]
+        if description:
+            lines.append(f"DESCRIPTION:{description}")
+        if location_escaped:
+            lines.append(f"LOCATION:{location_escaped}")
+        if url_field:
+            lines.append(f"URL:{url_field}")
+        lines.extend(["END:VEVENT", "END:VCALENDAR"])
+
+        body = "\r\n".join(_ics_fold(ln) for ln in lines) + "\r\n"
+        filename = f"{_filename_slug(event.event_name, f'event-{event.id}')}.ics"
+
+        response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response

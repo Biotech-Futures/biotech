@@ -55,6 +55,22 @@
  */
 
 import type { RouteRecordRaw } from 'vue-router';
+import { useGroupsStore } from '@/stores/groups';
+
+const NO_GROUP_MEMBERSHIP_MESSAGE =
+  'You have not been assigned to a group yet. Please contact your mentor.';
+
+// /groups has no id of its own — resolve the user's first group from the
+// store and forward there. Falls back to /dashboard when the user has no
+// groups, instead of rendering a half-loaded placeholder.
+const resolveGroupsLanding = async () => {
+  const store = useGroupsStore();
+  await store.ensureLoaded();
+  const first = store.firstGroup;
+  if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
+  window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
+  return { name: 'dashboard', replace: true };
+};
 
 const routes: RouteRecordRaw[] = [
 
@@ -64,14 +80,16 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
-  { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/resources', name: 'resources', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/resources/:id', name: 'resource-detail', component: () => import('@/views/ResourcesPage.vue') },
   { path: '/events', name: 'events', component: () => import('@/views/EventsPage.vue') },
+  { path: '/events/:id(\\d+)', name: 'event-detail', component: () => import('@/views/EventsPage.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/admin', redirect: '/dashboard' },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
+  { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
 ];
 

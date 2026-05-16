@@ -85,6 +85,11 @@ def _to_event_id(id_str: str) -> Optional[int]:
 
 def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a raw Django values() dict to camelCase for the frontend."""
+    host_first_name = (event.get("host_user__first_name") or "").strip()
+    host_last_name = (event.get("host_user__last_name") or "").strip()
+    host_email = event.get("host_user__email")
+    host_name = f"{host_first_name} {host_last_name}".strip() or host_email
+
     return {
         "id": event["id"],
         "eventName": event.get("event_name"),
@@ -97,6 +102,8 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "eventImage(img)": event.get("event_image"),
         "isVirtual": event.get("is_virtual", False),
         "hostUserId": event.get("host_user_id"),
+        "hostName": host_name,
+        "hostEmail": host_email,
         "locationLink": event.get("location_link"),
     }
 
@@ -151,6 +158,9 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
             "event_image",
             "is_virtual",
             "host_user_id",
+            "host_user__first_name",
+            "host_user__last_name",
+            "host_user__email",
             "location_link",
         )
     )
@@ -172,6 +182,9 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
 
 def _event_model_to_camel(event: Events) -> Dict[str, Any]:
     """Convert a Django Events model instance to camelCase dict."""
+    host_name = str(event.host_user) if event.host_user_id and event.host_user else None
+    host_email = event.host_user.email if event.host_user_id and event.host_user else None
+
     return {
         "id": event.id,
         "eventName": event.event_name,
@@ -184,6 +197,8 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "eventImage(img)": event.event_image,
         "isVirtual": event.is_virtual,
         "hostUserId": event.host_user_id,
+        "hostName": host_name,
+        "hostEmail": host_email,
         "locationLink": event.location_link,
     }
 
@@ -203,7 +218,7 @@ def query_event_by_id(id_str: str) -> EventResponseDict:
         return {"msg": "Invalid event id", "data": None}
 
     try:
-        event = Events.objects.get(id=event_id, deleted_at__isnull=True)
+        event = Events.objects.select_related("host_user").get(id=event_id, deleted_at__isnull=True)
         return {"msg": "Event retrieved successfully", "data": _event_model_to_camel(event)}
     except Events.DoesNotExist:
         return {"msg": "Event not found", "data": None}
