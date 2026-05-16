@@ -21,7 +21,6 @@
 
       <label class="announcements__search">
         <span class="sr-only">Search announcements</span>
-        <span class="announcements__search-icon" aria-hidden="true">&#128269;</span>
         <input
           v-model="q"
           type="text"

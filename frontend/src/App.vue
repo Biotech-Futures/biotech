@@ -31,7 +31,7 @@
               aria-label="Open account menu"
             >
               <span class="user-avatar-text">{{ auth.initials }}</span>
-              <span v-if="hasUserMenuBadge" class="notification-badge"></span>
+<!--              <span v-if="hasUserMenuBadge" class="notification-badge"></span>-->
             </button>
           </div>
         </div>
@@ -1115,6 +1115,7 @@ select {
     overflow-y: visible;
     padding: 0.75rem;
     z-index: auto;
+    margin-bottom: -300px;
   }
 
   .sidebar-group-switcher {
