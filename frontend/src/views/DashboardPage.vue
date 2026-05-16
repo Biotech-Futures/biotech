@@ -509,7 +509,7 @@ const auth = useAuthStore()
 const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user, timeZone } =
   storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const EVENTS_API_BASE = `${API_BASE_URL}/api/v1/events`
+const EVENTS_API_BASE = `${API_BASE_URL}/events/v1`
 const DASHBOARD_ENDPOINTS = {
   groupsPreview: (mine = false) =>
     `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
