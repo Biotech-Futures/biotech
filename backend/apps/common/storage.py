@@ -163,6 +163,10 @@ class ManagedFileService:
             )
         return file_data
 
+    def save_content(self, original_name: str | None, content) -> str:
+        storage_name = self.build_storage_name(original_name)
+        return self._storage().save(storage_name, content)
+
     @contextmanager
     def stored_file(
         self,
