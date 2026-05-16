@@ -13,6 +13,7 @@ export function useQueryTasks(params: {
   page?: number;
   limit?: number;
   task_type?: string;
+  deleted?: boolean;
 }) {
   return useQuery({
     queryKey: [QUERY_KEY, params],
@@ -22,6 +23,7 @@ export function useQueryTasks(params: {
           page: params.page ?? 1,
           limit: params.limit ?? 10,
           ...(params.task_type ? { task_type: params.task_type } : {}),
+          ...(params.deleted !== undefined ? { deleted: params.deleted } : {}),
         },
       });
       return res.data;
@@ -63,6 +65,21 @@ export function useDeleteTask() {
   return useMutation({
     mutationFn: async (id: number) => {
       await myFetch.delete(`/task/${id}/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+    },
+  });
+}
+
+export function useRestoreTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await myFetch.post<{ msg: string; data: Task | null }>(
+        `/task/${id}/restore/`,
+      );
+      return res.data;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });

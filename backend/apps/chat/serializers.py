@@ -5,6 +5,8 @@ from rest_framework.reverse import reverse
 from apps.common.filenames import sanitize_upload_filename
 from apps.common.upload_validation import validate_uploaded_file
 from apps.resources.models import Resources
+from apps.resources.rbac import can_access_resource_file
+from apps.users.utils.admin_scope import is_operational_admin
 
 from .models import (
     MessageAttachment,
@@ -18,6 +20,10 @@ from .models import (
 )
 from .services.storage import stored_chat_file
 from .utils import sanitize_text
+
+
+def is_admin_actor(user) -> bool:
+    return bool(user is not None and is_operational_admin(user))
 
 
 def aggregate_reactions(message):
@@ -55,6 +61,16 @@ class MessageResourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageResource
         fields = ["id", "resource_id", "resource_name"]
+
+    def validate_resource_id(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        # Group-message resource links are user-facing references to the active
+        # resource catalogue. Admin recovery of deleted resources stays on the
+        # resource management endpoint, not in chat message creation.
+        if not can_access_resource_file(user, value):
+            raise serializers.ValidationError("You do not have access to this resource.")
+        return value
 
 
 class MessageResourcePublicSerializer(serializers.ModelSerializer):
@@ -219,6 +235,8 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    deleted_by_name = serializers.SerializerMethodField()
+    deleted_by_is_admin = serializers.SerializerMethodField()
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
     reactions = serializers.SerializerMethodField()
@@ -251,6 +269,9 @@ class MessageSerializer(serializers.ModelSerializer):
             "sent_at",
             "edited_at",
             "deleted_at",
+            "deleted_by",
+            "deleted_by_name",
+            "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
             "attachments",
@@ -265,9 +286,21 @@ class MessageSerializer(serializers.ModelSerializer):
             "gif",
         ]
         read_only_fields = [
-            "id", "group", "sender_user",
+            "id", "group", "sender_user", "deleted_by", "deleted_by_name", "deleted_by_is_admin",
             "sent_at", "edited_at", "deleted_at",
         ]
+
+    def get_deleted_by_name(self, obj):
+        user = getattr(obj, "deleted_by", None)
+        if user is None:
+            return ""
+        if is_admin_actor(user):
+            return "Admin"
+        return user.get_full_name() or user.get_username() or ""
+
+    def get_deleted_by_is_admin(self, obj):
+        user = getattr(obj, "deleted_by", None)
+        return is_admin_actor(user)
 
     def get_reactions(self, obj):
         return aggregate_reactions(obj)
@@ -316,7 +349,15 @@ class MessagePublicSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    message_text = serializers.SerializerMethodField()
+    deleted_by = serializers.IntegerField(source="deleted_by_id", read_only=True)
+    deleted_by_name = serializers.SerializerMethodField()
+    deleted_by_is_admin = serializers.SerializerMethodField()
+    deleted_at = serializers.DateTimeField(read_only=True)
+    is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    attachments = serializers.SerializerMethodField()
+    resources = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
     read_count = serializers.IntegerField(source="_read_count", read_only=True, default=0)
     delivered_count = serializers.IntegerField(source="_delivered_count", read_only=True, default=0)
@@ -342,6 +383,11 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             "message_type",
             "sent_at",
             "edited_at",
+            "deleted_at",
+            "deleted_by",
+            "deleted_by_name",
+            "deleted_by_is_admin",
+            "is_deleted",
             "is_edited",
             "attachments",
             "resources",
@@ -357,9 +403,44 @@ class MessagePublicSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_reactions(self, obj):
+        if obj.deleted_at is not None:
+            return {}
         return aggregate_reactions(obj)
 
+    def get_message_text(self, obj):
+        if obj.deleted_at is not None:
+            return ""
+        return obj.message_text
+
+    def get_deleted_by_name(self, obj):
+        user = getattr(obj, "deleted_by", None)
+        if user is None:
+            return ""
+        if is_admin_actor(user):
+            return "Admin"
+        return user.get_full_name() or user.get_username() or ""
+
+    def get_deleted_by_is_admin(self, obj):
+        user = getattr(obj, "deleted_by", None)
+        return is_admin_actor(user)
+
+    def get_attachments(self, obj):
+        if obj.deleted_at is not None:
+            return []
+        return MessageAttachmentSerializer(
+            obj.attachments.all(),
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_resources(self, obj):
+        if obj.deleted_at is not None:
+            return []
+        return MessageResourcePublicSerializer(obj.resources.all(), many=True).data
+
     def get_preview(self, obj):
+        if obj.deleted_at is not None:
+            return None
         # Reverse OneToOne raises DoesNotExist when no row — guard so
         # missing previews surface as ``None`` instead of an exception.
         preview = getattr(obj, "preview", None)
@@ -368,6 +449,8 @@ class MessagePublicSerializer(serializers.ModelSerializer):
         return preview.to_payload()
 
     def get_gif(self, obj):
+        if obj.deleted_at is not None:
+            return None
         gif = getattr(obj, "gif", None)
         if gif is None:
             return None

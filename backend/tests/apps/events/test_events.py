@@ -26,7 +26,7 @@ class EventAPITests(APITestCase):
     Minimal test suite for /events/v1 endpoints.
     Covers:
     - GET returns only upcoming events
-    - POST works for admin/staff only
+    - POST works for operational admins only
     - POST rejected for regular user
     - Validation rules (end time after start time)
     """
@@ -34,9 +34,8 @@ class EventAPITests(APITestCase):
     def setUp(self):
         # Create regular and admin users
         self.user = User.objects.create_user(email="user2@gmail.com", password="pass123")
-        self.admin = User.objects.create_user(
-            email="test_admin@gmail.com", password="admin123", is_staff=True
-        )
+        self.admin = User.objects.create_user(email="test_admin@gmail.com", password="admin123")
+        AdminScope.objects.create(user=self.admin, is_global=True)
 
         # Base URL (adjust if prefix changed)
         self.url = "/events/v1/"
@@ -72,11 +71,11 @@ class EventAPITests(APITestCase):
     # --- POST TESTS ---
 
     def test_admin_can_create_event(self):
-        """Admin/staff user can POST successfully"""
+        """Operational admin user can POST successfully"""
         self.client.force_authenticate(user=self.admin)
         data = {
             "event_name": "Admin Created Event",
-            "description": "By staff",
+            "description": "By admin",
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
@@ -91,7 +90,7 @@ class EventAPITests(APITestCase):
         self.client.force_authenticate(user=self.user)
         data = {
             "event_name": "Admin Created Event",
-            "description": "By staff",
+            "description": "By admin",
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
@@ -679,8 +678,8 @@ class EventRsvpSetActionTests(APITestCase):
 #
 # The role spec says Track Administrators have access *only* to their
 # assigned tracks. The previous ``IsAdminOrReadOnly`` permission checked
-# ``is_staff`` only, so Track Admins (defined by ``AdminScope`` rows but
-# not necessarily ``is_staff``) were locked out of event creation
+# Django's staff flag only, so Track Admins defined by ``AdminScope`` rows
+# were locked out of event creation
 # entirely. The new ``EventManagePermission`` + ``perform_create``
 # track-scope check open the door for Track Admins while keeping the
 # scope narrow:
@@ -688,8 +687,8 @@ class EventRsvpSetActionTests(APITestCase):
 #   * Track Admin → may create events whose ``track`` FK is in their
 #     scope. Cannot create untargeted events (those reach every user
 #     and would be a privilege escalation past their assigned tracks).
-#   * Global Admin (``is_staff`` / ``is_superuser`` / ``is_global``
-#     ``AdminScope`` row) → unrestricted (any track or untargeted).
+#   * Global Admin (``AdminScope.is_global`` row) → unrestricted
+#     (any track or untargeted).
 # ---------------------------------------------------------------------------
 
 
@@ -750,7 +749,7 @@ class EventCreatePermissionTests(APITestCase):
 
     def test_track_admin_can_create_event_in_their_track(self):
         # The whole point of Gap 1: Track Admin A creates a Track A
-        # event, no ``is_staff`` required.
+        # event, no Django staff flag required.
         self.client.force_authenticate(user=self.track_admin_a)
         response = self.client.post(
             self.url, self._payload(name="A Event", track_id=self.track_a.id), format="json"
@@ -807,8 +806,7 @@ class EventCreatePermissionTests(APITestCase):
     def test_regular_user_still_cannot_create_event(self):
         # Defense in depth: the new permission must not have widened
         # write access to non-admins. The previous test already covers
-        # is_staff=False users; this covers a user with neither
-        # is_staff nor any AdminScope row.
+        # non-staff users; this covers a user with no AdminScope row.
         self.client.force_authenticate(user=self.regular)
         response = self.client.post(
             self.url, self._payload(name="Should Fail", track_id=self.track_a.id), format="json"
@@ -870,10 +868,11 @@ class EventListVisibilityScopingTests(APITestCase):
             user=self.track_admin_a, track=self.track_a, is_global=False
         )
 
-        # Global admin via is_staff (covers the legacy path).
+        # Global admin via AdminScope.
         self.global_admin = User.objects.create_user(
-            email="global-admin@test.com", password="pw", is_staff=True
+            email="global-admin@test.com", password="pw"
         )
+        AdminScope.objects.create(user=self.global_admin, is_global=True)
 
         now = timezone.now()
         self.untargeted = Events.objects.create(
@@ -998,8 +997,8 @@ class EventListVisibilityScopingTests(APITestCase):
     # ----- Global Admin -----------------------------------------------
 
     def test_global_admin_sees_every_event(self):
-        # Sanity: ``is_staff=True`` gets ``admin_track_ids=None`` ⇒
-        # no clamp at all.
+        # Sanity: ``AdminScope(is_global=True)`` gets
+        # ``admin_track_ids=None`` and therefore no clamp at all.
         names = self._list(user=self.global_admin)
         self.assertEqual(
             names,
@@ -1046,7 +1045,8 @@ class EventScopedIdFilterTests(APITestCase):
         self.track_admin_a = User.objects.create_user(email="taa@test.com", password="pw")
         AdminScope.objects.create(user=self.track_admin_a, track=self.track_a, is_global=False)
 
-        self.global_admin = User.objects.create_user(email="ga@test.com", password="pw", is_staff=True)
+        self.global_admin = User.objects.create_user(email="ga@test.com", password="pw")
+        AdminScope.objects.create(user=self.global_admin, is_global=True)
 
         now = timezone.now()
         self.event_for_group_a = Events.objects.create(
@@ -1369,7 +1369,8 @@ class EventDetailAndDestroyTests(APITestCase):
     """GET/PATCH/DELETE /events/v1/{id}/."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email="d-admin@t.com", password="pw", is_staff=True)
+        self.admin = User.objects.create_user(email="d-admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin, is_global=True)
         self.user = User.objects.create_user(email="d-user@t.com", password="pw")
         now = timezone.now()
         self.event = Events.objects.create(
@@ -1407,6 +1408,45 @@ class EventDetailAndDestroyTests(APITestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.event.refresh_from_db()
         self.assertIsNotNone(self.event.deleted_at)
+
+    def test_admin_can_restore_soft_deleted_event(self):
+        # Restore clears deleted_at and returns the normal event serializer shape.
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+
+        r = self.client.post(f"/events/v1/{self.event.id}/restore/")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.deleted_at)
+        self.assertIsNone(r.data["deleted_at"])
+
+    def test_deleted_filter_lists_deleted_events_for_admin(self):
+        # deleted=true is the admin recovery list for events.
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+
+        r = self.client.get("/events/v1/?deleted=true&when=all")
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in r.data["results"]]
+        self.assertEqual(ids, [self.event.id])
+
+    def test_api_v1_mount_lists_and_restores_deleted_events(self):
+        # The canonical frontend/admin route must expose the same recovery flow
+        # as the legacy /events/v1/... endpoint.
+        self.client.force_authenticate(user=self.admin)
+        self.client.delete(self._url(self.event.id))
+
+        listed = self.client.get("/api/v1/events/?deleted=true&when=all")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["id"] for row in listed.data["results"]], [self.event.id])
+
+        restored = self.client.post(f"/api/v1/events/{self.event.id}/restore/")
+        self.assertEqual(restored.status_code, status.HTTP_200_OK)
+        self.event.refresh_from_db()
+        self.assertIsNone(self.event.deleted_at)
+        self.assertIsNone(restored.data["deleted_at"])
 
     def test_re_delete_returns_404(self):
         self.client.force_authenticate(user=self.admin)
@@ -1465,7 +1505,8 @@ class EventTargetingTests(APITestCase):
     """target_group_ids / target_track_ids on create + PATCH."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email="t-admin@t.com", password="pw", is_staff=True)
+        self.admin = User.objects.create_user(email="t-admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin, is_global=True)
         country = Countries.objects.create(country_name="X")
         state = CountryStates.objects.create(country=country, state_name="Y")
         self.track_a = Tracks.objects.create(track_name="A", state=state)
@@ -1533,7 +1574,8 @@ class EventBulkInviteTests(APITestCase):
     """POST /events/v1/{id}/rsvp/bulk/."""
 
     def setUp(self):
-        self.admin = User.objects.create_user(email="bi-admin@t.com", password="pw", is_staff=True)
+        self.admin = User.objects.create_user(email="bi-admin@t.com", password="pw")
+        AdminScope.objects.create(user=self.admin, is_global=True)
         self.u1 = User.objects.create_user(email="bi1@t.com", password="pw")
         self.u2 = User.objects.create_user(email="bi2@t.com", password="pw")
         now = timezone.now()
@@ -1599,4 +1641,3 @@ class EventBulkInviteTests(APITestCase):
     def test_empty_user_ids_rejected(self):
         r = self.client.post(self._url(), {"user_ids": []}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-

@@ -23,8 +23,7 @@ class GroupQuerySet(models.QuerySet):
 
         - Operational admin without ``mine`` → all active groups within
           their admin track scope (or all active groups if the admin is
-          globally scoped via ``is_staff`` / ``is_superuser`` /
-          ``AdminScope.is_global``).
+          globally scoped via ``AdminScope.is_global``).
         - Operational admin with ``mine=True`` → only the groups they
           are an active member of.
         - Non-admin user → only the groups they are an active member of.
@@ -102,3 +101,8 @@ class Groups(models.Model):
     @property
     def is_deleted(self):
         return self.deleted_at is not None
+
+    def restore(self):
+        # Recovery is intentionally limited to clearing the tombstone.
+        self.deleted_at = None
+        self.save(update_fields=["deleted_at"])

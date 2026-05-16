@@ -4,7 +4,7 @@ from django.db import transaction
 from rest_framework import viewsets, filters, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
+from rest_framework.permissions import BasePermission, IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema
 from .models import Groups, Countries, GroupMembership, Tracks
@@ -24,7 +24,12 @@ from .services import (
     sync_supervisor_memberships_for_student,
 )
 from apps.audit.services import log_audit_event
-from apps.users.utils.admin_scope import can_admin_track, is_operational_admin
+from apps.users.utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
+
+
+class IsOperationalAdminPermission(BasePermission):
+    def has_permission(self, request, view):
+        return is_operational_admin(getattr(request, "user", None))
 
 
 class CountryViewSet(viewsets.ModelViewSet):
@@ -34,7 +39,7 @@ class CountryViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [AllowAny()]
-        return [IsAdminUser()]
+        return [IsOperationalAdminPermission()]
 
 
 class GroupMemberViewSet(viewsets.ModelViewSet):
@@ -43,14 +48,23 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = GroupMembership.objects.select_related("group", "user").order_by("id")
         raw = (self.request.query_params.get("include_inactive") or "").lower().strip()
-        if raw == "true" and self.request.user.is_staff:
+        if raw == "true" and is_operational_admin(self.request.user):
+            track_ids = get_admin_track_ids(self.request.user)
+            if track_ids is not None:
+                queryset = queryset.filter(group__track_id__in=track_ids)
             return queryset
         return queryset.filter(left_at__isnull=True)
 
     def get_permissions(self):
         if self.action in ["list", "retrieve", "by_group"]:
             return [IsAuthenticated()]
-        return [IsAdminUser()]
+        return [IsOperationalAdminPermission()]
+
+    def _ensure_admin_track_access(self, request, group):
+        if not is_operational_admin(request.user):
+            raise PermissionDenied("Operational admin access is required.")
+        if not can_admin_track(request.user, group.track):
+            raise PermissionDenied("You do not have admin scope for this track.")
 
     @action(detail=False, methods=['get'], url_path='by-group/(?P<group_id>[^/.]+)')
     def by_group(self, request, group_id=None):
@@ -61,6 +75,7 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         membership = self.get_object()
+        self._ensure_admin_track_access(request, membership.group)
         if membership.left_at is not None:
             return Response(status=status.HTTP_204_NO_CONTENT)
         membership.left_at = timezone.now()
@@ -70,6 +85,15 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_create(self, serializer):
+        group = serializer.validated_data["group"]
+        self._ensure_admin_track_access(self.request, group)
+        membership = serializer.save()
+        if membership.membership_role == GroupMembership.MembershipRoleChoices.STUDENT:
+            sync_supervisor_memberships_for_student(membership.user_id)
+
+    def perform_update(self, serializer):
+        group = serializer.validated_data.get("group", serializer.instance.group)
+        self._ensure_admin_track_access(self.request, group)
         membership = serializer.save()
         if membership.membership_role == GroupMembership.MembershipRoleChoices.STUDENT:
             sync_supervisor_memberships_for_student(membership.user_id)
@@ -86,16 +110,22 @@ class TrackViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [IsAuthenticated()]
-        return [IsAdminUser()]
+        return [IsOperationalAdminPermission()]
 
 
 class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
 
     def get_queryset(self):
+        # Only restore and operational-admin recovery views can see tombstoned groups.
         include_deleted = (self.request.query_params.get('include_deleted') or '').lower().strip() == 'true'
-        if include_deleted and self.request.user.is_staff:
+        if self.action == "restore":
             queryset = Groups.objects.all()
+        elif include_deleted and is_operational_admin(self.request.user):
+            queryset = Groups.objects.all()
+            track_ids = get_admin_track_ids(self.request.user)
+            if track_ids is not None:
+                queryset = queryset.filter(track_id__in=track_ids)
         else:
             queryset = Groups.objects.filter(deleted_at__isnull=True)
 
@@ -113,15 +143,73 @@ class GroupViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [IsAuthenticated()]
-        return [IsAdminUser()]
+        return [IsOperationalAdminPermission()]
+
+    def perform_create(self, serializer):
+        self._ensure_admin_track_access(self.request, serializer.validated_data["track"])
+        group = serializer.save()
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="group",
+            entity_id=group.id,
+            action="create",
+            after_state=GroupSerializer(group).data,
+        )
+
+    def perform_update(self, serializer):
+        group = serializer.instance
+        self._ensure_admin_track_access(self.request, group)
+        new_track = serializer.validated_data.get("track", group.track)
+        self._ensure_admin_track_access(self.request, new_track)
+        before_state = GroupSerializer(group).data
+        group = serializer.save()
+        log_audit_event(
+            actor=self.request.user,
+            entity_type="group",
+            entity_id=group.id,
+            action="update",
+            before_state=before_state,
+            after_state=GroupSerializer(group).data,
+        )
 
     def destroy(self, request, *args, **kwargs):
         group = self.get_object()
+        self._ensure_admin_track_access(request, group)
         if group.deleted_at is not None:
             return Response(status=status.HTTP_204_NO_CONTENT)
         group.deleted_at = timezone.now()
         group.save(update_fields=['deleted_at'])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="restore")
+    @transaction.atomic
+    def restore(self, request, pk=None):
+        group = self.get_object()
+        self._ensure_admin_track_access(request, group)
+        if group.deleted_at is None:
+            return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
+        # Restore must respect the active-only uniqueness constraint.
+        if Groups.objects.filter(
+            track=group.track,
+            group_name=group.group_name,
+            deleted_at__isnull=True,
+        ).exclude(pk=group.pk).exists():
+            raise ValidationError({
+                "group_name": "An active group with this name already exists in this track."
+            })
+
+        before_state = GroupSerializer(group).data
+        group.restore()
+        group.refresh_from_db()
+        log_audit_event(
+            actor=request.user,
+            entity_type="group",
+            entity_id=group.id,
+            action="restore",
+            before_state=before_state,
+            after_state=GroupSerializer(group).data,
+        )
+        return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
 
     def _ensure_admin_track_access(self, request, track_or_group):
         if not is_operational_admin(request.user):

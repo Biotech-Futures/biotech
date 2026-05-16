@@ -44,4 +44,5 @@ export type QueryEventsParams = {
   limit?: number;
   hostUserId?: number;
   upcoming?: boolean;
+  deleted?: boolean;
 };

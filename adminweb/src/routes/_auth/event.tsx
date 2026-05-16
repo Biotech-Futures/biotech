@@ -43,6 +43,7 @@ import {
 import {
   useCreateEvent,
   useDeleteEvent,
+  useRestoreEvent,
   useQueryEvents,
   useUpdateEvent,
   useQueryEventRsvps,
@@ -63,9 +64,11 @@ import {
   UsersIcon,
   EyeIcon,
   MoreHorizontalIcon,
+  RotateCcwIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
@@ -355,9 +358,15 @@ function EventPage() {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
   const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
+  const [recoveryPage, setRecoveryPage] = useState(1);
 
   const { user: currentUser } = useAuthContext();
   const { data, isPending } = useQueryEvents({ page, limit: 10, upcoming });
+  const { data: recoveryData, isPending: isRecoveryPending } = useQueryEvents({
+    page: recoveryPage,
+    limit: 10,
+    deleted: true,
+  });
   const { data: usersData } = useQueryUsers();
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
@@ -371,6 +380,7 @@ function EventPage() {
 
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
+  const { mutate: restoreEvent, isPending: isRestoring } = useRestoreEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
   const { data: rsvpData, isPending: isRsvpLoading } =
     useQueryEventRsvps(rsvpEventId);
@@ -477,6 +487,10 @@ function EventPage() {
   const total = data?.data.total ?? 0;
   const limit = data?.data.limit ?? 10;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const recoveryEvents = recoveryData?.data.items ?? [];
+  const recoveryTotal = recoveryData?.data.total ?? 0;
+  const recoveryLimit = recoveryData?.data.limit ?? 10;
+  const recoveryTotalPages = Math.max(1, Math.ceil(recoveryTotal / recoveryLimit));
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
 
@@ -532,6 +546,21 @@ function EventPage() {
     deleteEvent(event.id, {
       onSuccess: () => {
         if (rsvpEventId === event.id) setRsvpEventId(null);
+      },
+    });
+  };
+
+  const handleRestore = (event: Event) => {
+    restoreEvent(event.id, {
+      onSuccess: (result) => {
+        if (result.data) {
+          toast.success(`Restored event "${event.eventName}".`);
+        } else {
+          toast.error(result.msg || "Failed to restore event.");
+        }
+      },
+      onError: () => {
+        toast.error("Failed to restore event.");
       },
     });
   };
@@ -689,6 +718,100 @@ function EventPage() {
           </Button>
         </div>
       </div>
+
+      <section className="space-y-3 rounded-md border p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold">Event Recovery</h2>
+            <p className="text-sm text-muted-foreground">
+              Review deleted events and restore them when their target groups are active.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {recoveryTotal} deleted events
+          </p>
+        </div>
+        <div className="min-w-0 overflow-hidden rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Event Name</TableHead>
+                <TableHead>Host</TableHead>
+                <TableHead>Start</TableHead>
+                <TableHead>Deleted</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isRecoveryPending ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    Loading deleted events...
+                  </TableCell>
+                </TableRow>
+              ) : recoveryEvents.length > 0 ? (
+                recoveryEvents.map((event) => (
+                  <TableRow key={event.id}>
+                    <TableCell>{event.id}</TableCell>
+                    <TableCell>{event.eventName}</TableCell>
+                    <TableCell>{formatEventHost(event, usersById)}</TableCell>
+                    <TableCell>{formatDateTime(event.startDatetime)}</TableCell>
+                    <TableCell>
+                      {event.deletedDatetime
+                        ? formatDateTime(event.deletedDatetime)
+                        : "---"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isRestoring}
+                        onClick={() => handleRestore(event)}
+                      >
+                        <RotateCcwIcon className="size-4" />
+                        Restore
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    No deleted events found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Page {recoveryPage} of {recoveryTotalPages}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={recoveryPage <= 1 || isRecoveryPending}
+              onClick={() => setRecoveryPage((v) => Math.max(1, v - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={recoveryPage >= recoveryTotalPages || isRecoveryPending}
+              onClick={() => setRecoveryPage((v) => v + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </section>
 
       <Dialog
         open={!!viewingEvent}

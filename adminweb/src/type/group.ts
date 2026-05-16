@@ -20,6 +20,7 @@ export type Group = {
   mentor: GroupMember | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
 };
 
 export type MessageAttachment = {
@@ -51,6 +52,10 @@ export type GroupMessage = {
   gif: MessageGif | null;
   sent_at: string;
   edited_at: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  deleted_by_name: string;
+  deleted_by_is_admin: boolean;
 };
 
 export type PaginatedResponse<T> = {

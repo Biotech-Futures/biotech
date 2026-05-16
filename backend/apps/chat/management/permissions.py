@@ -17,7 +17,11 @@ class IsGroupMemberOrAdmin(BasePermission):
         if not u or not u.is_authenticated:
             return False
         gid = view.kwargs.get("group_pk")
-        group = Groups.objects.only("id", "track_id").filter(pk=gid).first()
+        # A deleted group no longer grants chat access through membership or admin scope.
+        group = Groups.objects.only("id", "track_id").filter(
+            pk=gid,
+            deleted_at__isnull=True,
+        ).first()
         return can_access_chat_group(u, group)
 
 

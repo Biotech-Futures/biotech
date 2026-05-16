@@ -1,4 +1,4 @@
-"""Filters for GET /events/v1/."""
+"""Filters for GET /api/v1/events/."""
 
 import django_filters
 from django.db.models import Exists, OuterRef, Q
@@ -17,7 +17,7 @@ from .models import (
 
 
 class EventFilter(django_filters.FilterSet):
-    """Query params for GET /events/v1/.
+    """Query params for GET /api/v1/events/.
 
     * `rsvp_status=accepted` (or `accepted,tentative`) — filter by the
       caller's RSVP status. Single or comma-separated.

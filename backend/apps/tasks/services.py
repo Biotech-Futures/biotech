@@ -22,18 +22,33 @@ def get_current_week_label(group_created_at) -> str:
 def get_allowed_group_ids(user):
     is_mentor = hasattr(user, "mentorprofile")
     if is_mentor:
+        # Progress scope follows active mentor memberships only.
         return GroupMembership.objects.filter(
             user=user,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
             left_at__isnull=True,
+            group__deleted_at__isnull=True,
         ).values_list("group_id", flat=True)
-    return Groups.objects.filter(track=user.track).values_list("id", flat=True)
+    return Groups.objects.filter(
+        track=user.track,
+        deleted_at__isnull=True,
+    ).values_list("id", flat=True)
 
 
 def build_progress_snapshot(group_id=None, allowed_group_ids=None):
     task_qs = Task.objects.get_dashboard_tasks()
 
     if group_id is not None:
+        # Deleted groups report an empty dashboard snapshot instead of leaking tasks.
+        if not Groups.objects.filter(pk=group_id, deleted_at__isnull=True).exists():
+            return {
+                "completionRate": 0,
+                "completedTasks": 0,
+                "totalTasks": 0,
+                "currentWeek": None,
+                "nextTask": None,
+                "nextTaskDate": None,
+            }
         task_qs = task_qs.filter(group_id=group_id)
     elif allowed_group_ids is not None:
         task_qs = task_qs.filter(group_id__in=allowed_group_ids)

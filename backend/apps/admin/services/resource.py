@@ -100,6 +100,7 @@ class QueryResourcesInput(TypedDict):
     order: str
     uploader: Optional[str]
     role_slug: Optional[str]
+    deleted: Optional[bool]
 
 
 class CreateResourceInput(TypedDict):
@@ -361,7 +362,7 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     """Fetch resources from database with filters and pagination."""
     queryset = Resources.objects.select_related(
         'type', 'track', 'group', 'uploaded_by'
-    ).filter(deleted_at__isnull=True)
+    ).filter(deleted_at__isnull=not bool(params.get('deleted')))
 
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
@@ -590,6 +591,19 @@ def query_resource_by_id(resource_id: int) -> Dict[str, Any]:
         'msg': 'Resource retrieved successfully',
         'data': resource,
     }
+
+
+@transaction.atomic
+def restore_resource(resource_id: int) -> Dict[str, Any]:
+    """Restore a soft-deleted resource for admin recovery."""
+    try:
+        resource = Resources.objects.get(id=resource_id, deleted_at__isnull=False)
+    except Resources.DoesNotExist:
+        return {'msg': 'Resource not found', 'data': None}
+
+    resource.deleted_at = None
+    resource.save(update_fields=['deleted_at'])
+    return query_resource_by_id(resource_id)
 
 
 @transaction.atomic

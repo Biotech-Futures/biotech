@@ -301,7 +301,6 @@
                         <input
                           v-model="taskFilters.showDeleted"
                           type="checkbox"
-                          @change="toggleDeletedTaskVisibility"
                         />
                         <span>Show deleted</span>
                       </label>
@@ -584,10 +583,21 @@
                       <i class="fas fa-plus" aria-hidden="true"></i>
                     </button>
                     <button
-                      v-if="canManageTask(row.task)"
+                      v-if="canRestoreTask(row.task)"
                       type="button"
                       class="task-icon-btn"
-                      :disabled="isLoadingTasks || row.task.deletedAt"
+                      :disabled="isUpdatingTask(row.task.id)"
+                      title="Restore task"
+                      :aria-label="`Restore ${row.task.name}`"
+                      @click="restoreTask(row.task)"
+                    >
+                      <i class="fas fa-rotate-left" aria-hidden="true"></i>
+                    </button>
+                    <button
+                      v-if="!row.task.deletedAt && canManageTask(row.task)"
+                      type="button"
+                      class="task-icon-btn"
+                      :disabled="isLoadingTasks"
                       title="Edit task"
                       :aria-label="`Edit ${row.task.name}`"
                       @click="openEditTaskDialog(row.task)"
@@ -595,10 +605,10 @@
                       <i class="fas fa-pen" aria-hidden="true"></i>
                     </button>
                     <button
-                      v-if="canManageTask(row.task)"
+                      v-if="!row.task.deletedAt && canManageTask(row.task)"
                       type="button"
                       class="task-icon-btn task-icon-btn--danger"
-                      :disabled="isDeletingTask(row.task.id) || row.task.deletedAt"
+                      :disabled="isDeletingTask(row.task.id)"
                       title="Delete task"
                       :aria-label="`Delete ${row.task.name}`"
                       @click="removeTask(row.task)"
@@ -1148,6 +1158,7 @@
                            an admin (``canManageMessage``). -->
                       <span class="message-inline-actions">
                         <button
+                          v-if="!message.isDeleted"
                           type="button"
                           class="inline-action-btn"
                           title="Reply"
@@ -1157,7 +1168,7 @@
                           <i class="fas fa-reply"></i>
                         </button>
                         <button
-                          v-if="supportsMessageReactions"
+                          v-if="!message.isDeleted && supportsMessageReactions"
                           type="button"
                           class="inline-action-btn"
                           :class="{ active: activeReactionPickerMessageId === message.id }"
@@ -1237,12 +1248,12 @@
                       </span>
                     </span>
                   </div>
-                  <div v-if="message.replyTo" class="message-reply">
+                  <div v-if="!message.isDeleted && message.replyTo" class="message-reply">
                     <span>{{ getReplyLabel(message.replyTo) }}</span>
                     <strong>{{ getReplyText(message.replyTo) }}</strong>
                   </div>
                   <img
-                    v-if="message.messageType === 'gif' && message.gifUrl"
+                    v-if="!message.isDeleted && message.messageType === 'gif' && message.gifUrl"
                     :src="message.gifUrl"
                     :alt="message.text || 'GIF message'"
                     class="message-gif"
@@ -1251,6 +1262,9 @@
                     loading="lazy"
                     decoding="async"
                   />
+                  <div v-else-if="message.isDeleted" class="message-text message-text--deleted">
+                    {{ getDeletedMessageText(message) }}
+                  </div>
                   <div v-else-if="editingMessageId !== message.id" class="message-text">
                     <template
                       v-for="(segment, segmentIndex) in getMessageTextSegments(message.text)"
@@ -1804,6 +1818,7 @@ import {
   deleteTask as deleteTaskRequest,
   listTasks,
   retrieveTask,
+  restoreTask as restoreTaskRequest,
   setTaskStatus as setTaskStatusRequest,
   updateTask as updateTaskRequest,
 } from '@/utils/tasksAPI'
@@ -2092,6 +2107,8 @@ let chatSocket = null
 // First successful WS open per page load is a no-op catch-up; subsequent
 // reopens (reconnect after a drop) trigger a resync.
 let hasConnectedChatSocket = false
+let recentMessageSyncTimer = null
+let isSyncingRecentMessages = false
 let typingStopTimer = null
 let manageWindowTimer = null
 let searchHighlightTimer = null
@@ -2126,6 +2143,27 @@ const formatTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return _timeFmt.format(date)
+}
+
+const resolveMessageSentAt = (raw) => {
+  const candidates = [
+    raw?.sent_at,
+    raw?.sentAt,
+    raw?.sent_datetime,
+    raw?.sentDatetime,
+    raw?.date,
+    raw?.created_at,
+    raw?.createdAt,
+    raw?.timestamp,
+  ]
+
+  for (const value of candidates) {
+    if (!value) continue
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+
+  return new Date().toISOString()
 }
 
 const formatTaskStatus = (value) => {
@@ -2819,8 +2857,7 @@ const selectedTaskIdList = computed(() =>
 const canCreateGroupTasks = computed(
   () =>
     auth.isAdmin ||
-    (auth.isMentor && isCurrentGroupMentor.value) ||
-    supervisesAnyCurrentGroupStudent.value,
+    (auth.isMentor && isCurrentGroupMentor.value),
 )
 const canCreateIndividualTasks = computed(
   () =>
@@ -2941,13 +2978,26 @@ const isSupervisorInTaskGroup = (task) => {
 const canManageTask = (task) => {
   if (!task || task.deletedAt) return false
   if (auth.isAdmin) return true
+
+  if (task.taskType === 'group') return isMentorOfTaskGroup(task)
+
   const creatorId = Number(task.createdBy?.id)
   if (Number.isFinite(creatorId) && creatorId === currentUserId.value) return true
 
   if (task.creatorRole !== 'student') return false
-  if (task.taskType === 'group') return isMentorOfTaskGroup(task)
   if (task.taskType === 'individual')
     return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  return false
+}
+
+const canRestoreTask = (task) => {
+  if (!task?.deletedAt) return false
+  if (auth.isAdmin) return true
+  if (task.taskType === 'group') return isMentorOfTaskGroup(task)
+  if (task.taskType === 'individual') {
+    if (isAssigneeSelf(task)) return true
+    return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
+  }
   return false
 }
 
@@ -3013,36 +3063,13 @@ const cacheDeletedTask = (task) => {
   locallyDeletedTasks.value = next
 }
 
-const mergeLocallyDeletedTasks = () => {
-  const byId = new Map(tasks.value.map((task) => [Number(task.id), task]))
-  locallyDeletedTasks.value.forEach((task) => {
-    if (isTaskRelevantToCurrentGroup(task)) byId.set(Number(task.id), task)
-  })
-  tasks.value = sortTaskCollection(Array.from(byId.values()))
-  ensureTaskPageInRange()
-  syncSelectedTasks()
-}
-
-const hideLocallyDeletedTasks = () => {
-  tasks.value = tasks.value.filter((task) => !task.deletedAt)
-  ensureTaskPageInRange()
-  syncSelectedTasks()
-}
-
-const toggleDeletedTaskVisibility = () => {
-  if (taskFilters.value.showDeleted) {
-    mergeLocallyDeletedTasks()
-  } else {
-    hideLocallyDeletedTasks()
-  }
-}
-
 const removeTaskFromList = (taskId) => {
   const index = tasks.value.findIndex((item) => Number(item.id) === Number(taskId))
   if (index !== -1) tasks.value.splice(index, 1)
 }
 
 const getTaskListBaseParams = () => ({
+  deleted: taskFilters.value.showDeleted,
   status: taskFilters.value.status,
   completed: taskFilters.value.completed === '' ? '' : taskFilters.value.completed === 'true',
   parent_id: taskFilters.value.parentId,
@@ -3166,14 +3193,9 @@ const loadTasks = async ({ resetPage = true } = {}) => {
     taskBatches.flat().forEach((task) => {
       if (task?.id) byId.set(Number(task.id), task)
     })
-    if (taskFilters.value.showDeleted) {
-      locallyDeletedTasks.value.forEach((task) => {
-        if (isTaskRelevantToCurrentGroup(task)) byId.set(Number(task.id), task)
-      })
-    }
-
     tasks.value = sortTaskCollection(
       Array.from(byId.values()).filter((task) => {
+        if (taskFilters.value.showDeleted && !task.deletedAt) return false
         if (!taskFilters.value.showDeleted && task.deletedAt) return false
         return isTaskRelevantToCurrentGroup(task)
       }),
@@ -3206,7 +3228,7 @@ watch(
 
 const normalizeMessage = (item) => {
   const raw = item?.message ? item.message : item
-  const sentAt = raw?.sent_at || raw?.sent_datetime || raw?.created_at || new Date().toISOString()
+  const sentAt = resolveMessageSentAt(raw)
   const senderId = Number(raw?.sender_user || raw?.sender_id || raw?.sender_user_id || 0)
   const currentUserId = Number(auth.user?.id || 0)
   const displayName = auth.displayName || ''
@@ -3217,6 +3239,15 @@ const normalizeMessage = (item) => {
     (senderName && displayName && senderName === displayName)
   const messageText = raw?.message_text || raw?.text || ''
   const messageType = raw?.message_type || 'text'
+  const isDeleted = Boolean(raw?.is_deleted || raw?.isDeleted || raw?.deleted_at)
+  const deletedById = Number(raw?.deleted_by || raw?.deletedBy || raw?.deleted_by_id || 0)
+  const deletedByName = raw?.deleted_by_name || raw?.deletedByName || ''
+  const deletedByIsAdmin =
+    raw?.deleted_by_is_admin === true ||
+    raw?.deletedByIsAdmin === true ||
+    raw?.deleted_by_is_admin === 'true' ||
+    raw?.deletedByIsAdmin === 'true'
+  const isOwnMessage = isOwn || (isDeleted && deletedById > 0 && deletedById === currentUserId)
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
   // Backend ships GIFs as ``{message_type: 'gif', gif: {gif_url, preview_url, title, provider_id}}``.
@@ -3227,7 +3258,7 @@ const normalizeMessage = (item) => {
     : ''
   const gifPreviewUrl = gifPayload?.preview_url || ''
   const gifTitle = gifPayload?.title || ''
-  const author = isOwn
+  const author = isOwnMessage
     ? 'You'
     : raw?.sender_name || raw?.author || getMentionLabel(senderId)
 
@@ -3238,7 +3269,7 @@ const normalizeMessage = (item) => {
     text: messageText,
     time: formatTime(sentAt),
     date: sentAt,
-    isOwn,
+    isOwn: isOwnMessage,
     messageType,
     gifUrl,
     gifPreviewUrl,
@@ -3250,8 +3281,11 @@ const normalizeMessage = (item) => {
     replyTo: raw?.reply_to || null,
     editedAt: raw?.edited_at || null,
     deletedAt: raw?.deleted_at || null,
+    deletedById,
+    deletedByName,
+    deletedByIsAdmin,
     isEdited: Boolean(raw?.is_edited || raw?.isEdited || raw?.edited_at),
-    isDeleted: Boolean(raw?.is_deleted || raw?.isDeleted || raw?.deleted_at),
+    isDeleted,
     readCount: Number(raw?.read_count || raw?.readCount || 0),
     deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
     isReadByMe: Boolean(raw?.is_read_by_me || raw?.isReadByMe),
@@ -3260,6 +3294,17 @@ const normalizeMessage = (item) => {
     deliveredTo: Array.isArray(raw?.delivered_to) ? raw.delivered_to : [],
     isLocalOnly: Boolean(raw?.isLocalOnly),
   }
+}
+
+const getDeletedMessageText = (message) => {
+  if (!message?.isDeleted) return ''
+  if (message.deletedByIsAdmin) return 'Admin deleted a message'
+  const deletedById = Number(message.deletedById || 0)
+  if ((deletedById > 0 && deletedById === currentUserId.value) || (!deletedById && message.isOwn)) {
+    return 'You deleted a message'
+  }
+  const name = message.deletedByName || message.author || 'Someone'
+  return `${name} deleted a message`
 }
 
 const getAttachmentLabel = (attachment) => {
@@ -3863,6 +3908,29 @@ const removeTask = async (task) => {
   }
 }
 
+const restoreTask = async (task) => {
+  if (!task?.id || isUpdatingTask(task.id) || !canRestoreTask(task)) return
+
+  setTaskUpdating(task.id, true)
+  taskError.value = ''
+
+  try {
+    const restoredTask = await restoreTaskRequest(task.id)
+    const nextDeletedTasks = new Map(locallyDeletedTasks.value)
+    nextDeletedTasks.delete(Number(task.id))
+    locallyDeletedTasks.value = nextDeletedTasks
+    if (taskFilters.value.showDeleted) {
+      removeTaskFromList(task.id)
+    } else {
+      upsertTask(restoredTask)
+    }
+  } catch (error) {
+    taskError.value = error instanceof Error ? error.message : 'Task could not be restored.'
+  } finally {
+    setTaskUpdating(task.id, false)
+  }
+}
+
 const typingIndicatorText = computed(() => {
   const list = typingUsers.value
   if (!list.length) return ''
@@ -3953,6 +4021,20 @@ const applyMessageUpdate = (messageId, updater) => {
   const current = messages.value[index]
   const nextValue = typeof updater === 'function' ? updater(current) : updater
   messages.value.splice(index, 1, nextValue)
+}
+
+const markReplyPreviewsDeleted = (messageId) => {
+  messages.value = messages.value.map((message) => {
+    if (String(message.replyTo?.id) !== String(messageId)) return message
+    return {
+      ...message,
+      replyTo: {
+        ...message.replyTo,
+        text: null,
+        deleted: true,
+      },
+    }
+  })
 }
 
 const isPendingMessage = (message) =>
@@ -4684,7 +4766,22 @@ const deleteMessage = async (message) => {
     await requestJson(buildChatMessageUrl(backendGroupId, message.id), {
       method: 'DELETE',
     })
-    messages.value = messages.value.filter((item) => String(item.id) !== String(message.id))
+    applyMessageUpdate(message.id, (current) => ({
+      ...current,
+      text: '',
+      attachments: [],
+      resources: [],
+      reactions: {},
+      preview: null,
+      gifUrl: '',
+      gifPreviewUrl: '',
+      deletedAt: new Date().toISOString(),
+      deletedById: currentUserId.value,
+      deletedByName: auth.isAdmin ? 'Admin' : getCurrentUserMentionName(),
+      deletedByIsAdmin: Boolean(auth.isAdmin),
+      isDeleted: true,
+    }))
+    markReplyPreviewsDeleted(message.id)
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Message could not be deleted.'
   } finally {
@@ -4694,6 +4791,7 @@ const deleteMessage = async (message) => {
 
 const disconnectChatSocket = () => {
   stopTypingIndicator()
+  stopRecentMessageSync()
   if (chatSocket) {
     chatSocket.close()
     chatSocket = null
@@ -4812,22 +4910,49 @@ const handleSocketPayload = async (payload) => {
     return
   }
 
+  if (eventName === 'message.restored') {
+    if (socketMessage) {
+      upsertMessage(socketMessage)
+    } else if (socketMessageId) {
+      applyMessageUpdate(socketMessageId, (message) => ({
+        ...message,
+        deletedAt: null,
+        deletedById: 0,
+        deletedByName: '',
+        deletedByIsAdmin: false,
+        isDeleted: false,
+      }))
+    }
+    return
+  }
+
   if (eventName === 'message.deleted') {
     if (!socketMessageId) return
-    messages.value = messages.value.map((message) => {
-      if (String(message.replyTo?.id) !== String(socketMessageId)) return message
-      return {
+    if (socketMessage) {
+      upsertMessage(socketMessage)
+    } else {
+      const deletedByIsAdmin =
+        payload.deleted_by_is_admin === true ||
+        payload.deletedByIsAdmin === true ||
+        payload.deleted_by_is_admin === 'true' ||
+        payload.deletedByIsAdmin === 'true'
+      applyMessageUpdate(socketMessageId, (message) => ({
         ...message,
-        replyTo: {
-          ...message.replyTo,
-          text: null,
-          deleted: true,
-        },
-      }
-    })
-    messages.value = messages.value.filter(
-      (message) => String(message.id) !== String(socketMessageId),
-    )
+        text: '',
+        attachments: [],
+        resources: [],
+        reactions: {},
+        preview: null,
+        gifUrl: '',
+        gifPreviewUrl: '',
+        deletedAt: payload.deleted_at || new Date().toISOString(),
+        deletedById: Number(payload.deleted_by || 0),
+        deletedByName: deletedByIsAdmin ? 'Admin' : payload.deleted_by_name || '',
+        deletedByIsAdmin,
+        isDeleted: true,
+      }))
+    }
+    markReplyPreviewsDeleted(socketMessageId)
   }
 }
 
@@ -4848,6 +4973,7 @@ const connectChatSocket = () => {
 
   chatSocket.addEventListener('open', () => {
     wsConnectionState.value = 'connected'
+    void syncRecentMessages()
     // No catch-up fetch on first open — loadMessages already pulled the
     // freshest batch. Only resync on reconnect, where messages may have
     // arrived while the socket was down.
@@ -4941,6 +5067,7 @@ const loadMessages = async () => {
     }
     void markMessagesAsDelivered(incomingIds, backendGroupId)
     void markMessagesAsRead(incomingIds, backendGroupId)
+    startRecentMessageSync()
   }
 }
 
@@ -5009,6 +5136,55 @@ const loadNewerMessages = async () => {
   } catch (error) {
     console.error('Failed to backfill newer chat messages:', error)
   }
+}
+
+const syncRecentMessages = async () => {
+  const backendGroupId = getBackendGroupId()
+  if (!backendGroupId || isSyncingRecentMessages || !messages.value.length) return
+
+  isSyncingRecentMessages = true
+  try {
+    const data = await requestJson(
+      buildChatMessageCollectionUrl(backendGroupId, '?limit=100'),
+    )
+    if (!isCurrentBackendGroupId(backendGroupId)) return
+
+    const currentIds = new Set(messages.value.map((message) => String(message.id)))
+    const currentNumericIds = messages.value
+      .map((message) => Number(message.id))
+      .filter((id) => Number.isFinite(id))
+    const maxCurrentId = currentNumericIds.length ? Math.max(...currentNumericIds) : 0
+    const recentMessages = extractCollectionItems(data).map(normalizeMessage).reverse()
+
+    recentMessages.forEach((message) => {
+      const messageId = String(message.id)
+      const numericId = Number(message.id)
+      if (
+        currentIds.has(messageId) ||
+        (Number.isFinite(numericId) && numericId > maxCurrentId)
+      ) {
+        upsertMessage(message)
+      }
+    })
+    nextMessagesAfter.value = data?.next_after || nextMessagesAfter.value
+  } catch (error) {
+    console.error('Failed to sync recent chat messages:', error)
+  } finally {
+    isSyncingRecentMessages = false
+  }
+}
+
+const startRecentMessageSync = () => {
+  stopRecentMessageSync()
+  recentMessageSyncTimer = window.setInterval(() => {
+    void syncRecentMessages()
+  }, 2500)
+}
+
+const stopRecentMessageSync = () => {
+  if (!recentMessageSyncTimer) return
+  window.clearInterval(recentMessageSyncTimer)
+  recentMessageSyncTimer = null
 }
 
 const toggleMessageSearch = async () => {
@@ -5954,6 +6130,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disconnectChatSocket()
+  stopRecentMessageSync()
   clearTimeout(typingStopTimer)
   clearTimeout(taskFilterReloadTimer)
   clearTimeout(searchHighlightTimer)
@@ -8542,6 +8719,15 @@ onBeforeUnmount(() => {
 /* Message text color for own messages */
 .pane--discussion .message.own .message-text {
   color: #fff !important;
+}
+
+.message-text--deleted {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.message.own .message-text--deleted {
+  color: rgba(255, 255, 255, 0.82) !important;
 }
 
 .message-edited {

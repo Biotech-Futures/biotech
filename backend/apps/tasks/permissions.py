@@ -38,6 +38,7 @@ def _mentor_group_ids(user):
             user=user,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
             left_at__isnull=True,
+            group__deleted_at__isnull=True,
         ).values_list("group_id", flat=True)
     )
 
@@ -48,7 +49,9 @@ def _student_group_ids(user):
             user=user,
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             left_at__isnull=True,
-        ).values_list("group_id", flat=True)
+            group__deleted_at__isnull=True,
+        )
+        .values_list("group_id", flat=True)
     )
 
 
@@ -61,7 +64,11 @@ def _supervisor_group_ids(user, supervisee_user_ids=None):
     if not student_ids:
         return []
     return list(
-        GroupMembership.objects.filter(user_id__in=student_ids, left_at__isnull=True)
+        GroupMembership.objects.filter(
+            user_id__in=student_ids,
+            left_at__isnull=True,
+            group__deleted_at__isnull=True,
+        )
         .values_list("group_id", flat=True)
         .distinct()
     )
@@ -75,6 +82,7 @@ def _is_active_group_mentor(user, group_id):
         user=user,
         membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         left_at__isnull=True,
+        group__deleted_at__isnull=True,
     ).exists()
 
 
@@ -91,7 +99,10 @@ def _supervises_any_in_group(user, group_id):
     if not student_ids:
         return False
     return GroupMembership.objects.filter(
-        group_id=group_id, user_id__in=student_ids, left_at__isnull=True
+        group_id=group_id,
+        user_id__in=student_ids,
+        left_at__isnull=True,
+        group__deleted_at__isnull=True,
     ).exists()
 
 
@@ -102,7 +113,11 @@ def _user_active_group_id(user_id):
     # and student memberships through (so non-student assignees still resolve
     # to a meaningful group/track).
     return (
-        GroupMembership.objects.filter(user_id=user_id, left_at__isnull=True)
+        GroupMembership.objects.filter(
+            user_id=user_id,
+            left_at__isnull=True,
+            group__deleted_at__isnull=True,
+        )
         .exclude(membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR)
         .values_list("group_id", flat=True)
         .first()
@@ -118,7 +133,10 @@ def _user_is_student(user_id):
 def _resolve_track_id(task_type, group, assigned_user):
     if task_type == TaskType.GROUP and group is not None:
         gid = group.id if hasattr(group, "id") else group
-        return Groups.objects.filter(pk=gid).values_list("track_id", flat=True).first()
+        return Groups.objects.filter(
+            pk=gid,
+            deleted_at__isnull=True,
+        ).values_list("track_id", flat=True).first()
     if task_type == TaskType.INDIVIDUAL and assigned_user is not None:
         uid = assigned_user.id if hasattr(assigned_user, "id") else assigned_user
         group_id = _user_active_group_id(uid)
@@ -129,7 +147,10 @@ def _resolve_track_id(task_type, group, assigned_user):
 
 def _task_track_id(task):
     if task.task_type == TaskType.GROUP and task.group_id:
-        return Groups.objects.filter(pk=task.group_id).values_list("track_id", flat=True).first()
+        return Groups.objects.filter(
+            pk=task.group_id,
+            deleted_at__isnull=True,
+        ).values_list("track_id", flat=True).first()
     if task.task_type == TaskType.INDIVIDUAL and task.assigned_user_id:
         group_id = _user_active_group_id(task.assigned_user_id)
         if group_id:
@@ -138,9 +159,6 @@ def _task_track_id(task):
 
 
 def resolve_creator_role(user, task_type, group=None, assigned_user=None):
-    if user.is_staff or user.is_superuser:
-        return CreatorRole.GLOBAL_ADMIN
-
     if is_operational_admin(user):
         track_ids = get_admin_track_ids(user)
         if track_ids is None:
@@ -167,16 +185,15 @@ def resolve_creator_role(user, task_type, group=None, assigned_user=None):
     return CreatorRole.STUDENT
 
 
-def visible_tasks(user):
+def visible_tasks(user, *, include_deleted=False):
     from django.db.models import Q
 
-    base = Task.objects.active()
+    base = Task.objects.all() if include_deleted else Task.objects.active()
+    # Deleted groups do not grant task visibility, including recovery views.
+    base = base.filter(Q(group__isnull=True) | Q(group__deleted_at__isnull=True))
 
     if not user or not user.is_authenticated:
         return base.none()
-
-    if user.is_staff or user.is_superuser:
-        return base
 
     track_ids = get_admin_track_ids(user) if is_operational_admin(user) else []
     if is_operational_admin(user) and track_ids is None:
@@ -191,11 +208,16 @@ def visible_tasks(user):
 
     if track_ids:
         admin_group_ids = list(
-            Groups.objects.filter(track_id__in=track_ids).values_list("id", flat=True)
+            Groups.objects.filter(
+                track_id__in=track_ids,
+                deleted_at__isnull=True,
+            ).values_list("id", flat=True)
         )
         user_ids_in_admin_tracks = list(
             GroupMembership.objects.filter(
-                group_id__in=admin_group_ids, left_at__isnull=True
+                group_id__in=admin_group_ids,
+                left_at__isnull=True,
+                group__deleted_at__isnull=True,
             ).values_list("user_id", flat=True)
         )
         visibility |= Q(task_type=TaskType.GROUP, group_id__in=admin_group_ids)
@@ -210,6 +232,7 @@ def visible_tasks(user):
                 group_id__in=mentor_group_ids,
                 left_at__isnull=True,
                 membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                group__deleted_at__isnull=True,
             ).values_list("user_id", flat=True)
         )
         visibility |= Q(task_type=TaskType.GROUP, group_id__in=mentor_group_ids)
@@ -247,13 +270,17 @@ def _can_create_task(user, payload):
     target_track_id = None
     if task_type == TaskType.GROUP:
         target_track_id = (
-            Groups.objects.filter(pk=group_id).values_list("track_id", flat=True).first()
+            Groups.objects.filter(
+                pk=group_id,
+                deleted_at__isnull=True,
+            ).values_list("track_id", flat=True).first()
         )
     elif task_type == TaskType.INDIVIDUAL:
         assignee_group_id = _user_active_group_id(assigned_user_id)
         if assignee_group_id:
             target_track_id = (
                 Groups.objects.filter(pk=assignee_group_id)
+                .filter(deleted_at__isnull=True)
                 .values_list("track_id", flat=True)
                 .first()
             )
@@ -262,9 +289,7 @@ def _can_create_task(user, payload):
         return True
 
     if task_type == TaskType.GROUP:
-        return _is_active_group_mentor(user, group_id) or _supervises_any_in_group(
-            user, group_id
-        )
+        return _is_active_group_mentor(user, group_id)
 
     # Student self-creation: assignee == self is the only allowed Student path.
     if assigned_user_id == user.id:
@@ -280,18 +305,14 @@ def _can_modify_task(user, task: Task) -> bool:
     track_id = _task_track_id(task)
     if track_id is not None and can_admin_track(user, track_id):
         return True
+
+    if task.task_type == TaskType.GROUP:
+        return _is_active_group_mentor(user, task.group_id)
+
     if task.created_by_id == user.id:
         return True
 
-    # Mentor of the group can edit any group task; supervisor of any active
-    # group student can edit any group task in that group.
-    if task.task_type == TaskType.GROUP:
-        if _is_active_group_mentor(user, task.group_id):
-            return True
-        if _supervises_any_in_group(user, task.group_id):
-            return True
-
-    # Student-created tasks: mentor / supervisor reach extends to CRUD.
+    # Student-created individual tasks: mentor / supervisor reach extends to CRUD.
     if task.creator_role == CreatorRole.STUDENT:
         if task.task_type == TaskType.INDIVIDUAL:
             assignee_group_id = _user_active_group_id(task.assigned_user_id)
@@ -317,6 +338,20 @@ class IsTaskManager(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         return _can_modify_task(request.user, obj)
+
+
+def can_restore_task(user, task: Task) -> bool:
+    track_id = _task_track_id(task)
+    if track_id is not None and can_admin_track(user, track_id):
+        return True
+
+    if task.task_type == TaskType.GROUP:
+        return _is_active_group_mentor(user, task.group_id)
+
+    if task.assigned_user_id == user.id:
+        return True
+
+    return _can_modify_task(user, task)
 
 
 def _can_toggle(user, task: Task) -> bool:

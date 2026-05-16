@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.storage import serve_managed_file
+from apps.audit.services import log_audit_event
 from .management.permissions import (
     CanEditMessage,
     CanModerateMessage,
@@ -42,6 +43,7 @@ from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
+from apps.users.utils.admin_scope import can_admin_track, is_operational_admin
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -175,6 +177,20 @@ def _broadcast_mention(user_id: int, payload: dict) -> None:
         async_to_sync(channel_layer.group_send)(f"user_{user_id}", envelope)
 
     transaction.on_commit(_send)
+
+
+def serialize_message_for_broadcast(message, context=None):
+    data = MessageSerializer(message, context=context or {}).data
+    public = MessagePublicSerializer(message, context=context or {}).data
+    if public.get("is_deleted"):
+        data["message_text"] = public.get("message_text", "")
+        data["deleted_by"] = public.get("deleted_by")
+        data["deleted_by_name"] = public.get("deleted_by_name", "")
+        data["deleted_by_is_admin"] = public.get("deleted_by_is_admin", False)
+    data["attachments"] = public.get("attachments", [])
+    data["preview"] = public.get("preview")
+    data["gif"] = public.get("gif")
+    return data
 
 
 def apply_mentions(message) -> list[int]:
@@ -314,6 +330,10 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == "destroy":
             return [IsAuthenticated(), CanModerateMessage()]
+        if self.action == "restore":
+            # Restore is admin recovery, not sender self-undo; object track scope
+            # is checked inside restore() after the deleted row is loaded.
+            return [IsAuthenticated()]
         if self.action == "partial_update":
             # Edit and delete share the same window-bounded RBAC rule, but the
             # permission classes stay split so view wiring expresses intent.
@@ -335,16 +355,18 @@ class MessageViewSet(viewsets.ModelViewSet):
             return MessagePublicSerializer
         return MessageSerializer
 
-    def _message_queryset(self):
+    def _message_queryset(self, *, include_deleted=False):
         # ``reply_to`` is select_related so the embedded parent context
         # does not issue an extra query per row. The join is intentionally
         # one level deep — mirroring ReplyToSerializer's bounded shape —
         # so a long chain of quotes still costs exactly one extra JOIN.
         user_id = getattr(getattr(self, "request", None), "user", None)
         user_id = getattr(user_id, "id", None)
+        # Restore/deleted admin paths opt into tombstoned rows; normal chat stays active-only.
+        base_qs = Messages.objects.all() if include_deleted else Messages.objects.filter(deleted_at__isnull=True)
         return (
-            Messages.objects.filter(deleted_at__isnull=True)
-            .select_related("sender_user", "reply_to", "preview", "gif")
+            base_qs
+            .select_related("sender_user", "deleted_by", "reply_to", "preview", "gif")
             .prefetch_related(
                 "attachments",
                 "resources__resource",
@@ -383,7 +405,9 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
-        return self._message_queryset().filter(group_id=gid)
+        return self._message_queryset(
+            include_deleted=self.action in {"list", "restore"}
+        ).filter(group_id=gid)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -422,7 +446,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             user_id = getattr(user_id, "id", None)
             try:
                 message = (
-                    Messages.objects.select_related("sender_user", "reply_to", "preview", "gif")
+                    Messages.objects.select_related("sender_user", "deleted_by", "reply_to", "preview", "gif")
                     .prefetch_related(
                         "attachments",
                         "resources__resource",
@@ -462,22 +486,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             except Messages.DoesNotExist:
                 pass
 
-        context = self.get_serializer_context()
-        data = MessageSerializer(message, context=context).data
-        public = MessagePublicSerializer(message, context=context).data
-        # MessageSerializer's nested attachments lack download_url; rebuild from
-        # the public shape that does include it.
-        data["attachments"] = public.get("attachments", [])
-        # ``preview`` only lives on MessagePublicSerializer — surface it on
-        # the broadcast so a client receiving the WS frame after a preview
-        # has been resolved (or cleared by edit) doesn't need to round-trip
-        # the REST list endpoint.
-        data["preview"] = public.get("preview")
-        # ``gif`` is rendered through SerializerMethodField on both serializers,
-        # but the public one is the canonical wire shape — keep parity so the
-        # broadcast and REST payloads match for GIF messages too.
-        data["gif"] = public.get("gif")
-        return data
+        return serialize_message_for_broadcast(
+            message,
+            context=self.get_serializer_context(),
+        )
 
     def _dispatch_link_previews(self, message: Messages) -> None:
         """Fire-and-forget OG unfurl for every URL in the message body.
@@ -507,7 +519,10 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def _get_group(self):
         group_pk = self.kwargs.get("group_pk")
-        return Groups.objects.only("id", "track_id").filter(pk=group_pk).first()
+        return Groups.objects.only("id", "track_id").filter(
+            pk=group_pk,
+            deleted_at__isnull=True,
+        ).first()
 
     # GET /chat/groups/{gid}/messages/?after=&before=&limit=
     def list(self, request, *args, **kwargs):
@@ -576,7 +591,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not q and not filter_type and not filter_from and not filter_to:
             return Response({"items": [], "next_before": None}, status=status.HTTP_200_OK)
 
-        qs = self.get_queryset().order_by("-sent_at", "-id")
+        qs = self._message_queryset().filter(group_id=gid).order_by("-sent_at", "-id")
         if q:
             qs = qs.filter(message_text__icontains=q)
 
@@ -626,6 +641,29 @@ class MessageViewSet(viewsets.ModelViewSet):
         next_before = items[-1].id if len(items) == limit else None
         return Response(
             {"items": data, "next_before": next_before},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"], url_path="deleted")
+    def deleted(self, request, *args, **kwargs):
+        # Recovery queue for moderators; participants should never browse deleted content.
+        if not is_operational_admin(request.user):
+            return Response({"detail": "Admin access is required."}, status=status.HTTP_403_FORBIDDEN)
+
+        gid = self.kwargs.get("group_pk")
+        qs = (
+            self._message_queryset(include_deleted=True)
+            .filter(group_id=gid, deleted_at__isnull=False)
+            .order_by("-deleted_at", "-id")
+        )
+        try:
+            limit = int(request.query_params.get("limit", 50))
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 100))
+        items = list(qs[:limit])
+        return Response(
+            {"items": MessageSerializer(items, many=True, context=self.get_serializer_context()).data},
             status=status.HTTP_200_OK,
         )
 
@@ -712,12 +750,53 @@ class MessageViewSet(viewsets.ModelViewSet):
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.soft_delete()
+        instance.soft_delete(deleted_by=request.user)
 
         _broadcast(
             instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="restore")
+    @transaction.atomic
+    def restore(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not is_operational_admin(request.user) or not can_admin_track(
+            request.user, instance.group.track_id
+        ):
+            return Response(
+                {"detail": "Admin access is required to restore messages."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # A message can only return while its parent group is active.
+        if instance.group.deleted_at is not None:
+            raise drf_serializers.ValidationError(
+                {"group": ["Cannot restore a message in a deleted group."]}
+            )
+        if instance.deleted_at is None:
+            return Response(
+                MessageSerializer(instance, context=self.get_serializer_context()).data,
+                status=status.HTTP_200_OK,
+            )
+
+        before_state = MessageSerializer(instance, context=self.get_serializer_context()).data
+        instance.restore()
+        instance.refresh_from_db()
+        after_state = MessageSerializer(instance, context=self.get_serializer_context()).data
+        log_audit_event(
+            actor=request.user,
+            entity_type="message",
+            entity_id=instance.id,
+            action="restore",
+            before_state=before_state,
+            after_state=after_state,
+        )
+        _broadcast(
+            instance.group_id,
+            "message.restored",
+            self._serialize_broadcast_message(instance),
+        )
+        return Response(after_state, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="read")
     def read(self, request, *args, **kwargs):
@@ -945,14 +1024,21 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not can_access_chat_group(request.user, group):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
 
+        if not CHAT_FILE_SERVICE.exists(attachment.storage_key):
+            return Response(
+                {"detail": "The attachment file is no longer available in storage."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         # ``?inline=1`` flips ``Content-Disposition`` from ``attachment`` to
         # ``inline`` so the browser previews the file in a tab (PDF viewer,
         # image, etc.) instead of forcing a save. Without the flag the default
         # download semantics stand — keeps existing callers that only want
         # the save flow unchanged.
         inline = (request.query_params.get("inline") or "").lower() in {"1", "true", "yes"}
+        proxy = (request.query_params.get("proxy") or "").lower() in {"1", "true", "yes"}
         return serve_managed_file(
-            resolve_url=CHAT_FILE_SERVICE.resolve_url,
+            resolve_url=(lambda *args, **kwargs: None) if proxy else CHAT_FILE_SERVICE.resolve_url,
             open_file=CHAT_FILE_SERVICE.open,
             storage_key=attachment.storage_key,
             filename=attachment.attachment_filename,

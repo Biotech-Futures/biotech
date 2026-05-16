@@ -199,6 +199,15 @@ class ManagedFileService:
         if storage.exists(storage_key):
             storage.delete(storage_key)
 
+    def exists(self, storage_key: str | None) -> bool:
+        if not storage_key:
+            return False
+        try:
+            return self._storage().exists(storage_key)
+        except Exception:
+            logger.exception("Failed to check managed storage object %s", storage_key)
+            return False
+
     def resolve_url(
         self,
         storage_key: str | None,

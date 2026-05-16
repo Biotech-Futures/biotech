@@ -26,7 +26,7 @@ from apps.users.utils.admin_scope import (
 )
 
 from .filters import EventFilter
-from .models import EventRsvp, Events
+from .models import EventRsvp, EventTargetGroup, Events
 from .serializers import (
     EventBulkInviteSerializer,
     EventRsvpRequestSerializer,
@@ -116,11 +116,24 @@ class EventViewSet(viewsets.ModelViewSet):
     _WHEN_VALUES = {"upcoming", "past", "all"}
 
     def get_queryset(self):
-        base_qs = Events.objects.filter(deleted_at__isnull=True)
         action = getattr(self, "action", None)
+        # Restore and admin recovery lists are the only paths that opt into deleted events.
+        include_deleted = (
+            action == "restore"
+            or (
+                is_operational_admin(self.request.user)
+                and (
+                    (self.request.query_params.get("include_deleted") or "").lower().strip() == "true"
+                    or (self.request.query_params.get("deleted") or "").lower().strip() == "true"
+                )
+            )
+        )
+        base_qs = Events.objects.all() if include_deleted else Events.objects.filter(deleted_at__isnull=True)
         # ?when= only narrows the list; detail/update/destroy keep past
         # events visible so admins can still edit a finished one.
         if action == "list":
+            if (self.request.query_params.get("deleted") or "").lower().strip() == "true":
+                base_qs = base_qs.filter(deleted_at__isnull=False)
             when = (self.request.query_params.get("when") or "upcoming").lower()
             if when not in self._WHEN_VALUES:
                 when = "upcoming"
@@ -260,20 +273,52 @@ class EventViewSet(viewsets.ModelViewSet):
         )
         return Response(EventSerializer(instance).data, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=["post"], url_path="restore")
+    @transaction.atomic
+    def restore(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self._enforce_track_scope(instance.track)
+        if instance.deleted_at is None:
+            return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+
+        # Target groups must be restored before their events can be restored.
+        if EventTargetGroup.objects.filter(
+            event=instance,
+            group__deleted_at__isnull=False,
+        ).exists():
+            return Response(
+                {"detail": "Cannot restore an event that targets a deleted group."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        before_state = EventSerializer(instance, context=self.get_serializer_context()).data
+        instance.deleted_at = None
+        instance.save(update_fields=["deleted_at"])
+        instance.refresh_from_db()
+        log_audit_event(
+            actor=request.user,
+            entity_type="event",
+            entity_id=instance.id,
+            action="restore",
+            before_state=before_state,
+            after_state=EventSerializer(instance, context=self.get_serializer_context()).data,
+        )
+        return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+
 
 class EventRsvpSetView(APIView):
-    """POST /events/v1/{id}/rsvp/ — set my RSVP to accepted/tentative/declined.
+    """POST /api/v1/events/{id}/rsvp/ — set my RSVP to accepted/tentative/declined.
 
     Idempotent. PENDING is rejected — that's an admin-invite state, not a
-    user choice.
+    user choice. The legacy /events/v1/{id}/rsvp/ route still resolves.
     """
 
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
-        # Stable across every URL the dual-mount + legacy v1/ alias exposes
-        # this view at (``/events/<id>/rsvp/``, ``/events/v1/<id>/rsvp/``,
-        # ``/api/v1/events/<id>/rsvp/``, ``/api/v1/events/v1/<id>/rsvp/``).
+        # Stable across every URL the canonical mount + legacy v1/ alias exposes
+        # this view at (``/api/v1/events/<id>/rsvp/``, ``/events/<id>/rsvp/``,
+        # and ``/events/v1/<id>/rsvp/``).
         # Without this, drf_spectacular auto-generates an id from the path,
         # collides with EventInviteCreateView (same path prefix + POST), and
         # disambiguates with ``_2`` / ``_3`` / ``_4`` suffixes that change
@@ -337,7 +382,7 @@ class IsNotStudent(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        if request.user.is_staff or request.user.is_superuser:
+        if is_operational_admin(request.user):
             return True
 
         role_name = self._get_active_role(request.user)
@@ -415,7 +460,7 @@ class EventInviteListMeHTMLView(generics.ListAPIView):
 
 
 class EventBulkInviteView(APIView):
-    """POST /events/v1/{id}/rsvp/bulk/ — upsert many invites in one txn.
+    """POST /api/v1/events/{id}/rsvp/bulk/ — upsert many invites in one txn.
 
     Returns `created` / `updated` / `not_found` so the FE can show a
     partial-success summary instead of failing the whole call on one bad id.

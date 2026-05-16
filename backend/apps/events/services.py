@@ -2,8 +2,8 @@
 
 Permission model in one paragraph:
 
-* Events are *pushed* — only admins create them. Global admins (is_staff
-  / is_superuser / AdminScope.is_global) can CRUD any event. Track admins
+* Events are *pushed* — only admins create them. Global admins
+  (AdminScope.is_global) can CRUD any event. Track admins
   can CRUD only events whose track FK is in their AdminScope.
 * Users RSVP. The user-side state machine is accepted / tentative /
   declined. PENDING is reserved for admin-issued invites awaiting a
@@ -150,7 +150,7 @@ def can_user_rsvp_to_event(user, event) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Read-side scoping for GET /events/v1/. Mirrors the gate above.
+# Read-side scoping for GET /api/v1/events/. Mirrors the gate above.
 # ---------------------------------------------------------------------------
 
 
@@ -199,6 +199,8 @@ def visible_events_queryset(user, base_qs):
                 EventTargetGroup.objects.filter(
                     event_id=OuterRef("id"),
                     group__track_id__in=admin_track_ids,
+                    # Deleted groups should not expand an admin's visible event scope.
+                    group__deleted_at__isnull=True,
                 )
             )
         )
@@ -220,6 +222,8 @@ def visible_events_queryset(user, base_qs):
         EventTargetGroup.objects.filter(
             event_id=OuterRef("id"),
             group_id__in=list(user_group_ids),
+            # Event visibility through groups follows active memberships only.
+            group__deleted_at__isnull=True,
         )
     )
     role_axis_pass = ~has_role_target | Exists(
@@ -261,7 +265,10 @@ def _supervisor_visibility_q(user):
 
     rows = list(
         GroupMembership.objects.filter(
-            user_id__in=supervisee_ids, left_at__isnull=True
+            user_id__in=supervisee_ids,
+            left_at__isnull=True,
+            # Supervisor visibility should not survive group deletion.
+            group__deleted_at__isnull=True,
         ).values_list("group_id", "group__track_id")
     )
     group_ids = sorted({r[0] for r in rows if r[0]})
@@ -282,6 +289,7 @@ def _supervisor_visibility_q(user):
             EventTargetGroup.objects.filter(
                 event_id=OuterRef("id"),
                 group_id__in=group_ids,
+                group__deleted_at__isnull=True,
             )
         )
     return q
@@ -322,7 +330,12 @@ def _user_scope(user):
     from apps.resources.models import RoleAssignmentHistory
 
     memberships = list(
-        GroupMembership.objects.filter(user=user, left_at__isnull=True)
+        GroupMembership.objects.filter(
+            user=user,
+            left_at__isnull=True,
+            # User event scope is rebuilt from active groups only.
+            group__deleted_at__isnull=True,
+        )
         .select_related("group")
     )
     user_group_ids = {m.group_id for m in memberships}
@@ -497,7 +510,7 @@ def _promote_oldest_waitlisted(event):
 # ---------------------------------------------------------------------------
 # RSVP reminder dispatch. Triggered hourly by the GitHub Actions workflow
 # (.github/workflows/rsvp-reminders.yml) hitting the HMAC-guarded
-# POST /events/v1/admin/send-rsvp-reminders/ endpoint.
+# POST /api/v1/events/admin/send-rsvp-reminders/ endpoint.
 # ---------------------------------------------------------------------------
 
 

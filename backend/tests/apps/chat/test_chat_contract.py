@@ -99,6 +99,7 @@ class _ChatFixture(StorageCleanupMixin, TestCase):
 
         self.res1 = Resources.objects.create(
             name="R1", description="d1", uploaded_by=self.admin,
+            group=self.group, visibility_scope=Resources.VisibilityScope.GROUP,
             uploaded_at=timezone.now() - timedelta(minutes=1),
         )
 

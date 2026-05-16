@@ -4,6 +4,7 @@ Run with: python manage.py test apps.services
 """
 
 from django.test import TestCase
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta
@@ -11,6 +12,7 @@ from unittest.mock import patch, MagicMock
 
 from apps.services.auth_service import send_login_code, verify_login_code
 from apps.services.models import LoginToken
+from apps.users.models import AdminScope
 
 User = get_user_model()
 
@@ -334,9 +336,7 @@ class MagicLinkAdminRedirectTest(TestCase):
             last_name="User",
             account_status=User.AccountStatus.ACTIVE,
         )
-        # is_staff makes is_operational_admin() true without needing AdminScope.
-        self.admin_user.is_staff = True
-        self.admin_user.save(update_fields=["is_staff"])
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
 
     def _magic_url(self, email: str, code: str, redirect_url: str | None = None) -> str:
         url = f"/services/magic/?email={email}&code={code}"
@@ -352,7 +352,7 @@ class MagicLinkAdminRedirectTest(TestCase):
         self.assertEqual(response.status_code, 302)
         # No redirect_url param → falls through to ADMIN_MAGIC_LINK_REDIRECT_URL
         self.assertTrue(
-            response.url.startswith("https://mentoringadmin.biotechfutures.org/auth/callback"),
+            response.url.startswith(settings.ADMIN_MAGIC_LINK_REDIRECT_URL),
             f"unexpected redirect: {response.url}",
         )
         self.assertIn("success=true", response.url)
@@ -384,12 +384,12 @@ class MagicLinkAdminRedirectTest(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(
-            response.url.startswith("https://mentoringadmin.biotechfutures.org/auth/callback"),
+            response.url.startswith(settings.ADMIN_MAGIC_LINK_REDIRECT_URL),
             f"unexpected redirect: {response.url}",
         )
 
     def test_admin_scope_user_also_redirects_to_admin_portal(self):
-        """A user with an AdminScope row (no is_staff) is still treated as admin."""
+        """A user with an AdminScope row is treated as admin."""
         from apps.users.models import AdminScope
         scoped_admin = User.objects.create_user(
             email="scoped@example.com",
@@ -405,7 +405,7 @@ class MagicLinkAdminRedirectTest(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(
-            response.url.startswith("https://mentoringadmin.biotechfutures.org/auth/callback"),
+            response.url.startswith(settings.ADMIN_MAGIC_LINK_REDIRECT_URL),
             f"unexpected redirect: {response.url}",
         )
 
@@ -428,8 +428,7 @@ class PasswordResetAdminRedirectTest(TestCase):
             last_name="User",
             account_status=User.AccountStatus.ACTIVE,
         )
-        self.admin_user.is_staff = True
-        self.admin_user.save(update_fields=["is_staff"])
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
 
     @patch("apps.services.auth_service.render_to_string")
     @patch("apps.services.auth_service.EmailMultiAlternatives")
@@ -444,12 +443,12 @@ class PasswordResetAdminRedirectTest(TestCase):
 
         ctx = mock_render.call_args[0][1]
         self.assertIn(
-            "https://mentoringadmin.biotechfutures.org/auth/reset-password?token=",
+            f"{settings.ADMIN_PASSWORD_RESET_REDIRECT_URL}?token=",
             ctx["RESET_PASSWORD_LINK"],
         )
         # Plaintext body must also use the admin portal base
         text_body = mock_email.call_args.kwargs["body"]
-        self.assertIn("mentoringadmin.biotechfutures.org/auth/reset-password", text_body)
+        self.assertIn(settings.ADMIN_PASSWORD_RESET_REDIRECT_URL, text_body)
 
     @patch("apps.services.auth_service.render_to_string")
     @patch("apps.services.auth_service.EmailMultiAlternatives")
@@ -469,7 +468,7 @@ class PasswordResetAdminRedirectTest(TestCase):
     @patch("apps.services.auth_service.render_to_string")
     @patch("apps.services.auth_service.EmailMultiAlternatives")
     def test_admin_scope_user_reset_email_uses_admin_portal_base(self, mock_email, mock_render):
-        """A user with an AdminScope row (no is_staff) is still routed to the admin portal."""
+        """A user with an AdminScope row is routed to the admin portal."""
         from apps.users.models import AdminScope
         from apps.services.auth_service import send_password_reset
 
@@ -490,7 +489,7 @@ class PasswordResetAdminRedirectTest(TestCase):
 
         ctx = mock_render.call_args[0][1]
         self.assertIn(
-            "https://mentoringadmin.biotechfutures.org/auth/reset-password?token=",
+            f"{settings.ADMIN_PASSWORD_RESET_REDIRECT_URL}?token=",
             ctx["RESET_PASSWORD_LINK"],
         )
 

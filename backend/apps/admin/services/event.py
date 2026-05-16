@@ -33,6 +33,7 @@ class QueryEventsInput(TypedDict, total=False):
     limit: int
     host_user_id: Optional[int]
     upcoming: bool
+    deleted: bool
 
 
 class CreateEventInput(TypedDict, total=False):
@@ -123,11 +124,12 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     limit = params.get("limit", 10)
     host_user_id = params.get("host_user_id")
     upcoming = params.get("upcoming", False)
+    deleted = params.get("deleted", False)
 
     offset = (page - 1) * limit
 
     # Build query conditions
-    queryset = Events.objects.filter(deleted_at__isnull=True)
+    queryset = Events.objects.filter(deleted_at__isnull=not deleted)
 
     if host_user_id:
         queryset = queryset.filter(host_user__id=host_user_id)
@@ -227,21 +229,21 @@ def query_event_by_id(id_str: str) -> EventResponseDict:
 def query_event_targets(id_str: str) -> EventTargetsResponseDict:
     """
     Get target groups, roles, and tracks for an event.
-    
+
     Args:
         id_str: Event ID as string
-        
+
     Returns:
         Dictionary with grouped target IDs
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
+
     group_rows = EventTargetGroup.objects.filter(event_id=event_id).values_list("group_id", flat=True)
     role_rows = EventTargetRole.objects.filter(event_id=event_id).values_list("role_id", flat=True)
     track_rows = EventTargetTrack.objects.filter(event_id=event_id).values_list("track_id", flat=True)
-    
+
     return {
         "msg": "Event targets retrieved successfully",
         "data": {
@@ -261,7 +263,7 @@ def _sync_targets(
 ) -> None:
     """
     Sync event targets with provided IDs.
-    
+
     Args:
         event_id: Event ID
         group_ids: List of group IDs to sync (None to skip)
@@ -275,7 +277,7 @@ def _sync_targets(
                 EventTargetGroup(event_id=event_id, group_id=gid)
                 for gid in group_ids
             ])
-    
+
     if role_ids is not None:
         EventTargetRole.objects.filter(event_id=event_id).delete()
         if role_ids:
@@ -283,7 +285,7 @@ def _sync_targets(
                 EventTargetRole(event_id=event_id, role_id=rid)
                 for rid in role_ids
             ])
-    
+
     if track_ids is not None:
         EventTargetTrack.objects.filter(event_id=event_id).delete()
         if track_ids:
@@ -434,7 +436,7 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
 def delete_event(id_str: str) -> EventResponseDict:
     """
     Soft delete an event by setting deleted_at timestamp.
-    
+
     Args:
         id_str: Event ID as string
         
@@ -444,20 +446,47 @@ def delete_event(id_str: str) -> EventResponseDict:
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
+
     try:
         event = Events.objects.get(id=event_id)
     except Events.DoesNotExist:
         return {"msg": "Event not found", "data": None}
-    
+
     # Delete associated RSVPs
     EventRsvp.objects.filter(event_id=event_id).delete()
-    
+
     # Soft delete the event
     event.deleted_at = timezone.now()
     event.save()
-    
+
     return {"msg": "Event deleted successfully", "data": _event_model_to_camel(event)}
+
+
+@transaction.atomic
+def restore_event(id_str: str) -> EventResponseDict:
+    """Restore a soft-deleted event for the admin recovery table."""
+    event_id = _to_event_id(id_str)
+    if not event_id:
+        return {"msg": "Invalid event id", "data": None}
+
+    try:
+        event = Events.objects.select_related("host_user").get(
+            id=event_id,
+            deleted_at__isnull=False,
+        )
+    except Events.DoesNotExist:
+        return {"msg": "Event not found", "data": None}
+
+    if EventTargetGroup.objects.filter(
+        event_id=event_id,
+        group__deleted_at__isnull=False,
+    ).exists():
+        return {"msg": "Cannot restore an event that targets a deleted group", "data": None}
+
+    event.deleted_at = None
+    event.save(update_fields=["deleted_at"])
+
+    return {"msg": "Event restored successfully", "data": _event_model_to_camel(event)}
 
 
 def _rsvp_to_camel(rsvp: Dict[str, Any]) -> Dict[str, Any]:

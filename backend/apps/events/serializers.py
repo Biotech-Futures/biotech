@@ -76,6 +76,7 @@ class EventSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Events
+        # deleted_at is read-only; recovery goes through the restore action.
         fields = [
             "id",
             "event_name",
@@ -87,6 +88,7 @@ class EventSerializer(serializers.ModelSerializer):
             "location",
             "location_link",
             "host_user",
+            "deleted_at",
             "event_image",
             "is_virtual",
             "max_attendees",
@@ -103,6 +105,7 @@ class EventSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "host_user",
+            "deleted_at",
             "accepted",
             "accepted_count",
             "waitlist_count",
@@ -242,7 +245,7 @@ class EventRsvpRequestSerializer(serializers.Serializer):
 
 
 class EventRsvpSubmitSerializer(serializers.Serializer):
-    """User-side RSVP payload for POST /events/v1/{id}/rsvp/.
+    """User-side RSVP payload for POST /api/v1/events/{id}/rsvp/.
 
     PENDING is excluded — that's an admin-invite state. Restricting
     choices here means a stray `rsvp_status=pending` body is rejected

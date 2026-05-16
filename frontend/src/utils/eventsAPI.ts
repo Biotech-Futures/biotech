@@ -3,6 +3,7 @@ import { apiErrorFromResponse } from './apiError'
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const EVENTS_API_BASE = `${API_BASE_URL}/api/v1/events`
 
 export type EventWhen = 'upcoming' | 'past' | 'all'
 export type EventRsvpStatus = 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
@@ -111,7 +112,7 @@ const eventListUrl = (params: EventListParams = {}) => {
   appendParam(query, 'track', params.track)
   appendParam(query, 'ordering', params.ordering || 'start_datetime')
 
-  return `${API_BASE_URL}/events/v1/?${query.toString()}`
+  return `${EVENTS_API_BASE}/?${query.toString()}`
 }
 
 export const fetchEvents = async (
@@ -143,7 +144,7 @@ export const fetchEvents = async (
 
 export const fetchEventById = async (eventId: number): Promise<BackendEvent> => {
   const res = await fetch(
-    `${API_BASE_URL}/events/v1/${eventId}/`,
+    `${EVENTS_API_BASE}/${eventId}/`,
     { method: 'GET', credentials: 'include', headers: authHeaders() }
   )
   if (!res.ok) throw await apiErrorFromResponse(res, 'Failed to fetch event')
@@ -173,7 +174,7 @@ export const fetchMyEventRsvps = async (
   }
 
   const res = await fetch(
-    `${API_BASE_URL}/events/v1/rsvps/me/?${query.toString()}`,
+    `${EVENTS_API_BASE}/rsvps/me/?${query.toString()}`,
     {
       method: 'GET',
       credentials: 'include',
@@ -203,7 +204,7 @@ export const setEventRsvp = async (
   }
 
   const res = await fetch(
-    `${API_BASE_URL}/events/v1/${eventId}/rsvp/`,
+    `${EVENTS_API_BASE}/${eventId}/rsvp/`,
     {
       method: 'POST',
       credentials: 'include',

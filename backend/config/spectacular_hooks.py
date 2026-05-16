@@ -5,9 +5,10 @@ The project URLconf mounts most apps at two prefixes:
 * ``/api/v1/<app>/...``  (canonical — what the FE and any new SDK consumer hit)
 * ``/<app>/...``          (legacy — kept resolving so old clients don't break)
 
-Some apps additionally expose an in-app ``v1/`` alias for their previous URL
-layout (events, announcements, audit, certificates, matching_runtime). That
-means each of those views is reachable at up to **four** URLs at runtime.
+Some legacy apps additionally expose an in-app ``v1/`` alias for their
+previous URL layout. Events now mounts only its canonical app-root patterns
+under ``/api/v1/events/...``; this hook remains as a guard for any app-local
+``v1/`` aliases that are later exposed under the canonical mount.
 
 For the OpenAPI document we want only **one** canonical URL per operation —
 the rest are backward-compat redirects, not API surface that SDK generators
@@ -27,10 +28,10 @@ import re
 from typing import Any
 
 
-# Matches the in-app legacy ``v1/`` alias paths that get re-exposed under the
-# canonical mount, e.g. ``/api/v1/events/v1/<id>/rsvp/``. The first ``[^/]+``
-# is the app prefix (``events``, ``announcements``, ...); the literal ``v1``
-# segment that follows is what we want to suppress in the schema.
+# Matches in-app legacy ``v1/`` alias paths if they get re-exposed under the
+# canonical mount, e.g. ``/api/v1/some-app/v1/<id>/``. The first ``[^/]+`` is
+# the app prefix; the literal ``v1`` segment that follows is what we want to
+# suppress in the schema.
 _LEGACY_V1_ALIAS_UNDER_API_V1 = re.compile(r"^/api/v1/[^/]+/v1(/|$)")
 
 

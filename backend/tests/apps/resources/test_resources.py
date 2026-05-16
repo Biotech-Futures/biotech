@@ -694,6 +694,86 @@ class ResourcesCRUDComprehensiveTests(TestCase):
         resource.refresh_from_db()
         self.assertTrue(resource.deleted_at is not None)
         self.assertIsNotNone(resource.deleted_at)
+
+    def test_restore_resource_clears_deleted_at(self):
+        """Test resource restore"""
+        # Restore clears only deleted_at; file metadata and audiences remain intact.
+        resource = Resources.objects.create(
+            name='Restore Resource',
+            description='A test resource',
+            uploaded_by=self.regular_user,
+        )
+        resource.deleted_at = timezone.now()
+        resource.save(update_fields=["deleted_at"])
+
+        url = reverse('resource-files-restore', kwargs={'pk': resource.id})
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resource.refresh_from_db()
+        self.assertIsNone(resource.deleted_at)
+        self.assertIsNone(response.data['deleted_at'])
+
+    def test_restore_resource_rejects_name_conflict(self):
+        # A deleted duplicate stays tombstoned if an active resource uses the name.
+        Resources.objects.create(
+            name='Conflicting Resource',
+            description='Active resource',
+            uploaded_by=self.regular_user,
+        )
+        deleted_resource = Resources.objects.create(
+            name='Conflicting Resource',
+            description='Deleted resource',
+            uploaded_by=self.regular_user,
+        )
+        deleted_resource.deleted_at = timezone.now()
+        deleted_resource.save(update_fields=["deleted_at"])
+
+        url = reverse('resource-files-restore', kwargs={'pk': deleted_resource.id})
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        deleted_resource.refresh_from_db()
+        self.assertIsNotNone(deleted_resource.deleted_at)
+
+    def test_deleted_resource_recovery_list_is_admin_only(self):
+        deleted_resource = Resources.objects.create(
+            name='Deleted Admin Resource',
+            description='Deleted resource',
+            uploaded_by=self.admin_user,
+        )
+        deleted_resource.deleted_at = timezone.now()
+        deleted_resource.save(update_fields=["deleted_at"])
+
+        url = reverse('resource-files-list')
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.get(url, {'deleted': 'true'})
+        include_response = self.client.get(url, {'include_deleted': 'true'})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(include_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_deleted_resource_recovery_list_returns_tombstones(self):
+        active_resource = Resources.objects.create(
+            name='Active Admin Resource',
+            description='Active resource',
+            uploaded_by=self.admin_user,
+        )
+        deleted_resource = Resources.objects.create(
+            name='Deleted Admin Resource',
+            description='Deleted resource',
+            uploaded_by=self.admin_user,
+        )
+        deleted_resource.deleted_at = timezone.now()
+        deleted_resource.save(update_fields=["deleted_at"])
+
+        url = reverse('resource-files-list')
+        response = self.client.get(url, {'deleted': 'true'})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {row['id'] for row in response.data['results']}
+        self.assertEqual(ids, {deleted_resource.id})
+        self.assertNotIn(active_resource.id, ids)
     
     def test_list_resources_excludes_deleted(self):
         """Test that deleted resources are excluded from listing"""

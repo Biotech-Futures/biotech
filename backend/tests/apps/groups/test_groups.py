@@ -5,16 +5,18 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
 from apps.groups.models import Groups, GroupMembership, CountryStates, Tracks, Countries
+from apps.users.models import AdminScope
 
 
 class GroupsTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.admin_user = get_user_model().objects.create_user(
-            email="myemail1@gmail.com", password='adminpass', is_staff=True
+            email="myemail1@gmail.com", password='adminpass'
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="myemail2@gmail.com", password='userpass', is_staff=False
+            email="myemail2@gmail.com", password='userpass'
         )
 
         self.country = Countries.objects.create(country_name="Australia")
@@ -164,6 +166,32 @@ class GroupsTests(TestCase):
         get_response = self.client.get(detail_url)
         self.assertEqual(get_response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_admin_can_restore_soft_deleted_group(self):
+        # Restore clears only deleted_at and returns the recovered group shape.
+        deleted = self.make_deleted_group()
+        url = reverse("groups-restore", args=[deleted.id])
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        deleted.refresh_from_db()
+        self.assertIsNone(deleted.deleted_at)
+        self.assertIsNone(response.data["deleted_at"])
+
+    def test_restore_group_rejects_active_name_conflict(self):
+        # A deleted duplicate stays tombstoned if it would violate active uniqueness.
+        deleted = self.make_deleted_group(name="Conflicting Group")
+        Groups.objects.create(group_name="Conflicting Group", track=self.track)
+        url = reverse("groups-restore", args=[deleted.id])
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.post(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        deleted.refresh_from_db()
+        self.assertIsNotNone(deleted.deleted_at)
+
     def test_non_staff_cannot_include_deleted_even_with_flag(self):
         deleted = self.make_deleted_group()
         url = reverse('groups-list') + '?include_deleted=true'
@@ -285,10 +313,11 @@ class CountriesApiTests(TestCase):
         self.client = APIClient()
         self.list_url = reverse('countries-list')
         self.admin_user = get_user_model().objects.create_user(
-            email="myemail1@gmail.com", password='adminpass', is_staff=True
+            email="myemail1@gmail.com", password='adminpass'
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="myemail2@gmail.com", password='userpass', is_staff=False
+            email="myemail2@gmail.com", password='userpass'
         )
         self.country1 = Countries.objects.create(country_name='Australia')
         self.country2 = Countries.objects.create(country_name='Brazil')
@@ -336,10 +365,11 @@ class GroupMemberApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", password="adminpass", is_staff=True
+            email="admin@test.com", password="adminpass"
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", password="userpass", is_staff=False
+            email="user@test.com", password="userpass"
         )
 
         self.country = Countries.objects.create(country_name="Australia")
@@ -378,7 +408,7 @@ class GroupMemberApiTests(TestCase):
     def test_create_group_member_admin_only(self):
         self.client.force_authenticate(user=self.admin_user)
         new_user = get_user_model().objects.create_user(
-            email="newuser@test.com", password="newpass", is_staff=False
+            email="newuser@test.com", password="newpass"
         )
         response = self.client.post(
             self.list_url,
@@ -389,7 +419,7 @@ class GroupMemberApiTests(TestCase):
     def test_create_group_member_non_admin_forbidden(self):
         self.client.force_authenticate(user=self.normal_user)
         new_user = get_user_model().objects.create_user(
-            email="another@test.com", password="pass", is_staff=False
+            email="another@test.com", password="pass"
         )
         response = self.client.post(
             self.list_url,
@@ -413,10 +443,11 @@ class TrackApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", password="adminpass", is_staff=True
+            email="admin@test.com", password="adminpass"
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", password="userpass", is_staff=False
+            email="user@test.com", password="userpass"
         )
         self.country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=self.country, state_name="NSW")

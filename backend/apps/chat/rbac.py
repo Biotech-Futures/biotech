@@ -12,11 +12,17 @@ def _group_from_value(group):
     if group is None:
         return None
     if hasattr(group, "id") and hasattr(group, "track_id"):
+        # Deleted groups must not authorize chat access from cached model instances.
+        if getattr(group, "deleted_at", None) is not None:
+            return None
         return group
 
     Groups = apps.get_model("groups", "Groups")
     group_id = getattr(group, "id", group)
-    return Groups.objects.only("id", "track_id").filter(pk=group_id).first()
+    return Groups.objects.only("id", "track_id").filter(
+        pk=group_id,
+        deleted_at__isnull=True,
+    ).first()
 
 
 def is_track_admin_for_group(user, group) -> bool:
