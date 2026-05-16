@@ -12,6 +12,7 @@ import type {
   ResourceTypeName,
   PaginatedResponse,
 } from "@/type/resource";
+import { buildUrl } from "@/util/url";
 
 type ApiResource = Partial<Resource> & {
   id: number | string;
@@ -43,10 +44,7 @@ function normalizeResource(resource: ApiResource): Resource {
       : null;
 
   const uploader = resource.uploader ?? {
-    id:
-      resource.uploader_user_id ??
-      resource.uploaded_by_id ??
-      "unknown",
+    id: resource.uploader_user_id ?? resource.uploaded_by_id ?? "unknown",
     first_name: "Unknown",
     last_name: "User",
     email: "unknown@example.com",
@@ -87,7 +85,9 @@ function normalizeResource(resource: ApiResource): Resource {
   };
 }
 
-function normalizePaginatedResources(payload: PaginatedResponse<ApiResource>): PaginatedResponse<Resource> {
+function normalizePaginatedResources(
+  payload: PaginatedResponse<ApiResource>,
+): PaginatedResponse<Resource> {
   return {
     ...payload,
     data: {
@@ -108,22 +108,42 @@ interface QueryResourcesParams {
 }
 
 export function useQueryResources(params: QueryResourcesParams) {
-  const { page, search, uploader, track_id, order, resource_type, resource_kind } = params;
+  const {
+    page,
+    search,
+    uploader,
+    track_id,
+    order,
+    resource_type,
+    resource_kind,
+  } = params;
 
   return useQuery({
-    queryKey: ["resources", page, search, uploader, track_id, order, resource_type, resource_kind],
+    queryKey: [
+      "resources",
+      page,
+      search,
+      uploader,
+      track_id,
+      order,
+      resource_type,
+      resource_kind,
+    ],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
-      const res = await myFetch.get<PaginatedResponse<ApiResource>>("/resource", {
-        params: {
-          page,
-          search,
-          uploader,
-          track_id,
-          resource_type,
-          resource_kind,
-          order: order ?? "newest",
+      const res = await myFetch.get<PaginatedResponse<ApiResource>>(
+        "/resource",
+        {
+          params: {
+            page,
+            search,
+            uploader,
+            track_id,
+            resource_type,
+            resource_kind,
+            order: order ?? "newest",
+          },
         },
-      });
+      );
       return normalizePaginatedResources(res.data);
     },
   });
@@ -133,7 +153,9 @@ export function useQueryResource(id: number | null) {
   return useQuery({
     queryKey: ["resource", id],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: ApiResource | null }>(`/resource/${id}`);
+      const res = await myFetch.get<{ msg: string; data: ApiResource | null }>(
+        `/resource/${id}`,
+      );
       return {
         ...res.data,
         data: res.data.data ? normalizeResource(res.data.data) : null,
@@ -147,7 +169,9 @@ export function useQueryResourceRoles() {
   return useQuery({
     queryKey: ["resource-roles"],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: ResourceRole[] }>("/resource/roles");
+      const res = await myFetch.get<{ msg: string; data: ResourceRole[] }>(
+        "/resource/roles",
+      );
       return res.data;
     },
   });
@@ -157,7 +181,10 @@ export function useQueryResourceTypes() {
   return useQuery({
     queryKey: ["resource-types"],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: ResourceTypeOption[] }>("/resource/types");
+      const res = await myFetch.get<{
+        msg: string;
+        data: ResourceTypeOption[];
+      }>("/resource/types");
       return res.data;
     },
   });
@@ -167,9 +194,10 @@ export function useQueryResourceTracks() {
   return useQuery({
     queryKey: ["resource-tracks"],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: ResourceTrackOption[] }>(
-        "/resource/tracks",
-      );
+      const res = await myFetch.get<{
+        msg: string;
+        data: ResourceTrackOption[];
+      }>("/resource/tracks");
       return res.data;
     },
   });
@@ -180,7 +208,10 @@ export function useCreateResource() {
 
   return useMutation({
     mutationFn: async (payload: CreateResource) => {
-      const res = await myFetch.post<{ msg: string; data: Resource }>("/resource", payload);
+      const res = await myFetch.post<{ msg: string; data: Resource }>(
+        "/resource",
+        payload,
+      );
       return res.data;
     },
     onSuccess: () => {
@@ -194,7 +225,10 @@ export function useUploadResource() {
 
   return useMutation({
     mutationFn: async (payload: FormData) => {
-      const res = await myFetch.post<{ msg: string; data: Resource }>("/resource/upload", payload);
+      const res = await myFetch.post<{ msg: string; data: Resource }>(
+        "/resource/upload",
+        payload,
+      );
       return res.data;
     },
     onSuccess: () => {
@@ -244,7 +278,9 @@ export function useDeleteResource() {
 
   return useMutation({
     mutationFn: async (id: number) => {
-      const res = await myFetch.delete<{ msg: string; data: null }>(`/resource/${id}`);
+      const res = await myFetch.delete<{ msg: string; data: null }>(
+        `/resource/${id}`,
+      );
       return res.data;
     },
     onSuccess: () => {
@@ -264,7 +300,9 @@ export type UploadedResourceLink = {
   size: number | null;
 };
 
-export async function uploadLinkedResourceFile(file: File): Promise<UploadedResourceLink> {
+export async function uploadLinkedResourceFile(
+  file: File,
+): Promise<UploadedResourceLink> {
   const payload = new FormData();
   payload.append("file", file);
 
@@ -276,6 +314,7 @@ export async function uploadLinkedResourceFile(file: File): Promise<UploadedReso
       fileName: string;
       url: string;
       resourceUrl?: string;
+      accessUrl?: string;
       downloadUrl?: string;
       mimeType: string | null;
       size: number | null;
@@ -283,13 +322,26 @@ export async function uploadLinkedResourceFile(file: File): Promise<UploadedReso
   }>("/resource/attachments/", payload);
 
   const attachment = res.data.data;
-
+  const apiUrl = import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000";
+  const accessUrl = buildUrl(
+    apiUrl,
+    "api",
+    "v1",
+    "admin",
+    "resource",
+    String(attachment.id),
+    "access",
+  );
   return {
     id: attachment.id,
     kind: attachment.kind ?? "attachment",
     fileName: attachment.fileName ?? file.name,
     url: attachment.resourceUrl ?? attachment.url,
-    accessUrl: attachment.resourceUrl ?? attachment.url,
+    accessUrl:
+      accessUrl ??
+      attachment.downloadUrl ??
+      attachment.resourceUrl ??
+      attachment.url,
     downloadUrl: attachment.downloadUrl,
     mimeType: attachment.mimeType,
     size: attachment.size,
@@ -303,7 +355,9 @@ export async function downloadResourceFile(id: number, fallbackName?: string) {
 
   const disposition = String(res.headers["content-disposition"] ?? "");
   const fileNameFromHeader = disposition.match(/filename="?([^\"]+)"?/)?.[1];
-  const fileName = decodeURIComponent(fileNameFromHeader || fallbackName || `resource-${id}`);
+  const fileName = decodeURIComponent(
+    fileNameFromHeader || fallbackName || `resource-${id}`,
+  );
 
   const url = window.URL.createObjectURL(res.data);
   const link = document.createElement("a");
@@ -316,7 +370,9 @@ export async function downloadResourceFile(id: number, fallbackName?: string) {
 }
 
 export async function accessResourceFile(id: number): Promise<ResourceAccess> {
-  const res = await myFetch.get<{ msg: string; data: ResourceAccess }>(`/resource/${id}/access`);
+  const res = await myFetch.get<{ msg: string; data: ResourceAccess }>(
+    `/resource/${id}/access`,
+  );
   return res.data.data;
 }
 
