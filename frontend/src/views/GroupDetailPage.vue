@@ -1179,36 +1179,39 @@
                             aria-haspopup="menu"
                             title="More actions"
                             aria-label="More actions"
-                            @click.stop="toggleMessageKebab(message.id)"
+                            @click.stop="toggleMessageKebab(message.id, $event)"
                           >
                             <i class="fas fa-ellipsis-v"></i>
                           </button>
-                          <div
-                            v-if="openMessageKebabId === message.id"
-                            class="inline-kebab-menu"
-                            role="menu"
-                            @click.stop
-                          >
-                            <button
-                              type="button"
-                              class="inline-kebab-item"
-                              role="menuitem"
-                              @click="onKebabEdit(message)"
+                          <Teleport to="body">
+                            <div
+                              v-if="openMessageKebabId === message.id"
+                              class="inline-kebab-menu inline-kebab-menu--floating"
+                              :style="messageKebabStyle"
+                              role="menu"
+                              @click.stop
                             >
-                              <i class="fas fa-pen"></i>
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="inline-kebab-item inline-kebab-item--danger"
-                              role="menuitem"
-                              :disabled="isDeletingMessageId === message.id"
-                              @click="onKebabDelete(message)"
-                            >
-                              <i class="fas fa-trash"></i>
-                              <span>Delete</span>
-                            </button>
-                          </div>
+                              <button
+                                type="button"
+                                class="inline-kebab-item"
+                                role="menuitem"
+                                @click="onKebabEdit(message)"
+                              >
+                                <i class="fas fa-pen"></i>
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                class="inline-kebab-item inline-kebab-item--danger"
+                                role="menuitem"
+                                :disabled="isDeletingMessageId === message.id"
+                                @click="onKebabDelete(message)"
+                              >
+                                <i class="fas fa-trash"></i>
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </Teleport>
                         </span>
                         <Teleport to="body">
                           <div
@@ -2077,6 +2080,7 @@ const manageWindowNow = ref(Date.now())
 const activeReactionPickerMessageId = ref(null)
 const reactionPickerAnchor = ref(null)
 const openMessageKebabId = ref(null)
+const messageKebabAnchor = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
 const highlightedSearchMessageId = ref(null)
@@ -4137,7 +4141,10 @@ const toggleReactionPicker = (messageId, event = null) => {
   activeReactionPickerMessageId.value = shouldOpen ? messageId : null
   reactionPickerAnchor.value = null
   if (shouldOpen) setReactionPickerAnchor(event)
-  if (activeReactionPickerMessageId.value !== null) openMessageKebabId.value = null
+  if (activeReactionPickerMessageId.value !== null) {
+    openMessageKebabId.value = null
+    messageKebabAnchor.value = null
+  }
 }
 
 const reactionPickerStyle = computed(() => {
@@ -4150,21 +4157,65 @@ const reactionPickerStyle = computed(() => {
   }
 })
 
-const toggleMessageKebab = (messageId) => {
-  openMessageKebabId.value = openMessageKebabId.value === messageId ? null : messageId
-  if (openMessageKebabId.value !== null) {
+const setMessageKebabAnchor = (event) => {
+  const triggerEl = event?.currentTarget instanceof Element
+    ? event.currentTarget
+    : null
+  if (!triggerEl) {
+    messageKebabAnchor.value = null
+    return
+  }
+
+  const rect = triggerEl.getBoundingClientRect()
+  const viewportW = window.innerWidth || document.documentElement.clientWidth
+  const viewportH = window.innerHeight || document.documentElement.clientHeight
+  const menuWidth = 150
+  const menuHeight = 86
+  const margin = 12
+  const gap = 6
+  const spaceBelow = viewportH - rect.bottom
+  const placeAbove = spaceBelow < menuHeight + gap && rect.top > spaceBelow
+  const left = Math.min(
+    Math.max(margin, rect.right - menuWidth),
+    Math.max(margin, viewportW - menuWidth - margin),
+  )
+  const top = placeAbove
+    ? Math.max(margin, rect.top - menuHeight - gap)
+    : Math.min(viewportH - menuHeight - margin, rect.bottom + gap)
+
+  messageKebabAnchor.value = { top, left }
+}
+
+const toggleMessageKebab = (messageId, event = null) => {
+  const shouldOpen = openMessageKebabId.value !== messageId
+  openMessageKebabId.value = shouldOpen ? messageId : null
+  messageKebabAnchor.value = null
+  if (shouldOpen) setMessageKebabAnchor(event)
+  if (shouldOpen) {
     activeReactionPickerMessageId.value = null
     reactionPickerAnchor.value = null
   }
 }
 
+const messageKebabStyle = computed(() => {
+  const anchor = messageKebabAnchor.value
+  if (!anchor) return null
+  return {
+    position: 'fixed',
+    top: `${anchor.top}px`,
+    left: `${anchor.left}px`,
+  }
+})
+
 const onKebabEdit = (message) => {
   openMessageKebabId.value = null
+  messageKebabAnchor.value = null
   startMessageEdit(message)
 }
 
 const onKebabDelete = (message) => {
   openMessageKebabId.value = null
+  messageKebabAnchor.value = null
   deleteMessage(message)
 }
 
@@ -5528,7 +5579,10 @@ const closeAllComposerPanels = ({ except } = {}) => {
   if (except !== 'resource') showResourcePanel.value = false
   if (except !== 'search') showMessageSearch.value = false
   if (except !== 'mentions') showMentionInbox.value = false
-  if (except !== 'kebab') openMessageKebabId.value = null
+  if (except !== 'kebab') {
+    openMessageKebabId.value = null
+    messageKebabAnchor.value = null
+  }
   if (except !== 'picker') {
     activeReactionPickerMessageId.value = null
     reactionPickerAnchor.value = null
@@ -5718,6 +5772,8 @@ const reloadGroupDetail = async () => {
   chatNotice.value = ''
   activeReactionPickerMessageId.value = null
   reactionPickerAnchor.value = null
+  openMessageKebabId.value = null
+  messageKebabAnchor.value = null
   showGroupMembersDialog.value = false
   showMessageSearch.value = false
   clearMessageSearch()
@@ -5822,10 +5878,12 @@ const onDocumentClickForMessageKebab = (event) => {
   if (!(target instanceof Element)) return
   if (target.closest('.inline-kebab-wrap, .inline-kebab-menu')) return
   openMessageKebabId.value = null
+  messageKebabAnchor.value = null
 }
 const onDocumentKeydownForMessageKebab = (event) => {
   if (openMessageKebabId.value !== null && event.key === 'Escape') {
     openMessageKebabId.value = null
+    messageKebabAnchor.value = null
   }
 }
 
@@ -9555,6 +9613,17 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
   padding: 0.25rem;
   animation: kebab-pop 0.14s ease-out;
+}
+
+.inline-kebab-menu--floating {
+  position: fixed;
+  top: auto;
+  right: auto;
+  width: max-content;
+  min-width: 140px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  z-index: 1400;
 }
 
 .inline-kebab-item {
