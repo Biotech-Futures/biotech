@@ -1798,6 +1798,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 const supportsGifs = true
 const supportsAttachments = true
 const supportsMessageReactions = true
@@ -3514,6 +3515,17 @@ const isCurrentBackendGroupId = (groupId) => String(groupId || '') === String(ge
 
 const backendGroupId = computed(() => getBackendGroupId())
 
+const notifySidebarGroupRead = (groupId) => {
+  const targetGroupId = String(groupId || '')
+  if (!targetGroupId) return
+
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_GROUP_READ_EVENT, {
+      detail: { groupId: targetGroupId },
+    }),
+  )
+}
+
 const resolveIndividualTaskAssignee = (parentTask = null) => {
   if (parentTask?.assignedUser) return Number(parentTask.assignedUser)
   if (auth.isStudent && auth.user?.id) return Number(auth.user.id)
@@ -4364,6 +4376,7 @@ const markMessagesAsRead = async (messageIds, groupId = getBackendGroupId()) => 
     })
     if (!isCurrentBackendGroupId(backendGroupId)) return
     applyReadCursor(auth.user?.id, data?.up_to_id || upToId)
+    notifySidebarGroupRead(backendGroupId)
   } catch (error) {
     if (!isCurrentBackendGroupId(backendGroupId)) return
     console.error('Failed to mark messages as read:', error)

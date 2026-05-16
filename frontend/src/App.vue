@@ -228,6 +228,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
 
 interface CollectionResponse {
   results?: unknown[]
@@ -415,6 +416,22 @@ const loadSidebarGroups = async () => {
 
 const isSidebarGroupActive = (groupId: string) => String(route.params.id || '') === groupId
 
+const clearSidebarGroupUnread = (groupId: string | number | undefined | null) => {
+  const targetGroupId = String(groupId || '')
+  if (!targetGroupId) return
+
+  sidebarGroups.value = sidebarGroups.value.map((groupOption) =>
+    groupOption.id === targetGroupId && groupOption.hasUnread
+      ? { ...groupOption, hasUnread: false }
+      : groupOption,
+  )
+}
+
+const handleSidebarGroupRead = (event: Event) => {
+  const detail = (event as CustomEvent<{ groupId?: string | number }>).detail
+  clearSidebarGroupUnread(detail?.groupId)
+}
+
 const formatSidebarGroupMeta = (groupOption: SidebarGroupOption) => {
   const count = groupOption.memberCount
   if (count > 0) return `${count} ${count === 1 ? 'member' : 'members'}`
@@ -499,12 +516,14 @@ onMounted(() => {
 
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
+  window.addEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
   scheduleSidebarLoad()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
 })
 </script>
 
