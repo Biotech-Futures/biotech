@@ -1163,7 +1163,7 @@
                           :class="{ active: activeReactionPickerMessageId === message.id }"
                           :title="hasMessageReactions(message) ? 'Add another reaction' : 'Add reaction'"
                           aria-label="Add reaction"
-                          @click.stop="toggleReactionPicker(message.id)"
+                          @click.stop="toggleReactionPicker(message.id, $event)"
                         >
                           <i class="fas fa-smile"></i>
                         </button>
@@ -1210,25 +1210,27 @@
                             </button>
                           </div>
                         </span>
-                        <!-- Inline picker popout — anchors to the smile button just above. -->
-                        <div
-                          v-if="supportsMessageReactions && activeReactionPickerMessageId === message.id"
-                          class="reaction-picker reaction-picker--inline"
-                          role="menu"
-                          aria-label="Quick reactions"
-                          @click.stop
-                        >
-                          <button
-                            v-for="emoji in CHAT_REACTION_OPTIONS"
-                            :key="`${message.id}-inline-${emoji}`"
-                            type="button"
-                            class="reaction-btn"
-                            :title="`React with ${emoji}`"
-                            @click="reactToMessage(message.id, emoji)"
+                        <Teleport to="body">
+                          <div
+                            v-if="supportsMessageReactions && activeReactionPickerMessageId === message.id"
+                            class="reaction-picker reaction-picker--inline reaction-picker--floating"
+                            :style="reactionPickerStyle"
+                            role="menu"
+                            aria-label="Quick reactions"
+                            @click.stop
                           >
-                            <span>{{ emoji }}</span>
-                          </button>
-                        </div>
+                            <button
+                              v-for="emoji in CHAT_REACTION_OPTIONS"
+                              :key="`${message.id}-inline-${emoji}`"
+                              type="button"
+                              class="reaction-btn"
+                              :title="`React with ${emoji}`"
+                              @click="reactToMessage(message.id, emoji)"
+                            >
+                              <span>{{ emoji }}</span>
+                            </button>
+                          </div>
+                        </Teleport>
                       </span>
                     </span>
                   </div>
@@ -2073,6 +2075,7 @@ const editingMessageId = ref(null)
 const editingMessageText = ref('')
 const manageWindowNow = ref(Date.now())
 const activeReactionPickerMessageId = ref(null)
+const reactionPickerAnchor = ref(null)
 const openMessageKebabId = ref(null)
 const isChatAwayFromBottom = ref(false)
 const hasScrollableMessages = ref(false)
@@ -4098,16 +4101,61 @@ const formatReactionUsers = (entry) => {
   return `${names[0]}, ${names[1]} and ${names.length - 2} others`
 }
 
-const toggleReactionPicker = (messageId) => {
+const setReactionPickerAnchor = (event) => {
+  const triggerEl = event?.currentTarget instanceof Element
+    ? event.currentTarget
+    : null
+  if (!triggerEl) {
+    reactionPickerAnchor.value = null
+    return
+  }
+
+  const rect = triggerEl.getBoundingClientRect()
+  const viewportW = window.innerWidth || document.documentElement.clientWidth
+  const viewportH = window.innerHeight || document.documentElement.clientHeight
+  const pickerWidth = 124
+  const pickerHeight = 42
+  const margin = 12
+  const gap = 6
+  const spaceAbove = rect.top
+  const spaceBelow = viewportH - rect.bottom
+  const placeAbove = spaceAbove > pickerHeight + gap || spaceAbove > spaceBelow
+  const left = Math.min(
+    Math.max(margin, rect.right - pickerWidth),
+    Math.max(margin, viewportW - pickerWidth - margin),
+  )
+  const top = placeAbove
+    ? Math.max(margin, rect.top - pickerHeight - gap)
+    : Math.min(viewportH - pickerHeight - margin, rect.bottom + gap)
+
+  reactionPickerAnchor.value = { top, left }
+}
+
+const toggleReactionPicker = (messageId, event = null) => {
   if (!supportsMessageReactions) return
-  activeReactionPickerMessageId.value =
-    activeReactionPickerMessageId.value === messageId ? null : messageId
+  const shouldOpen = activeReactionPickerMessageId.value !== messageId
+  activeReactionPickerMessageId.value = shouldOpen ? messageId : null
+  reactionPickerAnchor.value = null
+  if (shouldOpen) setReactionPickerAnchor(event)
   if (activeReactionPickerMessageId.value !== null) openMessageKebabId.value = null
 }
 
+const reactionPickerStyle = computed(() => {
+  const anchor = reactionPickerAnchor.value
+  if (!anchor) return null
+  return {
+    position: 'fixed',
+    top: `${anchor.top}px`,
+    left: `${anchor.left}px`,
+  }
+})
+
 const toggleMessageKebab = (messageId) => {
   openMessageKebabId.value = openMessageKebabId.value === messageId ? null : messageId
-  if (openMessageKebabId.value !== null) activeReactionPickerMessageId.value = null
+  if (openMessageKebabId.value !== null) {
+    activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
+  }
 }
 
 const onKebabEdit = (message) => {
@@ -5481,7 +5529,10 @@ const closeAllComposerPanels = ({ except } = {}) => {
   if (except !== 'search') showMessageSearch.value = false
   if (except !== 'mentions') showMentionInbox.value = false
   if (except !== 'kebab') openMessageKebabId.value = null
-  if (except !== 'picker') activeReactionPickerMessageId.value = null
+  if (except !== 'picker') {
+    activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
+  }
 }
 
 const toggleGifPanel = async () => {
@@ -5646,6 +5697,7 @@ const reactToMessage = async (messageId, emoji) => {
       reactions: normalizeReactionMap(data?.reactions),
     }))
     activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
   } catch (error) {
     chatError.value = error instanceof Error ? error.message : 'Reaction could not be updated.'
   }
@@ -5665,6 +5717,7 @@ const reloadGroupDetail = async () => {
   chatError.value = ''
   chatNotice.value = ''
   activeReactionPickerMessageId.value = null
+  reactionPickerAnchor.value = null
   showGroupMembersDialog.value = false
   showMessageSearch.value = false
   clearMessageSearch()
@@ -5754,10 +5807,12 @@ const onDocumentClickForReactionPicker = (event) => {
     '.reaction-pick-group, .reaction-picker, .reaction-picker-toggle, .inline-action-btn'
   )) return
   activeReactionPickerMessageId.value = null
+  reactionPickerAnchor.value = null
 }
 const onDocumentKeydownForReactionPicker = (event) => {
   if (activeReactionPickerMessageId.value !== null && event.key === 'Escape') {
     activeReactionPickerMessageId.value = null
+    reactionPickerAnchor.value = null
   }
 }
 
@@ -9885,6 +9940,16 @@ onBeforeUnmount(() => {
   transform: scale(1.18);
   background: #f1f5f7;
   border-color: transparent;
+}
+
+.reaction-picker.reaction-picker--floating {
+  position: fixed;
+  bottom: auto;
+  right: auto;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  z-index: 1400;
 }
 
 @keyframes reaction-picker-pop {
