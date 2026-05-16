@@ -161,6 +161,12 @@ export function deleteTask(taskId: number | string) {
   })
 }
 
+export function restoreTask(taskId: number | string) {
+  return requestJson<TaskRow>(`/api/v1/tasks/${taskId}/restore/`, {
+    method: 'POST'
+  })
+}
+
 export function toggleTaskCompletion(taskId: number | string, completed?: boolean) {
   return requestJson<TaskRow>(`/api/v1/tasks/${taskId}/check/`, {
     method: 'POST',

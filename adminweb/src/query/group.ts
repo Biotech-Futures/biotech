@@ -15,10 +15,11 @@ interface QueryGroupsParams {
   searchGroup?: string;
   track?: Track;
   mentorStatus?: MentorStatusFilter;
+  deleted?: boolean;
 }
 
 export function useQueryGroups(params: QueryGroupsParams) {
-  const { page, limit = 10, searchName, searchGroup, track, mentorStatus } =
+  const { page, limit = 10, searchName, searchGroup, track, mentorStatus, deleted } =
     params;
   return useQuery({
     queryKey: [
@@ -29,6 +30,7 @@ export function useQueryGroups(params: QueryGroupsParams) {
       searchGroup,
       track,
       mentorStatus,
+      deleted,
     ],
     queryFn: async (): Promise<PaginatedResponse<Group>> => {
       const res = await myFetch.get<PaginatedResponse<Group>>(`/group`, {
@@ -39,6 +41,7 @@ export function useQueryGroups(params: QueryGroupsParams) {
           searchGroup,
           track,
           mentorStatus,
+          deleted,
         },
       });
       return res.data;
@@ -64,24 +67,76 @@ interface QueryGroupMessagesParams {
   page?: number;
   limit?: number;
   enabled?: boolean;
+  deleted?: boolean;
 }
 
 export function useQueryGroupMessages(
   id: string,
-  { page = 1, limit = 50, enabled = true }: QueryGroupMessagesParams = {},
+  { page = 1, limit = 50, enabled = true, deleted = false }: QueryGroupMessagesParams = {},
 ) {
   return useQuery({
-    queryKey: ["group", id, "messages", page, limit],
+    queryKey: ["group", id, "messages", page, limit, deleted],
     queryFn: async (): Promise<PaginatedResponse<GroupMessage>> => {
       const res = await myFetch.get<PaginatedResponse<GroupMessage>>(
         `/group/${id}/messages`,
         {
-          params: { page, limit },
+          params: { page, limit, deleted },
         },
       );
       return res.data;
     },
     enabled: enabled && !!id,
+  });
+}
+
+export function useRestoreGroupMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { groupId: string; messageId: string }) => {
+      const res = await myFetch.post<{
+        msg: string;
+        data: { id: string; groupId: string } | null;
+      }>(`/group/${data.groupId}/messages/${data.messageId}/restore`);
+      return res.data;
+    },
+    onSuccess: (_, { groupId }) => {
+      queryClient.invalidateQueries({
+        queryKey: ["group", groupId, "messages"],
+      });
+    },
+  });
+}
+
+export function useRestoreGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (groupId: string) => {
+      const res = await myFetch.post<{ msg: string; data: Group | null }>(
+        `/group/${groupId}/restore`,
+      );
+      return res.data;
+    },
+    onSuccess: (_, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+    },
+  });
+}
+
+export function useDeleteGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (groupId: string) => {
+      const res = await myFetch.delete<{
+        msg: string;
+        data: { id: string; deletedAt: string } | null;
+      }>(`/group/${groupId}`);
+      return res.data;
+    },
+    onSuccess: (_, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+    },
   });
 }
 

@@ -289,9 +289,7 @@ def _can_create_task(user, payload):
         return True
 
     if task_type == TaskType.GROUP:
-        return _is_active_group_mentor(user, group_id) or _supervises_any_in_group(
-            user, group_id
-        )
+        return _is_active_group_mentor(user, group_id)
 
     # Student self-creation: assignee == self is the only allowed Student path.
     if assigned_user_id == user.id:
@@ -307,18 +305,14 @@ def _can_modify_task(user, task: Task) -> bool:
     track_id = _task_track_id(task)
     if track_id is not None and can_admin_track(user, track_id):
         return True
+
+    if task.task_type == TaskType.GROUP:
+        return _is_active_group_mentor(user, task.group_id)
+
     if task.created_by_id == user.id:
         return True
 
-    # Mentor of the group can edit any group task; supervisor of any active
-    # group student can edit any group task in that group.
-    if task.task_type == TaskType.GROUP:
-        if _is_active_group_mentor(user, task.group_id):
-            return True
-        if _supervises_any_in_group(user, task.group_id):
-            return True
-
-    # Student-created tasks: mentor / supervisor reach extends to CRUD.
+    # Student-created individual tasks: mentor / supervisor reach extends to CRUD.
     if task.creator_role == CreatorRole.STUDENT:
         if task.task_type == TaskType.INDIVIDUAL:
             assignee_group_id = _user_active_group_id(task.assigned_user_id)
@@ -344,6 +338,20 @@ class IsTaskManager(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         return _can_modify_task(request.user, obj)
+
+
+def can_restore_task(user, task: Task) -> bool:
+    track_id = _task_track_id(task)
+    if track_id is not None and can_admin_track(user, track_id):
+        return True
+
+    if task.task_type == TaskType.GROUP:
+        return _is_active_group_mentor(user, task.group_id)
+
+    if task.assigned_user_id == user.id:
+        return True
+
+    return _can_modify_task(user, task)
 
 
 def _can_toggle(user, task: Task) -> bool:

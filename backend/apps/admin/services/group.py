@@ -9,6 +9,8 @@ from django.db import transaction
 
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.chat.models import Messages
+from apps.chat.serializers import is_admin_actor
+from apps.chat.views import _broadcast, serialize_message_for_broadcast
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.admin.scope_utils import get_admin_track_ids
 
@@ -46,6 +48,7 @@ class GroupDict(TypedDict):
     mentor: Optional[GroupMemberDict]
     createdAt: str
     updatedAt: str
+    deletedAt: Optional[str]
 
 
 class GroupBaseRow(TypedDict):
@@ -53,6 +56,7 @@ class GroupBaseRow(TypedDict):
     name: str
     track: str
     created_at: datetime
+    deleted_at: Optional[datetime]
 
 
 class PaginatedResponse(TypedDict):
@@ -136,6 +140,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "mentor": mentor_by_group_id.get(group_id, None),
             "createdAt": row["created_at"].isoformat(),
             "updatedAt": row["created_at"].isoformat(),
+            "deletedAt": row["deleted_at"].isoformat() if row.get("deleted_at") else None,
         })
     
     return result
@@ -146,6 +151,7 @@ def _build_group_where(
     search_group: Optional[str] = None,
     track: Optional[str] = None,
     mentor_status: Optional[str] = None,
+    deleted: bool = False,
 ) -> Q:
     """
     Build query conditions for filtering groups.
@@ -159,7 +165,7 @@ def _build_group_where(
     Returns:
         Q object with combined conditions
     """
-    conditions = [Q(deleted_at__isnull=True)]
+    conditions = [Q(deleted_at__isnull=not deleted)]
     
     if track:
         conditions.append(Q(track__track_name=track))
@@ -200,7 +206,7 @@ def _build_group_where(
     return Q(*conditions)
 
 
-def _fetch_group_base_by_id(group_id: int) -> Optional[GroupBaseRow]:
+def _fetch_group_base_by_id(group_id: int, *, include_deleted: bool = False) -> Optional[GroupBaseRow]:
     """
     Fetch basic group information by ID.
     
@@ -211,18 +217,26 @@ def _fetch_group_base_by_id(group_id: int) -> Optional[GroupBaseRow]:
         GroupBaseRow if found, None otherwise
     """
     try:
-        group = Groups.objects.select_related("track").get(
-            id=group_id,
-            deleted_at__isnull=True
-        )
+        filters = {"id": group_id}
+        if not include_deleted:
+            filters["deleted_at__isnull"] = True
+        group = Groups.objects.select_related("track").get(**filters)
         return {
             "id": group.id,
             "name": group.group_name,
             "track": group.track.track_name,
             "created_at": group.created_at,
+            "deleted_at": group.deleted_at,
         }
     except Groups.DoesNotExist:
         return None
+
+
+def _admin_can_access_group(group: Groups, requesting_user=None) -> bool:
+    if requesting_user is None:
+        return True
+    track_ids = get_admin_track_ids(requesting_user)
+    return track_ids is None or group.track_id in track_ids
 
 
 def query_groups(
@@ -233,6 +247,7 @@ def query_groups(
     track: Optional[str] = None,
     mentor_status: Optional[str] = None,
     requesting_user=None,
+    deleted: bool = False,
 ) -> dict:
     """
     Query groups with pagination and filtering.
@@ -249,9 +264,9 @@ def query_groups(
         Dictionary with groups, pagination, and metadata
     """
     offset = (page - 1) * limit
-    where = _build_group_where(search_name, search_group, track, mentor_status)
+    where = _build_group_where(search_name, search_group, track, mentor_status, deleted)
 
-    track_ids = get_admin_track_ids(requesting_user)
+    track_ids = get_admin_track_ids(requesting_user) if requesting_user is not None else None
     if track_ids is not None:
         where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
 
@@ -264,7 +279,13 @@ def query_groups(
         .select_related("track")
         .filter(where)
         .order_by("-created_at", "-id")
-        .values("id", "group_name", "track__track_name", "created_at")[offset:offset + limit]
+        .values(
+            "id",
+            "group_name",
+            "track__track_name",
+            "created_at",
+            "deleted_at",
+        )[offset:offset + limit]
     )
     
     # Convert to GroupBaseRow format
@@ -274,6 +295,7 @@ def query_groups(
             "name": row["group_name"],
             "track": row["track__track_name"],
             "created_at": row["created_at"],
+            "deleted_at": row["deleted_at"],
         }
         for row in base_rows
     ]
@@ -320,10 +342,81 @@ def query_group_by_id(group_id: str) -> dict:
     }
 
 
+@transaction.atomic
+def delete_group(group_id: str, requesting_user=None) -> dict:
+    """Soft-delete an active group from adminweb."""
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        return {"msg": "Group not found", "data": None}
+
+    try:
+        group = Groups.objects.select_related("track").get(
+            id=gid,
+            deleted_at__isnull=True,
+        )
+    except Groups.DoesNotExist:
+        return {"msg": "Group not found", "data": None}
+
+    if not _admin_can_access_group(group, requesting_user):
+        return {"msg": "Group not found", "data": None}
+
+    group.deleted_at = timezone.now()
+    group.save(update_fields=["deleted_at"])
+
+    return {
+        "msg": "Group deleted successfully",
+        "data": {
+            "id": str(group.id),
+            "deletedAt": group.deleted_at.isoformat(),
+        },
+    }
+
+
+@transaction.atomic
+def restore_group(group_id: str, requesting_user=None) -> dict:
+    """Restore a soft-deleted group for the admin recovery table."""
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        return {"msg": "Group not found", "data": None}
+
+    try:
+        group = Groups.objects.select_related("track").get(
+            id=gid,
+            deleted_at__isnull=False,
+        )
+    except Groups.DoesNotExist:
+        return {"msg": "Group not found", "data": None}
+
+    if not _admin_can_access_group(group, requesting_user):
+        return {"msg": "Group not found", "data": None}
+
+    duplicate_exists = Groups.objects.filter(
+        track=group.track,
+        group_name=group.group_name,
+        deleted_at__isnull=True,
+    ).exclude(id=group.id).exists()
+    if duplicate_exists:
+        return {
+            "msg": "An active group with this name already exists on the same track",
+            "data": None,
+        }
+
+    group.restore()
+    base_row = _fetch_group_base_by_id(gid)
+    groups = _build_groups([base_row]) if base_row else []
+    return {
+        "msg": "Group restored successfully",
+        "data": groups[0] if groups else None,
+    }
+
+
 def query_group_messages(
     group_id: str,
     page: int = 1,
     limit: int = 50,
+    deleted: bool = False,
 ) -> dict:
     """
     Query messages for a group with pagination.
@@ -348,19 +441,22 @@ def query_group_messages(
     offset = (page - 1) * limit
     
     # Get total count
-    total = Messages.objects.filter(
-        group_id=gid,
-        deleted_at__isnull=True
-    ).count()
+    deleted_filter = {"deleted_at__isnull": not deleted}
+    total = Messages.objects.filter(group_id=gid, **deleted_filter).count()
     
     # Fetch paginated messages
     message_records = (
         Messages.objects
         .filter(
             group_id=gid,
-            deleted_at__isnull=True
+            **deleted_filter,
         )
-        .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
+        .select_related(
+            "sender_user",
+            "sender_user__mentorprofile",
+            "sender_user__studentprofile",
+            "deleted_by",
+        )
         .prefetch_related("attachments", "gif")
         .order_by("sent_at", "id")[offset:offset + limit]
     )
@@ -394,6 +490,9 @@ def query_group_messages(
         except Exception:
             pass
 
+        deleted_by = msg.deleted_by
+        deleted_by_is_admin = is_admin_actor(deleted_by)
+
         items.append({
             "id": str(msg.id),
             "group_id": str(msg.group_id),
@@ -404,11 +503,23 @@ def query_group_messages(
                 "role": role,
             },
             "message_type": msg.message_type,
-            "text": msg.message_text,
-            "attachments": attachments,
+            "text": msg.message_text if not msg.deleted_at else "",
+            "attachments": attachments if not msg.deleted_at else [],
             "gif": gif,
             "sent_at": msg.sent_at.isoformat(),
             "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
+            "deleted_at": msg.deleted_at.isoformat() if msg.deleted_at else None,
+            "deleted_by": str(msg.deleted_by_id) if msg.deleted_by_id else None,
+            "deleted_by_name": (
+                "Admin"
+                if deleted_by_is_admin
+                else (
+                    deleted_by.get_full_name() or deleted_by.get_username()
+                    if deleted_by
+                    else ""
+                )
+            ),
+            "deleted_by_is_admin": deleted_by_is_admin,
         })
     
     has_more = offset + len(items) < total
@@ -461,6 +572,17 @@ def update_group(group_id: str, name: Optional[str] = None, track: Optional[str]
             return {"msg": f'Track "{track}" not found', "data": None}
     
     if updates:
+        next_name = updates.get("group_name", group.group_name)
+        next_track = updates.get("track", group.track)
+        if Groups.objects.filter(
+            track=next_track,
+            group_name=next_name,
+            deleted_at__isnull=True,
+        ).exclude(id=group.id).exists():
+            return {
+                "msg": "An active group with this name already exists on the same track",
+                "data": None,
+            }
         for key, value in updates.items():
             setattr(group, key, value)
         group.save()
@@ -528,7 +650,7 @@ def remove_group_member(group_id: str, user_id: int) -> dict:
 
 
 @transaction.atomic
-def remove_group_message(group_id: str, message_id: int) -> dict:
+def remove_group_message(group_id: str, message_id: int, actor=None) -> dict:
     """
     Soft-delete a message from a group.
     
@@ -556,12 +678,52 @@ def remove_group_message(group_id: str, message_id: int) -> dict:
     except Messages.DoesNotExist:
         return {"msg": "Group message not found", "data": None}
     
-    # Soft delete
-    message.deleted_at = timezone.now()
-    message.save(update_fields=["deleted_at"])
+    message.soft_delete(deleted_by=actor)
+    message.refresh_from_db()
+    _broadcast(
+        message.group_id,
+        "message.deleted",
+        serialize_message_for_broadcast(message),
+    )
     
     return {
         "msg": "Group message removed successfully",
+        "data": {
+            "id": str(message.id),
+            "group_id": str(message.group_id),
+        },
+    }
+
+
+@transaction.atomic
+def restore_group_message(group_id: str, message_id: int, actor=None) -> dict:
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        return {"msg": "Group not found", "data": None}
+
+    if not _fetch_group_base_by_id(gid):
+        return {"msg": "Group not found", "data": None}
+
+    try:
+        message = Messages.objects.select_related("group").get(
+            id=message_id,
+            group_id=gid,
+            deleted_at__isnull=False,
+        )
+    except Messages.DoesNotExist:
+        return {"msg": "Group message not found", "data": None}
+
+    message.restore()
+    message.refresh_from_db()
+    _broadcast(
+        message.group_id,
+        "message.restored",
+        serialize_message_for_broadcast(message),
+    )
+
+    return {
+        "msg": "Group message restored successfully",
         "data": {
             "id": str(message.id),
             "group_id": str(message.group_id),

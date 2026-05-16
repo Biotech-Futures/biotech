@@ -11,6 +11,7 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
 # Database configuration is safely inherited from settings.py mapping to .env
 
 # Use local file storage instead of Azure Blob
+USE_AZURE_BLOB_STORAGE = False
 DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"

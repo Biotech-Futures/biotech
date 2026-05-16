@@ -15,6 +15,7 @@ import {
   useQueryResourceTracks,
   useQueryResourceTypes,
   useQueryResources,
+  useRestoreResource,
   useUpdateResource,
 } from "@/query/resource";
 import type {
@@ -47,6 +48,7 @@ function ResourcePage() {
     ResourceTypeName | undefined
   >();
   const [page, setPage] = useState(1);
+  const [recoveryPage, setRecoveryPage] = useState(1);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [showBatchVisibilityEditor, setShowBatchVisibilityEditor] =
@@ -76,8 +78,18 @@ function ResourcePage() {
     order,
     resource_type: resourceType,
   });
+  const { data: recoveryData, isPending: isRecoveryPending } = useQueryResources({
+    page: recoveryPage,
+    search,
+    uploader,
+    track_id: trackId,
+    order,
+    resource_type: resourceType,
+    deleted: true,
+  });
 
   const { mutate: deleteResource, mutateAsync: deleteResourceAsync } = useDeleteResource();
+  const { mutateAsync: restoreResourceAsync } = useRestoreResource();
   const { mutateAsync: updateResourceAsync } = useUpdateResource();
   const { data: rolesData } = useQueryResourceRoles();
   const { data: tracksData } = useQueryResourceTracks();
@@ -85,6 +97,7 @@ function ResourcePage() {
 
   useEffect(() => {
     setPage(1);
+    setRecoveryPage(1);
   }, [search, uploader, trackId, order, resourceType]);
 
   useEffect(() => {
@@ -140,6 +153,11 @@ function ResourcePage() {
     1,
     Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10)),
   );
+  const recoveryResources = recoveryData?.data.items ?? [];
+  const recoveryTotalPages = Math.max(
+    1,
+    Math.ceil((recoveryData?.data.total ?? 0) / (recoveryData?.data.limit ?? 10)),
+  );
 
   const handleViewDetail = (resource: Resource) => {
     setSelectedResource(resource);
@@ -160,6 +178,15 @@ function ResourcePage() {
     if (!shouldDelete) return;
     deleteResource(resource.id);
     setSelectedIds((prev) => prev.filter((id) => id !== resource.id));
+  };
+
+  const handleRestore = async (resource: Resource) => {
+    try {
+      await restoreResourceAsync(resource.id);
+      toast.success(`Restored resource "${resource.name}".`);
+    } catch {
+      toast.error("Resource restore failed. Please try again.");
+    }
   };
 
   const handleDownload = async (resource: Resource) => {
@@ -194,6 +221,13 @@ function ResourcePage() {
     onAccess: handleAccess,
     onDownload: handleDownload,
     trackOptions: tracksData?.data ?? [],
+  });
+
+  const recoveryColumns = createResourceColumns({
+    onViewDetail: handleViewDetail,
+    onRestore: handleRestore,
+    trackOptions: tracksData?.data ?? [],
+    recoveryMode: true,
   });
 
   const handleBatchDelete = async () => {
@@ -600,6 +634,31 @@ function ResourcePage() {
         onSelectedIdsChange={setSelectedIds}
         isPending={isPending}
       />
+
+      <section className="space-y-3 rounded-md border p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold">Resource Recovery</h2>
+            <p className="text-sm text-muted-foreground">
+              Review deleted resources and restore them when needed.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {recoveryData?.data.total ?? 0} deleted resources
+          </p>
+        </div>
+        <ResourceTable
+          columns={recoveryColumns}
+          data={recoveryResources}
+          page={recoveryPage}
+          totalPages={recoveryTotalPages}
+          onPageChange={setRecoveryPage}
+          bulkMode={false}
+          selectedIds={[]}
+          onSelectedIdsChange={() => {}}
+          isPending={isRecoveryPending}
+        />
+      </section>
 
       <ResourceDialog
         resource={selectedResource}

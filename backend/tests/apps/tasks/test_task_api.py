@@ -205,11 +205,10 @@ class TaskCreateTests(_World, APITestCase):
         r = self.client.post(LIST_URL, self._individual_payload(self.student_z), format="json")
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_supervisor_creates_group_task_for_group_with_supervisee(self):
+    def test_supervisor_blocked_creating_group_task_for_group_with_supervisee(self):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.post(LIST_URL, self._group_payload(self.group_a), format="json")
-        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(r.data["creator_role"], CreatorRole.SUPERVISOR)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_supervisor_creates_individual_for_supervisee(self):
         self.client.force_authenticate(user=self.supervisor_a)
@@ -319,11 +318,10 @@ class TaskOwnershipTests(_World, APITestCase):
         r = self.client.patch(_detail_url(self.supervisor_task.id), {"name": "x"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
-    def test_supervisor_can_edit_mentor_task_within_supervised_group(self):
-        # Supervisor whose supervisees are in group_a can edit any group_a task.
+    def test_supervisor_cannot_edit_group_task_within_supervised_group(self):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.patch(_detail_url(self.mentor_task.id), {"name": "x"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_student_creator_can_edit_own_task(self):
         self.client.force_authenticate(user=self.student_x)
@@ -410,6 +408,27 @@ class TaskDeleteTests(_World, APITestCase):
 
     def test_student_cannot_delete_admin_task(self):
         self.client.force_authenticate(user=self.student_x)
+        r = self.client.delete(_detail_url(self.parent.id))
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_assignee_can_restore_own_deleted_individual_task(self):
+        task = Task.objects.create(
+            name="mine",
+            task_type=TaskType.INDIVIDUAL,
+            assigned_user=self.student_x,
+            created_by=self.mentor_a,
+            creator_role=CreatorRole.MENTOR,
+        )
+        task.soft_delete()
+
+        self.client.force_authenticate(user=self.student_x)
+        r = self.client.post(_restore_url(task.id))
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNone(r.data["deleted_at"])
+
+    def test_supervisor_cannot_delete_group_task(self):
+        self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.delete(_detail_url(self.parent.id))
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -747,10 +766,8 @@ class TaskStatusUpdateTests(_World, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class SupervisorCanEditGroupTaskTests(_World, APITestCase):
-    """A supervisor who supervises any active student in a group is allowed
-    to edit any group task in that group (not just student-created ones).
-    """
+class SupervisorCannotEditGroupTaskTests(_World, APITestCase):
+    """Group task create/delete/restore is limited to mentors and admins."""
 
     def setUp(self):
         self._build()
@@ -763,20 +780,19 @@ class SupervisorCanEditGroupTaskTests(_World, APITestCase):
             created_by=self.track_one_admin, creator_role=CreatorRole.TRACK_ADMIN,
         )
 
-    def test_supervisor_can_patch_mentor_created_group_task(self):
+    def test_supervisor_cannot_patch_mentor_created_group_task(self):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.patch(
             _detail_url(self.mentor_created.id), {"name": "Renamed by supervisor"}, format="json",
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertEqual(r.data["name"], "Renamed by supervisor")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_supervisor_can_patch_admin_created_group_task(self):
+    def test_supervisor_cannot_patch_admin_created_group_task(self):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.patch(
             _detail_url(self.admin_created.id), {"name": "Renamed"}, format="json",
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_unrelated_supervisor_cannot_patch_group_task(self):
         # supervisor_b supervises student_z (group_c) only, not group_a. The
@@ -788,7 +804,7 @@ class SupervisorCanEditGroupTaskTests(_World, APITestCase):
         )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_supervisor_can_delete_group_task(self):
+    def test_supervisor_cannot_delete_group_task(self):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.delete(_detail_url(self.mentor_created.id))
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)

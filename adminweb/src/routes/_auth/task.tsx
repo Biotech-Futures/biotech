@@ -14,6 +14,7 @@ import {
   useCreateTask,
   useUpdateTask,
   useDeleteTask,
+  useRestoreTask,
   useToggleTask,
 } from "@/query/task";
 import { useQueryUsers } from "@/query/user";
@@ -46,6 +47,7 @@ function TaskManagementPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [recoveryPage, setRecoveryPage] = useState(1);
 
   const typeFilter: TaskTypeFilter = task_type ?? "all";
 
@@ -53,6 +55,12 @@ function TaskManagementPage() {
     page,
     limit: PAGE_SIZE,
     task_type: typeFilter === "all" ? undefined : typeFilter,
+  });
+  const { data: deletedTaskData, isPending: isDeletedPending } = useQueryTasks({
+    page: recoveryPage,
+    limit: PAGE_SIZE,
+    task_type: "group",
+    deleted: true,
   });
 
   const { data: usersData } = useQueryUsers({ page: 1, limit: 200 });
@@ -72,11 +80,15 @@ function TaskManagementPage() {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
+  const restoreTask = useRestoreTask();
   const toggleTask = useToggleTask();
 
   const tasks = taskData?.data?.items ?? [];
   const total = taskData?.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const deletedTasks = deletedTaskData?.data?.items ?? [];
+  const deletedTotal = deletedTaskData?.data?.total ?? 0;
+  const deletedTotalPages = Math.max(1, Math.ceil(deletedTotal / PAGE_SIZE));
 
   const groups = useMemo(
     () => groupsData?.data?.items ?? [],
@@ -144,6 +156,15 @@ function TaskManagementPage() {
     }
   };
 
+  const handleRestore = async (task: Task) => {
+    try {
+      await restoreTask.mutateAsync(task.id);
+      toast.success(`Restored task "${task.name}".`);
+    } catch {
+      toast.error("Failed to restore task.");
+    }
+  };
+
   const handleToggle = async (task: Task) => {
     try {
       await toggleTask.mutateAsync({ id: task.id, completed: !task.completed });
@@ -156,6 +177,7 @@ function TaskManagementPage() {
     createTask.isPending ||
     updateTask.isPending ||
     deleteTask.isPending ||
+    restoreTask.isPending ||
     toggleTask.isPending;
 
   return (
@@ -197,6 +219,34 @@ function TaskManagementPage() {
         groups={groups}
         users={users}
       />
+
+      <section className="space-y-3 rounded-md border p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold">Task Recovery</h2>
+            <p className="text-sm text-muted-foreground">
+              Review deleted tasks and restore them when their group or parent is active.
+            </p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {deletedTotal} deleted tasks
+          </p>
+        </div>
+        <TaskTable
+          data={deletedTasks}
+          page={recoveryPage}
+          totalPages={deletedTotalPages}
+          onPageChange={setRecoveryPage}
+          onEdit={() => {}}
+          onDelete={() => {}}
+          onToggle={() => {}}
+          onRestore={handleRestore}
+          isPending={isDeletedPending || restoreTask.isPending}
+          groups={groups}
+          users={users}
+          recoveryMode
+        />
+      </section>
 
       <TaskEditorSheet
         open={editorOpen}

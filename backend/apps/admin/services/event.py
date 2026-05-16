@@ -33,6 +33,7 @@ class QueryEventsInput(TypedDict, total=False):
     limit: int
     host_user_id: Optional[int]
     upcoming: bool
+    deleted: bool
 
 
 class CreateEventInput(TypedDict, total=False):
@@ -123,11 +124,12 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     limit = params.get("limit", 10)
     host_user_id = params.get("host_user_id")
     upcoming = params.get("upcoming", False)
+    deleted = params.get("deleted", False)
 
     offset = (page - 1) * limit
 
     # Build query conditions
-    queryset = Events.objects.filter(deleted_at__isnull=True)
+    queryset = Events.objects.filter(deleted_at__isnull=not deleted)
 
     if host_user_id:
         queryset = queryset.filter(host_user__id=host_user_id)
@@ -458,6 +460,33 @@ def delete_event(id_str: str) -> EventResponseDict:
     event.save()
 
     return {"msg": "Event deleted successfully", "data": _event_model_to_camel(event)}
+
+
+@transaction.atomic
+def restore_event(id_str: str) -> EventResponseDict:
+    """Restore a soft-deleted event for the admin recovery table."""
+    event_id = _to_event_id(id_str)
+    if not event_id:
+        return {"msg": "Invalid event id", "data": None}
+
+    try:
+        event = Events.objects.select_related("host_user").get(
+            id=event_id,
+            deleted_at__isnull=False,
+        )
+    except Events.DoesNotExist:
+        return {"msg": "Event not found", "data": None}
+
+    if EventTargetGroup.objects.filter(
+        event_id=event_id,
+        group__deleted_at__isnull=False,
+    ).exists():
+        return {"msg": "Cannot restore an event that targets a deleted group", "data": None}
+
+    event.deleted_at = None
+    event.save(update_fields=["deleted_at"])
+
+    return {"msg": "Event restored successfully", "data": _event_model_to_camel(event)}
 
 
 def _rsvp_to_camel(rsvp: Dict[str, Any]) -> Dict[str, Any]:

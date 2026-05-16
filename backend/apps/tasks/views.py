@@ -11,6 +11,7 @@ from .models import Task, TaskStatus
 from .permissions import (
     CanToggleTask,
     IsTaskManager,
+    can_restore_task,
     resolve_creator_role,
     visible_tasks,
 )
@@ -140,7 +141,7 @@ class TaskRestoreView(generics.GenericAPIView):
     @transaction.atomic
     def post(self, request, *args, **kwargs):
         task = self.get_object()
-        if not IsTaskManager().has_object_permission(request, self, task):
+        if not can_restore_task(request.user, task):
             return Response({"detail": "You do not have permission to restore this task."}, status=status.HTTP_403_FORBIDDEN)
         if task.deleted_at is None:
             return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)

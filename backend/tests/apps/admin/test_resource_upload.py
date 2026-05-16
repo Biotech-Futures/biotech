@@ -4,6 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from unittest.mock import Mock, patch
 
 from apps.groups.models import Countries, CountryStates, Tracks
@@ -47,8 +48,7 @@ class AdminResourceUploadTests(TestCase):
         blob_service_client_mock.return_value = blob_service
         return container_client, blob_client
 
-    @patch("apps.resources.services.upload.upload_file")
-    def test_admin_resource_upload_uses_resources_package(self, upload_file_mock):
+    def test_admin_resource_upload_uses_resources_package(self):
         upload = SimpleUploadedFile(
             "guide.pdf",
             b"test file content",
@@ -77,11 +77,10 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(resource.file_mime_type, "application/pdf")
         self.assertEqual(resource.file_size, len(b"test file content"))
         self.assertEqual(resource.visibility_scope, Resources.VisibilityScope.ROLE)
-        self.assertTrue(resource.storage_key.endswith("-guide.pdf"))
+        self.assertTrue(resource.storage_key.endswith("guide.pdf"))
         self.assertTrue(
             ResourceAudience.objects.filter(resource=resource, role=self.role).exists()
         )
-        upload_file_mock.assert_called_once()
 
     def test_admin_resource_upload_requires_file(self):
         response = self.client.post(
@@ -97,8 +96,34 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["msg"], "No file was uploaded.")
 
-    @patch("apps.resources.services.upload.upload_file")
-    def test_resource_upload_accepts_attachment_kind(self, upload_file_mock):
+    def test_admin_resource_list_can_show_deleted_resources_and_restore(self):
+        now = timezone.now()
+        resource = Resources.objects.create(
+            name="Deleted Guide",
+            description="Recoverable resource",
+            kind=Resources.ResourceKind.FILE,
+            uploaded_by=self.admin_user,
+            uploaded_at=now,
+            deleted_at=now,
+        )
+
+        list_response = self.client.get(
+            reverse("admin_api:resource-list-create"),
+            {"deleted": "true"},
+        )
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.data["data"]["items"][0]["id"], resource.id)
+
+        restore_response = self.client.post(
+            reverse("admin_api:resource-restore", args=[resource.id])
+        )
+
+        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        resource.refresh_from_db()
+        self.assertIsNone(resource.deleted_at)
+
+    def test_resource_upload_accepts_attachment_kind(self):
         upload = SimpleUploadedFile(
             "brief.pdf",
             b"attached file content",
@@ -119,14 +144,11 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(resource.kind, Resources.ResourceKind.ATTACHMENT)
         self.assertEqual(response.data["data"]["resource_kind"], Resources.ResourceKind.ATTACHMENT)
         self.assertEqual(response.data["data"]["resource_name"], "brief.pdf")
-        self.assertTrue(resource.storage_key.endswith("-brief.pdf"))
-        upload_file_mock.assert_called_once()
+        self.assertTrue(resource.storage_key.endswith("brief.pdf"))
 
     @patch("apps.admin.services.resource.BlobServiceClient")
-    @patch("apps.resources.services.upload.upload_file")
     def test_resource_attachment_access_streams_uploaded_file(
         self,
-        upload_file_mock,
         blob_service_client_mock,
     ):
         upload = SimpleUploadedFile(
@@ -158,10 +180,8 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(b"".join(response.streaming_content), b"attached file content")
 
     @patch("apps.admin.services.resource.download_file_bytes")
-    @patch("apps.resources.services.upload.upload_file")
     def test_resource_attachment_download_uses_original_file_extension(
         self,
-        upload_file_mock,
         download_file_bytes_mock,
     ):
         download_file_bytes_mock.return_value = b"attached file content"

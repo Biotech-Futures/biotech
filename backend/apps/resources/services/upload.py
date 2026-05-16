@@ -1,15 +1,11 @@
-import os
-import re
-import tempfile
 from typing import Any, Mapping
 
 from django.db import transaction
-from django.utils import timezone
 
 from apps.audit.services import log_audit_event
 from apps.resources.models import ResourceType, Resources
 from apps.resources.serializers import ResourcesSerializer
-from azure_blob_utils import upload_file
+from apps.resources.services.storage import RESOURCE_FILE_SERVICE
 
 
 def _get_first(data: Mapping[str, Any], key: str, default: Any = None) -> Any:
@@ -54,12 +50,6 @@ def _visibility_scope(value: Any, *, track_id: int | None, role_ids: list[Any]) 
     if track_id is not None:
         return Resources.VisibilityScope.TRACK
     return Resources.VisibilityScope.PUBLIC
-
-
-def _storage_key(resource_id: int, file_name: str | None) -> str:
-    stamp = int(timezone.now().timestamp() * 1000)
-    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file_name or "resource.bin")
-    return f"resources/{stamp}-{resource_id}-{safe_name}"
 
 
 def _resource_type_id(data: Mapping[str, Any]) -> int | None:
@@ -111,9 +101,6 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         or _get_first(data, "resource_description")
         or f"Resource attachment: {file_name}",
         "kind": kind,
-        "file_mime_type": getattr(uploaded_file, "content_type", None)
-        or "application/octet-stream",
-        "file_size": getattr(uploaded_file, "size", None),
         "visibility_scope": _visibility_scope(
             _get_first(data, "visibility_scope"),
             track_id=track_id,
@@ -130,29 +117,22 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
     if role_ids:
         serializer_data["role_ids"] = role_ids
 
-    serializer = ResourcesSerializer(data=serializer_data)
-    serializer.is_valid(raise_exception=True)
-    resource = serializer.save(uploaded_by=user)
+    with RESOURCE_FILE_SERVICE.stored_file(
+        uploaded_file,
+        content_type_field="file_mime_type",
+        size_field="file_size",
+    ) as file_data:
+        serializer_data.update(file_data)
+        serializer = ResourcesSerializer(data=serializer_data)
+        serializer.is_valid(raise_exception=True)
+        resource = serializer.save(uploaded_by=user)
 
-    storage_key = _storage_key(resource.id, file_name)
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        for chunk in uploaded_file.chunks():
-            tmp.write(chunk)
-        tmp.flush()
-        try:
-            upload_file(tmp.name, storage_key)
-        finally:
-            os.unlink(tmp.name)
-
-    resource.storage_key = storage_key
-    resource.save(update_fields=["storage_key"])
-
-    log_audit_event(
-        actor=user,
-        entity_type="resource",
-        entity_id=resource.id,
-        action="create",
-        after_state=ResourcesSerializer(resource).data,
-    )
+        log_audit_event(
+            actor=user,
+            entity_type="resource",
+            entity_id=resource.id,
+            action="create",
+            after_state=ResourcesSerializer(resource).data,
+        )
 
     return resource

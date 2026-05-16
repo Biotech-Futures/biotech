@@ -236,6 +236,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertEqual(resp.status_code, 204)
         msg.refresh_from_db()
         self.assertIsNotNone(msg.deleted_at)
+        self.assertEqual(msg.deleted_by_id, self.student.id)
 
     def test_delete_forbidden_for_sender_after_window(self):
         msg = Messages.objects.create(
@@ -288,7 +289,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         resp = self.client_track_admin.delete(url)
         self.assertEqual(resp.status_code, 403)
 
-    def test_soft_deleted_messages_are_excluded_from_list(self):
+    def test_soft_deleted_messages_are_listed_as_tombstones(self):
         m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep")
         m2 = Messages.objects.create(
             group=self.group,
@@ -296,13 +297,17 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
             message_text="hide",
             sent_at=timezone.now() - timedelta(minutes=2),
             deleted_at=timezone.now() - timedelta(minutes=1),
+            deleted_by=self.student,
         )
 
         resp = self.client_student.get(self._list_url())
         self.assertEqual(resp.status_code, 200)
-        ids = [it["id"] for it in resp.data["items"]]
-        self.assertIn(m1.id, ids)
-        self.assertNotIn(m2.id, ids)
+        by_id = {it["id"]: it for it in resp.data["items"]}
+        self.assertIn(m1.id, by_id)
+        self.assertIn(m2.id, by_id)
+        self.assertEqual(by_id[m2.id]["message_text"], "")
+        self.assertTrue(by_id[m2.id]["is_deleted"])
+        self.assertEqual(by_id[m2.id]["deleted_by"], self.student.id)
 
     def test_track_admin_can_restore_soft_deleted_message(self):
         # Restore is moderator-only and clears the message tombstone.
@@ -444,6 +449,8 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertEqual(payload["group_id"], self.group.id)
         self.assertEqual(payload["message"]["id"], msg.id)
         self.assertTrue(payload["message"]["is_deleted"])
+        self.assertEqual(payload["message"]["message_text"], "")
+        self.assertEqual(payload["message"]["deleted_by"], self.admin.id)
 
     @patch("apps.chat.views.get_channel_layer")
     def test_broadcast_does_not_fire_on_rollback(self, mock_get_channel_layer):

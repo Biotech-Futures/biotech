@@ -24,6 +24,13 @@ class Messages(models.Model):
     sent_at = models.DateTimeField(default=timezone.now)
     edited_at = models.DateTimeField(null=True, blank=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deleted_chat_messages",
+    )
     message_type = models.CharField(
         max_length=20,
         choices=MessageType.choices,
@@ -77,14 +84,17 @@ class Messages(models.Model):
     def is_edited(self):
         return self.edited_at is not None
 
-    def soft_delete(self):
+    def soft_delete(self, deleted_by=None):
         self.deleted_at = timezone.now()
-        self.save(update_fields=["deleted_at"])
+        if deleted_by is not None and getattr(deleted_by, "id", None):
+            self.deleted_by = deleted_by
+        self.save(update_fields=["deleted_at", "deleted_by"])
 
     def restore(self):
         # Recovery is intentionally limited to clearing the tombstone.
         self.deleted_at = None
-        self.save(update_fields=["deleted_at"])
+        self.deleted_by = None
+        self.save(update_fields=["deleted_at", "deleted_by"])
 
     def can_be_self_actioned_by(self, user) -> bool:
         """Sender's self-edit / self-delete window check. The 10-minute

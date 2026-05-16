@@ -179,6 +179,20 @@ def _broadcast_mention(user_id: int, payload: dict) -> None:
     transaction.on_commit(_send)
 
 
+def serialize_message_for_broadcast(message, context=None):
+    data = MessageSerializer(message, context=context or {}).data
+    public = MessagePublicSerializer(message, context=context or {}).data
+    if public.get("is_deleted"):
+        data["message_text"] = public.get("message_text", "")
+        data["deleted_by"] = public.get("deleted_by")
+        data["deleted_by_name"] = public.get("deleted_by_name", "")
+        data["deleted_by_is_admin"] = public.get("deleted_by_is_admin", False)
+    data["attachments"] = public.get("attachments", [])
+    data["preview"] = public.get("preview")
+    data["gif"] = public.get("gif")
+    return data
+
+
 def apply_mentions(message) -> list[int]:
     """Parse ``<@N>`` tokens in ``message.message_text``, filter to
     active members of the message's group (excluding the sender), insert
@@ -352,7 +366,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         base_qs = Messages.objects.all() if include_deleted else Messages.objects.filter(deleted_at__isnull=True)
         return (
             base_qs
-            .select_related("sender_user", "reply_to", "preview", "gif")
+            .select_related("sender_user", "deleted_by", "reply_to", "preview", "gif")
             .prefetch_related(
                 "attachments",
                 "resources__resource",
@@ -392,7 +406,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
         return self._message_queryset(
-            include_deleted=self.action in {"restore"}
+            include_deleted=self.action in {"list", "restore"}
         ).filter(group_id=gid)
 
     def get_serializer_context(self):
@@ -432,7 +446,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             user_id = getattr(user_id, "id", None)
             try:
                 message = (
-                    Messages.objects.select_related("sender_user", "reply_to", "preview", "gif")
+                    Messages.objects.select_related("sender_user", "deleted_by", "reply_to", "preview", "gif")
                     .prefetch_related(
                         "attachments",
                         "resources__resource",
@@ -472,22 +486,10 @@ class MessageViewSet(viewsets.ModelViewSet):
             except Messages.DoesNotExist:
                 pass
 
-        context = self.get_serializer_context()
-        data = MessageSerializer(message, context=context).data
-        public = MessagePublicSerializer(message, context=context).data
-        # MessageSerializer's nested attachments lack download_url; rebuild from
-        # the public shape that does include it.
-        data["attachments"] = public.get("attachments", [])
-        # ``preview`` only lives on MessagePublicSerializer — surface it on
-        # the broadcast so a client receiving the WS frame after a preview
-        # has been resolved (or cleared by edit) doesn't need to round-trip
-        # the REST list endpoint.
-        data["preview"] = public.get("preview")
-        # ``gif`` is rendered through SerializerMethodField on both serializers,
-        # but the public one is the canonical wire shape — keep parity so the
-        # broadcast and REST payloads match for GIF messages too.
-        data["gif"] = public.get("gif")
-        return data
+        return serialize_message_for_broadcast(
+            message,
+            context=self.get_serializer_context(),
+        )
 
     def _dispatch_link_previews(self, message: Messages) -> None:
         """Fire-and-forget OG unfurl for every URL in the message body.
@@ -589,7 +591,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not q and not filter_type and not filter_from and not filter_to:
             return Response({"items": [], "next_before": None}, status=status.HTTP_200_OK)
 
-        qs = self.get_queryset().order_by("-sent_at", "-id")
+        qs = self._message_queryset().filter(group_id=gid).order_by("-sent_at", "-id")
         if q:
             qs = qs.filter(message_text__icontains=q)
 
@@ -748,7 +750,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.soft_delete()
+        instance.soft_delete(deleted_by=request.user)
 
         _broadcast(
             instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
@@ -1022,14 +1024,21 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not can_access_chat_group(request.user, group):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
 
+        if not CHAT_FILE_SERVICE.exists(attachment.storage_key):
+            return Response(
+                {"detail": "The attachment file is no longer available in storage."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         # ``?inline=1`` flips ``Content-Disposition`` from ``attachment`` to
         # ``inline`` so the browser previews the file in a tab (PDF viewer,
         # image, etc.) instead of forcing a save. Without the flag the default
         # download semantics stand — keeps existing callers that only want
         # the save flow unchanged.
         inline = (request.query_params.get("inline") or "").lower() in {"1", "true", "yes"}
+        proxy = (request.query_params.get("proxy") or "").lower() in {"1", "true", "yes"}
         return serve_managed_file(
-            resolve_url=CHAT_FILE_SERVICE.resolve_url,
+            resolve_url=(lambda *args, **kwargs: None) if proxy else CHAT_FILE_SERVICE.resolve_url,
             open_file=CHAT_FILE_SERVICE.open,
             storage_key=attachment.storage_key,
             filename=attachment.attachment_filename,
