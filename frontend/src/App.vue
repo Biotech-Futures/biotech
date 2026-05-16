@@ -39,7 +39,7 @@
     </header>
 
     <div class="main-layout" v-if="!isLoginPage">
-      <aside class="sidebar">
+      <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
             <li class="sidebar-item">
@@ -109,6 +109,20 @@
             </li>
           </ul>
         </nav>
+
+        <button
+          type="button"
+          class="sidebar-collapse-toggle"
+          :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :aria-pressed="isSidebarCollapsed"
+          :title="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          @click="toggleSidebarCollapsed"
+        >
+          <i
+            :class="isSidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"
+            aria-hidden="true"
+          ></i>
+        </button>
 
         <section
           v-if="showSidebarGroupSwitcher"
@@ -282,6 +296,11 @@ const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
+const isSidebarCollapsed = ref(false)
+
+const toggleSidebarCollapsed = () => {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+}
 
 const toggleUserMenu = () => {
   showUserMenu.value = !showUserMenu.value
@@ -729,6 +748,7 @@ select {
 }
 
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 250px;
@@ -738,6 +758,50 @@ select {
   padding: 1.5rem 0;
   background-color: var(--white);
   border-right: 1px solid var(--border-light);
+  transition:
+    width 0.2s ease,
+    min-width 0.2s ease;
+}
+
+.sidebar.is-collapsed {
+  width: 72px;
+  min-width: 72px;
+}
+
+.sidebar-collapse-toggle {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  z-index: 3;
+  width: 28px;
+  height: 44px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--charcoal);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(17, 30, 25, 0.08);
+  transform: translateY(-50%);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.sidebar-collapse-toggle:hover {
+  border-color: rgba(35, 70, 59, 0.24);
+  background: var(--light-green);
+  color: var(--dark-green);
+  box-shadow: 0 10px 22px rgba(17, 30, 25, 0.12);
+}
+
+.sidebar-collapse-toggle:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
 }
 
 .sidebar-nav {
@@ -768,6 +832,16 @@ select {
     border-color 0.2s ease;
 }
 
+.sidebar.is-collapsed .sidebar-link {
+  justify-content: center;
+  gap: 0;
+  padding: 0.78rem 0;
+}
+
+.sidebar.is-collapsed .sidebar-link span {
+  display: none;
+}
+
 .sidebar-icon {
   width: 20px;
   text-align: center;
@@ -789,6 +863,10 @@ select {
 .sidebar-group-switcher {
   margin-top: auto;
   padding: 1rem 0.85rem 0;
+}
+
+.sidebar.is-collapsed .sidebar-group-switcher {
+  display: none;
 }
 
 .sidebar-group-switcher-header {
@@ -1116,6 +1194,29 @@ select {
     padding: 0.75rem;
     z-index: auto;
     margin-bottom: -300px;
+  }
+
+  .sidebar.is-collapsed {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .sidebar-collapse-toggle {
+    display: none;
+  }
+
+  .sidebar.is-collapsed .sidebar-link {
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+  }
+
+  .sidebar.is-collapsed .sidebar-link span {
+    display: inline;
+  }
+
+  .sidebar.is-collapsed .sidebar-group-switcher {
+    display: block;
   }
 
   .sidebar-group-switcher {
