@@ -77,6 +77,17 @@ def _resource_type_id(data: Mapping[str, Any]) -> int | None:
     ).first()
 
 
+def _resource_kind(data: Mapping[str, Any]) -> str:
+    value = _get_first(data, "resource_kind") or _get_first(data, "kind")
+    allowed_kinds = {
+        Resources.ResourceKind.FILE,
+        Resources.ResourceKind.ATTACHMENT,
+    }
+    if value in allowed_kinds:
+        return value
+    return Resources.ResourceKind.FILE
+
+
 @transaction.atomic
 def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], user) -> Resources:
     """Create a file resource from multipart admin upload data."""
@@ -88,12 +99,18 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
     track_id = _to_int_or_none(_get_first(data, "track_id"))
     group_id = _to_int_or_none(_get_first(data, "group_id"))
     type_id = _resource_type_id(data)
+    kind = _resource_kind(data)
+    file_name = getattr(uploaded_file, "name", None) or "resource.bin"
+    default_name = file_name if kind == Resources.ResourceKind.ATTACHMENT else None
 
     serializer_data: dict[str, Any] = {
-        "name": _get_first(data, "name") or _get_first(data, "resource_name"),
+        "name": _get_first(data, "name")
+        or _get_first(data, "resource_name")
+        or default_name,
         "description": _get_first(data, "description")
-        or _get_first(data, "resource_description"),
-        "kind": Resources.ResourceKind.FILE,
+        or _get_first(data, "resource_description")
+        or f"Resource attachment: {file_name}",
+        "kind": kind,
         "file_mime_type": getattr(uploaded_file, "content_type", None)
         or "application/octet-stream",
         "file_size": getattr(uploaded_file, "size", None),
@@ -117,7 +134,7 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
     serializer.is_valid(raise_exception=True)
     resource = serializer.save(uploaded_by=user)
 
-    storage_key = _storage_key(resource.id, getattr(uploaded_file, "name", None))
+    storage_key = _storage_key(resource.id, file_name)
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         for chunk in uploaded_file.chunks():
             tmp.write(chunk)

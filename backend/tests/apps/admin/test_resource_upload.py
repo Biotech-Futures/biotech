@@ -97,7 +97,8 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["msg"], "No file was uploaded.")
 
-    def test_resource_attachment_upload_returns_file_url_as_primary_url(self):
+    @patch("apps.resources.services.upload.upload_file")
+    def test_resource_upload_accepts_attachment_kind(self, upload_file_mock):
         upload = SimpleUploadedFile(
             "brief.pdf",
             b"attached file content",
@@ -105,45 +106,82 @@ class AdminResourceUploadTests(TestCase):
         )
 
         response = self.client.post(
-            reverse("admin_api:resource-attachment-upload"),
-            {"file": upload},
+            reverse("admin_api:resource-upload"),
+            {
+                "file": upload,
+                "resource_kind": "attachment",
+            },
             format="multipart",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         resource = Resources.objects.get(id=response.data["data"]["id"])
         self.assertEqual(resource.kind, Resources.ResourceKind.ATTACHMENT)
-        self.assertEqual(response.data["data"]["kind"], Resources.ResourceKind.ATTACHMENT)
-        expected_resource_path = f"/media/resource_attachments/{resource.storage_key.removeprefix('resource_attachments/')}"
-        expected_download_path = reverse(
-            "admin_api:resource-attachment-download",
-            args=[resource.id],
-        )
-        self.assertEqual(response.data["data"]["url"], f"http://testserver{expected_resource_path}")
-        self.assertEqual(
-            response.data["data"]["resourceUrl"],
-            f"http://testserver{expected_resource_path}",
-        )
-        self.assertTrue(response.data["data"]["downloadUrl"].endswith(expected_download_path))
-        self.assertNotEqual(response.data["data"]["resourceUrl"], response.data["data"]["downloadUrl"])
+        self.assertEqual(response.data["data"]["resource_kind"], Resources.ResourceKind.ATTACHMENT)
+        self.assertEqual(response.data["data"]["resource_name"], "brief.pdf")
+        self.assertTrue(resource.storage_key.endswith("-brief.pdf"))
+        upload_file_mock.assert_called_once()
 
-    def test_resource_attachment_download_uses_original_file_extension(self):
-        for content in (b"first file content", b"second file content"):
-            upload = SimpleUploadedFile(
-                "brief.pdf",
-                content,
-                content_type="application/pdf",
-            )
-            response = self.client.post(
-                reverse("admin_api:resource-attachment-upload"),
-                {"file": upload},
-                format="multipart",
-            )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    @patch("apps.admin.services.resource.BlobServiceClient")
+    @patch("apps.resources.services.upload.upload_file")
+    def test_resource_attachment_access_streams_uploaded_file(
+        self,
+        upload_file_mock,
+        blob_service_client_mock,
+    ):
+        upload = SimpleUploadedFile(
+            "brief.pdf",
+            b"attached file content",
+            content_type="application/pdf",
+        )
+        upload_response = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": upload,
+                "resource_kind": "attachment",
+            },
+            format="multipart",
+        )
+        resource_id = upload_response.data["data"]["id"]
+        self._mock_blob_service(
+            blob_service_client_mock,
+            [b"attached file content"],
+            "application/pdf",
+        )
 
-        resource = Resources.objects.order_by("-id").first()
+        response = self.client.get(reverse("admin_api:resource-access", args=[resource_id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["Content-Disposition"], 'inline; filename="brief.pdf"')
+        self.assertEqual(response["Content-Length"], str(len(b"attached file content")))
+        self.assertEqual(b"".join(response.streaming_content), b"attached file content")
+
+    @patch("apps.admin.services.resource.download_file_bytes")
+    @patch("apps.resources.services.upload.upload_file")
+    def test_resource_attachment_download_uses_original_file_extension(
+        self,
+        upload_file_mock,
+        download_file_bytes_mock,
+    ):
+        download_file_bytes_mock.return_value = b"attached file content"
+        upload = SimpleUploadedFile(
+            "brief.pdf",
+            b"attached file content",
+            content_type="application/pdf",
+        )
+        upload_response = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": upload,
+                "resource_kind": "attachment",
+            },
+            format="multipart",
+        )
+        resource_id = upload_response.data["data"]["id"]
+
         response = self.client.get(
-            reverse("admin_api:resource-attachment-download", args=[resource.id])
+            reverse("admin_api:resource-download", args=[resource_id])
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

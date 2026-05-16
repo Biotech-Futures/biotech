@@ -305,23 +305,16 @@ export async function uploadLinkedResourceFile(
 ): Promise<UploadedResourceLink> {
   const payload = new FormData();
   payload.append("file", file);
+  payload.append("resource_kind", "attachment");
+  payload.append("resource_name", file.name);
+  payload.append("resource_description", `Resource attachment: ${file.name}`);
 
   const res = await myFetch.post<{
     msg: string;
-    data: {
-      id: number;
-      kind?: ResourceKind;
-      fileName: string;
-      url: string;
-      resourceUrl?: string;
-      accessUrl?: string;
-      downloadUrl?: string;
-      mimeType: string | null;
-      size: number | null;
-    };
-  }>("/resource/attachments/", payload);
+    data: ApiResource;
+  }>("/resource/upload/", payload);
 
-  const attachment = res.data.data;
+  const attachment = normalizeResource(res.data.data);
   const apiUrl = import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000";
   const accessUrl = buildUrl(
     apiUrl,
@@ -335,16 +328,20 @@ export async function uploadLinkedResourceFile(
   return {
     id: attachment.id,
     kind: attachment.kind ?? "attachment",
-    fileName: attachment.fileName ?? file.name,
-    url: attachment.resourceUrl ?? attachment.url,
-    accessUrl:
-      accessUrl ??
-      attachment.downloadUrl ??
-      attachment.resourceUrl ??
-      attachment.url,
-    downloadUrl: attachment.downloadUrl,
-    mimeType: attachment.mimeType,
-    size: attachment.size,
+    fileName: attachment.file_name ?? file.name,
+    url: accessUrl,
+    accessUrl,
+    downloadUrl: buildUrl(
+      apiUrl,
+      "api",
+      "v1",
+      "admin",
+      "resource",
+      String(attachment.id),
+      "download",
+    ),
+    mimeType: attachment.file_mime_type,
+    size: attachment.file_size,
   };
 }
 
