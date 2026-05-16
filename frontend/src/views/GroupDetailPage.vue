@@ -209,12 +209,13 @@
               <div class="task-toolbar-controls">
                 <div class="task-filter-popover">
                   <button
+                    ref="taskFilterButtonRef"
                     type="button"
                     class="task-toolbar-btn"
                     :class="{ 'has-active': activeTaskFilterCount }"
                     :aria-expanded="isTaskFiltersOpen"
                     aria-haspopup="true"
-                    @click="isTaskFiltersOpen = !isTaskFiltersOpen"
+                    @click="toggleTaskFilters"
                   >
                     <i class="fas fa-sliders-h" aria-hidden="true"></i>
                     Filters
@@ -222,98 +223,107 @@
                       {{ activeTaskFilterCount }}
                     </span>
                   </button>
-                  <div v-if="isTaskFiltersOpen" class="task-filter-panel" role="dialog" aria-label="Filters">
-                    <label class="task-filter-row">
-                      <span>Type</span>
-                      <select v-model="taskFilters.taskType">
-                        <option value="">All</option>
-                        <option value="group">Group</option>
-                        <option value="individual">Individual</option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>Status</span>
-                      <select v-model="taskFilters.status">
-                        <option value="">All</option>
-                        <option
-                          v-for="option in TASK_STATUS_OPTIONS"
-                          :key="option.value"
-                          :value="option.value"
-                        >
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>State</span>
-                      <select v-model="taskFilters.completed">
-                        <option value="">All</option>
-                        <option value="true">Done</option>
-                        <option value="false">Open</option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>Assignee</span>
-                      <select v-model="taskFilters.assignedUser">
-                        <option value="">All members</option>
-                        <option
-                          v-for="member in taskAssigneeOptions"
-                          :key="member.userId"
-                          :value="String(member.userId)"
-                        >
-                          {{ member.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <label class="task-filter-row">
-                      <span>Subtasks of</span>
-                      <select v-model="taskFilters.parentId">
-                        <option value="">Any task</option>
-                        <option
-                          v-for="option in parentTaskFilterOptions"
-                          :key="option.id"
-                          :value="String(option.id)"
-                        >
-                          {{ option.label }}
-                        </option>
-                      </select>
-                    </label>
-                    <div class="task-filter-row-pair">
+                  <Teleport to="body">
+                    <div
+                      v-if="isTaskFiltersOpen"
+                      ref="taskFilterPanelRef"
+                      class="task-filter-panel"
+                      :style="taskFilterPanelStyle"
+                      role="dialog"
+                      aria-label="Filters"
+                    >
                       <label class="task-filter-row">
-                        <span>Due after</span>
-                        <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                        <span>Type</span>
+                        <select v-model="taskFilters.taskType">
+                          <option value="">All</option>
+                          <option value="group">Group</option>
+                          <option value="individual">Individual</option>
+                        </select>
                       </label>
                       <label class="task-filter-row">
-                        <span>Due before</span>
-                        <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                        <span>Status</span>
+                        <select v-model="taskFilters.status">
+                          <option value="">All</option>
+                          <option
+                            v-for="option in TASK_STATUS_OPTIONS"
+                            :key="option.value"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
                       </label>
+                      <label class="task-filter-row">
+                        <span>State</span>
+                        <select v-model="taskFilters.completed">
+                          <option value="">All</option>
+                          <option value="true">Done</option>
+                          <option value="false">Open</option>
+                        </select>
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Assignee</span>
+                        <select v-model="taskFilters.assignedUser">
+                          <option value="">All members</option>
+                          <option
+                            v-for="member in taskAssigneeOptions"
+                            :key="member.userId"
+                            :value="String(member.userId)"
+                          >
+                            {{ member.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="task-filter-row">
+                        <span>Subtasks of</span>
+                        <select v-model="taskFilters.parentId">
+                          <option value="">Any task</option>
+                          <option
+                            v-for="option in parentTaskFilterOptions"
+                            :key="option.id"
+                            :value="String(option.id)"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
+                      <div class="task-filter-row-pair">
+                        <label class="task-filter-row">
+                          <span>Due after</span>
+                          <input v-model="taskFilters.dueDateAfter" type="datetime-local" />
+                        </label>
+                        <label class="task-filter-row">
+                          <span>Due before</span>
+                          <input v-model="taskFilters.dueDateBefore" type="datetime-local" />
+                        </label>
+                      </div>
+                      <label class="task-filter-row task-filter-row--checkbox">
+                        <input
+                          v-model="taskFilters.showDeleted"
+                          type="checkbox"
+                          @change="toggleDeletedTaskVisibility"
+                        />
+                        <span>Show deleted</span>
+                      </label>
+                      <div class="task-filter-panel-footer">
+                        <button
+                          type="button"
+                          class="task-filter-clear"
+                          :disabled="!activeTaskFilterCount"
+                          @click="resetTaskFilters"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          class="task-filter-close"
+                          @click="isTaskFiltersOpen = false"
+                        >
+                          Close
+                        </button>
+                      </div>
                     </div>
-                    <label class="task-filter-row task-filter-row--checkbox">
-                      <input
-                        v-model="taskFilters.showDeleted"
-                        type="checkbox"
-                        @change="toggleDeletedTaskVisibility"
-                      />
-                      <span>Show deleted</span>
-                    </label>
-                    <div class="task-filter-panel-footer">
-                      <button
-                        type="button"
-                        class="task-filter-clear"
-                        :disabled="!activeTaskFilterCount"
-                        @click="resetTaskFilters"
-                      >
-                        Clear
-                      </button>
-                      <button
-                        type="button"
-                        class="task-filter-close"
-                        @click="isTaskFiltersOpen = false"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
+                  </Teleport>
                 </div>
                 <label class="task-toolbar-sort">
                   <span class="visually-hidden">Sort by</span>
@@ -1868,7 +1878,63 @@ const taskFilters = ref({
   ordering: 'due_date',
   showDeleted: false,
 })
+const taskFilterButtonRef = ref(null)
+const taskFilterPanelRef = ref(null)
+const taskFilterPanelStyle = ref({})
 let taskFilterReloadTimer = null
+
+const updateTaskFilterPanelPosition = () => {
+  const button = taskFilterButtonRef.value
+  if (!button || typeof button.getBoundingClientRect !== 'function') return
+
+  const rect = button.getBoundingClientRect()
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0
+  const margin = 16
+  const panelWidth = Math.min(320, Math.max(280, viewportWidth - margin * 2))
+  const preferredLeft = rect.right - panelWidth
+  const left = Math.min(
+    Math.max(margin, preferredLeft),
+    Math.max(margin, viewportWidth - panelWidth - margin),
+  )
+  const top = rect.bottom + 6
+  const maxHeight = Math.max(220, viewportHeight - top - margin)
+
+  taskFilterPanelStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${panelWidth}px`,
+    maxHeight: `${maxHeight}px`,
+  }
+}
+
+const addTaskFilterPositionListeners = () => {
+  window.addEventListener('resize', updateTaskFilterPanelPosition)
+  document.addEventListener('scroll', updateTaskFilterPanelPosition, true)
+}
+
+const removeTaskFilterPositionListeners = () => {
+  window.removeEventListener('resize', updateTaskFilterPanelPosition)
+  document.removeEventListener('scroll', updateTaskFilterPanelPosition, true)
+}
+
+const toggleTaskFilters = async () => {
+  const shouldOpen = !isTaskFiltersOpen.value
+  if (shouldOpen) updateTaskFilterPanelPosition()
+  isTaskFiltersOpen.value = shouldOpen
+  if (shouldOpen) {
+    await nextTick()
+    updateTaskFilterPanelPosition()
+  }
+}
+
+watch(isTaskFiltersOpen, async (isOpen) => {
+  removeTaskFilterPositionListeners()
+  if (!isOpen) return
+  await nextTick()
+  updateTaskFilterPanelPosition()
+  addTaskFilterPositionListeners()
+})
 const activeTaskFilterCount = computed(() => {
   const f = taskFilters.value
   let n = 0
@@ -5722,6 +5788,21 @@ const onDocumentKeydownForResourceChoice = (event) => {
   if (openAttachmentChoiceKey.value !== null) closeAttachmentChoice()
 }
 
+const onDocumentClickForTaskFilters = (event) => {
+  if (!isTaskFiltersOpen.value) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (taskFilterButtonRef.value?.contains?.(target)) return
+  if (taskFilterPanelRef.value?.contains?.(target)) return
+  isTaskFiltersOpen.value = false
+}
+
+const onDocumentKeydownForTaskFilters = (event) => {
+  if (isTaskFiltersOpen.value && event.key === 'Escape') {
+    isTaskFiltersOpen.value = false
+  }
+}
+
 onMounted(async () => {
   manageWindowTimer = window.setInterval(() => {
     manageWindowNow.value = Date.now()
@@ -5736,6 +5817,8 @@ onMounted(async () => {
   document.addEventListener('keydown', onDocumentKeydownForMessageKebab)
   document.addEventListener('mousedown', onDocumentClickForResourceChoice)
   document.addEventListener('keydown', onDocumentKeydownForResourceChoice)
+  document.addEventListener('mousedown', onDocumentClickForTaskFilters)
+  document.addEventListener('keydown', onDocumentKeydownForTaskFilters)
 
   await ensureAuthUser()
 
@@ -5778,6 +5861,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onDocumentKeydownForMessageKebab)
   document.removeEventListener('mousedown', onDocumentClickForResourceChoice)
   document.removeEventListener('keydown', onDocumentKeydownForResourceChoice)
+  document.removeEventListener('mousedown', onDocumentClickForTaskFilters)
+  document.removeEventListener('keydown', onDocumentKeydownForTaskFilters)
+  removeTaskFilterPositionListeners()
 })
 </script>
 
@@ -6188,9 +6274,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 .task-filter-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: fixed;
   width: 320px;
   max-height: calc(100vh - 220px);
   overflow-y: auto;
@@ -6199,7 +6283,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
-  z-index: 6;
+  z-index: 1300;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -10047,7 +10131,6 @@ onBeforeUnmount(() => {
   .task-toolbar { gap: 0.5rem; }
   .task-search { flex: 1 1 100%; }
   .task-toolbar-controls { width: 100%; justify-content: flex-end; }
-  .task-filter-panel { left: 0; right: auto; width: calc(100vw - 2rem); max-width: 320px; }
 
   .task-row-actions {
     opacity: 1; /* hover doesn't exist on touch -- always show actions */
