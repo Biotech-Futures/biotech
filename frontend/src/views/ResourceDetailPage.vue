@@ -192,6 +192,14 @@ import {
 } from '../utils/resourcesAPI'
 
 type PreviewMode = 'none' | 'html' | 'frame' | 'image' | 'video' | 'audio' | 'text'
+type ResourceAccessMode =
+  | 'inline_html'
+  | 'external_page'
+  | 'external_file'
+  | 'managed_file'
+  | 'managed_page'
+  | 'unavailable'
+  | string
 
 const route = useRoute()
 const router = useRouter()
@@ -232,6 +240,8 @@ const storageLabel = computed(() => {
   return value ? labels[value] || formatTypeName(value) : 'Unknown'
 })
 
+const accessMode = computed<ResourceAccessMode | ''>(() => access.value?.access_mode || '')
+
 const resourceIcon = computed(() => {
   if (resource.value?.kind === 'page') return 'fas fa-globe'
   if (resource.value?.kind === 'attachment') return 'fas fa-paperclip'
@@ -242,31 +252,32 @@ const resourceIcon = computed(() => {
   return 'fas fa-file-alt'
 })
 
-const managedDownloadUrl = computed(() => {
-  if (access.value) {
-    if (access.value.access_mode === 'unavailable') return null
-    return access.value.download_url || `/resources/resource-files/${access.value.resource_id}/download/`
-  }
-
-  if (!resource.value) return null
-  if (resource.value.storage_status === 'unavailable') return null
-  return resource.value.download_url || `/resources/resource-files/${resource.value.id}/download/`
+const resourceDownloadEndpoint = computed(() => {
+  if (!access.value || access.value.access_mode === 'unavailable') return null
+  return access.value.download_url || `/resources/resource-files/${access.value.resource_id}/download/`
 })
 
 const downloadTarget = computed(() => {
-  const target = access.value?.download_url || access.value?.external_url || managedDownloadUrl.value
-  if (!target) return null
-  if (access.value?.download_url) {
-    const separator = access.value.download_url.includes('?') ? '&' : '?'
-    return buildResourceUrl(`${access.value.download_url}${separator}force=1`)
+  if (!access.value || accessError.value) return null
+
+  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
+    return resourceDownloadEndpoint.value ? buildResourceUrl(resourceDownloadEndpoint.value) : null
   }
-  return buildResourceUrl(target)
+
+  if (accessMode.value === 'external_file') {
+    const target = resourceDownloadEndpoint.value
+    if (!target) return null
+    const separator = target.includes('?') ? '&' : '?'
+    return buildResourceUrl(`${target}${separator}force=1`)
+  }
+
+  return null
 })
 
 const openTarget = computed(() => {
   if (!access.value || accessError.value) return null
-  const target = access.value.external_url || managedDownloadUrl.value
-  return target ? buildResourceUrl(target) : null
+  if (accessMode.value !== 'external_page' && accessMode.value !== 'external_file') return null
+  return access.value.external_url ? buildResourceUrl(access.value.external_url) : null
 })
 
 const isTextLike = computed(() => {
@@ -299,12 +310,12 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
-  if (access.value.access_mode === 'unavailable') {
+  if (accessMode.value === 'unavailable') {
     previewError.value = access.value.detail || 'This resource is unavailable.'
     return
   }
 
-  if (access.value.access_mode === 'inline_html') {
+  if (accessMode.value === 'inline_html') {
     if (access.value.body_html) {
       htmlPreview.value = access.value.body_html
       previewMode.value = 'html'
@@ -314,13 +325,14 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
-  if (access.value.access_mode === 'external_page' && access.value.external_url) {
-    previewUrl.value = buildResourceUrl(access.value.external_url)
-    previewMode.value = 'frame'
+  if (accessMode.value === 'external_page') {
+    previewError.value = access.value.external_url
+      ? 'Open this resource in a new tab.'
+      : access.value.detail || 'This resource does not have an external page URL.'
     return
   }
 
-  if (access.value.external_url) {
+  if (accessMode.value === 'external_file' && access.value.external_url) {
     previewUrl.value = buildResourceUrl(access.value.external_url)
     if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
     else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
@@ -330,7 +342,12 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
-  const target = managedDownloadUrl.value
+  if (accessMode.value !== 'managed_file' && accessMode.value !== 'managed_page') {
+    previewError.value = access.value.detail || 'This resource cannot be displayed.'
+    return
+  }
+
+  const target = resourceDownloadEndpoint.value
   if (!target) {
     previewError.value = access.value.detail || 'This resource has no file to preview.'
     return
