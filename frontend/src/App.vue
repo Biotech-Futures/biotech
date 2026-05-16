@@ -748,6 +748,8 @@ select {
 }
 
 .sidebar {
+  --sidebar-toggle-offset: 250px;
+
   position: relative;
   display: flex;
   flex-direction: column;
@@ -764,15 +766,18 @@ select {
 }
 
 .sidebar.is-collapsed {
+  --sidebar-toggle-offset: 72px;
+
   width: 72px;
   min-width: 72px;
 }
 
 .sidebar-collapse-toggle {
-  position: absolute;
-  top: 50%;
-  right: -14px;
-  z-index: 3;
+  position: fixed;
+  top: 50vh;
+  left: calc(var(--sidebar-toggle-offset) - 14px);
+  right: auto;
+  z-index: 900;
   width: 28px;
   height: 44px;
   border: 1px solid var(--border-light);
@@ -786,6 +791,7 @@ select {
   box-shadow: 0 8px 18px rgba(17, 30, 25, 0.08);
   transform: translateY(-50%);
   transition:
+    left 0.2s ease,
     background-color 0.2s ease,
     color 0.2s ease,
     border-color 0.2s ease,
@@ -802,6 +808,12 @@ select {
 .sidebar-collapse-toggle:focus-visible {
   outline: 2px solid var(--dark-green);
   outline-offset: 2px;
+}
+
+@media (min-width: 1680px) {
+  .sidebar-collapse-toggle {
+    left: calc(50vw - 840px + var(--sidebar-toggle-offset) - 14px);
+  }
 }
 
 .sidebar-nav {
