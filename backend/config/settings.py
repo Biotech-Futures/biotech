@@ -333,6 +333,12 @@ CORS_ALLOWED_ORIGINS = config(
 
 CORS_ALLOW_CREDENTIALS = True
 
+# Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
+# app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's
+# X-Forwarded-Proto. Without this, DRF's reverse(request=request) builds http:// URLs
+# (download_url, access_url) and the browser blocks them as mixed content.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 SESSION_COOKIE_NAME = 'sessionid'
 SESSION_COOKIE_AGE = 86400
 SESSION_COOKIE_HTTPONLY = True

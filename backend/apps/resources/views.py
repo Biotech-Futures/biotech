@@ -55,6 +55,7 @@ from config.errors import (
 from .services.roles import revoke_role, grant_role, create_role
 from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
+from azure_blob_utils import download_file_text as download_legacy_blob_text
 from django.http import HttpResponseRedirect, StreamingHttpResponse
 import requests
 from apps.common.storage import serve_managed_file
@@ -608,7 +609,17 @@ class ResourcesViewSet(mixins.ListModelMixin,
         try:
             with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
                 raw = fp.read(max_bytes + 1)
-        except (IOError, OSError) as exc:
+        except Exception as exc:
+            if getattr(settings, "USE_AZURE_BLOB_STORAGE", False):
+                try:
+                    body = download_legacy_blob_text(resource.storage_key)
+                except Exception:
+                    pass
+                else:
+                    encoded = body.encode("utf-8")
+                    if len(encoded) > max_bytes:
+                        return None, "Rich-text content is too large to inline."
+                    return body, None
             logger.warning("Failed to read inline HTML for resource %s: %s", resource.pk, exc)
             return None, "Rich-text content could not be loaded."
         if len(raw) > max_bytes:

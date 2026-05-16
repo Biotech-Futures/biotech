@@ -512,6 +512,35 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         self.assertIsNone(response.data["body_html"])
         self.assertEqual(response.data["detail"], "Rich-text content could not be loaded.")
 
+    @override_settings(USE_AZURE_BLOB_STORAGE=True)
+    def test_inline_html_access_falls_back_to_legacy_admin_blob(self):
+        resource = Resources.objects.create(
+            name="Legacy Admin Page",
+            description="Stored in the old admin upload container",
+            uploaded_by=self.global_admin,
+            kind=Resources.ResourceKind.PAGE,
+            storage_key="resources/1778916724512-60-test_rish_content.html",
+            file_mime_type="text/html",
+            file_size=len(b"<p>test rish content</p>"),
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        with patch(
+            "apps.resources.views.RESOURCE_FILE_SERVICE.open",
+            side_effect=Exception("resource container missing blob"),
+        ), patch(
+            "apps.resources.views.download_legacy_blob_text",
+            return_value="<p>test rish content</p>",
+        ) as legacy_download:
+            response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["access_mode"], "inline_html")
+        self.assertEqual(response.data["body_html"], "<p>test rish content</p>")
+        self.assertIsNone(response.data["detail"])
+        legacy_download.assert_called_once_with(resource.storage_key)
+
     @override_settings(RESOURCE_INLINE_HTML_MAX_BYTES=8)
     def test_inline_html_size_cap_skips_body(self):
         resource = self._create_inline_html_resource(

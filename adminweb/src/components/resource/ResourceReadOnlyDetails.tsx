@@ -9,8 +9,8 @@ import type {
   ResourceTrackOption,
 } from "@/type/resource";
 import { getResourceTrackLabel, getResourceTypeLabel } from "@/type/resource";
-import { openHtmlPreviewPage } from "./util";
 import { ResourceRoleSelector } from "./ResourceRoleSelector";
+import { RichEditor } from "@/components/announcement/RichEditor";
 
 function getResourceKindLabel(kind: ResourceKind) {
   if (kind === "attachment") return "Attachment";
@@ -114,23 +114,10 @@ export function ResourceReadOnlyDetails({
 
       {resource.kind === "page" ? (
         <ResourceDetailRow label="Page Content">
-          <div className="space-y-3">
-            <div
-              className="prose prose-sm max-w-none rounded-md border bg-muted/20 p-4"
-              dangerouslySetInnerHTML={{
-                __html: pageContentHtml || "<p>No content yet.</p>",
-              }}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                openHtmlPreviewPage(pageContentHtml || "<p>No content yet.</p>")
-              }
-            >
-              Open Preview Page
-            </Button>
-          </div>
+          <RichEditor
+            value={pageContentHtml || "<p>No content yet.</p>"}
+            readOnly
+          />
         </ResourceDetailRow>
       ) : (
         <ResourceDetailRow label="File">

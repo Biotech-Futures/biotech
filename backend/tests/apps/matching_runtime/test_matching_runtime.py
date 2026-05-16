@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
-from apps.users.models import MentorProfile
+from apps.users.models import AdminScope, MentorProfile
 
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
 
@@ -18,6 +18,7 @@ class MatchingRuntimeAdminWorkflowTests(TestCase):
             password="adminpass",
             is_staff=True,
         )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.old_mentor = get_user_model().objects.create_user(
             email="old-mentor@test.com",
             password="mentorpass",
