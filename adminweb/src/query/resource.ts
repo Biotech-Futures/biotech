@@ -8,6 +8,7 @@ import type {
   ResourceRole,
   ResourceTrackOption,
   ResourceOrder,
+  ResourceAccess,
   ResourceTypeOption,
   ResourceTypeName,
   PaginatedResponse,
@@ -257,6 +258,7 @@ export type UploadedResourceLink = {
   id: number;
   fileName: string;
   url: string;
+  accessUrl?: string;
   downloadUrl?: string;
   mimeType: string | null;
   size: number | null;
@@ -275,8 +277,18 @@ export async function uploadLinkedResourceFile(file: File): Promise<UploadedReso
   }>("/resource/upload", payload);
 
   const resource = normalizeResource(res.data.data);
+  const apiUrl = import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000";
+  const accessUrl = buildUrl(
+    apiUrl,
+    "api",
+    "v1",
+    "admin",
+    "resource",
+    String(resource.id),
+    "access",
+  );
   const downloadUrl = buildUrl(
-    import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000",
+    apiUrl,
     "api",
     "v1",
     "admin",
@@ -288,7 +300,8 @@ export async function uploadLinkedResourceFile(file: File): Promise<UploadedReso
   return {
     id: resource.id,
     fileName: resource.file_name ?? file.name,
-    url: downloadUrl,
+    url: accessUrl,
+    accessUrl,
     downloadUrl,
     mimeType: resource.file_mime_type,
     size: resource.file_size,
@@ -312,4 +325,25 @@ export async function downloadResourceFile(id: number, fallbackName?: string) {
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
+}
+
+export async function accessResourceFile(id: number): Promise<ResourceAccess> {
+  const res = await myFetch.get<{ msg: string; data: ResourceAccess }>(`/resource/${id}/access`);
+  return res.data.data;
+}
+
+export function openResourceAccess(access: ResourceAccess) {
+  if (access.temporary_url) {
+    window.open(access.temporary_url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  if (access.content !== null) {
+    const blob = new Blob([access.content], {
+      type: access.mime_type || "text/plain",
+    });
+    const url = window.URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+  }
 }

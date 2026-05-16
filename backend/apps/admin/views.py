@@ -1,7 +1,7 @@
 from django.contrib.auth import update_session_auth_hash
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from pathlib import PurePosixPath
 import re
@@ -35,7 +35,7 @@ from apps.admin.services.event import (
 )
 from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
-    delete_resource, replace_resource_file, download_resource,
+    delete_resource, replace_resource_file, download_resource, access_resource,
     assign_role_to_resource, remove_role_from_resource,
     list_resource_roles, list_resource_types, list_resource_tracks,
 )
@@ -483,6 +483,27 @@ class ResourceDownloadView(APIView):
             content_type=data.get("mime_type") or "application/octet-stream",
         )
         response["Content-Disposition"] = f'attachment; filename="{data["file_name"]}"'
+        return response
+
+
+class ResourceAccessView(APIView):
+    """GET /api/v1/resource/{id}/access - Stream resource content inline"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, resource_id):
+        result = access_resource(resource_id)
+        data = result.get("data")
+        if not data:
+            return Response(result, status=status.HTTP_404_NOT_FOUND)
+
+        response = StreamingHttpResponse(
+            data["stream"],
+            content_type=data.get("mime_type") or "application/octet-stream",
+        )
+        response["Content-Disposition"] = f'inline; filename="{data["file_name"]}"'
+        response["Cache-Control"] = "private, max-age=300"
+        if data.get("file_size") is not None:
+            response["Content-Length"] = str(data["file_size"])
         return response
 
 

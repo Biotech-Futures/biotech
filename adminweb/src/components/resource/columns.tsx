@@ -18,6 +18,7 @@ interface ResourceColumnsOptions {
   onViewDetail?: (resource: Resource) => void;
   onEdit?: (resource: Resource) => void;
   onDelete?: (resource: Resource) => void;
+  onAccess?: (resource: Resource) => void;
   onDownload?: (resource: Resource) => void;
   trackOptions?: ResourceTrackOption[];
 }
@@ -53,7 +54,9 @@ export function createResourceColumns({
   onDownload,
   trackOptions,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
-  const trackLabelById = new Map((trackOptions ?? []).map((item) => [item.id, item.label]));
+  const trackLabelById = new Map(
+    (trackOptions ?? []).map((item) => [item.id, item.label]),
+  );
 
   return [
     {
@@ -121,10 +124,15 @@ export function createResourceColumns({
       },
       cell: ({ row }) => {
         const rawTrackId = row.original.track_id;
-        if (rawTrackId === null || rawTrackId === undefined) return <span>Unassigned</span>;
+        if (rawTrackId === null || rawTrackId === undefined)
+          return <span>Unassigned</span>;
         const trackId = Number(rawTrackId);
         if (!Number.isFinite(trackId)) return <span>Unassigned</span>;
-        return <span>{trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId)}</span>;
+        return (
+          <span>
+            {trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId)}
+          </span>
+        );
       },
     },
     {
@@ -147,7 +155,8 @@ export function createResourceColumns({
       },
       cell: ({ row }) => {
         const parsed = parseResourceDate(row.original.uploaded_at);
-        if (Number.isNaN(parsed)) return <span className="text-muted-foreground">N/A</span>;
+        if (Number.isNaN(parsed))
+          return <span className="text-muted-foreground">N/A</span>;
         return new Date(parsed).toLocaleString();
       },
     },
@@ -174,6 +183,11 @@ export function createResourceColumns({
               <DropdownMenuItem onClick={() => onEdit?.(resource)}>
                 Edit Resource
               </DropdownMenuItem>
+              {/* {resource.file_name ? (
+                <DropdownMenuItem onClick={() => onAccess?.(resource)}>
+                  Access Resource
+                </DropdownMenuItem>
+              ) : null} */}
               {resource.file_name ? (
                 <DropdownMenuItem onClick={() => onDownload?.(resource)}>
                   Download File

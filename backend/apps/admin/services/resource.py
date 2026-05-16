@@ -8,12 +8,18 @@ import tempfile
 from django.db.models import Q, F, Exists, OuterRef, Value, CharField
 from django.db import transaction
 from django.utils import timezone
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType
 from apps.groups.models import Tracks, Groups
 from apps.users.models import User
-from azure_blob_utils import upload_file, download_file_text, download_file_bytes
+from azure_blob_utils import (
+    upload_file,
+    download_file_text,
+    download_file_bytes,
+)
+from azure.storage.blob import BlobServiceClient
 from apps.admin.scope_utils import get_admin_track_ids
 
 
@@ -195,6 +201,36 @@ def extract_file_name_from_storage_key(storage_key: Optional[str]) -> Optional[s
     if dash_index == -1:
         return raw or None
     return raw[dash_index + 1:] or None
+
+
+def stream_blob_chunks(download_stream):
+    """Yield Azure blob chunks for a Django streaming response."""
+    for chunk in download_stream.chunks():
+        yield chunk
+
+
+def get_resource_blob_client(storage_key: str):
+    """Build a blob client for the configured resource storage container."""
+    connection_string = (
+        getattr(settings, "AZURE_CONNECTION_STRING", "")
+        or getattr(settings, "AZURE_STORAGE_CONNECTION_STRING", "")
+    )
+    container_name = (
+        getattr(settings, "AZURE_STORAGE_CONTAINER_NAME", "")
+        or getattr(settings, "AZURE_RESOURCE_CONTAINER", "")
+        or getattr(settings, "AZURE_CONTAINER", "")
+    )
+
+    if connection_string:
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+    else:
+        blob_service_client = BlobServiceClient(
+            f"https://{settings.AZURE_ACCOUNT_NAME}.blob.core.windows.net",
+            credential=settings.AZURE_ACCOUNT_KEY,
+        )
+
+    container_client = blob_service_client.get_container_client(container_name)
+    return container_client.get_blob_client(storage_key)
 
 
 def get_page_content_html(resource: Resources) -> Optional[str]:
@@ -743,6 +779,61 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
             },
         }
     except Exception as e:
+        return {
+            'msg': 'File not found in storage',
+            'data': None,
+        }
+
+
+def access_resource(resource_id: int) -> Dict[str, Any]:
+    """Open a resource blob for inline streaming."""
+    try:
+        resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
+    except Resources.DoesNotExist:
+        return {
+            'msg': 'Resource not found',
+            'data': None,
+        }
+
+    if not resource.storage_key:
+        return {
+            'msg': 'This resource has no uploaded file',
+            'data': None,
+        }
+
+    file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
+
+    try:
+        blob_client = get_resource_blob_client(resource.storage_key)
+        if not blob_client.exists():
+            return {
+                'msg': 'File not found in storage',
+                'data': None,
+            }
+
+        properties = blob_client.get_blob_properties()
+        content_settings = getattr(properties, "content_settings", None)
+        storage_content_type = getattr(content_settings, "content_type", None)
+        mime_type = (
+            resource.file_mime_type
+            or storage_content_type
+            or 'application/octet-stream'
+        )
+        download_stream = blob_client.download_blob()
+        file_size = resource.file_size or getattr(properties, "size", None)
+
+        return {
+            'msg': 'Resource stream ready',
+            'data': {
+                'resource_id': resource.id,
+                'access_type': 'stream',
+                'file_name': file_name,
+                'mime_type': mime_type,
+                'file_size': file_size,
+                'stream': stream_blob_chunks(download_stream),
+            },
+        }
+    except Exception:
         return {
             'msg': 'File not found in storage',
             'data': None,
