@@ -536,7 +536,9 @@ class ResourcesViewSet(mixins.ListModelMixin,
         try:
             with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
                 raw = fp.read(max_bytes + 1)
-        except (IOError, OSError) as exc:
+        except Exception as exc:
+            # Azure's ResourceNotFoundError is an HttpResponseError, not OSError,
+            # so the narrower catch let missing-blob reads bubble up as a 500.
             logger.warning("Failed to read inline HTML for resource %s: %s", resource.pk, exc)
             return None, "Rich-text content could not be loaded."
         if len(raw) > max_bytes:
