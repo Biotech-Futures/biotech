@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from django.test import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from apps.groups.models import Countries, CountryStates, Tracks
 from apps.resources.models import ResourceAudience, Resources, ResourceType, Roles
@@ -24,6 +24,27 @@ class AdminResourceUploadTests(TestCase):
         AdminScope.objects.create(user=self.admin_user, is_global=True)
         self.client.force_authenticate(user=self.admin_user)
         self.role = Roles.objects.create(role_name="Student")
+
+    def _mock_blob_service(self, blob_service_client_mock, chunks, content_type):
+        download_stream = Mock()
+        download_stream.chunks.return_value = chunks
+        blob_properties = Mock()
+        blob_properties.content_settings.content_type = content_type
+        blob_properties.size = sum(len(chunk) for chunk in chunks)
+
+        blob_client = Mock()
+        blob_client.exists.return_value = True
+        blob_client.get_blob_properties.return_value = blob_properties
+        blob_client.download_blob.return_value = download_stream
+
+        container_client = Mock()
+        container_client.get_blob_client.return_value = blob_client
+
+        blob_service = Mock()
+        blob_service.get_container_client.return_value = container_client
+        blob_service_client_mock.from_connection_string.return_value = blob_service
+        blob_service_client_mock.return_value = blob_service
+        return container_client, blob_client
 
     @patch("apps.resources.services.upload.upload_file")
     def test_admin_resource_upload_uses_resources_package(self, upload_file_mock):
@@ -206,6 +227,65 @@ class AdminResourceUploadTests(TestCase):
         )
         self.assertEqual(response.content, b"<h1>Download me</h1>")
         download_file_bytes_mock.assert_called_once_with(resource.storage_key)
+
+    @patch("apps.admin.services.resource.BlobServiceClient")
+    def test_admin_page_resource_access_streams_inline_content(
+        self,
+        blob_service_client_mock,
+    ):
+        container_client, blob_client = self._mock_blob_service(
+            blob_service_client_mock,
+            [b"<h1>Open ", b"me</h1>"],
+            "text/html",
+        )
+        resource = Resources.objects.create(
+            name="Access Page",
+            description="Existing page resource",
+            kind=Resources.ResourceKind.PAGE,
+            uploaded_by=self.admin_user,
+            storage_key="resources/1778844292421-18-open.html",
+            file_mime_type="text/html",
+            file_size=16,
+        )
+
+        response = self.client.get(reverse("admin_api:resource-access", args=[resource.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "text/html")
+        self.assertEqual(response["Content-Disposition"], 'inline; filename="open.html"')
+        self.assertEqual(response["Cache-Control"], "private, max-age=300")
+        self.assertEqual(response["Content-Length"], "16")
+        self.assertEqual(b"".join(response.streaming_content), b"<h1>Open me</h1>")
+        container_client.get_blob_client.assert_called_once_with(resource.storage_key)
+        blob_client.download_blob.assert_called_once_with()
+
+    @patch("apps.admin.services.resource.BlobServiceClient")
+    def test_admin_file_resource_access_streams_inline_file(
+        self,
+        blob_service_client_mock,
+    ):
+        self._mock_blob_service(
+            blob_service_client_mock,
+            [b"%PDF-file-content"],
+            "application/pdf",
+        )
+        resource = Resources.objects.create(
+            name="Access File",
+            description="Existing file resource",
+            kind=Resources.ResourceKind.FILE,
+            uploaded_by=self.admin_user,
+            storage_key="resources/1778844292421-19-file.pdf",
+            file_mime_type="application/pdf",
+            file_size=1024,
+        )
+
+        response = self.client.get(reverse("admin_api:resource-access", args=[resource.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["Content-Disposition"], 'inline; filename="file.pdf"')
+        self.assertEqual(response["Content-Length"], "1024")
+        self.assertEqual(b"".join(response.streaming_content), b"%PDF-file-content")
 
     def test_resource_list_accepts_adminweb_track_and_type_filters(self):
         country = Countries.objects.create(country_name="Australia")

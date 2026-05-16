@@ -57,6 +57,17 @@ export type Resource = {
   audiences: ResourceAudience[];
 };
 
+export type ResourceAccess = {
+  resource_id: number;
+  access_type: "content" | "temporary_url";
+  file_name: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  content: string | null;
+  temporary_url: string | null;
+  expires_in_seconds: number | null;
+};
+
 export type PaginatedResponse<T> = {
   msg: string;
   data: {

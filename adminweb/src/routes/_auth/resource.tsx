@@ -7,7 +7,9 @@ import {
   createResourceColumns,
 } from "@/components/resource";
 import {
+  accessResourceFile,
   downloadResourceFile,
+  openResourceAccess,
   useDeleteResource,
   useQueryResourceRoles,
   useQueryResourceTracks,
@@ -172,10 +174,24 @@ function ResourcePage() {
     }
   };
 
+  const handleAccess = async (resource: Resource) => {
+    if (!resource.file_name) {
+      toast.error("This resource does not have an uploaded file.");
+      return;
+    }
+    try {
+      const access = await accessResourceFile(resource.id);
+      openResourceAccess(access);
+    } catch {
+      toast.error("Resource access failed. Please try again.");
+    }
+  };
+
   const columns = createResourceColumns({
     onViewDetail: handleViewDetail,
     onEdit: handleEdit,
     onDelete: handleDelete,
+    onAccess: handleAccess,
     onDownload: handleDownload,
     trackOptions: tracksData?.data ?? [],
   });

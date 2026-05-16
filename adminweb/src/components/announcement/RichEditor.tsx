@@ -144,7 +144,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
       for (const [index, file] of files.entries()) {
         const resource = await uploadLinkedResourceFile(file);
         insertAttachmentLink(
-          resource.downloadUrl ?? resource.url,
+          resource.accessUrl ?? resource.url,
           index === 0 ? initialRange : null,
         );
       }
