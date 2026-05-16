@@ -9251,7 +9251,13 @@ onBeforeUnmount(() => {
 
 .chat-input-field {
   /* textarea-specific tweaks for a rounder, friendlier composer */
+  height: 2.65rem;
   min-height: 2.65rem;
+  max-height: 6.8rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  line-height: 1.35rem;
+  overflow-y: auto;
   resize: none;
 }
 
