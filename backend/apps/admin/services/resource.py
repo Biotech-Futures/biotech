@@ -264,9 +264,16 @@ def get_page_content_html(resource: Resources) -> Optional[str]:
         return None
 
     try:
-        return download_file_text(resource.storage_key)
+        with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
+            raw = fp.read()
+        if isinstance(raw, bytes):
+            return raw.decode('utf-8', errors='replace')
+        return raw
     except Exception:
-        return None
+        try:
+            return download_file_text(resource.storage_key)
+        except Exception:
+            return None
 
 
 def resource_to_row(resource: Resources, include_page_content: bool = False) -> ResourceRowDict:
@@ -918,16 +925,8 @@ def update_resource(
     if updates.get('resource_kind') == RESOURCE_KIND_PAGE and 'content_html' in updates:
         html_text = updates['content_html'] or ''
         file_name = f"{(updates.get('resource_name') or resource_data['resource_name']) or 'resource'}.html"
-        storage_key = build_storage_key(resource_id, file_name)
-        
         html_bytes = html_text.encode('utf-8')
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(html_bytes)
-            tmp.flush()
-            try:
-                upload_file(tmp.name, storage_key)
-            finally:
-                os.unlink(tmp.name)
+        storage_key = RESOURCE_FILE_SERVICE.save_content(file_name, ContentFile(html_bytes))
         
         resource.storage_key = storage_key
         resource.file_mime_type = 'text/html'

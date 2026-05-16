@@ -342,7 +342,7 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
         # Blob delete-on-rollback if DB write raises.
         with stored_resource_file(uploaded_file) as file_data:
             validated_data.update(file_data)
-            validated_data["kind"] = Resources.ResourceKind.FILE
+            validated_data["kind"] = validated_data.get("kind", Resources.ResourceKind.FILE)
             resource = super().create(validated_data)
             self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
         return resource
@@ -367,7 +367,7 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
 
         with stored_resource_file(uploaded_file) as file_data:
             validated_data.update(file_data)
-            validated_data["kind"] = Resources.ResourceKind.FILE
+            validated_data["kind"] = validated_data.get("kind", Resources.ResourceKind.FILE)
             resource = super().update(instance, validated_data)
             self._replace_audiences(resource, role_ids=role_ids, audience_rules=audience_rules)
 

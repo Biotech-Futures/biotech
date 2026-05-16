@@ -95,7 +95,7 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["msg"], "No file was uploaded.")
 
-    def test_resource_upload_rejects_attachment_kind_like_normal_endpoint(self):
+    def test_resource_upload_preserves_attachment_kind(self):
         upload = SimpleUploadedFile(
             "brief.pdf",
             b"attached file content",
@@ -111,9 +111,13 @@ class AdminResourceUploadTests(TestCase):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("uploaded_file", response.data["errors"])
-        self.assertFalse(Resources.objects.filter(name="brief.pdf").exists())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["data"]["resource_kind"], "attachment")
+
+        resource = Resources.objects.get(name="brief.pdf")
+        self.assertEqual(resource.kind, Resources.ResourceKind.ATTACHMENT)
+        self.assertEqual(resource.file_mime_type, "application/pdf")
+        self.assertEqual(resource.file_size, len(b"attached file content"))
 
     @patch("apps.admin.services.resource.BlobServiceClient")
     def test_resource_file_access_streams_uploaded_file(
@@ -179,13 +183,7 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn('filename="brief.pdf"', response["Content-Disposition"])
 
-    @patch("apps.admin.services.resource.download_file_text")
-    def test_admin_page_resource_returns_content_html(
-        self,
-        download_file_text_mock,
-    ):
-        download_file_text_mock.return_value = "<p>Hello page</p>"
-
+    def test_admin_page_resource_returns_content_html(self):
         response = self.client.post(
             reverse("admin_api:resource-list-create"),
             {
@@ -207,29 +205,27 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(resource.file_mime_type, "text/html")
         self.assertEqual(resource.file_size, len(b"<p>Hello page</p>"))
         self.assertTrue(resource.storage_key.endswith("/admin-page.html"))
-        download_file_text_mock.assert_called_once_with(resource.storage_key)
 
-    @patch("apps.admin.services.resource.download_file_text")
-    def test_admin_page_resource_detail_reads_stored_content_html(
-        self,
-        download_file_text_mock,
-    ):
-        download_file_text_mock.return_value = "<h1>Stored page</h1>"
-        resource = Resources.objects.create(
-            name="Stored Page",
-            description="Existing page resource",
-            kind=Resources.ResourceKind.PAGE,
-            uploaded_by=self.admin_user,
-            storage_key="resources/stored-page.html",
-            file_mime_type="text/html",
-            file_size=20,
+    def test_admin_page_resource_detail_reads_stored_content_html(self):
+        create_response = self.client.post(
+            reverse("admin_api:resource-list-create"),
+            {
+                "resource_kind": "page",
+                "resource_name": "Stored Page",
+                "resource_description": "Existing page resource",
+                "visibility_scope": "role_based",
+                "role_ids": [self.role.id],
+                "content_html": "<h1>Stored page</h1>",
+            },
+            format="json",
         )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        resource_id = create_response.data["data"]["id"]
 
-        response = self.client.get(reverse("admin_api:resource-detail", args=[resource.id]))
+        response = self.client.get(reverse("admin_api:resource-detail", args=[resource_id]))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["content_html"], "<h1>Stored page</h1>")
-        download_file_text_mock.assert_called_once_with("resources/stored-page.html")
 
     @patch("apps.admin.services.resource.download_file_bytes")
     def test_admin_page_resource_download_returns_html_attachment(
