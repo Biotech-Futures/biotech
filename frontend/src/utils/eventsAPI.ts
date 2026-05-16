@@ -3,7 +3,7 @@ import { apiErrorFromResponse } from './apiError'
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const EVENTS_API_BASE = `${API_BASE_URL}/api/v1/events`
+const EVENTS_API_BASE = `${API_BASE_URL}/events/v1`
 
 export type EventWhen = 'upcoming' | 'past' | 'all'
 export type EventRsvpStatus = 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
