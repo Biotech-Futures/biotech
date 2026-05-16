@@ -11,92 +11,141 @@
     </div>
 
     <section class="resource-toolbar" aria-label="Resource filters">
-      <input
-        v-model="searchQuery"
-        type="search"
-        class="form-control resource-search"
-        placeholder="Search by file name..."
-      />
+      <label class="filter-field filter-field-search">
+        <span class="filter-label">Search</span>
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="form-control resource-search"
+          placeholder="Search by name or description..."
+        />
+      </label>
 
-      <select v-model="selectedType" class="form-control resource-select" aria-label="Filter by type">
-        <option value="">All types</option>
-        <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
-          {{ formatTypeName(type.type_name) }}
-        </option>
-      </select>
+      <label class="filter-field">
+        <span class="filter-label">Type</span>
+        <select v-model="selectedType" class="form-control resource-select" aria-label="Filter by type">
+          <option value="">All types</option>
+          <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
+            {{ formatTypeName(type.type_name) }}
+          </option>
+        </select>
+      </label>
 
-      <select v-model="selectedLabelId" class="form-control resource-select" aria-label="Filter by label">
-        <option value="">All labels</option>
-        <option v-for="label in labels" :key="label.id" :value="String(label.id)">
-          {{ label.name }}{{ typeof label.resource_count === 'number' ? ` (${label.resource_count})` : '' }}
-        </option>
-      </select>
+      <label class="filter-field">
+        <span class="filter-label">Since</span>
+        <input
+          v-model="sinceDate"
+          type="date"
+          class="form-control resource-date"
+          aria-label="Filter resources uploaded since"
+        />
+        <span v-if="getFieldError('since')" class="field-error">{{ getFieldError('since') }}</span>
+      </label>
 
-      <select v-model="sortOrder" class="form-control resource-select" aria-label="Sort resources">
-        <option value="newest">Newest first</option>
-        <option value="oldest">Oldest first</option>
-        <option value="name">Name A-Z</option>
-      </select>
+      <label class="filter-field">
+        <span class="filter-label">Until</span>
+        <input
+          v-model="untilDate"
+          type="date"
+          class="form-control resource-date"
+          aria-label="Filter resources uploaded until"
+        />
+        <span v-if="getFieldError('until')" class="field-error">{{ getFieldError('until') }}</span>
+      </label>
+
+      <label class="filter-field">
+        <span class="filter-label">Sort</span>
+        <select v-model="sortOrder" class="form-control resource-select" aria-label="Sort resources">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name A-Z</option>
+        </select>
+        <span v-if="getFieldError('order')" class="field-error">{{ getFieldError('order') }}</span>
+      </label>
     </section>
 
-    <div v-if="loading" class="card resource-state">
-      <span class="loading"></span>
-      <span>Loading resources...</span>
-    </div>
+    <div class="resource-layout">
+      <aside class="label-sidebar card" aria-label="Resource labels">
+        <h2>Labels</h2>
+        <button
+          type="button"
+          :class="['label-filter', !selectedLabelId ? 'label-filter-active' : '']"
+          @click="selectedLabelId = ''"
+        >
+          <span>All labels</span>
+        </button>
+        <button
+          v-for="label in labels"
+          :key="label.id"
+          type="button"
+          :class="['label-filter', selectedLabelId === String(label.id) ? 'label-filter-active' : '']"
+          @click="selectedLabelId = String(label.id)"
+        >
+          <span>{{ label.name }}</span>
+          <span class="label-count">{{ label.resource_count ?? 0 }}</span>
+        </button>
+        <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
+      </aside>
 
-    <div v-else-if="error" class="card resource-state resource-state-error">
-      <h3>Error</h3>
-      <p>{{ error }}</p>
-      <button @click="loadResources" class="btn btn-primary">Retry</button>
-    </div>
+      <section class="resource-results">
+        <div v-if="loading" class="card resource-state">
+          <span class="loading"></span>
+          <span>Loading resources...</span>
+        </div>
 
-    <div v-else-if="resources.length === 0" class="card resource-state">
-      <h3>No resources found</h3>
-      <p>Try changing your search or filters.</p>
-    </div>
+        <div v-else-if="error" class="card resource-state resource-state-error">
+          <h3>Error</h3>
+          <p>{{ error }}</p>
+          <button @click="loadResources" class="btn btn-primary">Retry</button>
+        </div>
 
-    <div v-else class="resource-list card">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Kind</th>
-            <th>Labels</th>
-            <th>Modified</th>
-<!--            <th>Size</th>-->
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="resource in resources"
-            :key="resource.id"
-            class="resource-row"
-            tabindex="0"
-            @click="openResourceDetail(resource.id)"
-            @keydown.enter="openResourceDetail(resource.id)"
-          >
-            <td>
-              <div class="resource-name-cell">
-                <i :class="getResourceIcon(resource)" aria-hidden="true"></i>
-                <span>{{ resource.name }}</span>
-              </div>
-            </td>
-            <td>{{ getResourceTypeLabel(resource) }}</td>
-            <td>{{ getResourceKindLabel(resource.kind) }}</td>
-            <td>
-              <div v-if="resource.labels?.length" class="label-list">
-                <span v-for="label in resource.labels" :key="label.id" class="label-chip">
-                  {{ label.name }}
-                </span>
-              </div>
-              <span v-else class="muted">None</span>
-            </td>
-            <td>{{ formatDate(resource.uploaded_at) }}</td>
-<!--            <td>{{ formatFileSize(resource.file_size) }}</td>-->
-          </tr>
-        </tbody>
-      </table>
+        <div v-else-if="resources.length === 0" class="card resource-state">
+          <h3>No resources found</h3>
+          <p>Try changing your search or filters.</p>
+        </div>
+
+        <div v-else class="resource-list card">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Kind</th>
+                <th>Labels</th>
+                <th>Modified</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="resource in resources"
+                :key="resource.id"
+                class="resource-row"
+                tabindex="0"
+                @click="openResourceDetail(resource.id)"
+                @keydown.enter="openResourceDetail(resource.id)"
+              >
+                <td>
+                  <div class="resource-name-cell">
+                    <i :class="getResourceIcon(resource)" aria-hidden="true"></i>
+                    <span>{{ resource.name }}</span>
+                  </div>
+                </td>
+                <td>{{ getResourceTypeLabel(resource) }}</td>
+                <td>{{ getResourceKindLabel(resource.kind) }}</td>
+                <td>
+                  <div v-if="resource.labels?.length" class="label-list">
+                    <span v-for="label in resource.labels" :key="label.id" class="label-chip">
+                      {{ label.name }}
+                    </span>
+                  </div>
+                  <span v-else class="muted">None</span>
+                </td>
+                <td>{{ formatDate(resource.uploaded_at) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -113,6 +162,7 @@ import {
   type ResourceLabel,
   type ResourceType
 } from '../utils/resourcesAPI'
+import { ApiError } from '../utils/apiError'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -124,12 +174,28 @@ const labels = ref<ResourceLabel[]>([])
 const resourceTypes = ref<ResourceType[]>([])
 const loading = ref(false)
 const error = ref('')
+const fieldErrors = ref<Record<string, string[]>>({})
 
 const searchQuery = ref('')
 const selectedType = ref('')
 const selectedLabelId = ref('')
+const sinceDate = ref('')
+const untilDate = ref('')
 const sortOrder = ref<'newest' | 'oldest' | 'name'>('newest')
 let loadSequence = 0
+
+const getFieldError = (field: string): string => fieldErrors.value[field]?.[0] || ''
+
+const validateFilters = (): boolean => {
+  fieldErrors.value = {}
+  if (sinceDate.value && untilDate.value && untilDate.value < sinceDate.value) {
+    fieldErrors.value = {
+      until: ['until must be on or after since.']
+    }
+    return false
+  }
+  return true
+}
 
 const loadResources = async (): Promise<void> => {
   if (!auth.isAuthenticated) {
@@ -137,14 +203,22 @@ const loadResources = async (): Promise<void> => {
     return
   }
 
+  if (!validateFilters()) {
+    error.value = ''
+    return
+  }
+
   const sequence = ++loadSequence
   loading.value = true
   error.value = ''
+  fieldErrors.value = {}
   try {
     const response = await fetchResources({
       search: searchQuery.value.trim() || undefined,
       type: selectedType.value || undefined,
       label_id: selectedLabelId.value ? Number(selectedLabelId.value) : undefined,
+      since: sinceDate.value || undefined,
+      until: untilDate.value || undefined,
       order: sortOrder.value,
       page: 1,
       page_size: 100
@@ -154,7 +228,12 @@ const loadResources = async (): Promise<void> => {
     }
   } catch (err: unknown) {
     if (sequence === loadSequence) {
-      error.value = err instanceof Error ? err.message : 'Failed to load resources'
+      if (err instanceof ApiError && err.fields) {
+        fieldErrors.value = err.fields
+        error.value = ''
+      } else {
+        error.value = err instanceof Error ? err.message : 'Failed to load resources'
+      }
     }
   } finally {
     if (sequence === loadSequence) {
@@ -237,7 +316,7 @@ const formatFileSize = (value?: number | null): string => {
 }
 
 let searchTimer: ReturnType<typeof window.setTimeout> | undefined
-watch([searchQuery, selectedType, selectedLabelId, sortOrder], () => {
+watch([searchQuery, selectedType, selectedLabelId, sortOrder, sinceDate, untilDate], () => {
   window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => {
     loadResources()
@@ -267,14 +346,84 @@ onMounted(() => {
 .resource-toolbar {
   align-items: center;
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(130px, 1fr));
+  grid-template-columns: minmax(240px, 2fr) minmax(130px, 1fr) minmax(130px, 0.9fr) minmax(130px, 0.9fr) minmax(130px, 1fr);
   gap: 0.75rem;
   margin-bottom: 1rem;
 }
 
+.filter-field {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.filter-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .resource-select,
+.resource-date,
 .resource-search {
   min-height: 42px;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.resource-layout {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.label-sidebar {
+  margin: 0;
+  padding: 1rem;
+}
+
+.label-sidebar h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.label-filter {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--charcoal);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  min-height: 36px;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  width: 100%;
+}
+
+.label-filter:hover,
+.label-filter-active {
+  background: var(--accent-green-soft);
+  border-color: rgba(1, 113, 81, 0.18);
+  color: var(--dark-green);
+}
+
+.label-count {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.resource-results {
+  min-width: 0;
 }
 
 .resource-state {
@@ -345,6 +494,24 @@ onMounted(() => {
 
   .resource-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .resource-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .label-sidebar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.35rem;
+  }
+
+  .label-sidebar h2 {
+    grid-column: 1 / -1;
+  }
+
+  .label-filter {
+    margin-bottom: 0;
   }
 }
 </style>
