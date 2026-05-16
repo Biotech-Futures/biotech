@@ -5,6 +5,7 @@ import re
 import os
 import tempfile
 
+from django.core.files.base import ContentFile
 from django.db.models import Q, F, Exists, OuterRef, Value, CharField
 from django.db import transaction
 from django.utils import timezone
@@ -12,6 +13,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType
+from apps.resources.services.storage import RESOURCE_FILE_SERVICE
 from apps.groups.models import Tracks, Groups
 from apps.users.models import User
 from azure_blob_utils import (
@@ -263,9 +265,16 @@ def get_page_content_html(resource: Resources) -> Optional[str]:
         return None
 
     try:
-        return download_file_text(resource.storage_key)
+        with RESOURCE_FILE_SERVICE.open(resource.storage_key) as fp:
+            raw = fp.read()
+        if isinstance(raw, bytes):
+            return raw.decode('utf-8', errors='replace')
+        return raw
     except Exception:
-        return None
+        try:
+            return download_file_text(resource.storage_key)
+        except Exception:
+            return None
 
 
 def resource_to_row(resource: Resources, include_page_content: bool = False) -> ResourceRowDict:
@@ -641,17 +650,8 @@ def create_resource(
     if payload.get('resource_kind') == RESOURCE_KIND_PAGE:
         html_text = payload.get('content_html', '')
         file_name = f"{payload.get('resource_name', 'resource')}.html"
-        storage_key = build_storage_key(resource.id, file_name)
-        
-        # Upload HTML to blob storage
         html_bytes = html_text.encode('utf-8')
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(html_bytes)
-            tmp.flush()
-            try:
-                upload_file(tmp.name, storage_key)
-            finally:
-                os.unlink(tmp.name)
+        storage_key = RESOURCE_FILE_SERVICE.save_content(file_name, ContentFile(html_bytes))
         
         resource.storage_key = storage_key
         resource.file_mime_type = 'text/html'
@@ -939,16 +939,8 @@ def update_resource(
     if updates.get('resource_kind') == RESOURCE_KIND_PAGE and 'content_html' in updates:
         html_text = updates['content_html'] or ''
         file_name = f"{(updates.get('resource_name') or resource_data['resource_name']) or 'resource'}.html"
-        storage_key = build_storage_key(resource_id, file_name)
-        
         html_bytes = html_text.encode('utf-8')
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(html_bytes)
-            tmp.flush()
-            try:
-                upload_file(tmp.name, storage_key)
-            finally:
-                os.unlink(tmp.name)
+        storage_key = RESOURCE_FILE_SERVICE.save_content(file_name, ContentFile(html_bytes))
         
         resource.storage_key = storage_key
         resource.file_mime_type = 'text/html'

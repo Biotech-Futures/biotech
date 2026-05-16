@@ -19,7 +19,6 @@ import type {
   ResourceTypeOption,
   VisibilityScope,
 } from "@/type/resource";
-import { openHtmlPreviewPage } from "./util";
 import { ResourceRoleSelector } from "./ResourceRoleSelector";
 
 export interface ResourceFormData {
@@ -214,14 +213,14 @@ export function ResourceFormFields({
       {value.kind === "page" ? (
         <ResourceFieldRow label="Page Content">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
+            {/* <Button
               type="button"
               variant="default"
               size="sm"
               onClick={() => openHtmlPreviewPage(value.contentHtml)}
             >
               Open Preview Page
-            </Button>
+            </Button> */}
             <Button
               type="button"
               variant="outline"

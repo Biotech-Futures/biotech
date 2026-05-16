@@ -1,222 +1,201 @@
 <template>
   <div class="content-area">
     <div class="resource-header">
-      <h1>Resource Library</h1>
-      <div class="resource-tools">
-        <input
-          type="text"
-          v-model="searchQuery"
-          class="form-control resource-search"
-          placeholder="Search resources..."
-        />
-        <button v-if="isAdmin" class="btn btn-primary">
-          <i class="fas fa-upload"></i> Upload Resource
-        </button>
+      <div>
+        <h1>Resource Library</h1>
+        <p class="resource-subtitle">Browse available files and pages.</p>
       </div>
-    </div>
-
-    <div class="resource-filters">
-      <button
-        v-for="f in filters"
-        :key="f"
-        @click="activeFilter = f"
-        :class="['btn', activeFilter === f ? 'btn-primary' : 'btn-outline']"
-      >
-        {{ f }}
+      <button v-if="isAdmin" class="btn btn-primary">
+        <i class="fas fa-upload"></i> Upload Resource
       </button>
     </div>
 
-    <div v-if="loading" class="card" style="margin-top:1.5rem;">
-      <p style="text-align:center;color:#6c757d;">Loading resources...</p>
-    </div>
+    <section class="resource-toolbar" aria-label="Resource filters">
+      <label class="filter-field filter-field-search">
+        <span class="filter-label">Search</span>
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="form-control resource-search"
+          placeholder="Search by name or description..."
+        />
+      </label>
 
-    <div v-else-if="error" class="card" style="margin-top:1.5rem;border-left:4px solid #dc3545;">
-      <h3 style="color:#dc3545;">Error</h3>
-      <p style="color:#6c757d;">{{ error }}</p>
-      <button @click="loadResources" class="btn btn-primary" style="margin-top:1rem;">Retry</button>
-    </div>
+      <label class="filter-field">
+        <span class="filter-label">Type</span>
+        <select v-model="selectedType" class="form-control resource-select" aria-label="Filter by type">
+          <option value="">All types</option>
+          <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
+            {{ formatTypeName(type.type_name) }}
+          </option>
+        </select>
+      </label>
 
-    <div v-else-if="filteredResources.length === 0" class="card" style="margin-top:1.5rem;">
-      <h3>No resources found</h3>
-      <p style="color:#6c757d;">
-        <span v-if="searchQuery || activeFilter !== 'All Resources'">
-          Try changing your search keywords or filter.
-        </span>
-        <span v-else>
-          There are no resources available yet. Check back later or contact your administrator.
-        </span>
-      </p>
-    </div>
+      <label class="filter-field">
+        <span class="filter-label">Since</span>
+        <input
+          v-model="sinceDate"
+          type="date"
+          class="form-control resource-date"
+          aria-label="Filter resources uploaded since"
+        />
+        <span v-if="getFieldError('since')" class="field-error">{{ getFieldError('since') }}</span>
+      </label>
 
-    <div v-else class="resource-grid">
-      <div
-        v-for="resource in filteredResources"
-        :key="resource.id"
-        class="resource-card"
-        @click="openResource(resource)"
-      >
-        <div class="resource-banner" :style="bannerStyle(resource)">
-          <i v-if="!resource.cover" :class="getResourceIcon(resource)" class="banner-icon"></i>
+      <label class="filter-field">
+        <span class="filter-label">Until</span>
+        <input
+          v-model="untilDate"
+          type="date"
+          class="form-control resource-date"
+          aria-label="Filter resources uploaded until"
+        />
+        <span v-if="getFieldError('until')" class="field-error">{{ getFieldError('until') }}</span>
+      </label>
 
-          <button
-            v-if="isAdmin"
-            type="button"
-            class="edit-cover-btn"
-            title="Change cover image"
-            @click.stop="triggerCoverPicker(resource.id)"
-          >
-            <i class="fas fa-image"></i>
-          </button>
+      <label class="filter-field">
+        <span class="filter-label">Sort</span>
+        <select v-model="sortOrder" class="form-control resource-select" aria-label="Sort resources">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name A-Z</option>
+        </select>
+        <span v-if="getFieldError('order')" class="field-error">{{ getFieldError('order') }}</span>
+      </label>
+    </section>
 
-          <button
-            v-if="isAdmin && resource.cover"
-            type="button"
-            class="edit-cover-btn remove-cover-btn"
-            title="Remove cover image"
-            @click.stop="resetCover(resource)"
-          >
-            <i class="fas fa-trash"></i>
-          </button>
+    <div class="resource-layout">
+      <aside class="label-sidebar card" aria-label="Resource labels">
+        <h2>Labels</h2>
+        <button
+          type="button"
+          :class="['label-filter', !selectedLabelId ? 'label-filter-active' : '']"
+          @click="selectedLabelId = ''"
+        >
+          <span>All labels</span>
+        </button>
+        <button
+          v-for="label in labels"
+          :key="label.id"
+          type="button"
+          :class="['label-filter', selectedLabelId === String(label.id) ? 'label-filter-active' : '']"
+          @click="selectedLabelId = String(label.id)"
+        >
+          <span>{{ label.name }}</span>
+          <span class="label-count">{{ label.resource_count ?? 0 }}</span>
+        </button>
+        <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
+      </aside>
 
-          <input
-            type="file"
-            accept="image/*"
-            class="hidden-file"
-            :ref="el => setCoverInputRef(el, resource.id)"
-            @change="onCoverPicked($event, resource)"
-          />
+      <section class="resource-results">
+        <div v-if="loading" class="card resource-state">
+          <span class="loading"></span>
+          <span>Loading resources...</span>
         </div>
 
-        <div class="resource-content">
-          <div class="resource-title">{{ resource.title }}</div>
-          <p class="resource-description">{{ resource.description }}</p>
-          <div class="resource-meta">
-            <span class="res-type">{{ prettyType(resource) }}</span>
-            <span>{{ resource.updated }}</span>
-          </div>
-          <div class="resource-footer">
-            <span class="status-badge" :class="getStatusClass(resource)">
-              {{ getStatusLabel(resource) }}
-            </span>
-            <div class="resource-actions">
-              <button
-                type="button"
-                class="btn btn-outline resource-action-btn"
-                :disabled="isResourceBusy(resource.id)"
-                @click.stop="openResource(resource)"
-              >
-                <i class="fas fa-eye"></i> View
-              </button>
-              <button
-                type="button"
-                class="btn btn-primary resource-action-btn"
-                :disabled="isResourceBusy(resource.id) || !resource.canDownload"
-                @click.stop="downloadResource(resource)"
-              >
-                <i class="fas fa-download"></i> Download
-              </button>
-            </div>
-          </div>
-          <p v-if="actionStatus[resource.id]" class="resource-action-status">
-            {{ actionStatus[resource.id] }}
-          </p>
+        <div v-else-if="error" class="card resource-state resource-state-error">
+          <h3>Error</h3>
+          <p>{{ error }}</p>
+          <button @click="loadResources" class="btn btn-primary">Retry</button>
         </div>
-      </div>
+
+        <div v-else-if="resources.length === 0" class="card resource-state">
+          <h3>No resources found</h3>
+          <p>Try changing your search or filters.</p>
+        </div>
+
+        <div v-else class="resource-list card">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Kind</th>
+                <th>Labels</th>
+                <th>Modified</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="resource in resources"
+                :key="resource.id"
+                class="resource-row"
+                tabindex="0"
+                @click="openResourceDetail(resource.id)"
+                @keydown.enter="openResourceDetail(resource.id)"
+              >
+                <td>
+                  <div class="resource-name-cell">
+                    <i :class="getResourceIcon(resource)" aria-hidden="true"></i>
+                    <span>{{ resource.name }}</span>
+                  </div>
+                </td>
+                <td>{{ getResourceTypeLabel(resource) }}</td>
+                <td>{{ getResourceKindLabel(resource.kind) }}</td>
+                <td>
+                  <div v-if="resource.labels?.length" class="label-list">
+                    <span v-for="label in resource.labels" :key="label.id" class="label-chip">
+                      {{ label.name }}
+                    </span>
+                  </div>
+                  <span v-else class="muted">None</span>
+                </td>
+                <td>{{ formatDate(resource.uploaded_at) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  buildResourceUrl,
-  fetchAllResources,
-  fetchResourceAccess,
+  fetchResources,
+  fetchResourceLabels,
+  fetchResourceTypes,
   type Resource,
-  type ResourceAccess
+  type ResourceKind,
+  type ResourceLabel,
+  type ResourceType
 } from '../utils/resourcesAPI'
-import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '../utils/storage'
+import { ApiError } from '../utils/apiError'
 import { useAuthStore } from '../stores/auth'
 
-type ResourceTypeKey = 'document' | 'video' | 'template' | 'guide' | 'page' | string
-
-interface FrontendResource {
-  id: number
-  title: string
-  description: string
-  type: ResourceTypeKey
-  kind: string
-  mimeType?: string | null
-  fileName?: string | null
-  fileSize?: number | null
-  updated: string
-  uploaderName?: string | null
-  storageStatus?: string | null
-  cover?: string | null
-  canDownload: boolean
-}
-
 const auth = useAuthStore()
+const router = useRouter()
 const isAdmin = computed(() => auth.isAdmin)
 
-const backendResources = ref<Resource[]>([])
+const resources = ref<Resource[]>([])
+const labels = ref<ResourceLabel[]>([])
+const resourceTypes = ref<ResourceType[]>([])
 const loading = ref(false)
 const error = ref('')
-const busyResourceId = ref<number | null>(null)
-const actionStatus = ref<Record<number, string>>({})
-const coverById = ref<Record<number, string>>({})
+const fieldErrors = ref<Record<string, string[]>>({})
 
 const searchQuery = ref('')
-const filters = ['All Resources', 'Documents', 'Videos', 'Templates', 'Guides', 'Pages'] as const
-type FilterOption = typeof filters[number]
-const activeFilter = ref<FilterOption>('All Resources')
+const selectedType = ref('')
+const selectedLabelId = ref('')
+const sinceDate = ref('')
+const untilDate = ref('')
+const sortOrder = ref<'newest' | 'oldest' | 'name'>('newest')
+let loadSequence = 0
 
-const typeMap: Record<FilterOption, ResourceTypeKey | null> = {
-  'All Resources': null,
-  Documents: 'document',
-  Videos: 'video',
-  Templates: 'template',
-  Guides: 'guide',
-  Pages: 'page'
-}
+const getFieldError = (field: string): string => fieldErrors.value[field]?.[0] || ''
 
-const resources = computed<FrontendResource[]>(() => {
-  return backendResources.value.map(r => {
-    const type = normalizeResourceType(r)
-    return {
-      id: r.id,
-      title: r.name,
-      description: r.description,
-      type,
-      kind: r.kind,
-      mimeType: r.file_mime_type,
-      fileName: r.file_name,
-      fileSize: r.file_size,
-      updated: formatDate(r.uploaded_at),
-      uploaderName: r.uploader_name,
-      storageStatus: r.storage_status,
-      cover: coverById.value[r.id] || null,
-      canDownload: r.kind === 'file' && Boolean(r.download_url || r.access_url)
+const validateFilters = (): boolean => {
+  fieldErrors.value = {}
+  if (sinceDate.value && untilDate.value && untilDate.value < sinceDate.value) {
+    fieldErrors.value = {
+      until: ['until must be on or after since.']
     }
-  })
-})
-
-const filteredResources = computed<FrontendResource[]>(() => {
-  let list = resources.value
-  const query = searchQuery.value.trim().toLowerCase()
-  if (query) {
-    list = list.filter(r =>
-      [r.title, r.description, r.fileName, r.uploaderName]
-        .filter(Boolean)
-        .some(value => String(value).toLowerCase().includes(query))
-    )
+    return false
   }
-  const selectedType = typeMap[activeFilter.value]
-  if (selectedType) {
-    list = list.filter(r => r.type === selectedType)
-  }
-  return list
-})
+  return true
+}
 
 const loadResources = async (): Promise<void> => {
   if (!auth.isAuthenticated) {
@@ -224,42 +203,66 @@ const loadResources = async (): Promise<void> => {
     return
   }
 
+  if (!validateFilters()) {
+    error.value = ''
+    return
+  }
+
+  const sequence = ++loadSequence
   loading.value = true
   error.value = ''
+  fieldErrors.value = {}
   try {
-    backendResources.value = await fetchAllResources()
-    loadSavedCovers()
+    const response = await fetchResources({
+      search: searchQuery.value.trim() || undefined,
+      type: selectedType.value || undefined,
+      label_id: selectedLabelId.value ? Number(selectedLabelId.value) : undefined,
+      since: sinceDate.value || undefined,
+      until: untilDate.value || undefined,
+      order: sortOrder.value,
+      page: 1,
+      page_size: 100
+    })
+    if (sequence === loadSequence) {
+      resources.value = response.results
+    }
   } catch (err: unknown) {
-    error.value = err instanceof Error ? err.message : 'Failed to load resources'
-    console.error('Error loading resources:', err)
+    if (sequence === loadSequence) {
+      if (err instanceof ApiError && err.fields) {
+        fieldErrors.value = err.fields
+        error.value = ''
+      } else {
+        error.value = err instanceof Error ? err.message : 'Failed to load resources'
+      }
+    }
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) {
+      loading.value = false
+    }
   }
 }
 
-const normalizeResourceType = (resource: Resource): ResourceTypeKey => {
-  const explicitType = resource.type_name || resource.resource_type_detail?.type_name
-  const typeName = explicitType?.trim().toLowerCase()
-  if (typeName) {
-    if (typeName.includes('video')) return 'video'
-    if (typeName.includes('template')) return 'template'
-    if (typeName.includes('guide')) return 'guide'
-    if (typeName.includes('page') || typeName.includes('link')) return 'page'
-    return typeName
+const loadResourceLookups = async (): Promise<void> => {
+  try {
+    const [nextLabels, nextTypes] = await Promise.all([
+      fetchResourceLabels(),
+      fetchResourceTypes()
+    ])
+    labels.value = nextLabels
+    resourceTypes.value = nextTypes
+  } catch {
+    labels.value = []
+    resourceTypes.value = []
   }
+}
 
-  if (resource.kind === 'page') return 'page'
-  const mimeType = resource.file_mime_type?.toLowerCase() || ''
-  if (mimeType.startsWith('video/')) return 'video'
-  if (mimeType.includes('spreadsheet') || mimeType.includes('template')) return 'template'
-  if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('text')) return 'document'
-
-  return 'document'
+const openResourceDetail = (id: number): void => {
+  router.push({ name: 'resource-detail', params: { id } })
 }
 
 const formatDate = (value: string): string => {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Unknown date'
+  if (Number.isNaN(date.getTime())) return 'Unknown'
   return date.toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
@@ -267,185 +270,41 @@ const formatDate = (value: string): string => {
   })
 }
 
-const getResourceIcon = (resource: FrontendResource): string => {
-  if (resource.kind === 'page') return 'fas fa-external-link-alt'
-  const iconMap: Record<string, string> = {
-    document: 'fas fa-file-alt',
-    video: 'fas fa-video',
-    template: 'fas fa-file-code',
-    guide: 'fas fa-book',
-    page: 'fas fa-external-link-alt'
+const formatTypeName = (value?: string | null): string => {
+  if (!value) return 'Resource'
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+const getResourceTypeLabel = (resource: Resource): string => {
+  return formatTypeName(resource.type_name || resource.resource_type_detail?.type_name)
+}
+
+const getResourceKindLabel = (kind: ResourceKind): string => {
+  const labelsByKind: Record<string, string> = {
+    file: 'File',
+    page: 'Page',
+    attachment: 'Attachment'
   }
-  return iconMap[resource.type] || 'fas fa-file'
+  return labelsByKind[kind] || formatTypeName(kind)
 }
 
-const prettyType = (resource: FrontendResource): string => {
-  const labelMap: Record<string, string> = {
-    document: 'Document',
-    video: 'Video',
-    template: 'Template',
-    guide: 'Guide',
-    page: 'Page'
-  }
-  return labelMap[resource.type] || 'Resource'
+const getResourceIcon = (resource: Resource): string => {
+  const mimeType = resource.file_mime_type?.toLowerCase() || ''
+  if (resource.kind === 'page') return 'fas fa-globe'
+  if (resource.kind === 'attachment') return 'fas fa-paperclip'
+  if (mimeType.includes('pdf')) return 'fas fa-file-pdf'
+  if (mimeType.startsWith('image/')) return 'fas fa-file-image'
+  if (mimeType.startsWith('video/')) return 'fas fa-file-video'
+  if (mimeType.startsWith('audio/')) return 'fas fa-file-audio'
+  return 'fas fa-file-alt'
 }
 
-const setResourceStatus = (resourceId: number, message = '') => {
-  actionStatus.value = {
-    ...actionStatus.value,
-    [resourceId]: message
-  }
-}
-
-const isResourceBusy = (resourceId: number): boolean => busyResourceId.value === resourceId
-
-const resolveAccessTarget = (data: ResourceAccess, mode: 'view' | 'download'): string | null => {
-  if (mode === 'download') {
-    const target = data.download_url || data.external_url || data.access_url
-    if (!target) return null
-    if (data.download_url) {
-      const separator = data.download_url.includes('?') ? '&' : '?'
-      return `${data.download_url}${separator}force=1`
-    }
-    return target
-  }
-
-  return data.external_url || data.download_url || data.access_url
-}
-
-const openManagedFilePreview = async (url: string, resource: FrontendResource): Promise<void> => {
-  const response = await fetch(buildResourceUrl(url), {
-    method: 'GET',
-    credentials: 'include'
-  })
-
-  if (!response.ok) {
-    throw new Error(`Resource could not be opened. HTTP ${response.status}`)
-  }
-
-  const contentType = response.headers.get('Content-Type') || resource.mimeType || 'application/octet-stream'
-  const blob = new Blob([await response.blob()], { type: contentType })
-  const blobUrl = window.URL.createObjectURL(blob)
-  window.open(blobUrl, '_blank', 'noopener,noreferrer')
-  window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000)
-}
-
-const openResource = async (resource: FrontendResource): Promise<void> => {
-  busyResourceId.value = resource.id
-  setResourceStatus(resource.id, 'Opening...')
-  try {
-    const data = await fetchResourceAccess(resource.id)
-    const target = resolveAccessTarget(data, 'view')
-    if (!target) {
-      setResourceStatus(resource.id, data.detail || 'This resource cannot be opened.')
-      return
-    }
-    if (data.external_url) {
-      window.open(buildResourceUrl(target), '_blank', 'noopener,noreferrer')
-    } else if (data.download_url) {
-      await openManagedFilePreview(data.download_url, resource)
-    } else {
-      window.open(buildResourceUrl(target), '_blank', 'noopener,noreferrer')
-    }
-    setResourceStatus(resource.id)
-  } catch (err: unknown) {
-    setResourceStatus(resource.id, err instanceof Error ? err.message : 'Resource could not be opened.')
-  } finally {
-    busyResourceId.value = null
-  }
-}
-
-const downloadResource = async (resource: FrontendResource): Promise<void> => {
-  busyResourceId.value = resource.id
-  setResourceStatus(resource.id, 'Preparing download...')
-  try {
-    const data = await fetchResourceAccess(resource.id)
-    const target = resolveAccessTarget(data, 'download')
-    if (!target) {
-      setResourceStatus(resource.id, data.detail || 'This resource has no downloadable file.')
-      return
-    }
-
-    const link = document.createElement('a')
-    link.href = buildResourceUrl(target)
-    link.rel = 'noopener noreferrer'
-    link.download = data.file_name || resource.fileName || resource.title
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    setResourceStatus(resource.id)
-  } catch (err: unknown) {
-    setResourceStatus(resource.id, err instanceof Error ? err.message : 'Resource could not be downloaded.')
-  } finally {
-    busyResourceId.value = null
-  }
-}
-
-const coverInputs = new Map<number, HTMLInputElement>()
-const setCoverInputRef = (el: Element | ComponentPublicInstance | null, id: number) => {
-  if (el instanceof HTMLInputElement) {
-    coverInputs.set(id, el)
-  }
-}
-const triggerCoverPicker = (id: number) => { coverInputs.get(id)?.click() }
-
-const coverStorageKey = (id: number) => `resourceCover:${id}`
-
-const loadSavedCovers = () => {
-  const nextCovers: Record<number, string> = {}
-  backendResources.value.forEach(resource => {
-    const saved = safeLocalStorageGet(coverStorageKey(resource.id))
-    if (saved) nextCovers[resource.id] = saved
-  })
-  coverById.value = nextCovers
-}
-
-const onCoverPicked = (event: Event, res: FrontendResource) => {
-  const input = event.target as HTMLInputElement | null
-  if (!input) return
-  const file = input.files && input.files[0]
-  if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    const cover = String(reader.result)
-    coverById.value = { ...coverById.value, [res.id]: cover }
-    safeLocalStorageSet(coverStorageKey(res.id), cover)
-  }
-  reader.readAsDataURL(file)
-  input.value = ''
-}
-
-const resetCover = (resource: FrontendResource) => {
-  safeLocalStorageRemove(coverStorageKey(resource.id))
-  const nextCovers = { ...coverById.value }
-  delete nextCovers[resource.id]
-  coverById.value = nextCovers
-}
-
-onMounted(loadResources)
-
-const bannerStyle = (res: FrontendResource): string => {
-  const base = 'height:120px; display:flex; align-items:center; justify-content:center; color:#fff;'
-  if (res?.cover) {
-    return `${base} background-image:url('${res.cover}'); background-size:cover; background-position:center;`
-  }
-  return `${base} background: linear-gradient(135deg, var(--dark-green), var(--eucalypt));`
-}
-
-const getStatusLabel = (resource: FrontendResource): string => {
-  if (resource.storageStatus === 'unavailable') return 'Unavailable'
-  if (resource.kind === 'page') return 'Link'
-  return resource.fileSize ? formatFileSize(resource.fileSize) : 'File'
-}
-
-const getStatusClass = (resource: FrontendResource): string => {
-  if (resource.storageStatus === 'unavailable') return 'status-danger'
-  if (resource.kind === 'page') return 'status-info'
-  return 'status-active'
-}
-
-const formatFileSize = (value: number): string => {
-  if (!Number.isFinite(value) || value <= 0) return 'File'
+const formatFileSize = (value?: number | null): string => {
+  if (!Number.isFinite(value || 0) || !value || value <= 0) return '-'
   const units = ['B', 'KB', 'MB', 'GB']
   let size = value
   let unitIndex = 0
@@ -455,165 +314,204 @@ const formatFileSize = (value: number): string => {
   }
   return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
+
+let searchTimer: ReturnType<typeof window.setTimeout> | undefined
+watch([searchQuery, selectedType, selectedLabelId, sortOrder, sinceDate, untilDate], () => {
+  window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => {
+    loadResources()
+  }, 250)
+})
+
+onMounted(() => {
+  loadResourceLookups()
+  loadResources()
+})
 </script>
 
 <style scoped>
 .resource-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.resource-subtitle {
+  color: var(--text-muted);
+  margin: -0.5rem 0 0;
+}
+
+.resource-toolbar {
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.resource-tools {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-}
-
-.resource-search {
-  width: 300px;
-}
-
-.resource-filters {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 2rem;
-}
-
-.resource-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: minmax(240px, 2fr) minmax(130px, 1fr) minmax(130px, 0.9fr) minmax(130px, 0.9fr) minmax(130px, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
-.resource-card {
-  background-color: var(--white);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 2px 4px var(--shadow);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  cursor: pointer;
+.filter-field {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
-.resource-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px var(--shadow);
-}
-
-.resource-banner {
-  position: relative;
-}
-
-.banner-icon {
-  font-size: 2rem;
-  opacity: 0.95;
-}
-
-.edit-cover-btn {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 0.35rem 0.55rem;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.remove-cover-btn {
-  right: 46px;
-}
-
-.edit-cover-btn:hover {
-  background: rgba(0, 0, 0, 0.7);
-}
-
-.hidden-file {
-  display: none;
-}
-
-.resource-content {
-  padding: 1.25rem;
-}
-
-.resource-title {
+.filter-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
   font-weight: 600;
-  color: var(--charcoal);
-  margin-bottom: 0.35rem;
+  text-transform: uppercase;
 }
 
-.resource-description {
-  color: #6c757d;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  margin: 0 0 0.75rem;
-  min-height: 2.5rem;
+.resource-select,
+.resource-date,
+.resource-search {
+  min-height: 42px;
 }
 
-.resource-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.9rem;
-  color: #6c757d;
+.field-error {
+  color: var(--danger);
+  font-size: 0.82rem;
+  line-height: 1.25;
 }
 
-.res-type {
-  text-transform: capitalize;
+.resource-layout {
+  align-items: start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 220px minmax(0, 1fr);
 }
 
-.resource-footer {
-  display: flex;
-  justify-content: space-between;
+.label-sidebar {
+  margin: 0;
+  padding: 1rem;
+}
+
+.label-sidebar h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.label-filter {
   align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.9rem;
-}
-
-.resource-actions {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--charcoal);
+  cursor: pointer;
   display: flex;
-  gap: 0.5rem;
+  font: inherit;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+  min-height: 36px;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  width: 100%;
 }
 
-.resource-action-btn {
-  padding: 0.4rem 0.65rem;
-  font-size: 0.85rem;
+.label-filter:hover,
+.label-filter-active {
+  background: var(--accent-green-soft);
+  border-color: rgba(1, 113, 81, 0.18);
+  color: var(--dark-green);
 }
 
-.resource-action-btn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
+.label-count {
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
 
-.resource-action-status {
-  color: #6c757d;
-  font-size: 0.85rem;
-  margin: 0.75rem 0 0;
+.resource-results {
+  min-width: 0;
+}
+
+.resource-state {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.resource-state-error {
+  align-items: flex-start;
+  border-left: 4px solid var(--danger);
+  flex-direction: column;
+}
+
+.resource-list {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.resource-row {
+  cursor: pointer;
+}
+
+.resource-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.resource-name-cell {
+  align-items: center;
+  display: flex;
+  gap: 0.9rem;
+  font-weight: 600;
+  min-width: 220px;
+}
+
+.resource-name-cell i {
+  color: var(--dark-green);
+  flex: 0 0 22px;
+  text-align: center;
+  width: 20px;
+}
+
+.label-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.label-chip {
+  background: var(--accent-green-soft);
+  border: 1px solid rgba(1, 113, 81, 0.18);
+  border-radius: 999px;
+  color: var(--dark-green);
+  display: inline-flex;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 0.35rem 0.55rem;
+}
+
+.muted {
+  color: var(--text-muted);
 }
 
 @media (max-width: 720px) {
-  .resource-header,
-  .resource-tools,
-  .resource-footer {
-    align-items: stretch;
+  .resource-header {
     flex-direction: column;
   }
 
-  .resource-search {
-    width: 100%;
+  .resource-toolbar {
+    grid-template-columns: 1fr;
   }
 
-  .resource-actions {
-    width: 100%;
+  .resource-layout {
+    grid-template-columns: 1fr;
   }
 
-  .resource-action-btn {
-    flex: 1;
+  .label-sidebar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.35rem;
+  }
+
+  .label-sidebar h2 {
+    grid-column: 1 / -1;
+  }
+
+  .label-filter {
+    margin-bottom: 0;
   }
 }
 </style>

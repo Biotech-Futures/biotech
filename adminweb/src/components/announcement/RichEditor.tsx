@@ -44,13 +44,19 @@ import { toast } from "sonner";
 
 type Props = {
   value: string;
-  onChange: (html: string) => void;
+  onChange?: (html: string) => void;
   placeholder?: string;
+  readOnly?: boolean;
 };
 
 const HEADING_LEVELS = [1, 2, 3, 4] as const;
 
-export function RichEditor({ value, onChange, placeholder }: Props) {
+export function RichEditor({
+  value,
+  onChange,
+  placeholder,
+  readOnly = false,
+}: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const attachmentRangeRef = useRef<{ from: number; to: number } | null>(null);
@@ -64,7 +70,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
       Underline,
       Image.configure({ inline: false, allowBase64: true }),
       Link.configure({
-        openOnClick: false,
+        openOnClick: readOnly,
         HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" },
       }),
       Table.configure({ resizable: false }),
@@ -76,7 +82,10 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
       }),
     ],
     content: value,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    editable: !readOnly,
+    onUpdate: ({ editor }) => {
+      if (!readOnly) onChange?.(editor.getHTML());
+    },
   });
 
   useEffect(() => {
@@ -85,6 +94,15 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
       editor.commands.setContent(value || "");
     }
   }, [value, editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!readOnly);
+    if (readOnly && rawMode) {
+      rawModeRef.current = false;
+      setRawMode(false);
+    }
+  }, [editor, rawMode, readOnly]);
 
   function handleImageFile(file: File) {
     const reader = new FileReader();
@@ -169,7 +187,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
       rawModeRef.current = true;
       // Format HTML with newlines between tags so raw mode doesn't render
       // one enormous single line (which causes layout expansion and lag).
-      onChange(value.replace(/></g, ">\n<"));
+      onChange?.(value.replace(/></g, ">\n<"));
       setRawMode(true);
     }
   }
@@ -266,220 +284,236 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
       {/* <span className="text-sm font-medium">Content</span> */}
 
       <div className="rounded-lg border border-input bg-background shadow-sm overflow-hidden">
-        {/* ── Main toolbar ── */}
-        <div className="flex flex-wrap items-center gap-0.5 border-b bg-muted/30 px-2 py-1.5">
-          {!rawMode && (
-            <>
-              {/* Heading */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-foreground/70 hover:text-foreground hover:bg-accent transition-colors min-w-[72px]"
-                  >
-                    {currentHeadingLabel()}{" "}
-                    <ChevronDown className="size-3 opacity-60" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[110px]">
-                  <DropdownMenuItem
-                    onSelect={() => editor.chain().focus().setParagraph().run()}
-                  >
-                    Normal
-                  </DropdownMenuItem>
-                  {HEADING_LEVELS.map((level) => (
+        {/* Main toolbar */}
+        {!readOnly ? (
+          <div className="flex flex-wrap items-center gap-0.5 border-b bg-muted/30 px-2 py-1.5">
+            {!rawMode && (
+              <>
+                {/* Heading */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-foreground/70 hover:text-foreground hover:bg-accent transition-colors min-w-[72px]"
+                    >
+                      {currentHeadingLabel()}{" "}
+                      <ChevronDown className="size-3 opacity-60" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[110px]">
                     <DropdownMenuItem
-                      key={level}
                       onSelect={() =>
-                        editor.chain().focus().toggleHeading({ level }).run()
+                        editor.chain().focus().setParagraph().run()
                       }
                     >
-                      <span
-                        style={{
-                          fontSize: `${1.2 - level * 0.08}rem`,
-                          fontWeight: 700,
-                        }}
-                      >
-                        Heading {level}
-                      </span>
+                      Normal
                     </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    {HEADING_LEVELS.map((level) => (
+                      <DropdownMenuItem
+                        key={level}
+                        onSelect={() =>
+                          editor.chain().focus().toggleHeading({ level }).run()
+                        }
+                      >
+                        <span
+                          style={{
+                            fontSize: `${1.2 - level * 0.08}rem`,
+                            fontWeight: 700,
+                          }}
+                        >
+                          Heading {level}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-              <Sep />
+                <Sep />
 
-              {/* Inline */}
-              <Btn
-                active={editor.isActive("bold")}
-                onClick={() => editor.chain().focus().toggleBold().run()}
-                title="Bold (⌘B)"
-              >
-                <Bold className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("italic")}
-                onClick={() => editor.chain().focus().toggleItalic().run()}
-                title="Italic (⌘I)"
-              >
-                <Italic className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("underline")}
-                onClick={() => editor.chain().focus().toggleUnderline().run()}
-                title="Underline (⌘U)"
-              >
-                <UnderlineIcon className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("strike")}
-                onClick={() => editor.chain().focus().toggleStrike().run()}
-                title="Strikethrough"
-              >
-                <Strikethrough className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("code")}
-                onClick={() => editor.chain().focus().toggleCode().run()}
-                title="Inline code"
-              >
-                <Code className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("link")}
-                onClick={promptLink}
-                title="Insert / edit link"
-              >
-                <LinkIcon className="size-3.5" />
-              </Btn>
+                {/* Inline */}
+                <Btn
+                  active={editor.isActive("bold")}
+                  onClick={() => editor.chain().focus().toggleBold().run()}
+                  title="Bold (⌘B)"
+                >
+                  <Bold className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("italic")}
+                  onClick={() => editor.chain().focus().toggleItalic().run()}
+                  title="Italic (⌘I)"
+                >
+                  <Italic className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("underline")}
+                  onClick={() =>
+                    editor.chain().focus().toggleUnderline().run()
+                  }
+                  title="Underline (⌘U)"
+                >
+                  <UnderlineIcon className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("strike")}
+                  onClick={() => editor.chain().focus().toggleStrike().run()}
+                  title="Strikethrough"
+                >
+                  <Strikethrough className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("code")}
+                  onClick={() => editor.chain().focus().toggleCode().run()}
+                  title="Inline code"
+                >
+                  <Code className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("link")}
+                  onClick={promptLink}
+                  title="Insert / edit link"
+                >
+                  <LinkIcon className="size-3.5" />
+                </Btn>
 
-              <Sep />
+                <Sep />
 
-              {/* Block */}
-              <Btn
-                active={editor.isActive("bulletList")}
-                onClick={() => editor.chain().focus().toggleBulletList().run()}
-                title="Bullet list"
-              >
-                <List className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("orderedList")}
-                onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                title="Numbered list"
-              >
-                <ListOrdered className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("blockquote")}
-                onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                title="Blockquote"
-              >
-                <Quote className="size-3.5" />
-              </Btn>
-              <Btn
-                active={editor.isActive("codeBlock")}
-                onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                title="Code block"
-              >
-                <Code2 className="size-3.5" />
-              </Btn>
-              <Btn
-                active={false}
-                onClick={() => editor.chain().focus().setHorizontalRule().run()}
-                title="Horizontal rule"
-              >
-                <Minus className="size-3.5" />
-              </Btn>
+                {/* Block */}
+                <Btn
+                  active={editor.isActive("bulletList")}
+                  onClick={() =>
+                    editor.chain().focus().toggleBulletList().run()
+                  }
+                  title="Bullet list"
+                >
+                  <List className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("orderedList")}
+                  onClick={() =>
+                    editor.chain().focus().toggleOrderedList().run()
+                  }
+                  title="Numbered list"
+                >
+                  <ListOrdered className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("blockquote")}
+                  onClick={() =>
+                    editor.chain().focus().toggleBlockquote().run()
+                  }
+                  title="Blockquote"
+                >
+                  <Quote className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={editor.isActive("codeBlock")}
+                  onClick={() =>
+                    editor.chain().focus().toggleCodeBlock().run()
+                  }
+                  title="Code block"
+                >
+                  <Code2 className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={false}
+                  onClick={() =>
+                    editor.chain().focus().setHorizontalRule().run()
+                  }
+                  title="Horizontal rule"
+                >
+                  <Minus className="size-3.5" />
+                </Btn>
 
-              <Sep />
+                <Sep />
 
-              {/* Insert */}
-              <button
-                type="button"
-                title="Insert image"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  fileInputRef.current?.click();
-                }}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent"
-              >
-                <ImageIcon className="size-3.5" /> Image
-              </button>
-              <button
-                type="button"
-                title="Attach file to selected text"
-                disabled={uploadingAttachment}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  openAttachmentPicker();
-                }}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <Paperclip className="size-3.5" />{" "}
-                {uploadingAttachment ? "Uploading" : "File"}
-              </button>
-              <button
-                type="button"
-                title="Insert table"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  editor
-                    .chain()
-                    .focus()
-                    .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-                    .run();
-                }}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent"
-              >
-                <TableIcon className="size-3.5" /> Table
-              </button>
+                {/* Insert */}
+                <button
+                  type="button"
+                  title="Insert image"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent"
+                >
+                  <ImageIcon className="size-3.5" /> Image
+                </button>
+                <button
+                  type="button"
+                  title="Attach file to selected text"
+                  disabled={uploadingAttachment}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    openAttachmentPicker();
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <Paperclip className="size-3.5" />{" "}
+                  {uploadingAttachment ? "Uploading" : "File"}
+                </button>
+                <button
+                  type="button"
+                  title="Insert table"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    editor
+                      .chain()
+                      .focus()
+                      .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                      .run();
+                  }}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors text-foreground/60 hover:text-foreground hover:bg-accent"
+                >
+                  <TableIcon className="size-3.5" /> Table
+                </button>
 
-              <Sep />
+                <Sep />
 
-              {/* History */}
-              <Btn
-                active={false}
-                disabled={!editor.can().undo()}
-                onClick={() => editor.chain().focus().undo().run()}
-                title="Undo (⌘Z)"
-              >
-                <Undo2 className="size-3.5" />
-              </Btn>
-              <Btn
-                active={false}
-                disabled={!editor.can().redo()}
-                onClick={() => editor.chain().focus().redo().run()}
-                title="Redo (⌘⇧Z)"
-              >
-                <Redo2 className="size-3.5" />
-              </Btn>
+                {/* History */}
+                <Btn
+                  active={false}
+                  disabled={!editor.can().undo()}
+                  onClick={() => editor.chain().focus().undo().run()}
+                  title="Undo (⌘Z)"
+                >
+                  <Undo2 className="size-3.5" />
+                </Btn>
+                <Btn
+                  active={false}
+                  disabled={!editor.can().redo()}
+                  onClick={() => editor.chain().focus().redo().run()}
+                  title="Redo (⌘⇧Z)"
+                >
+                  <Redo2 className="size-3.5" />
+                </Btn>
 
-              <Sep />
-            </>
-          )}
-
-          {/* HTML toggle */}
-          <button
-            type="button"
-            title={rawMode ? "Switch to visual editor" : "Edit raw HTML"}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              toggleRawMode();
-            }}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
-              rawMode
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                <Sep />
+              </>
             )}
-          >
-            <Code className="size-3.5" /> {rawMode ? "Visual" : "HTML"}
-          </button>
-        </div>
 
-        {/* ── Table context toolbar (shown when cursor is inside a table) ── */}
-        {isInTable && !rawMode && (
+            {/* HTML toggle */}
+            <button
+              type="button"
+              title={rawMode ? "Switch to visual editor" : "Edit raw HTML"}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                toggleRawMode();
+              }}
+              className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
+                rawMode
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent",
+              )}
+            >
+              <Code className="size-3.5" /> {rawMode ? "Visual" : "HTML"}
+            </button>
+          </div>
+        ) : null}
+
+        {/* Table context toolbar */}
+        {isInTable && !rawMode && !readOnly && (
           <div className="flex flex-wrap items-center gap-0.5 border-b bg-blue-50/60 dark:bg-blue-950/20 px-2 py-1 text-xs">
             <TableIcon className="size-3 text-blue-500 mr-1 shrink-0" />
             <span className="text-blue-600 dark:text-blue-400 font-medium mr-1 shrink-0">
@@ -555,19 +589,19 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
           </div>
         )}
 
-        {/* ── Editor / Raw area ── */}
+        {/* Editor / Raw area */}
         {rawMode ? (
           <Textarea
             value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="min-h-[320px] rounded-none border-0 font-mono text-sm focus-visible:ring-0 resize-none overflow-x-hidden break-all"
+            onChange={(e) => onChange?.(e.target.value)}
+            className="min-h-80 rounded-none border-0 font-mono text-sm focus-visible:ring-0 resize-none overflow-x-hidden break-all"
             placeholder="<p>HTML content…</p>"
           />
         ) : (
           <div
             className={cn(
-              "min-h-[320px] px-5 py-4 prose prose-sm max-w-none",
-              "[&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-[280px]",
+              "min-h-80 px-5 py-4 prose prose-sm max-w-none",
+              "[&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-70",
               "[&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground",
               "[&_.ProseMirror_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
               "[&_.ProseMirror_p.is-editor-empty:first-child::before]:float-left",
@@ -580,7 +614,7 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
               "[&_.ProseMirror_table]:border-collapse [&_.ProseMirror_table]:my-3 [&_.ProseMirror_table]:w-full",
               "[&_.ProseMirror_th]:border [&_.ProseMirror_th]:border-border [&_.ProseMirror_th]:px-3 [&_.ProseMirror_th]:py-2 [&_.ProseMirror_th]:bg-muted [&_.ProseMirror_th]:font-semibold [&_.ProseMirror_th]:text-left [&_.ProseMirror_th]:text-sm [&_.ProseMirror_th]:min-w-[80px]",
               "[&_.ProseMirror_td]:border [&_.ProseMirror_td]:border-border [&_.ProseMirror_td]:px-3 [&_.ProseMirror_td]:py-2 [&_.ProseMirror_td]:text-sm [&_.ProseMirror_td]:min-w-[80px]",
-              "[&_.ProseMirror_.selectedCell]:!bg-primary/10",
+              "[&_.ProseMirror_.selectedCell]:bg-primary/10!",
             )}
           >
             <EditorContent editor={editor} />
@@ -588,27 +622,31 @@ export function RichEditor({ value, onChange, placeholder }: Props) {
         )}
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          Array.from(e.target.files ?? []).forEach(handleImageFile);
-          e.target.value = "";
-        }}
-      />
-      <input
-        ref={attachmentInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          void handleAttachmentFiles(Array.from(e.target.files ?? []));
-          e.target.value = "";
-        }}
-      />
+      {!readOnly ? (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              Array.from(e.target.files ?? []).forEach(handleImageFile);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void handleAttachmentFiles(Array.from(e.target.files ?? []));
+              e.target.value = "";
+            }}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

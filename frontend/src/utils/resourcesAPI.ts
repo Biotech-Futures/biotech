@@ -115,13 +115,21 @@ export interface ResourceType {
   type_description: string
 }
 
+export interface ResourceLabel {
+  id: number
+  name: string
+  resource_count?: number
+}
+
+export type ResourceKind = 'file' | 'page' | 'attachment' | string
+
 export interface Resource {
   id: number
   name: string
   description: string
   type_name?: string | null
   resource_type_detail?: ResourceType | null
-  kind: 'file' | 'page' | string
+  kind: ResourceKind
   file_mime_type?: string | null
   file_size?: number | null
   uploaded_at: string
@@ -136,6 +144,7 @@ export interface Resource {
   access_url?: string | null
   download_url?: string | null
   storage_status?: 'unavailable' | 'external_url' | 'managed_key' | string
+  labels?: ResourceLabel[]
   visible_roles?: Array<{
     id: number
     role_name: string
@@ -145,7 +154,7 @@ export interface Resource {
 
 export interface ResourceAccess {
   resource_id: number
-  kind: 'file' | 'page' | string
+  kind: ResourceKind
   storage_status: string
   access_mode: string
   access_url: string | null
@@ -154,6 +163,7 @@ export interface ResourceAccess {
   file_name: string | null
   file_mime_type: string | null
   file_size: number | null
+  body_html?: string | null
   detail: string | null
 }
 
@@ -161,6 +171,11 @@ export async function fetchResources(params?: {
   search?: string
   role?: string
   uploader_id?: number
+  type?: string
+  label_id?: number
+  track_id?: number
+  since?: string
+  until?: string
   order?: 'newest' | 'oldest' | 'name'
   page?: number
   page_size?: number
@@ -170,6 +185,11 @@ export async function fetchResources(params?: {
   if (params?.search) queryParams.append('search', params.search)
   if (params?.role) queryParams.append('role', params.role)
   if (params?.uploader_id) queryParams.append('uploader_id', params.uploader_id.toString())
+  if (params?.type) queryParams.append('type', params.type)
+  if (params?.label_id) queryParams.append('label_id', params.label_id.toString())
+  if (params?.track_id) queryParams.append('track_id', params.track_id.toString())
+  if (params?.since) queryParams.append('since', params.since)
+  if (params?.until) queryParams.append('until', params.until)
   if (params?.order) queryParams.append('order', params.order)
   if (params?.page) queryParams.append('page', params.page.toString())
   if (params?.page_size) queryParams.append('page_size', params.page_size.toString())
@@ -179,7 +199,9 @@ export async function fetchResources(params?: {
   return apiRequest<{ results: Resource[]; count: number }>(endpoint)
 }
 
-export async function fetchAllResources(params?: Omit<Parameters<typeof fetchResources>[0], 'page' | 'page_size'>): Promise<Resource[]> {
+type ResourceListParams = NonNullable<Parameters<typeof fetchResources>[0]>
+
+export async function fetchAllResources(params?: Omit<ResourceListParams, 'page' | 'page_size'>): Promise<Resource[]> {
   const pageSize = 100
   const firstPage = await fetchResources({ ...params, page: 1, page_size: pageSize })
   const resources = [...firstPage.results]
@@ -193,6 +215,28 @@ export async function fetchAllResources(params?: Omit<Parameters<typeof fetchRes
   return resources
 }
 
+export async function fetchResource(resourceId: number): Promise<Resource> {
+  return apiRequest<Resource>(`/resources/resource-files/${resourceId}/`)
+}
+
 export async function fetchResourceAccess(resourceId: number): Promise<ResourceAccess> {
   return apiRequest<ResourceAccess>(`/resources/resource-files/${resourceId}/access/`)
+}
+
+function unpackList<T>(data: T[] | { results?: T[] }): T[] {
+  return Array.isArray(data) ? data : data.results || []
+}
+
+export async function fetchResourceLabels(): Promise<ResourceLabel[]> {
+  const data = await apiRequest<ResourceLabel[] | { results?: ResourceLabel[] }>(
+    '/resources/resource-labels/',
+  )
+  return unpackList(data)
+}
+
+export async function fetchResourceTypes(): Promise<ResourceType[]> {
+  const data = await apiRequest<ResourceType[] | { results?: ResourceType[] }>(
+    '/resources/resource-types/',
+  )
+  return unpackList(data)
 }
