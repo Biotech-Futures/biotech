@@ -77,7 +77,8 @@ class UserListCreateView(APIView):
 
     def post(self, request):
         result = create_user(request.data)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -94,17 +95,20 @@ class UserDetailView(APIView):
 
     def get(self, request, user_id):
         result = query_user_by_id(int(user_id))
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
     def put(self, request, user_id):
         result = update_user(int(user_id), request.data)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
     def delete(self, request, user_id):
         result = delete_user(int(user_id))
-        code = status.HTTP_200_OK if result.get("msg") == "User deleted successfully" else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "msg") == "User deleted successfully" else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -119,7 +123,8 @@ class UserStatusUpdateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         result = update_status(int(user_id), is_active)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -193,17 +198,20 @@ class GroupDetailView(APIView):
 
     def get(self, request, group_id):
         result = query_group_by_id(group_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
     """PUT /api/v1/group/{id} - Update group"""
+
     def put(self, request, group_id):
         result = update_group(
             group_id,
             name=request.data.get("name"),
             track=request.data.get("track"),
         )
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -226,7 +234,8 @@ class GroupMessageDetailView(APIView):
 
     def delete(self, request, group_id, message_id):
         result = remove_group_message(group_id, int(message_id))
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -236,7 +245,8 @@ class GroupMemberRemoveView(APIView):
 
     def delete(self, request, group_id, user_id):
         result = remove_group_member(group_id, int(user_id))
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -288,7 +298,8 @@ class EventListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        upcoming = request.query_params.get("upcoming", "false").lower() == "true"
+        upcoming = request.query_params.get(
+            "upcoming", "false").lower() == "true"
         result = query_events({
             "page": int(request.query_params.get("page", 1)),
             "limit": int(request.query_params.get("limit", 10)),
@@ -298,9 +309,11 @@ class EventListCreateView(APIView):
         return Response(result)
 
     """POST /api/v1/event - Create event"""
+
     def post(self, request):
         result = create_event(request.data, requesting_user=request.user)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -310,19 +323,24 @@ class EventDetailView(APIView):
 
     def get(self, request, event_id):
         result = query_event_by_id(event_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
     """PUT /api/v1/event/{id} - Update event"""
+
     def put(self, request, event_id):
         result = update_event(event_id, request.data)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
     """DELETE /api/v1/event/{id} - Delete event"""
+
     def delete(self, request, event_id):
         result = delete_event(event_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -335,9 +353,11 @@ class EventRsvpListCreateView(APIView):
         return Response(result)
 
     """POST /api/v1/event/{id}/rsvp - Create event RSVP"""
+
     def post(self, request, event_id):
         result = create_event_rsvp(event_id, request.data)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -347,7 +367,8 @@ class EventRsvpDetailView(APIView):
 
     def put(self, request, rsvp_id):
         result = update_event_rsvp(rsvp_id, request.data)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -357,7 +378,8 @@ class EventTargetsView(APIView):
 
     def get(self, request, event_id):
         result = query_event_targets(event_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -422,12 +444,15 @@ class ResourceListCreateView(APIView):
         return Response(result)
 
     """POST /api/v1/resource - Create resource"""
+
     def post(self, request):
         uploader = None
         if hasattr(request, "user") and request.user.is_authenticated:
-            uploader = {"id": str(request.user.id), "email": request.user.email}
+            uploader = {"id": str(request.user.id),
+                        "email": request.user.email}
         result = create_resource(request.data, uploader)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -437,25 +462,32 @@ class ResourceDetailView(APIView):
 
     def get(self, request, resource_id):
         result = query_resource_by_id(resource_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
     """PUT /api/v1/resource/{id} - Update resource"""
+
     def put(self, request, resource_id):
         result = update_resource(resource_id, request.data)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
     """PATCH /api/v1/resource/{id} - Update resource (partial)"""
+
     def patch(self, request, resource_id):
         result = update_resource(resource_id, request.data)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
     """DELETE /api/v1/resource/{id} - Delete resource"""
+
     def delete(self, request, resource_id):
         result = delete_resource(resource_id)
-        code = status.HTTP_200_OK if result.get("msg") == "Resource deleted successfully" else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "msg") == "Resource deleted successfully" else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -511,7 +543,7 @@ class ResourceUploadView(APIView):
             )
         except ValidationError as exc:
             return Response(
-                {"msg": "Failed to upload resource", "errors": exc.detail},
+                {"msg": exc.detail or "Failed to upload resource", "errors": exc.detail},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except ValueError as exc:
@@ -527,7 +559,8 @@ class ResourceFileReplaceView(APIView):
 
     def post(self, request, resource_id):
         result = replace_resource_file(resource_id, request.data)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -570,7 +603,8 @@ class ResourceAssignRoleView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         result = assign_role_to_resource(resource_id, role_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -586,7 +620,8 @@ class ResourceRemoveRoleView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         result = remove_role_from_resource(resource_id, role_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -610,6 +645,7 @@ class AnnouncementListCreateView(APIView):
         return Response(result)
 
     """POST /api/v1/announcement - Create announcement"""
+
     def post(self, request):
         # ``initiated_by`` carries the acting user; ``create_announcement``
         # derives ``author_user_id`` from it. The two are split in the
@@ -622,7 +658,8 @@ class AnnouncementListCreateView(APIView):
             else None
         )
         result = create_announcement(request.data, initiated_by=initiated_by)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -632,10 +669,12 @@ class AnnouncementDetailView(APIView):
 
     def get(self, request, announcement_id):
         result = get_announcement_by_id(announcement_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
     """PUT /api/v1/announcement/{id} - Update announcement"""
+
     def put(self, request, announcement_id):
         initiated_by = (
             request.user
@@ -645,7 +684,8 @@ class AnnouncementDetailView(APIView):
         result = update_announcement(
             announcement_id, request.data, initiated_by=initiated_by,
         )
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -655,7 +695,8 @@ class AnnouncementArchiveView(APIView):
 
     def post(self, request, announcement_id):
         result = archive_announcement(announcement_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -744,7 +785,8 @@ class MentorMatchRecommendView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        admin_user_id = str(request.user.id) if request.user.is_authenticated else None
+        admin_user_id = str(
+            request.user.id) if request.user.is_authenticated else None
         if not admin_user_id:
             return Response({"msg": "Authentication required"}, status=401)
         raw_mode = request.query_params.get("mode")
@@ -828,12 +870,14 @@ class AdminTaskListCreateView(APIView):
         page = int(request.query_params.get("page", 1))
         limit = int(request.query_params.get("limit", 10))
         task_type = request.query_params.get("task_type") or None
-        result = list_admin_tasks(request.user, page=page, limit=limit, task_type=task_type)
+        result = list_admin_tasks(
+            request.user, page=page, limit=limit, task_type=task_type)
         return Response(result)
 
     def post(self, request):
         result = create_admin_task(request.user, request.data)
-        code = status.HTTP_201_CREATED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -843,7 +887,8 @@ class AdminTaskDetailView(APIView):
 
     def get(self, request, task_id):
         result = get_admin_task_by_id(request.user, task_id)
-        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
     def patch(self, request, task_id):
