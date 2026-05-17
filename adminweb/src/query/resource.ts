@@ -105,7 +105,6 @@ interface QueryResourcesParams {
   order?: ResourceOrder;
   resource_type?: ResourceTypeName;
   resource_kind?: ResourceKind;
-  deleted?: boolean;
 }
 
 export function useQueryResources(params: QueryResourcesParams) {
@@ -117,7 +116,6 @@ export function useQueryResources(params: QueryResourcesParams) {
     order,
     resource_type,
     resource_kind,
-    deleted,
   } = params;
 
   return useQuery({
@@ -130,7 +128,6 @@ export function useQueryResources(params: QueryResourcesParams) {
       order,
       resource_type,
       resource_kind,
-      deleted,
     ],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
       const res = await myFetch.get<PaginatedResponse<ApiResource>>(
@@ -143,29 +140,11 @@ export function useQueryResources(params: QueryResourcesParams) {
             track_id,
             resource_type,
             resource_kind,
-            deleted,
             order: order ?? "newest",
           },
         },
       );
       return normalizePaginatedResources(res.data);
-    },
-  });
-}
-
-export function useRestoreResource() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const res = await myFetch.post<{ msg: string; data: Resource | null }>(
-        `/resource/${id}/restore`,
-      );
-      return res.data;
-    },
-    onSuccess: (_, id) => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
-      queryClient.invalidateQueries({ queryKey: ["resource", id] });
     },
   });
 }

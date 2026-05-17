@@ -100,23 +100,6 @@ export function useDeleteEvent() {
   });
 }
 
-export function useRestoreEvent() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: number): Promise<ApiResponse<Event | null>> => {
-      const res = await myFetch.post<ApiResponse<Event | null>>(
-        `/event/${id}/restore`,
-      );
-      return res.data;
-    },
-    onSuccess: (_, restoredId) => {
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-      queryClient.invalidateQueries({ queryKey: ["event", String(restoredId)] });
-    },
-  });
-}
-
 export function useQueryEventRsvps(eventId: number | null) {
   return useQuery({
     queryKey: ["event-rsvps", eventId],

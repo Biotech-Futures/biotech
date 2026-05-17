@@ -5,7 +5,6 @@ from django.db import transaction
 from apps.audit.services import log_audit_event
 from apps.resources.models import ResourceType, Resources
 from apps.resources.serializers import ResourcesSerializer
-from apps.resources.services.storage import RESOURCE_FILE_SERVICE
 
 
 def _get_first(data: Mapping[str, Any], key: str, default: Any = None) -> Any:
@@ -101,6 +100,10 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         or _get_first(data, "resource_description")
         or f"Resource attachment: {file_name}",
         "kind": kind,
+        "file_mime_type": getattr(uploaded_file, "content_type", None)
+        or "application/octet-stream",
+        "file_size": getattr(uploaded_file, "size", None),
+        "uploaded_file": uploaded_file,
         "visibility_scope": _visibility_scope(
             _get_first(data, "visibility_scope"),
             track_id=track_id,
@@ -117,22 +120,16 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
     if role_ids:
         serializer_data["role_ids"] = role_ids
 
-    with RESOURCE_FILE_SERVICE.stored_file(
-        uploaded_file,
-        content_type_field="file_mime_type",
-        size_field="file_size",
-    ) as file_data:
-        serializer_data.update(file_data)
-        serializer = ResourcesSerializer(data=serializer_data)
-        serializer.is_valid(raise_exception=True)
-        resource = serializer.save(uploaded_by=user)
+    serializer = ResourcesSerializer(data=serializer_data)
+    serializer.is_valid(raise_exception=True)
+    resource = serializer.save(uploaded_by=user)
 
-        log_audit_event(
-            actor=user,
-            entity_type="resource",
-            entity_id=resource.id,
-            action="create",
-            after_state=ResourcesSerializer(resource).data,
-        )
+    log_audit_event(
+        actor=user,
+        entity_type="resource",
+        entity_id=resource.id,
+        action="create",
+        after_state=ResourcesSerializer(resource).data,
+    )
 
     return resource

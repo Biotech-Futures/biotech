@@ -20,9 +20,7 @@ urlpatterns = [
     # ========================================================================
     path('group/', views.GroupListView.as_view(), name='group-list'),
     path('group/<str:group_id>/', views.GroupDetailView.as_view(), name='group-detail'),
-    path('group/<str:group_id>/restore/', views.GroupRestoreView.as_view(), name='group-restore'),
     path('group/<str:group_id>/messages/', views.GroupMessagesListView.as_view(), name='group-messages-list'),
-    path('group/<str:group_id>/messages/<str:message_id>/restore/', views.GroupMessageRestoreView.as_view(), name='group-message-restore'),
     path('group/<str:group_id>/messages/<str:message_id>/', views.GroupMessageDetailView.as_view(), name='group-message-detail'),
     path('group/<str:group_id>/members/<str:user_id>/', views.GroupMemberRemoveView.as_view(), name='group-member-remove'),
     
@@ -38,7 +36,6 @@ urlpatterns = [
     # ========================================================================
     path('event/', views.EventListCreateView.as_view(), name='event-list-create'),
     path('event/<str:event_id>/', views.EventDetailView.as_view(), name='event-detail'),
-    path('event/<str:event_id>/restore/', views.EventRestoreView.as_view(), name='event-restore'),
     path('event/<str:event_id>/rsvp/', views.EventRsvpListCreateView.as_view(), name='event-rsvp-list-create'),
     path('event/<str:event_id>/targets/', views.EventTargetsView.as_view(), name='event-targets'),
     path('event/meta/groups/', views.EventMetaGroupsView.as_view(), name='event-meta-groups'),
@@ -51,7 +48,6 @@ urlpatterns = [
     # ========================================================================
     path('resource/', views.ResourceListCreateView.as_view(), name='resource-list-create'),
     path('resource/<int:resource_id>/', views.ResourceDetailView.as_view(), name='resource-detail'),
-    path('resource/<int:resource_id>/restore/', views.ResourceRestoreView.as_view(), name='resource-restore'),
     path('resource/<int:resource_id>/access/', views.ResourceAccessView.as_view(), name='resource-access'),
     path('resource/<int:resource_id>/download/', views.ResourceDownloadView.as_view(), name='resource-download'),
     path('resource/<int:resource_id>/upload/', views.ResourceFileReplaceView.as_view(), name='resource-file-replace'),
@@ -84,7 +80,6 @@ urlpatterns = [
     path('task/', views.AdminTaskListCreateView.as_view(), name='admin-task-list-create'),
     path('task/<int:task_id>/', views.AdminTaskDetailView.as_view(), name='admin-task-detail'),
     path('task/<int:task_id>/toggle/', views.AdminTaskToggleView.as_view(), name='admin-task-toggle'),
-    path('task/<int:task_id>/restore/', views.AdminTaskRestoreView.as_view(), name='admin-task-restore'),
 
     # ========================================================================
     # ADMIN AUTH ROUTES
