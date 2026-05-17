@@ -6,7 +6,7 @@ import {
   type ResourceTrackOption,
 } from "@/type/resource";
 import { Button } from "@/components/ui/button";
-import { MoreHorizontal, RotateCcwIcon } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,9 +20,7 @@ interface ResourceColumnsOptions {
   onDelete?: (resource: Resource) => void;
   onAccess?: (resource: Resource) => void;
   onDownload?: (resource: Resource) => void;
-  onRestore?: (resource: Resource) => void;
   trackOptions?: ResourceTrackOption[];
-  recoveryMode?: boolean;
 }
 
 const truncatingCellClassName = "truncate";
@@ -54,9 +52,7 @@ export function createResourceColumns({
   onEdit,
   onDelete,
   onDownload,
-  onRestore,
   trackOptions,
-  recoveryMode = false,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
   const trackLabelById = new Map(
     (trackOptions ?? []).map((item) => [item.id, item.label]),
@@ -184,34 +180,25 @@ export function createResourceColumns({
               <DropdownMenuItem onClick={() => onViewDetail?.(resource)}>
                 View Details
               </DropdownMenuItem>
-              {recoveryMode ? (
-                <DropdownMenuItem onClick={() => onRestore?.(resource)}>
-                  <RotateCcwIcon className="mr-2 size-4" />
-                  Restore Resource
+              <DropdownMenuItem onClick={() => onEdit?.(resource)}>
+                Edit Resource
+              </DropdownMenuItem>
+              {/* {resource.file_name ? (
+                <DropdownMenuItem onClick={() => onAccess?.(resource)}>
+                  Access Resource
                 </DropdownMenuItem>
-              ) : (
-                <>
-                  <DropdownMenuItem onClick={() => onEdit?.(resource)}>
-                    Edit Resource
-                  </DropdownMenuItem>
-                  {/* {resource.file_name ? (
-                    <DropdownMenuItem onClick={() => onAccess?.(resource)}>
-                      Access Resource
-                    </DropdownMenuItem>
-                  ) : null} */}
-                  {resource.file_name ? (
-                    <DropdownMenuItem onClick={() => onDownload?.(resource)}>
-                      Download File
-                    </DropdownMenuItem>
-                  ) : null}
-                  <DropdownMenuItem
-                    className="text-red-600"
-                    onClick={() => onDelete?.(resource)}
-                  >
-                    Delete Resource
-                  </DropdownMenuItem>
-                </>
-              )}
+              ) : null} */}
+              {resource.file_name ? (
+                <DropdownMenuItem onClick={() => onDownload?.(resource)}>
+                  Download File
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem
+                className="text-red-600"
+                onClick={() => onDelete?.(resource)}
+              >
+                Delete Resource
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );

@@ -9,15 +9,9 @@ import {
   GroupMessagesDialog,
   createColumns,
 } from "@/components/group";
-import {
-  useDeleteGroup,
-  useQueryGroup,
-  useQueryGroups,
-  useRestoreGroup,
-} from "@/query/group";
+import { useQueryGroup, useQueryGroups } from "@/query/group";
 import { useQueryTracks } from "@/query/student";
 import type { Group, MentorStatusFilter, Track } from "@/type/group";
-import { toast } from "sonner";
 
 export const Route = createFileRoute("/_auth/group")({
   validateSearch: (
@@ -78,7 +72,6 @@ function GroupPage() {
   const [messageGroup, setMessageGroup] = useState<Group | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [recoveryPage, setRecoveryPage] = useState(1);
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -88,17 +81,7 @@ function GroupPage() {
     track,
     mentorStatus,
   });
-  const { data: recoveryData, isPending: isRecoveryPending } = useQueryGroups({
-    page: recoveryPage,
-    searchName,
-    searchGroup,
-    track,
-    mentorStatus,
-    deleted: true,
-  });
   const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
-  const restoreGroup = useRestoreGroup();
-  const deleteGroup = useDeleteGroup();
 
   const { data: groupById, isPending: isGroupByIdPending } = useQueryGroup(
     groupId ?? "",
@@ -107,11 +90,6 @@ function GroupPage() {
   const groups = data?.data.items ?? [];
   const totalPages = Math.ceil(
     (data?.data.total ?? 0) / (data?.data.limit ?? 10),
-  );
-  const recoveryGroups = recoveryData?.data.items ?? [];
-  const recoveryTotalPages = Math.max(
-    1,
-    Math.ceil((recoveryData?.data.total ?? 0) / (recoveryData?.data.limit ?? 10)),
   );
 
   const updateFilters = (
@@ -179,43 +157,10 @@ function GroupPage() {
     setMessagesOpen(true);
   };
 
-  const handleRestoreGroup = async (group: Group) => {
-    try {
-      await restoreGroup.mutateAsync(group.id);
-      toast.success(`Restored group "${group.name}".`);
-    } catch {
-      toast.error("Failed to restore group.");
-    }
-  };
-
-  const handleDeleteGroup = async (group: Group) => {
-    if (!window.confirm(`Delete group "${group.name}"?`)) return;
-
-    try {
-      await deleteGroup.mutateAsync(group.id);
-      toast.success(`Deleted group "${group.name}".`);
-      if (selectedGroup?.id === group.id) {
-        setSelectedGroup(null);
-        setDetailOpen(false);
-      }
-      if (messageGroup?.id === group.id) {
-        setMessageGroup(null);
-        setMessagesOpen(false);
-      }
-    } catch {
-      toast.error("Failed to delete group.");
-    }
-  };
-
   // Columns with handlers
   const columns = createColumns({
     onViewDetail: handleViewDetail,
     onViewMessages: handleViewMessages,
-    onDelete: handleDeleteGroup,
-  });
-  const recoveryColumns = createColumns({
-    onRestore: handleRestoreGroup,
-    recoveryMode: true,
   });
 
   return (
@@ -263,30 +208,8 @@ function GroupPage() {
         page={page}
         totalPages={totalPages}
         onPageChange={handlePageChange}
-        isPending={isPending || deleteGroup.isPending}
+        isPending={isPending}
       />
-
-      <section className="space-y-3 rounded-md border p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold">Deleted Group Recovery</h2>
-            <p className="text-sm text-muted-foreground">
-              Review deleted groups and restore them when their name is available on the same track.
-            </p>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {recoveryData?.data.total ?? 0} deleted groups
-          </p>
-        </div>
-        <GroupTable
-          columns={recoveryColumns}
-          data={recoveryGroups}
-          page={recoveryPage}
-          totalPages={recoveryTotalPages}
-          onPageChange={setRecoveryPage}
-          isPending={isRecoveryPending || restoreGroup.isPending}
-        />
-      </section>
 
       <GroupDetailModal
         group={selectedGroup}

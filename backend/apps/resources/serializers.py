@@ -384,7 +384,6 @@ class _BaseResourcePublicSerializer(_ResourcePublicFieldsMixin, serializers.Mode
 class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
     class Meta:
         model = Resources
-        # deleted_at is exposed so management recovery lists can verify state.
         fields = [
             'id',
             'name',
@@ -394,7 +393,6 @@ class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
             'file_mime_type',
             'file_size',
             'uploaded_at',
-            'deleted_at',
             'uploader_name',
             'file_name',
             'access_url',
@@ -407,7 +405,6 @@ class ResourcePublicListSerializer(_BaseResourcePublicSerializer):
 class ResourcePublicDetailSerializer(_BaseResourcePublicSerializer):
     class Meta:
         model = Resources
-        # deleted_at is exposed so restore responses can confirm recovery.
         fields = [
             'id',
             'name',
@@ -417,7 +414,6 @@ class ResourcePublicDetailSerializer(_BaseResourcePublicSerializer):
             'file_mime_type',
             'file_size',
             'uploaded_at',
-            'deleted_at',
             'uploader_name',
             'file_name',
             'access_url',

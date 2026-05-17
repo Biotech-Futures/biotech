@@ -13,7 +13,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PencilIcon,
-  RotateCcwIcon,
   Trash2Icon,
 } from "lucide-react";
 import type { Task } from "@/type/task";
@@ -33,11 +32,9 @@ interface TaskTableProps {
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onToggle: (task: Task) => void;
-  onRestore?: (task: Task) => void;
   isPending?: boolean;
   groups?: GroupOption[];
   users?: UserAccount[];
-  recoveryMode?: boolean;
 }
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -55,11 +52,9 @@ export function TaskTable({
   onEdit,
   onDelete,
   onToggle,
-  onRestore,
   isPending,
   groups = [],
   users = [],
-  recoveryMode = false,
 }: TaskTableProps) {
   const groupMap = new Map(groups.map((g) => [g.id, g.name]));
   const userMap = new Map(users.map((u) => [Number(u.id), u.name]));
@@ -69,42 +64,37 @@ export function TaskTable({
         <Table>
           <TableHeader>
             <TableRow>
-              {!recoveryMode ? (
-                <TableHead className="w-10">Completed</TableHead>
-              ) : null}
+              <TableHead className="w-10">Completed</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Target</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Due</TableHead>
-              {recoveryMode ? <TableHead>Deleted</TableHead> : null}
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={recoveryMode ? 7 : 7} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   Loading...
                 </TableCell>
               </TableRow>
             ) : data.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={recoveryMode ? 7 : 7} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   No tasks found.
                 </TableCell>
               </TableRow>
             ) : (
               data.map((task) => (
                 <TableRow key={task.id} className={task.completed ? "opacity-60" : ""}>
-                  {!recoveryMode ? (
-                    <TableCell>
-                      <Checkbox
-                        checked={task.completed}
-                        onCheckedChange={() => onToggle(task)}
-                      />
-                    </TableCell>
-                  ) : null}
+                  <TableCell>
+                    <Checkbox
+                      checked={task.completed}
+                      onCheckedChange={() => onToggle(task)}
+                    />
+                  </TableCell>
                   <TableCell className="font-medium max-w-48 truncate">
                     {task.name}
                   </TableCell>
@@ -128,46 +118,22 @@ export function TaskTable({
                       ? new Date(task.due_date).toLocaleDateString()
                       : "—"}
                   </TableCell>
-                  {recoveryMode ? (
-                    <TableCell className="text-sm">
-                      {task.deleted_at
-                        ? new Date(task.deleted_at).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                  ) : null}
                   <TableCell>
                     <div className="flex gap-1">
-                      {recoveryMode ? (
-                        task.task_type === "group" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onRestore?.(task)}
-                          >
-                            <RotateCcwIcon className="size-4" />
-                            Restore
-                          </Button>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">—</span>
-                        )
-                      ) : (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => onEdit(task)}
-                          >
-                            <PencilIcon className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => onDelete(task)}
-                          >
-                            <Trash2Icon className="size-4 text-destructive" />
-                          </Button>
-                        </>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onEdit(task)}
+                      >
+                        <PencilIcon className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(task)}
+                      >
+                        <Trash2Icon className="size-4 text-destructive" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>

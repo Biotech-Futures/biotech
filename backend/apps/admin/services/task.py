@@ -9,12 +9,12 @@ from apps.groups.models import Groups, GroupMembership
 from apps.admin.scope_utils import get_admin_track_ids
 
 
-def _admin_visible_tasks(requesting_user, *, include_deleted: bool = False):
+def _admin_visible_tasks(requesting_user):
     """
-    Tasks visible to an admin based on AdminScope; Django staff/superuser
-    flags do not widen track-scoped task visibility.
+    Tasks visible to an admin based on AdminScope — ignores is_staff/is_superuser
+    so Track Admins are correctly scoped to their assigned tracks only (§2).
     """
-    base = Task.objects.all() if include_deleted else Task.objects.active()
+    base = Task.objects.active()
 
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is None:
@@ -103,7 +103,6 @@ def list_admin_tasks(
     page: int = 1,
     limit: int = 10,
     task_type: Optional[str] = None,
-    deleted: bool = False,
 ) -> Dict[str, Any]:
     """
     List tasks visible to the requesting admin with optional type filter.
@@ -118,12 +117,10 @@ def list_admin_tasks(
         Dictionary with tasks list and pagination info
     """
     qs = (
-        _admin_visible_tasks(requesting_user, include_deleted=deleted)
+        _admin_visible_tasks(requesting_user)
         .select_related("created_by")
         .order_by("-created_at", "-id")
     )
-    if deleted:
-        qs = qs.filter(deleted_at__isnull=False)
     if task_type:
         qs = qs.filter(task_type=task_type)
 
@@ -273,33 +270,6 @@ def delete_admin_task(requesting_user, task_id: int) -> TaskResponseDict:
 
     task.soft_delete()
     return {"msg": "Task deleted successfully", "data": True}
-
-
-@transaction.atomic
-def restore_admin_task(requesting_user, task_id: int) -> TaskResponseDict:
-    """
-    Restore a soft-deleted task if the requesting admin has permission.
-
-    Group and parent scopes must be active first so restored tasks do not
-    reappear under deleted containers.
-    """
-    try:
-        task = (
-            _admin_visible_tasks(requesting_user, include_deleted=True)
-            .select_related("created_by", "group", "parent")
-            .get(id=task_id, deleted_at__isnull=False)
-        )
-    except Task.DoesNotExist:
-        return {"msg": "Task not found", "data": None}
-
-    if task.group_id and task.group.deleted_at is not None:
-        return {"msg": "Cannot restore a task whose group is deleted", "data": None}
-    if task.parent_id and task.parent.deleted_at is not None:
-        return {"msg": "Parent task is deleted. Restore the parent first", "data": None}
-
-    task.restore(cascade=True)
-    task = Task.objects.select_related("created_by").get(id=task.id)
-    return {"msg": "Task restored successfully", "data": _serialize_task(task)}
 
 
 @transaction.atomic

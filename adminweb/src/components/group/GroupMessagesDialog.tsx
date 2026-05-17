@@ -7,11 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  useQueryGroupMessages,
-  useRemoveGroupMessage,
-  useRestoreGroupMessage,
-} from "@/query/group";
+import { useQueryGroupMessages, useRemoveGroupMessage } from "@/query/group";
 import type { Group, MessageAttachment } from "@/type/group";
 import { AxiosError } from "axios";
 import {
@@ -21,7 +17,6 @@ import {
   ExternalLinkIcon,
   MessageSquareIcon,
   PaperclipIcon,
-  RotateCcwIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -46,73 +41,29 @@ export function GroupMessagesDialog({
   onOpenChange,
 }: GroupMessagesDialogProps) {
   const [messagePage, setMessagePage] = useState(1);
-  const [showDeleted, setShowDeleted] = useState(false);
-  const [hiddenMessageIds, setHiddenMessageIds] = useState<string[]>([]);
   const groupId = group?.id ?? "";
   const { data, isPending, isError } = useQueryGroupMessages(groupId, {
     page: messagePage,
     limit: 50,
     enabled: open && Boolean(groupId),
-    deleted: showDeleted,
   });
   const removeGroupMessage = useRemoveGroupMessage();
-  const restoreGroupMessage = useRestoreGroupMessage();
 
   useEffect(() => {
     setMessagePage(1);
-    setHiddenMessageIds([]);
   }, [groupId, open]);
 
-  useEffect(() => {
-    setMessagePage(1);
-    setHiddenMessageIds([]);
-  }, [showDeleted]);
-
-  const messages = (data?.data.items ?? []).filter(
-    (message) => !hiddenMessageIds.includes(message.id),
-  );
+  const messages = data?.data.items ?? [];
   const meta = data?.data;
   const hasLoadedMessages = Boolean(meta);
   const showBlockingError = isError && !hasLoadedMessages;
 
-  async function openAttachment(att: MessageAttachment, inline: boolean) {
+  function openAttachment(att: MessageAttachment, inline: boolean) {
     const apiOrigin = import.meta.env.VITE_PUBLIC_API_URL || "http://localhost:8000";
     const base = `${apiOrigin.replace(/\/$/, "")}${att.download_url}`;
     const sep = base.includes("?") ? "&" : "?";
-    const url = inline ? `${base}${sep}inline=1&proxy=1` : `${base}${sep}proxy=1`;
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        let detail = "Attachment could not be opened.";
-        try {
-          const payload = (await response.json()) as { detail?: string };
-          detail = payload.detail || detail;
-        } catch {
-          // Keep fallback message for non-JSON responses.
-        }
-        toast.error(detail);
-        return;
-      }
-      const blob = await response.blob();
-      const objectUrl = window.URL.createObjectURL(blob);
-      if (inline) {
-        window.open(objectUrl, "_blank", "noopener,noreferrer");
-        window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
-        return;
-      }
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = att.filename || "attachment";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(objectUrl);
-    } catch {
-      toast.error("Attachment could not be opened.");
-    }
+    const url = inline ? `${base}${sep}inline=1` : base;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function handleRemoveMessage(messageId: string) {
@@ -125,7 +76,6 @@ export function GroupMessagesDialog({
 
     try {
       await removeGroupMessage.mutateAsync({ groupId: group.id, messageId });
-      setHiddenMessageIds((ids) => [...ids, messageId]);
       toast.success("Message removed from group.");
     } catch (error) {
       const msg =
@@ -133,23 +83,6 @@ export function GroupMessagesDialog({
           ? ((error.response?.data as { msg?: string } | undefined)?.msg ??
             error.message)
           : "Could not remove message. Please try again.";
-      toast.error(msg);
-    }
-  }
-
-  async function handleRestoreMessage(messageId: string) {
-    if (!group) return;
-
-    try {
-      await restoreGroupMessage.mutateAsync({ groupId: group.id, messageId });
-      setHiddenMessageIds((ids) => [...ids, messageId]);
-      toast.success("Message restored.");
-    } catch (error) {
-      const msg =
-        error instanceof AxiosError
-          ? ((error.response?.data as { msg?: string } | undefined)?.msg ??
-            error.message)
-          : "Could not restore message. Please try again.";
       toast.error(msg);
     }
   }
@@ -169,16 +102,8 @@ export function GroupMessagesDialog({
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           {meta && (
-            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span>{meta.total} {showDeleted ? "deleted" : "active"} messages</span>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showDeleted}
-                  onChange={(event) => setShowDeleted(event.target.checked)}
-                />
-                <span>Show deleted</span>
-              </label>
+            <div className="text-xs text-muted-foreground">
+              {meta.total} total messages
             </div>
           )}
 
@@ -216,43 +141,21 @@ export function GroupMessagesDialog({
                       {formatMessageTime(message.sent_at)}
                     </p>
                   </div>
-                  {showDeleted ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-foreground"
-                      disabled={restoreGroupMessage.isPending}
-                      aria-label="Restore message"
-                      title="Restore message"
-                      onClick={() => void handleRestoreMessage(message.id)}
-                    >
-                      <RotateCcwIcon className="size-4" />
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-muted-foreground hover:text-destructive"
-                      disabled={removeGroupMessage.isPending}
-                      aria-label="Remove message from group"
-                      title="Remove message from group"
-                      onClick={() => void handleRemoveMessage(message.id)}
-                    >
-                      <Trash2Icon className="size-4" />
-                    </Button>
-                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-destructive"
+                    disabled={removeGroupMessage.isPending}
+                    aria-label="Remove message from group"
+                    title="Remove message from group"
+                    onClick={() => void handleRemoveMessage(message.id)}
+                  >
+                    <Trash2Icon className="size-4" />
+                  </Button>
                 </div>
               </div>
-              {message.deleted_at && (
-                <p className="mt-3 text-sm italic text-muted-foreground">
-                  {message.deleted_by_is_admin
-                    ? "Admin deleted a message"
-                    : `${message.deleted_by_name || message.sender.name || "Someone"} deleted a message`}
-                </p>
-              )}
-              {!message.deleted_at && message.message_type === "gif" && message.gif ? (
+              {message.message_type === "gif" && message.gif ? (
                 <img
                   src={message.gif.gif_url}
                   alt={message.gif.title || "GIF"}
@@ -262,7 +165,7 @@ export function GroupMessagesDialog({
                   loading="lazy"
                   decoding="async"
                 />
-              ) : !message.deleted_at && message.message_type === "attachment" && message.attachments.length > 0 ? (
+              ) : message.message_type === "attachment" && message.attachments.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {message.attachments.map((att) => (
                     <div key={att.id} className="flex items-center gap-1 rounded border bg-background px-2 py-1 text-xs">
@@ -271,7 +174,7 @@ export function GroupMessagesDialog({
                       <button
                         type="button"
                         title="Open in new tab"
-                        onClick={() => void openAttachment(att, true)}
+                        onClick={() => openAttachment(att, true)}
                         className="ml-1 text-muted-foreground hover:text-foreground"
                       >
                         <ExternalLinkIcon className="size-3" />
@@ -279,7 +182,7 @@ export function GroupMessagesDialog({
                       <button
                         type="button"
                         title="Download"
-                        onClick={() => void openAttachment(att, false)}
+                        onClick={() => openAttachment(att, false)}
                         className="text-muted-foreground hover:text-foreground"
                       >
                         <DownloadIcon className="size-3" />
@@ -292,11 +195,11 @@ export function GroupMessagesDialog({
                     </p>
                   )}
                 </div>
-              ) : !message.deleted_at ? (
+              ) : (
                 <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed">
                   {message.text}
                 </p>
-              ) : null}
+              )}
               {message.edited_at && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Edited {formatMessageTime(message.edited_at)}

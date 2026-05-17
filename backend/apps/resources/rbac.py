@@ -69,16 +69,8 @@ def _resource_track_ids(resource) -> set[int]:
     group = getattr(resource, "group", None)
     if group is None and getattr(resource, "group_id", None):
         Groups = apps.get_model("groups", "Groups")
-        # Deleted groups do not contribute track scope for resource access.
-        group = Groups.objects.only("id", "track_id").filter(
-            pk=resource.group_id,
-            deleted_at__isnull=True,
-        ).first()
-    if (
-        group is not None
-        and getattr(group, "deleted_at", None) is None
-        and getattr(group, "track_id", None)
-    ):
+        group = Groups.objects.only("id", "track_id").filter(pk=resource.group_id).first()
+    if group is not None and getattr(group, "track_id", None):
         track_ids.add(int(group.track_id))
 
     for audience in _resource_audiences(resource):
@@ -101,11 +93,7 @@ def _resource_list_access_q(user):
     if user.track_id:
         access_q |= (
             Q(visibility_scope=RESOURCE_TRACK_SCOPE)
-            & (
-                Q(track_id=user.track_id)
-                # Deleted groups do not grant track-scoped resource visibility.
-                | Q(group__track_id=user.track_id, group__deleted_at__isnull=True)
-            )
+            & (Q(track_id=user.track_id) | Q(group__track_id=user.track_id))
         )
         access_q |= Q(audiences__role__isnull=True, audiences__track_id=user.track_id)
         if role_ids:
@@ -143,12 +131,6 @@ def can_manage_resource_file(user, resource=None, track=None) -> bool:
 
     allowed_track_ids = track_admin_track_ids(user)
     return bool(allowed_track_ids) and candidate_track_ids.issubset(allowed_track_ids)
-
-
-def can_manage_resource_collection(user) -> bool:
-    if not user or not user.is_authenticated:
-        return False
-    return is_global_admin(user) or bool(track_admin_track_ids(user))
 
 
 def can_access_resource_file(user, resource) -> bool:
@@ -204,8 +186,7 @@ def filter_resources_for_user(queryset, user, *, for_management: bool = False):
     if admin_track_ids:
         admin_q = (
             Q(track_id__in=admin_track_ids)
-            # Track admins recover/manage only resources attached to active groups.
-            | Q(group__track_id__in=admin_track_ids, group__deleted_at__isnull=True)
+            | Q(group__track_id__in=admin_track_ids)
             | Q(audiences__track_id__in=admin_track_ids)
         )
         return queryset.filter(admin_q).distinct()

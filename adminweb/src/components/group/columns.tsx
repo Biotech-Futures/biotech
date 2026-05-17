@@ -4,7 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { Group, Track } from "@/type/group";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, RotateCcwIcon, Trash2Icon, UsersIcon, UserIcon } from "lucide-react";
+import { ArrowUpDown, UsersIcon, UserIcon } from "lucide-react";
 
 function getTrackColor(track: Track) {
   switch (track.toLowerCase()) {
@@ -24,19 +24,13 @@ function getTrackColor(track: Track) {
 interface ColumnsOptions {
   onViewDetail?: (group: Group) => void;
   onViewMessages?: (group: Group) => void;
-  onDelete?: (group: Group) => void;
-  onRestore?: (group: Group) => void;
-  recoveryMode?: boolean;
 }
 
 export function createColumns({
   onViewDetail,
   onViewMessages,
-  onDelete,
-  onRestore,
-  recoveryMode = false,
 }: ColumnsOptions = {}): ColumnDef<Group>[] {
-  const columns: ColumnDef<Group>[] = [
+  return [
     {
       accessorKey: "name",
       header: ({ column }) => {
@@ -110,41 +104,13 @@ export function createColumns({
         return new Date(row.getValue("createdAt")).toLocaleDateString();
       },
     },
-  ];
-
-  if (recoveryMode) {
-    columns.push({
-      id: "deletedAt",
-      header: "Deleted",
-      cell: ({ row }) => {
-        const deletedAt = row.original.deletedAt;
-        return deletedAt ? new Date(deletedAt).toLocaleString() : "-";
-      },
-    });
-    columns.push({
-      id: "restore",
-      header: "Actions",
+    {
+      id: "messages",
+      header: "Messages",
       cell: ({ row }) => {
         const group = row.original;
+
         return (
-          <Button variant="outline" size="sm" onClick={() => onRestore?.(group)}>
-            <RotateCcwIcon className="size-4" />
-            Restore
-          </Button>
-        );
-      },
-    });
-    return columns;
-  }
-
-  columns.push({
-    id: "messages",
-    header: "Actions",
-    cell: ({ row }) => {
-      const group = row.original;
-
-      return (
-        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -152,19 +118,8 @@ export function createColumns({
           >
             View Messages
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            aria-label={`Delete ${group.name}`}
-            onClick={() => onDelete?.(group)}
-          >
-            <Trash2Icon className="size-4" />
-          </Button>
-        </div>
-      );
+        );
+      },
     },
-  });
-
-  return columns;
+  ];
 }

@@ -90,32 +90,3 @@ class AdminEventApiTests(APITestCase):
         self.assertEqual(event["hostUserId"], self.admin.id)
         self.assertEqual(event["hostName"], "Event Admin")
         self.assertEqual(event["hostEmail"], self.admin.email)
-
-    def test_admin_can_list_deleted_events_and_restore(self):
-        self.client.force_authenticate(user=self.admin)
-        active = Events.objects.create(
-            event_name="Active Event",
-            start_datetime=timezone.now() + timezone.timedelta(days=1),
-            ends_datetime=timezone.now() + timezone.timedelta(days=1, hours=2),
-            is_virtual=True,
-        )
-        deleted = Events.objects.create(
-            event_name="Deleted Event",
-            start_datetime=timezone.now() + timezone.timedelta(days=2),
-            ends_datetime=timezone.now() + timezone.timedelta(days=2, hours=2),
-            is_virtual=True,
-            deleted_at=timezone.now(),
-        )
-
-        response = self.client.get(self.url, {"page": 1, "limit": 10, "deleted": "true"})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["data"]["total"], 1)
-        self.assertEqual(response.data["data"]["items"][0]["id"], deleted.id)
-        self.assertNotEqual(response.data["data"]["items"][0]["id"], active.id)
-
-        restore_response = self.client.post(f"{self.url}{deleted.id}/restore/")
-
-        self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
-        deleted.refresh_from_db()
-        self.assertIsNone(deleted.deleted_at)
