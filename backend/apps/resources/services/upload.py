@@ -3,7 +3,7 @@ from typing import Any, Mapping
 from django.db import transaction
 
 from apps.audit.services import log_audit_event
-from apps.resources.models import ResourceType, Resources
+from apps.resources.models import ResourceLabel, ResourceType, Resources
 from apps.resources.serializers import ResourcesSerializer
 
 
@@ -123,6 +123,14 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
     serializer = ResourcesSerializer(data=serializer_data)
     serializer.is_valid(raise_exception=True)
     resource = serializer.save(uploaded_by=user)
+
+    label_names = _get_list(data, "label_names")
+    if label_names:
+        labels = [
+            ResourceLabel.objects.get_or_create(name=name.strip())[0]
+            for name in label_names if name.strip()
+        ]
+        resource.labels.set(labels)
 
     log_audit_event(
         actor=user,

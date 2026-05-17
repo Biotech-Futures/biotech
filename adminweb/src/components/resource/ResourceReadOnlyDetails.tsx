@@ -112,6 +112,18 @@ export function ResourceReadOnlyDetails({
         </ResourceDetailRow>
       ) : null}
 
+      {resource.labels?.length > 0 && (
+        <ResourceDetailRow label="Resource Labels">
+          <div className="flex flex-wrap gap-1.5">
+            {resource.labels.map((lbl) => (
+              <Badge key={lbl.id} variant="secondary">
+                {lbl.name}
+              </Badge>
+            ))}
+          </div>
+        </ResourceDetailRow>
+      )}
+
       {resource.kind === "page" ? (
         <ResourceDetailRow label="Page Content">
           <RichEditor

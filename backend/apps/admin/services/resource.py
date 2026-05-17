@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
-from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType
+from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
 from apps.resources.services.storage import RESOURCE_FILE_SERVICE
 from apps.groups.models import Tracks, Groups
 from apps.users.models import User
@@ -451,7 +451,7 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
         resource_id = audience.resource_id
         if resource_id not in audience_map:
             audience_map[resource_id] = []
-        
+
         role_data = None
         if audience.role:
             role_data = {
@@ -459,7 +459,7 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
                 'slug': slugify_role(audience.role.role_name),
                 'type_name': audience.role.role_name,
             }
-        
+
         audience_map[resource_id].append({
             'id': audience.id,
             'resource_id': resource_id,
@@ -467,6 +467,25 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
             'track_id': audience.track_id,
             'role': role_data,
         })
+
+    # Fetch labels via M2M through table
+    through_rows = Resources.labels.through.objects.filter(
+        resources_id__in=resource_ids
+    ).values('resources_id', 'resourcelabel_id')
+    label_ids_by_resource: Dict[int, List[int]] = {}
+    all_label_ids: set = set()
+    for row in through_rows:
+        rid, lid = row['resources_id'], row['resourcelabel_id']
+        label_ids_by_resource.setdefault(rid, []).append(lid)
+        all_label_ids.add(lid)
+    labels_by_id = {
+        lbl.id: {'id': lbl.id, 'name': lbl.name}
+        for lbl in ResourceLabel.objects.filter(id__in=all_label_ids)
+    }
+    label_map: Dict[int, List[Dict]] = {
+        rid: [labels_by_id[lid] for lid in lids if lid in labels_by_id]
+        for rid, lids in label_ids_by_resource.items()
+    }
     
     # Build complete resources
     result = []
@@ -497,9 +516,10 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
             'file_name': row['file_name'] or extract_file_name_from_storage_key(row['storage_key']),
             'uploader': uploader,
             'audiences': audiences,
+            'labels': label_map.get(row['id'], []),
         }
         result.append(resource)
-    
+
     return result
 
 
@@ -654,7 +674,16 @@ def create_resource(
             )
             for role_id in role_ids
         ])
-    
+
+    # Assign labels
+    label_names = payload.get('label_names') or []
+    if label_names:
+        labels = [
+            ResourceLabel.objects.get_or_create(name=name.strip())[0]
+            for name in label_names if name.strip()
+        ]
+        resource.labels.set(labels)
+
     return query_resource_by_id(resource.id)
 
 
@@ -938,7 +967,7 @@ def update_resource(
         available_roles = get_roles_from_db()
         requested_role_ids = updates['role_ids'] or []
         role_ids = normalize_role_ids(requested_role_ids, available_roles)
-        
+
         ResourceAudience.objects.filter(resource_id=resource_id).delete()
         if role_ids:
             ResourceAudience.objects.bulk_create([
@@ -949,7 +978,16 @@ def update_resource(
                 )
                 for role_id in role_ids
             ])
-    
+
+    # Update labels
+    if 'label_names' in updates:
+        label_names = updates['label_names'] or []
+        labels = [
+            ResourceLabel.objects.get_or_create(name=name.strip())[0]
+            for name in label_names if name.strip()
+        ]
+        resource.labels.set(labels)
+
     return query_resource_by_id(resource_id)
 
 

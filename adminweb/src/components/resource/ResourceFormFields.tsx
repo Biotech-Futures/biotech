@@ -30,6 +30,7 @@ export interface ResourceFormData {
   typeName: ResourceTypeName | null;
   contentHtml: string;
   roleIds: number[];
+  labelInput: string;
 }
 
 interface ResourceFormFieldsProps {
@@ -185,6 +186,17 @@ export function ResourceFormFields({
           />
         </ResourceFieldRow>
       ) : null}
+
+      <ResourceFieldRow label="Resource Labels" htmlFor="resource-labels">
+        <Input
+          id="resource-labels"
+          value={value.labelInput}
+          onChange={(event) => updateValue({ labelInput: event.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">
+          Enter comma separated labels (e.g. Do&apos;s and Don&apos;ts, Group tips)
+        </p>
+      </ResourceFieldRow>
 
       <ResourceFieldRow label="Type" htmlFor="resource-type">
         <Select

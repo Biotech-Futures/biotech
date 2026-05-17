@@ -82,6 +82,7 @@ function normalizeResource(resource: ApiResource): Resource {
     file_mime_type: resource.file_mime_type ?? null,
     file_size: resource.file_size ?? null,
     storage_key: resource.storage_key ?? "",
+    labels: resource.labels ?? [],
   };
 }
 

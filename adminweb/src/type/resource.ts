@@ -4,6 +4,11 @@ export type ResourceRole = {
   name?: string;
 };
 
+export type ResourceLabel = {
+  id: number;
+  name: string;
+};
+
 export type ResourceTypeName = "document" | "guide" | "video" | "template";
 export type ResourceKind = "attachment" | "file" | "page";
 export type ResourceOrder = "newest" | "oldest";
@@ -55,6 +60,7 @@ export type Resource = {
   storage_key: string;
   uploader: ResourceUploader;
   audiences: ResourceAudience[];
+  labels: ResourceLabel[];
 };
 
 export type ResourceAccess = {

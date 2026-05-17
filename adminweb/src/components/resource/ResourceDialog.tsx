@@ -49,6 +49,7 @@ const emptyFormData: ResourceFormData = {
   typeName: null,
   contentHtml: "",
   roleIds: [],
+  labelInput: "",
 };
 
 function getErrorMessage(error: unknown) {
@@ -102,6 +103,7 @@ function getInitialFormData(resource: Resource | null): ResourceFormData {
           .map((audience) => audience.role_id as number),
       ),
     ),
+    labelInput: (resource.labels ?? []).map((l) => l.name).join(", "),
   };
 }
 
@@ -181,6 +183,11 @@ export function ResourceDialog({
       return null;
     }
 
+    const label_names = formData.labelInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     return {
       resource_name: name,
       resource_description: description,
@@ -191,6 +198,7 @@ export function ResourceDialog({
         formData.kind === "page" ? formData.contentHtml.trim() : null,
       track_id: formData.trackId,
       role_ids: formData.roleIds,
+      label_names,
     };
   };
 
@@ -230,6 +238,9 @@ export function ResourceDialog({
       form.append("track_id", String(values.track_id));
     values.role_ids.forEach((roleId) =>
       form.append("role_ids", String(roleId)),
+    );
+    values.label_names?.forEach((name) =>
+      form.append("label_names", name),
     );
 
     await uploadResourceAsync(form);

@@ -16,6 +16,7 @@ export const createResourceSchema = z.object({
   visibility_scope: visibilityScopeSchema.default("global"),
   track_id: z.number().optional(),
   role_ids: z.array(z.number()).optional(),
+  label_names: z.array(z.string()).optional(),
 });
 
 export const updateResourceSchema = z.object({
@@ -31,6 +32,7 @@ export const updateResourceSchema = z.object({
   visibility_scope: visibilityScopeSchema.optional(),
   track_id: z.number().nullable().optional(),
   role_ids: z.array(z.number()).optional(),
+  label_names: z.array(z.string()).optional(),
 });
 
 export type CreateResource = z.infer<typeof createResourceSchema>;
