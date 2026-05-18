@@ -1054,6 +1054,8 @@ onBeforeUnmount(() => {
 */
 
 .login-shell {
+  --login-font-primary: Arial, Helvetica, sans-serif;
+  --login-font-accent: "Times New Roman", Times, serif;
   --emerald-950: #081714;
   --emerald-900: #0d241f;
   --emerald-850: #123129;
@@ -1080,6 +1082,7 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
   min-height: 100vh;
   min-height: 100dvh;
+  font-family: var(--login-font-primary);
   background:
     radial-gradient(circle at top left, rgba(48, 173, 138, 0.16), transparent 24%),
     radial-gradient(circle at bottom right, rgba(23, 93, 79, 0.08), transparent 28%),
@@ -1089,6 +1092,25 @@ onBeforeUnmount(() => {
 .login-shell,
 .login-shell * {
   box-sizing: border-box;
+}
+
+.login-shell button,
+.login-shell input {
+  font-family: var(--login-font-primary);
+  font-style: normal;
+}
+
+.legacy-info-title,
+.legacy-custom-content p,
+.legacy-info-list,
+.auth-subtitle,
+.field-help,
+.status-message,
+.error-message,
+.otp-footer-copy p,
+.support-row {
+  font-family: var(--login-font-accent);
+  font-style: italic;
 }
 
 /*
