@@ -90,10 +90,13 @@ class SendLoginCodeView(APIView):
         responses={
             200: AuthMessageSerializer,
             400: AuthMessageSerializer,
-            404: AuthMessageSerializer,
+            429: AuthMessageSerializer,
         },
     )
     def post(self, request):
+        # Anti-enumeration: this endpoint always returns 200 for any well-formed
+        # email so an attacker cannot tell registered emails apart from unknown
+        # ones. 400 = malformed input, 429 = rate-limited. Never 404.
         email = request.data.get("email")
         redirect_url = request.data.get("redirect_url")
         if not email:
