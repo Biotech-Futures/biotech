@@ -3,9 +3,8 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse
 from django.middleware.csrf import get_token
-from django.template.loader import render_to_string
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from rest_framework import status
@@ -431,95 +430,3 @@ class LogoutView(APIView):
         return response
 
 
-@require_http_methods(["GET"])
-def test_email_template(request):
-    """
-    Test view to preview the login email template in browser
-    Access at: /services/test-email/
-    """
-    # Sample data for template testing
-    context = {
-        "MAGIC_LINK": "https://biotechfutures.org/auth/magic?email=test@example.com&code=123456",
-        "OTP_CODE": "123456",
-        "EXPIRY_MINUTES": 10,
-        "First_Name": "John"
-    }
-
-    # Render the email template
-    try:
-        html_content = render_to_string("emails/login.html", context)
-        return HttpResponse(html_content, content_type="text/html")
-    except Exception as e:
-        return HttpResponse(
-            f"<h1>Template Error</h1><p>Error rendering template: {str(e)}</p>",
-            content_type="text/html"
-        )
-
-#to be deleted.
-@require_http_methods(["GET"])
-def test_email_preview(request):
-    """
-    Preview email template with customizable parameters
-    Access at: /services/test-email-preview/
-    """
-    # Get parameters from URL or use defaults
-    first_name = request.GET.get('first_name', 'John')
-    email = request.GET.get('email', 'test@example.com')
-    otp_code = request.GET.get('otp_code', '123456')
-    expiry_minutes = request.GET.get('expiry_minutes', '10')
-
-    context = {
-        "MAGIC_LINK": f"https://biotechfutures.org/auth/magic?email={email}&code={otp_code}",
-        "OTP_CODE": otp_code,
-        "EXPIRY_MINUTES": expiry_minutes,
-        "First_Name": first_name
-    }
-
-    try:
-        html_content = render_to_string("emails/login.html", context)
-
-        # Wrap in a preview container
-        preview_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Email Template Preview</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                .preview-header {{ background: #f0f0f0; padding: 15px; margin-bottom: 20px; border-radius: 5px; }}
-                .preview-controls {{ margin-bottom: 20px; }}
-                .preview-controls input {{ margin: 5px; padding: 8px; }}
-                .preview-controls button {{ background: #007cba; color: white; padding: 8px 15px; border: none; border-radius: 3px; cursor: pointer; }}
-                .email-preview {{ border: 1px solid #ddd; padding: 0; }}
-            </style>
-        </head>
-        <body>
-            <div class="preview-header">
-                <h1>🧪 Email Template Preview</h1>
-                <p>Preview of login.html template with current variables</p>
-            </div>
-
-            <div class="preview-controls">
-                <form method="get">
-                    <input type="text" name="first_name" placeholder="First Name" value="{first_name}">
-                    <input type="email" name="email" placeholder="Email" value="{email}">
-                    <input type="text" name="otp_code" placeholder="OTP Code" value="{otp_code}" maxlength="6">
-                    <input type="number" name="expiry_minutes" placeholder="Expiry Minutes" value="{expiry_minutes}">
-                    <button type="submit">Update Preview</button>
-                </form>
-            </div>
-
-            <div class="email-preview">
-                {html_content}
-            </div>
-        </body>
-        </html>
-        """
-
-        return HttpResponse(preview_html, content_type="text/html")
-
-    except Exception as e:
-        return HttpResponse(
-            f"<h1>Template Error</h1><p>Error rendering template: {str(e)}</p>",
-            content_type="text/html"
-        )

@@ -1,4 +1,4 @@
-from django.urls import path   
+from django.urls import path
 from . import views
 
 urlpatterns = [
@@ -9,6 +9,4 @@ urlpatterns = [
     path('logout/', views.LogoutView.as_view(), name='logout'),
     path('password-reset/request/', views.PasswordResetRequestView.as_view(), name='password_reset_request'),
     path('password-reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
-    path('test-email/', views.test_email_template, name='test_email_template'),
-    path('test-email-preview/', views.test_email_preview, name='test_email_preview'),
 ]

@@ -322,7 +322,10 @@ class CountriesApiTests(TestCase):
         self.country1 = Countries.objects.create(country_name='Australia')
         self.country2 = Countries.objects.create(country_name='Brazil')
 
-    def test_list_countries_anyone(self):
+    def test_list_countries_authenticated(self):
+        """Authenticated users (any role) can list countries; previously this
+        was ``AllowAny`` — see CONSOLIDATED 1.2."""
+        self.client.force_authenticate(user=self.normal_user)
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
@@ -331,11 +334,29 @@ class CountriesApiTests(TestCase):
         self.assertEqual(len(data), 2)
         self.assertIn('Australia', [c['country_name'] for c in data])
 
-    def test_retrieve_country_anyone(self):
+    def test_retrieve_country_authenticated(self):
+        self.client.force_authenticate(user=self.normal_user)
         url = reverse('countries-detail', args=[self.country1.id])
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['country_name'], 'Australia')
+
+    def test_list_countries_anonymous_forbidden(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get(self.list_url)
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
+
+    def test_retrieve_country_anonymous_forbidden(self):
+        self.client.force_authenticate(user=None)
+        url = reverse('countries-detail', args=[self.country1.id])
+        response = self.client.get(url)
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
 
     def test_create_country_admin_only(self):
         self.client.force_authenticate(user=self.admin_user)
