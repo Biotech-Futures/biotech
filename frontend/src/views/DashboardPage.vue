@@ -128,30 +128,13 @@
           <div class="dashboard-hero-card interactive-surface">
             <div class="dashboard-hero-main">
               <div class="dashboard-hero-copy">
-                <div class="hero-eyebrow-row">
-                  <span class="hero-eyebrow">{{ heroEyebrow }}</span>
-                </div>
                 <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
 
-                <div class="hero-meta-row">
-                  <span
-                    v-for="chip in heroMetaChips"
-                    :key="chip.key"
-                    class="hero-meta-chip"
-                    :class="`hero-meta-chip--${chip.tone}`"
-                  >
-                    <span class="hero-meta-chip-label">{{ chip.label }}</span>
-                    <strong class="hero-meta-chip-value">{{ chip.value }}</strong>
-                  </span>
-                </div>
-
-                <p class="dashboard-subtext">
-                  Curated overview for {{ roleLabel.toLowerCase() }} workflow, current tasks, and
-                  the next best actions.
-                </p>
-
                 <p class="dashboard-hero-message">
-                  {{ heroMessage }}
+                  Welcome to BIOTech Connect — your central hub for the BIOTech Futures Challenge.
+                  Connect with your team, collaborate and share ideas, access program-wide
+                  resources, register for events, and stay up to date with the latest announcements
+                  and opportunities across the program.
                 </p>
 
                 <div class="hero-highlight-wrap">
@@ -162,6 +145,66 @@
               </div>
               <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
             </div>
+
+          <div class="dashboard-hero-groups">
+            <div class="surface-card-header">
+              <div>
+                <p class="surface-kicker">Groups</p>
+                <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
+              </div>
+              <button
+                v-if="shouldBlockGroupsNavigation"
+                type="button"
+                class="surface-link surface-link-button"
+                @click="showNoMembershipPopup"
+              >
+                View all
+              </button>
+              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
+            </div>
+
+            <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
+              <RouterLink
+                v-for="group in groupsPreview"
+                :key="group.id || getGroupName(group)"
+                :to="group.id ? '/groups/' + group.id : '/groups'"
+                class="group-card-link"
+              >
+                <div class="group-card-surface interactive-surface">
+                  <div class="group-card-top">
+                    <div class="group-avatars">
+                      <div class="group-avatar primary-avatar">
+                        {{ getInitials(getGroupName(group)) }}
+                      </div>
+
+                      <div class="group-avatar secondary-avatar">
+                        {{ getGroupSecondaryLabel(group) }}
+                      </div>
+
+                      <div class="group-avatar tertiary-avatar">
+                        +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
+                      </div>
+                    </div>
+
+                    <span class="group-open-indicator">
+                      <i class="fas fa-arrow-up-right-from-square"></i>
+                    </span>
+                  </div>
+
+                  <div class="group-name">{{ getGroupName(group) }}</div>
+
+                  <div class="group-meta">
+                    {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
+                  </div>
+                </div>
+              </RouterLink>
+            </div>
+
+            <div v-else class="empty-state">
+              <i class="fas fa-users-slash"></i>
+              <p>No group is available yet.</p>
+            </div>
+          </div>
           </div>
         </section>
 
@@ -189,64 +232,6 @@
               <div class="summary-card-subtext">{{ item.subtext }}</div>
             </article>
           </div>
-        </section>
-
-        <section class="dashboard-section">
-          <article class="surface-card feature-card progress-card">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Overview</p>
-                <h3 class="surface-card-title">Progress Snapshot</h3>
-              </div>
-              <select
-                v-if="progressGroupOptions.length"
-                v-model="selectedProgressGroupId"
-                class="progress-group-select"
-                aria-label="Select progress group"
-                @change="loadProgress"
-              >
-                <option v-for="group in progressGroupOptions" :key="group.id" :value="group.id">
-                  {{ group.label }}
-                </option>
-              </select>
-            </div>
-
-            <div class="progress-layout">
-              <div class="progress-ring-shell">
-                <div class="progress-ring" :style="progressCircleStyle">
-                  <div class="progress-ring-inner">
-                    <div class="progress-value">{{ progressSnapshot.completionRate }}%</div>
-
-                    <div class="progress-label">Completion</div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="progress-details">
-                <div class="progress-detail-row">
-                  <span>Tasks</span>
-                  <strong
-                    >{{ progressSnapshot.completedTasks }}/{{ progressSnapshot.totalTasks }}</strong
-                  >
-                </div>
-
-                <div class="progress-detail-row">
-                  <span>Current stage</span>
-                  <strong>{{ progressSnapshot.currentWeek }}</strong>
-                </div>
-
-                <div class="progress-detail-row">
-                  <span>Next task</span>
-                  <strong>{{ progressSnapshot.nextTask }}</strong>
-                </div>
-
-                <div class="progress-detail-row">
-                  <span>Due</span>
-                  <strong>{{ formatDateAU(progressSnapshot.nextTaskDate) || 'TBC' }}</strong>
-                </div>
-              </div>
-            </div>
-          </article>
         </section>
 
         <section class="dashboard-section">
@@ -345,69 +330,7 @@
         </section>
 
         <section class="dashboard-section">
-          <article class="surface-card interactive-surface">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Groups</p>
-                <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
-              </div>
-              <button
-                v-if="shouldBlockGroupsNavigation"
-                type="button"
-                class="surface-link surface-link-button"
-                @click="showNoMembershipPopup"
-              >
-                View all
-              </button>
-              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
-            </div>
-
-            <div v-if="groupsPreview.length" class="groups-grid">
-              <RouterLink
-                v-for="group in groupsPreview"
-                :key="group.id || getGroupName(group)"
-                :to="group.id ? '/groups/' + group.id : '/groups'"
-                class="group-card-link"
-              >
-                <div class="group-card-surface interactive-surface">
-                  <div class="group-card-top">
-                    <div class="group-avatars">
-                      <div class="group-avatar primary-avatar">
-                        {{ getInitials(getGroupName(group)) }}
-                      </div>
-
-                      <div class="group-avatar secondary-avatar">
-                        {{ getGroupSecondaryLabel(group) }}
-                      </div>
-
-                      <div class="group-avatar tertiary-avatar">
-                        +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
-                      </div>
-                    </div>
-
-                    <span class="group-open-indicator">
-                      <i class="fas fa-arrow-up-right-from-square"></i>
-                    </span>
-                  </div>
-
-                  <div class="group-name">{{ getGroupName(group) }}</div>
-
-                  <div class="group-meta">
-                    {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
-                  </div>
-                </div>
-              </RouterLink>
-            </div>
-
-            <div v-else class="empty-state">
-              <i class="fas fa-users-slash"></i>
-              <p>No group is available yet.</p>
-            </div>
-          </article>
-        </section>
-
-        <section class="dashboard-section">
-          <div class="dashboard-section-grid two-col-layout">
+          <div class="dashboard-section-grid library-layout">
             <article class="surface-card interactive-surface">
               <div class="surface-card-header">
                 <div>
@@ -493,10 +416,8 @@ import { useAuthStore } from '@/stores/auth'
 
 import {
   formatAnnouncementDateAU,
-  formatDateAU,
   formatEventDate,
   formatEventTimeRange,
-  formatLongDateAU,
 } from '@/utils/date'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
@@ -506,8 +427,7 @@ import { getAccentClass } from '@/utils/ui'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
-const { isAdmin, isMentor, isSupervisor, displayName, displayTrack, roleLabel, user, timeZone } =
-  storeToRefs(auth)
+const { isAdmin, isMentor, isSupervisor, displayName, user, timeZone } = storeToRefs(auth)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const EVENTS_API_BASE = `${API_BASE_URL}/events/v1`
 const DASHBOARD_ENDPOINTS = {
@@ -629,34 +549,6 @@ const dashboardThemeStyle = computed(() => {
   }
 })
 
-const currentDateText = computed(() => {
-  return formatLongDateAU(new Date(), true)
-})
-
-const heroMetaChips = computed(() => {
-  return [
-    { key: 'date', label: 'Today', value: currentDateText.value, tone: 'neutral' },
-    { key: 'track', label: 'Track', value: displayTrack.value || 'General', tone: 'cyan' },
-    { key: 'role', label: 'Role', value: roleLabel.value || 'Member', tone: 'violet' },
-  ]
-})
-
-const heroMessage = computed(() => {
-  if (isAdmin.value) {
-    return 'Review operational workload, monitor matching, and process critical platform actions from one unified dashboard.'
-  }
-
-  if (isMentor.value) {
-    return 'Track mentoring sessions, group activity, and support materials through a cleaner and more practical workspace.'
-  }
-
-  if (isSupervisor.value) {
-    return 'Review student progress, group activity, and upcoming support moments through a focused supervisor workspace.'
-  }
-
-  return 'Stay focused on your next event, active group, and current tasks with a dashboard designed for fast decisions.'
-})
-
 const headerHighlights = computed(() => {
   if (isAdmin.value) {
     return [
@@ -684,13 +576,6 @@ const headerHighlights = computed(() => {
   ]
 })
 
-const heroEyebrow = computed(() => {
-  if (isAdmin.value) return 'Platform Operations'
-  if (isMentor.value) return 'Mentor Workspace'
-  if (isSupervisor.value) return 'Supervisor Workspace'
-  return 'Student Workspace'
-})
-
 const announcementsCount = computed(() => announcements.value.length)
 const resourcesCount = computed(() => resources.value.length)
 const groupsCount = computed(() => groups.value.length)
@@ -706,7 +591,7 @@ const announcementsPreview = computed(() => {
 })
 
 const resourcesPreview = computed(() => {
-  return resources.value.slice(0, 6)
+  return resources.value.slice(0, 12)
 })
 
 const groupsPreview = computed(() => {
@@ -720,13 +605,6 @@ const progressGroupOptions = computed(() => {
       label: getGroupName(group),
     }))
     .filter((group) => group.id)
-})
-
-const progressCircleStyle = computed(() => {
-  const value = Math.max(0, Math.min(100, Number(progressSnapshot.value.completionRate || 0)))
-  return {
-    background: `conic-gradient(var(--accent-blue) 0deg ${value * 2.2}deg, var(--accent-teal) ${value * 2.2}deg ${value * 3.1}deg, var(--accent-violet) ${value * 3.1}deg ${value * 3.6}deg, rgba(148, 163, 184, 0.14) ${value * 3.6}deg 360deg)`,
-  }
 })
 
 const summaryWidgets = computed(() => {
@@ -1605,6 +1483,9 @@ onMounted(async () => {
 
 .two-col-layout {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.library-layout {
+  grid-template-columns: 1fr;
 }
 .summary-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2663,8 +2544,8 @@ onMounted(async () => {
    ────────────────────────────────────────────────────────────── */
 .resource-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.88rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.15rem;
 }
 
 .resource-card-surface {
@@ -2674,7 +2555,8 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   gap: 0.85rem;
-  padding: 1rem;
+  min-height: 154px;
+  padding: 1.18rem;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   transition:
@@ -3852,5 +3734,43 @@ onMounted(async () => {
 .dashboard-announcement-body :deep(figure),
 .dashboard-announcement-body :deep(pre) {
   display: none !important;
+}
+
+.dashboard-hero-groups {
+  margin-top: 1.35rem;
+  padding: 1.25rem 0 0.1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.dashboard-hero-groups .surface-card-header {
+  margin-bottom: 1rem;
+}
+
+.dashboard-hero-groups .surface-card-title {
+  font-size: clamp(1.35rem, 2vw, 1.72rem);
+}
+
+.dashboard-hero-groups-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.15rem;
+}
+
+.dashboard-hero-groups .group-card-surface {
+  min-height: 154px;
+  padding: 1.18rem;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: 0 2px 4px var(--shadow) !important;
+}
+
+@media (max-width: 1400px) {
+  .dashboard-hero-groups-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .dashboard-hero-groups-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
