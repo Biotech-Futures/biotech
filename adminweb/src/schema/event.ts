@@ -7,6 +7,10 @@ export const createEventSchema = z
     hostUserId: z.coerce.number().int().positive().optional().nullable(),
     eventName: z.string().trim().min(1, "Event name is required").max(255),
     description: z.string().trim().max(255).optional().nullable(),
+    eventImage: z.preprocess(
+      (v) => (v === "" ? null : v),
+      z.string().url("Must be a valid URL").max(255).nullable().optional(),
+    ),
     location: z.string().trim().max(255).optional().nullable(),
     locationLink: z.string().trim().max(500).optional().nullable(),
     isVirtual: z.boolean().optional().default(false),
@@ -15,7 +19,6 @@ export const createEventSchema = z
     targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
     targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
     targetTrackIds: z.array(z.number().int().positive()).optional().default([]),
-    
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
     message: "End time must be after start time",
@@ -27,6 +30,10 @@ export const updateEventSchema = z
     hostUserId: z.coerce.number().int().positive().optional().nullable(),
     eventName: z.string().trim().min(1).max(255).optional(),
     description: z.string().trim().max(255).optional().nullable(),
+    eventImage: z.preprocess(
+      (v) => (v === "" ? null : v),
+      z.string().url("Must be a valid URL").max(255).nullable().optional(),
+    ),
     location: z.string().trim().max(255).optional().nullable(),
     locationLink: z.string().trim().max(500).optional().nullable(),
     isVirtual: z.boolean().optional(),

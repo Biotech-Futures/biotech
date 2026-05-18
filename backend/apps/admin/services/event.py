@@ -99,7 +99,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "location": event.get("location"),
         "deletedFlag": event.get("deleted_at") is not None,
         "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
-        "eventImage(img)": event.get("event_image"),
+        "eventImage": event.get("event_image"),
         "isVirtual": event.get("is_virtual", False),
         "hostUserId": event.get("host_user_id"),
         "hostName": host_name,
@@ -194,7 +194,7 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "location": event.location,
         "deletedFlag": event.deleted_at is not None,
         "deletedDatetime": event.deleted_at.isoformat() if event.deleted_at else None,
-        "eventImage(img)": event.event_image,
+        "eventImage": event.event_image,
         "isVirtual": event.is_virtual,
         "hostUserId": event.host_user_id,
         "hostName": host_name,
@@ -341,6 +341,7 @@ def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDic
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,
         location_link=data.get("location_link") or data.get("locationLink") or None,
+        event_image=data.get("eventImage") or data.get("event_image") or None,
     )
 
     # Sync targets
@@ -390,6 +391,10 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     location_link = data.get("location_link") or data.get("locationLink")
     if location_link is not None:
         updates["location_link"] = location_link
+    if "eventImage" in data:
+        updates["event_image"] = data["eventImage"] or None
+    elif "event_image" in data:
+        updates["event_image"] = data["event_image"] or None
     is_virtual = data.get("isVirtual") if "isVirtual" in data else data.get("is_virtual")
     if is_virtual is not None:
         updates["is_virtual"] = is_virtual

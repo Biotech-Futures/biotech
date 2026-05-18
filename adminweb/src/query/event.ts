@@ -247,6 +247,7 @@ function toApiEventPayload(data: CreateEvent | UpdateEvent) {
     endsAt: toIsoFromDatetimeLocal(data.endsAt),
     location_link: data.locationLink ?? null,
     locationLink: undefined,
+    eventImage: data.eventImage ?? null,
   };
 }
 
