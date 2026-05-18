@@ -64,14 +64,24 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups", "must_change_password", "timezone"]
         read_only_fields = ["id"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Per-instance cache so serializing one user doesn't fire 10+ queries
+        # for the same RoleAssignmentHistory / StudentProfile / MentorProfile.
+        self._cache_assignment: dict[int, object] = {}
+        self._cache_student: dict[int, object] = {}
+        self._cache_mentor: dict[int, object] = {}
+
     def validate_timezone(self, value):
         if value not in available_timezones():
             raise serializers.ValidationError(f"Unknown IANA timezone: {value!r}")
         return value
 
     def _active_assignment(self, user):
+        if user.id in self._cache_assignment:
+            return self._cache_assignment[user.id]
         now = timezone.now()
-        return (
+        rah = (
             RoleAssignmentHistory.objects
             .select_related("role")
             .filter(user=user, valid_from__lte=now)
@@ -79,30 +89,28 @@ class UserSerializer(serializers.ModelSerializer):
             .order_by("-valid_from")
             .first()
         )
-        
+        self._cache_assignment[user.id] = rah
+        return rah
+
     def _student_profile(self, user):
+        if user.id in self._cache_student:
+            return self._cache_student[user.id]
         rah = self._active_assignment(user)
+        profile = None
         if rah and rah.role_id == 4:
-            return (
-                StudentProfile.objects
-                .filter(user=user)
-                .first()
-            )
-        elif rah and rah.role_id == 3:
-            return None
-        return None
-        
+            profile = StudentProfile.objects.filter(user=user).first()
+        self._cache_student[user.id] = profile
+        return profile
+
     def _mentor_profile(self, user):
+        if user.id in self._cache_mentor:
+            return self._cache_mentor[user.id]
         rah = self._active_assignment(user)
-        if rah and rah.role_id == 4:
-            return None
-        elif rah and rah.role_id == 3:
-            return(
-                MentorProfile.objects
-                .filter(user=user)
-                .first()
-            )
-        return None
+        profile = None
+        if rah and rah.role_id == 3:
+            profile = MentorProfile.objects.filter(user=user).first()
+        self._cache_mentor[user.id] = profile
+        return profile
 
     # Annotation add to explicitly declare output type as drf-speculator cannot infer “unable to resolve type hint for..."
     @extend_schema_field(serializers.IntegerField(allow_null=True))
