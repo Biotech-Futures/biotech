@@ -221,9 +221,11 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
     """
     # Get current role if not provided
     if role_str is None:
+        now = timezone.now()
         current_role = RoleAssignmentHistory.objects.filter(
-            user_id=user.id,
-            valid_to__isnull=True
+            user_id=user.id
+        ).filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
         ).select_related('role').first()
         role_str = current_role.role.role_name if current_role else None
     
@@ -294,8 +296,11 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     track_name = user.track.track_name if user.track else None
 
     # Resolve current role so we can fetch the right extra data
+    now = timezone.now()
     current_role_obj = RoleAssignmentHistory.objects.filter(
-        user_id=user_id, valid_to__isnull=True
+        user_id=user_id
+    ).filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gte=now)
     ).select_related('role').first()
     role_str = current_role_obj.role.role_name if current_role_obj else None
 
@@ -393,6 +398,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     Query users with pagination and filters.
     """
     offset = (page - 1) * limit
+    now = timezone.now()
 
     # Build filter conditions
     filters = Q()
@@ -407,8 +413,10 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         )
 
     if role:
-        filters &= Q(roleassignmenthistory__role__role_name=role,
-                     roleassignmenthistory__valid_to__isnull=True)
+        filters &= Q(roleassignmenthistory__role__role_name=role) & (
+            Q(roleassignmenthistory__valid_to__isnull=True) |
+            Q(roleassignmenthistory__valid_to__gte=now)
+        )
 
     if track:
         filters &= Q(track__track_name=track)
@@ -475,9 +483,12 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     admin_scope_map = get_admin_scope_summaries_by_user_ids(user_ids)
 
     # Active role assignments
+    now = timezone.now()
     role_map = {}
     for rah in RoleAssignmentHistory.objects.filter(
-        user_id__in=user_ids, valid_to__isnull=True
+        user_id__in=user_ids
+    ).filter(
+        Q(valid_to__isnull=True) | Q(valid_to__gte=now)
     ).select_related('role'):
         role_map[rah.user_id] = rah.role.role_name
 
@@ -648,10 +659,13 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
     Query students with student-specific filters.
     """
     offset = (page - 1) * limit
-    
+    now = timezone.now()
+
     # Base query: only students
-    filters = Q(roleassignmenthistory__role__role_name='student',
-               roleassignmenthistory__valid_to__isnull=True)
+    filters = Q(roleassignmenthistory__role__role_name='student') & (
+        Q(roleassignmenthistory__valid_to__isnull=True) |
+        Q(roleassignmenthistory__valid_to__gte=now)
+    )
     
     if search:
         filters &= (
@@ -1096,7 +1110,9 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
     now = timezone.now()
     current_role_assignment = (
         RoleAssignmentHistory.objects.filter(
-            user_id=user_id, valid_to__isnull=True
+            user_id=user_id
+        ).filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
         )
         .select_related('role')
         .first()
@@ -1214,8 +1230,9 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Invalidate current role
                 RoleAssignmentHistory.objects.filter(
-                    user_id=user_id,
-                    valid_to__isnull=True
+                    user_id=user_id
+                ).filter(
+                    Q(valid_to__isnull=True) | Q(valid_to__gte=now)
                 ).update(valid_to=now)
                 
                 # Create new role assignment
