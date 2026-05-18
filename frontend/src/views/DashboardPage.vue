@@ -394,7 +394,7 @@
           <i class="fas fa-users-slash"></i>
         </div>
         <h3 id="no-membership-title">No group membership</h3>
-        <p>You have not been assigned to a group yet. Please contact your mentor.</p>
+        <p>Please contact the administrator via info@biotechfutures.org</p>
         <button type="button" class="btn btn-primary" @click="closeNoMembershipPopup">
           Got it
         </button>
@@ -704,7 +704,7 @@ const summaryWidgets = computed(() => {
       title: 'Tasks Completed',
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
       subtext: hasNoAssignedMembership.value
-        ? 'You have not been assigned to a group yet. Please contact your mentor.'
+        ? 'Please contact the administrator via info@biotechfutures.org'
         : 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
       accent: 'teal',
