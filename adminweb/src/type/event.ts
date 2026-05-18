@@ -8,7 +8,7 @@ export type Event = {
   locationLink: string | null;
   deletedFlag: boolean;
   deletedDatetime: string | null;
-  "eventImage(img)": string | null;
+  eventImage: string | null;
   isVirtual: boolean;
   hostUserId: number | null;
   hostName: string | null;

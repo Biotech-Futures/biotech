@@ -171,6 +171,13 @@ function EventForm({
         <Input placeholder="Optional" {...register("description")} />
       </EventFormRow>
 
+      <EventFormRow label="Image URL">
+        <Input placeholder="https://example.com/image.jpg" {...register("eventImage")} />
+        {errors.eventImage && (
+          <p className="text-sm text-destructive">{errors.eventImage.message}</p>
+        )}
+      </EventFormRow>
+
       <Controller
         control={control}
         name="isVirtual"
@@ -410,6 +417,7 @@ function EventPage() {
       hostUserId: null,
       eventName: "",
       description: null,
+      eventImage: null,
       location: null,
       locationLink: null,
       isVirtual: false,
@@ -461,6 +469,7 @@ function EventPage() {
         hostUserId: editingEvent.hostUserId,
         eventName: editingEvent.eventName,
         description: editingEvent.description,
+        eventImage: editingEvent.eventImage ?? null,
         location: editingEvent.location,
         locationLink: editingEvent.locationLink,
         isVirtual: editingEvent.isVirtual,
@@ -497,6 +506,7 @@ function EventPage() {
             hostUserId: currentUserId,
             eventName: "",
             description: null,
+            eventImage: null,
             location: null,
             locationLink: null,
             isVirtual: false,
@@ -714,6 +724,16 @@ function EventPage() {
             <EventDetailRow label="Description">
               <p>{viewingEvent?.description || "---"}</p>
             </EventDetailRow>
+            {viewingEvent?.eventImage && (
+              <EventDetailRow label="Image">
+                <img
+                  src={viewingEvent.eventImage}
+                  alt={viewingEvent.eventName}
+                  className="w-full rounded-md object-cover"
+                  style={{ maxHeight: 220 }}
+                />
+              </EventDetailRow>
+            )}
             <EventDetailRow label="Event Type">
               <p>{viewingEvent?.isVirtual ? "Virtual" : "In-person"}</p>
             </EventDetailRow>
