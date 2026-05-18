@@ -45,6 +45,7 @@ import {
   useDeleteEvent,
   useQueryEvents,
   useUpdateEvent,
+  useUploadEventImage,
   useQueryEventRsvps,
   useQueryGroups,
   useQueryRoles,
@@ -63,6 +64,8 @@ import {
   UsersIcon,
   EyeIcon,
   MoreHorizontalIcon,
+  ImageIcon,
+  XIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -79,6 +82,86 @@ const RSVP_STATUS_LABELS: Record<
   maybe: { label: "Maybe", variant: "secondary" },
   declined: { label: "Declined", variant: "outline" },
 };
+
+// ── Image upload sub-component ────────────────────────────────────────────────
+
+interface ImageUploadFieldProps {
+  /** Existing URL from the event record (edit mode). Null in create mode. */
+  existingUrl?: string | null;
+  /** Called with the selected File so the form can hold it for submission. */
+  onFileSelected: (file: File | null) => void;
+  /** Preview URL derived from the selected file (object URL). */
+  previewUrl: string | null;
+}
+
+function ImageUploadField({
+  existingUrl,
+  onFileSelected,
+  previewUrl,
+}: ImageUploadFieldProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const displayUrl = previewUrl ?? existingUrl ?? null;
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    onFileSelected(file);
+  };
+
+  const handleClear = () => {
+    onFileSelected(null);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => inputRef.current?.click()}
+        >
+          <ImageIcon className="size-4" />
+          {displayUrl ? "Change Image" : "Upload Image"}
+        </Button>
+        {displayUrl && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleClear}
+            className="text-muted-foreground"
+          >
+            <XIcon className="size-4" />
+            Remove
+          </Button>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          className="hidden"
+          onChange={handleChange}
+        />
+      </div>
+      {displayUrl && (
+        <div className="relative inline-block">
+          <img
+            src={displayUrl}
+            alt="Event image preview"
+            className="h-32 w-auto rounded-md border object-cover"
+          />
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Accepted: JPG, PNG, GIF, WEBP · Max 5 MB
+      </p>
+    </div>
+  );
+}
+
+// ── Form row helpers ───────────────────────────────────────────────────────────
 
 interface EventFormProps {
   formId: string;
@@ -97,6 +180,11 @@ interface EventFormProps {
   onToggleRole: (id: number) => void;
   onToggleTrack: (id: number) => void;
   onSubmit: (e: React.FormEvent) => void;
+  // image props
+  existingImageUrl?: string | null;
+  imageFile: File | null;
+  imagePreviewUrl: string | null;
+  onImageFileSelected: (file: File | null) => void;
 }
 
 function EventFormRow({
@@ -148,6 +236,10 @@ function EventForm({
   onToggleRole,
   onToggleTrack,
   onSubmit,
+  existingImageUrl,
+  imageFile,
+  imagePreviewUrl,
+  onImageFileSelected,
 }: EventFormProps) {
   return (
     <form id={formId} className="grid gap-5 px-4 pb-4" onSubmit={onSubmit}>
@@ -239,6 +331,14 @@ function EventForm({
           </EventFormRow>
         )}
       />
+
+      <EventFormRow label="Event Image">
+        <ImageUploadField
+          existingUrl={existingImageUrl}
+          onFileSelected={onImageFileSelected}
+          previewUrl={imagePreviewUrl}
+        />
+      </EventFormRow>
 
       {groups.length > 0 && (
         <EventFormRow label="Target Groups">
@@ -348,6 +448,8 @@ function DateTimeLocalInput({
   );
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 function EventPage() {
   const [page, setPage] = useState(1);
   const [upcoming, setUpcoming] = useState(true);
@@ -355,6 +457,14 @@ function EventPage() {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
   const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
+
+  // image state for create dialog
+  const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+  const [createImagePreviewUrl, setCreateImagePreviewUrl] = useState<string | null>(null);
+
+  // image state for edit dialog
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreviewUrl, setEditImagePreviewUrl] = useState<string | null>(null);
 
   const { user: currentUser } = useAuthContext();
   const { data, isPending } = useQueryEvents({ page, limit: 10, upcoming });
@@ -372,6 +482,7 @@ function EventPage() {
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
+  const { mutateAsync: uploadEventImage, isPending: isUploading } = useUploadEventImage();
   const { data: rsvpData, isPending: isRsvpLoading } =
     useQueryEventRsvps(rsvpEventId);
 
@@ -470,8 +581,36 @@ function EventPage() {
         targetRoleIds: targets?.roleIds ?? [],
         targetTrackIds: targets?.trackIds ?? [],
       });
+      // Reset image state when switching events
+      setEditImageFile(null);
+      setEditImagePreviewUrl(null);
     }
   }, [editingEvent, eventTargetsData, resetEdit]);
+
+  // Revoke object URLs on unmount / change to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (createImagePreviewUrl) URL.revokeObjectURL(createImagePreviewUrl);
+    };
+  }, [createImagePreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (editImagePreviewUrl) URL.revokeObjectURL(editImagePreviewUrl);
+    };
+  }, [editImagePreviewUrl]);
+
+  const handleCreateImageSelected = (file: File | null) => {
+    if (createImagePreviewUrl) URL.revokeObjectURL(createImagePreviewUrl);
+    setCreateImageFile(file);
+    setCreateImagePreviewUrl(file ? URL.createObjectURL(file) : null);
+  };
+
+  const handleEditImageSelected = (file: File | null) => {
+    if (editImagePreviewUrl) URL.revokeObjectURL(editImagePreviewUrl);
+    setEditImageFile(file);
+    setEditImagePreviewUrl(file ? URL.createObjectURL(file) : null);
+  };
 
   const eventsList = data?.data.items ?? [];
   const total = data?.data.total ?? 0;
@@ -488,11 +627,17 @@ function EventPage() {
     setter(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   };
 
-  const onSubmit = (formData: CreateEvent) => {
+  const onSubmit = async (formData: CreateEvent) => {
     createEvent(formData, {
-      onSuccess: (result) => {
+      onSuccess: async (result) => {
         if (result.data) {
+          const newEventId = result.data.id;
+          // Upload image if one was selected
+          if (createImageFile && newEventId) {
+            await uploadEventImage({ eventId: newEventId, file: createImageFile });
+          }
           setCreateEventOpen(false);
+          handleCreateImageSelected(null);
           reset({
             hostUserId: currentUserId,
             eventName: "",
@@ -511,13 +656,18 @@ function EventPage() {
     });
   };
 
-  const onEditSubmit = (formData: UpdateEvent) => {
+  const onEditSubmit = async (formData: UpdateEvent) => {
     if (!editingEvent) return;
     updateEvent(
       { id: editingEvent.id, data: formData },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
+          // Upload image if a new one was selected
+          if (editImageFile) {
+            await uploadEventImage({ eventId: editingEvent.id, file: editImageFile });
+          }
           setEditingEvent(null);
+          handleEditImageSelected(null);
           resetEdit();
         },
       },
@@ -690,6 +840,7 @@ function EventPage() {
         </div>
       </div>
 
+      {/* ── View Dialog ──────────────────────────────────────────────────── */}
       <Dialog
         open={!!viewingEvent}
         onOpenChange={(open) => {
@@ -754,6 +905,28 @@ function EventPage() {
                   : "---"}
               </p>
             </EventDetailRow>
+
+            {/* Event Image — thumbnail + click to open full size */}
+            {viewingEvent?.["eventImage(img)"] && (
+              <EventDetailRow label="Event Image">
+                <a
+                  href={viewingEvent["eventImage(img)"]!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Click to open full image"
+                >
+                  <img
+                    src={viewingEvent["eventImage(img)"]!}
+                    alt="Event banner"
+                    className="h-20 w-auto rounded-md border object-cover transition-opacity hover:opacity-80"
+                  />
+                </a>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Click image to open full size
+                </p>
+              </EventDetailRow>
+            )}
+
             {(viewTargetsData?.data?.groupIds?.length ?? 0) > 0 && (
               <EventDetailRow label="Target Groups">
                 <div className="flex flex-wrap gap-1.5">
@@ -809,11 +982,13 @@ function EventPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Create Dialog ────────────────────────────────────────────────── */}
       <Dialog
         open={createEventOpen}
         onOpenChange={(open) => {
           setCreateEventOpen(open);
           if (!open) {
+            handleCreateImageSelected(null);
             reset({
               hostUserId: currentUserId,
               eventName: "",
@@ -860,15 +1035,19 @@ function EventPage() {
               toggleId(createTrackIds, id, (v) => setValue("targetTrackIds", v))
             }
             onSubmit={handleSubmit(onSubmit)}
+            existingImageUrl={null}
+            imageFile={createImageFile}
+            imagePreviewUrl={createImagePreviewUrl}
+            onImageFileSelected={handleCreateImageSelected}
           />
           <DialogFooter>
             <Button
               form="create-event-form"
               type="submit"
-              disabled={isCreating}
+              disabled={isCreating || isUploading}
             >
               <CalendarIcon className="size-4" />
-              {isCreating ? "Creating..." : "Create Event"}
+              {isCreating ? "Creating..." : isUploading ? "Uploading image..." : "Create Event"}
             </Button>
             <Button
               type="button"
@@ -881,6 +1060,7 @@ function EventPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── RSVP Dialog ──────────────────────────────────────────────────── */}
       <Dialog
         open={rsvpEventId !== null}
         onOpenChange={(open) => {
@@ -976,10 +1156,14 @@ function EventPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Edit Dialog ──────────────────────────────────────────────────── */}
       <Dialog
         open={!!editingEvent}
         onOpenChange={(open) => {
-          if (!open) setEditingEvent(null);
+          if (!open) {
+            setEditingEvent(null);
+            handleEditImageSelected(null);
+          }
         }}
       >
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
@@ -1018,15 +1202,26 @@ function EventPage() {
               )
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
+            existingImageUrl={editingEvent?.["eventImage(img)"] ?? null}
+            imageFile={editImageFile}
+            imagePreviewUrl={editImagePreviewUrl}
+            onImageFileSelected={handleEditImageSelected}
           />
           <DialogFooter>
-            <Button form="edit-event-form" type="submit" disabled={isUpdating}>
-              {isUpdating ? "Saving..." : "Save Changes"}
+            <Button
+              form="edit-event-form"
+              type="submit"
+              disabled={isUpdating || isUploading}
+            >
+              {isUpdating ? "Saving..." : isUploading ? "Uploading image..." : "Save Changes"}
             </Button>
             <Button
               type="button"
               variant="outline"
-              onClick={() => setEditingEvent(null)}
+              onClick={() => {
+                setEditingEvent(null);
+                handleEditImageSelected(null);
+              }}
             >
               Cancel
             </Button>
@@ -1036,6 +1231,8 @@ function EventPage() {
     </div>
   );
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-AU", {

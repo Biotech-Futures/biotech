@@ -100,6 +100,32 @@ export function useDeleteEvent() {
   });
 }
 
+export function useUploadEventImage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      eventId,
+      file,
+    }: {
+      eventId: number;
+      file: File;
+    }): Promise<ApiResponse<Event | null>> => {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await myFetch.post<ApiResponse<Event | null>>(
+        `/event/${eventId}/upload-image`,
+        formData,
+      );
+      return res.data;
+    },
+   onSuccess: (_result: ApiResponse<Event | null>, variables: { eventId: number; file: File }) => {
+  queryClient.invalidateQueries({ queryKey: ["events"] });
+  queryClient.invalidateQueries({ queryKey: ["event", String(variables.eventId)] });
+    },
+  });
+}
+
 export function useQueryEventRsvps(eventId: number | null) {
   return useQuery({
     queryKey: ["event-rsvps", eventId],

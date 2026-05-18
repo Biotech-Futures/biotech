@@ -35,6 +35,7 @@ urlpatterns = [
     # EVENT ROUTES
     # ========================================================================
     path('event/', views.EventListCreateView.as_view(), name='event-list-create'),
+    path('event/<str:event_id>/upload-image/', views.EventImageUploadView.as_view(), name='event-image-upload'),
     path('event/<str:event_id>/', views.EventDetailView.as_view(), name='event-detail'),
     path('event/<str:event_id>/rsvp/', views.EventRsvpListCreateView.as_view(), name='event-rsvp-list-create'),
     path('event/<str:event_id>/targets/', views.EventTargetsView.as_view(), name='event-targets'),

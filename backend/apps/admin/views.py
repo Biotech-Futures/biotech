@@ -293,6 +293,46 @@ class MatchConfirmView(APIView):
 # ============================================================================
 # EVENT ENDPOINTS
 # ============================================================================
+class EventImageUploadView(APIView):
+    """POST /api/v1/event/<event_id>/upload-image/ — upload a banner image for an event.
+
+    Accepts multipart/form-data with a single field named ``image``.
+    Saves the file to Azure Blob Storage and patches ``event_image`` on the
+    event record.  Returns the full updated event dict on success.
+    """
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, event_id):
+        from apps.admin.services.event_image import upload_event_image
+        from apps.events.models import Events
+
+        # Validate file presence
+        image_file = request.FILES.get("image")
+        if not image_file:
+            return Response(
+                {"msg": "No image file provided. Send multipart/form-data with field 'image'.", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Upload to Azure Blob
+        upload_result = upload_event_image(image_file)
+        if not upload_result.get("data"):
+            return Response(upload_result, status=status.HTTP_400_BAD_REQUEST)
+
+        image_url: str = upload_result["data"]["url"]
+
+        # Patch the event record
+        try:
+            event = Events.objects.get(id=int(event_id), deleted_at__isnull=True)
+        except (Events.DoesNotExist, ValueError):
+            return Response({"msg": "Event not found", "data": None}, status=status.HTTP_404_NOT_FOUND)
+
+        event.event_image = image_url
+        event.save(update_fields=["event_image"])
+
+        from apps.admin.services.event import query_event_by_id
+        return Response(query_event_by_id(event_id), status=status.HTTP_200_OK)
+
 class EventListCreateView(APIView):
     """GET /api/v1/event - List events with pagination and filters"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
