@@ -123,6 +123,7 @@ function UserManagementPage() {
     sortOrder,
   });
   const { data: tracksData } = useQueryTracks();
+  const { data: supervisorsData } = useQueryUsers({ page: 1, limit: 200, role: "supervisor" });
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const updateUserStatus = useUpdateUserStatus();
@@ -159,6 +160,16 @@ function UserManagementPage() {
   };
 
   const pageItems = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
+
+  const supervisorOptions = useMemo(
+    () =>
+      (supervisorsData?.data?.items ?? []).map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+      })),
+    [supervisorsData],
+  );
 
   const total = data?.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -221,6 +232,10 @@ function UserManagementPage() {
             values.role === "student"
               ? values.joinPermissionReceived
               : undefined,
+          supervisorEmail:
+            values.role === "student" && values.supervisorEmail
+              ? values.supervisorEmail
+              : undefined,
           active: values.active,
         });
 
@@ -266,6 +281,8 @@ function UserManagementPage() {
               : [],
           joinPermissionReceived:
             values.role === "student" ? values.joinPermissionReceived : false,
+          supervisorEmail:
+            values.role === "student" ? values.supervisorEmail : undefined,
         },
       });
 
@@ -363,6 +380,10 @@ function UserManagementPage() {
               : undefined,
           joinPermissionReceived:
             row.role === "student" ? row.joinPermissionReceived : undefined,
+          supervisorEmail:
+            row.role === "student" && row.supervisorEmail
+              ? row.supervisorEmail
+              : undefined,
           active: row.active,
         })),
       );
@@ -375,7 +396,7 @@ function UserManagementPage() {
         return;
       }
 
-      toast.error(response.msg || `Imported ${createdCount} users.`);
+      toast.success(response.msg || `Imported ${createdCount} users.`);
       setBulkOpen(false);
     } catch {
       toast.error("Bulk upload failed.");
@@ -435,6 +456,7 @@ function UserManagementPage() {
         mode={editorMode}
         user={selectedUser}
         tracks={tracksData?.data ?? []}
+        supervisors={supervisorOptions}
         onSubmit={handleSaveUser}
         onDelete={handleDeleteUser}
         isPending={

@@ -22,6 +22,8 @@ from apps.admin.scope_utils import get_admin_track_ids
 # CONSTANTS
 # ============================================================================
 ROLES = ["student", "mentor", "supervisor", "admin"]
+
+_UNSET = object()  # sentinel: "not provided" vs explicit None/empty
 STATUS_INVITED = "invited"
 STATUS_PENDING = "pending"
 STATUS_ACTIVE = "active"
@@ -102,10 +104,14 @@ def upsert_student_profile(
     last_name: str,
     school_name: Optional[str],
     year_level: Optional[int],
-    join_permission_received: Optional[bool]
+    join_permission_received: Optional[bool],
+    supervisor_email: Any = _UNSET,
 ) -> None:
     """
     Create or update student profile.
+    supervisor_email=_UNSET means don't touch the existing supervisor link.
+    supervisor_email=None or "" clears the supervisor link.
+    supervisor_email="email@..." looks up the supervisor and sets the link.
     """
     profile_data = {
         "pg_first_name": first_name,
@@ -115,9 +121,18 @@ def upsert_student_profile(
         "year_lvl": str(year_level or ""),
         "has_join_permission": join_permission_received or False,
         "joinperm_responseID": None,
-        "supervisor_id": None,
     }
-    
+
+    if supervisor_email is not _UNSET:
+        resolved_id = None
+        if supervisor_email:
+            sup_user = User.objects.filter(email__iexact=supervisor_email.strip()).first()
+            if sup_user:
+                sup_profile = SupervisorProfile.objects.filter(user_id=sup_user.id).first()
+                if sup_profile:
+                    resolved_id = sup_profile.user_id
+        profile_data["supervisor_id"] = resolved_id
+
     StudentProfile.objects.update_or_create(
         user_id=user_id,
         defaults=profile_data
@@ -197,7 +212,10 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
                    supervisor_profile: Optional[SupervisorProfile] = None,
                    mentor_profile: Optional[MentorProfile] = None,
                    admin_tracks: Optional[List[str]] = None,
-                   admin_is_global: bool = False) -> Dict[str, Any]:
+                   admin_is_global: bool = False,
+                   supervisor_name: Optional[str] = None,
+                   supervisor_email_val: Optional[str] = None,
+                   supervisees: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """
     Build a user dictionary with all related data.
     """
@@ -253,6 +271,9 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "accountStatus": "active" if user.is_active else "deactivated",
         "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
         "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
+        "supervisorName": supervisor_name,
+        "supervisorEmail": supervisor_email_val,
+        "supervisees": supervisees or [],
     }
 
 
@@ -264,7 +285,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return None
-    
+
     student_profile = StudentProfile.objects.filter(user_id=user_id).first()
     supervisor_profile = SupervisorProfile.objects.filter(user_id=user_id).first()
     mentor_profile = MentorProfile.objects.filter(user_id=user_id).first()
@@ -272,14 +293,48 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 
     track_name = user.track.track_name if user.track else None
 
+    # Resolve current role so we can fetch the right extra data
+    current_role_obj = RoleAssignmentHistory.objects.filter(
+        user_id=user_id, valid_to__isnull=True
+    ).select_related('role').first()
+    role_str = current_role_obj.role.role_name if current_role_obj else None
+
+    # Supervisor info for students
+    supervisor_name = None
+    supervisor_email_val = None
+    if role_str == "student" and student_profile and student_profile.supervisor_id:
+        try:
+            sup_profile = SupervisorProfile.objects.select_related('user').get(
+                user_id=student_profile.supervisor_id
+            )
+            supervisor_name = f"{sup_profile.user.first_name} {sup_profile.user.last_name}".strip()
+            supervisor_email_val = sup_profile.user.email
+        except SupervisorProfile.DoesNotExist:
+            pass
+
+    # Supervisee info for supervisors
+    supervisees: List[Dict[str, Any]] = []
+    if role_str == "supervisor" and supervisor_profile:
+        for sp in StudentProfile.objects.filter(
+            supervisor_id=supervisor_profile.user_id
+        ).select_related('user'):
+            supervisees.append({
+                "name": f"{sp.user.first_name} {sp.user.last_name}".strip(),
+                "email": sp.user.email,
+            })
+
     return build_user_dict(
         user,
+        role_str=role_str,
         track_name=track_name,
         student_profile=student_profile,
         supervisor_profile=supervisor_profile,
         mentor_profile=mentor_profile,
         admin_tracks=admin_scope["tracks"],
         admin_is_global=admin_scope["is_global"],
+        supervisor_name=supervisor_name,
+        supervisor_email_val=supervisor_email_val,
+        supervisees=supervisees,
     )
 
 
@@ -437,13 +492,36 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                 "name": gm.group.group_name,
             }
 
-    # User interests
-    interests_map: Dict[int, List[Dict[str, Any]]] = {}
+    # User interests — plain strings to match build_user_dict
+    interests_map: Dict[int, List[str]] = {}
     for ui in UserInterest.objects.filter(user_id__in=user_ids).select_related('interest'):
-        interests_map.setdefault(ui.user_id, []).append({
-            "id": ui.interest_id,
-            "description": ui.interest.interest_desc,
-        })
+        interests_map.setdefault(ui.user_id, []).append(ui.interest.interest_desc)
+
+    # Supervisor info for students: collect all supervisor_profile_ids referenced by students
+    # Note: SupervisorProfile pk is user_id, so supervisor_id on StudentProfile holds user_id
+    student_supervisor_profile_ids = [
+        sp.supervisor_id for sp in student_profiles.values() if sp.supervisor_id
+    ]
+    supervisor_profile_by_id: Dict[int, Any] = {}
+    if student_supervisor_profile_ids:
+        for sup_prof in SupervisorProfile.objects.filter(
+            user_id__in=student_supervisor_profile_ids
+        ).select_related('user'):
+            supervisor_profile_by_id[sup_prof.user_id] = sup_prof
+
+    # Supervisee info for supervisors: one query for all supervisors on this page
+    sup_profile_ids_on_page = [
+        supervisor_profiles[uid].user_id for uid in user_ids if uid in supervisor_profiles
+    ]
+    supervisee_map: Dict[int, List[Dict[str, Any]]] = {}  # supervisor user_id -> list
+    if sup_profile_ids_on_page:
+        for student_sp in StudentProfile.objects.filter(
+            supervisor_id__in=sup_profile_ids_on_page
+        ).select_related('user'):
+            supervisee_map.setdefault(student_sp.supervisor_id, []).append({
+                "name": f"{student_sp.user.first_name} {student_sp.user.last_name}".strip(),
+                "email": student_sp.user.email,
+            })
 
     # Build response in original user_ids order
     users_list = []
@@ -461,6 +539,17 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             school_name = sp.school_name
         elif supervisor and supervisor.school_name:
             school_name = supervisor.school_name
+
+        # Resolve supervisor name/email for students
+        supervisor_name = None
+        supervisor_email_val = None
+        if sp and sp.supervisor_id and sp.supervisor_id in supervisor_profile_by_id:
+            sup_prof = supervisor_profile_by_id[sp.supervisor_id]
+            supervisor_name = f"{sup_prof.user.first_name} {sup_prof.user.last_name}".strip()
+            supervisor_email_val = sup_prof.user.email
+
+        # Resolve supervisees for supervisors
+        supervisees_for_user = supervisee_map.get(supervisor.user_id, []) if supervisor else []
 
         group_info = group_map.get(uid)
         users_list.append({
@@ -486,6 +575,9 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "accountStatus": "active" if user.is_active else "deactivated",
             "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
             "activatedAt": user.activated_at.isoformat() if user.activated_at else None,
+            "supervisorName": supervisor_name,
+            "supervisorEmail": supervisor_email_val,
+            "supervisees": supervisees_for_user,
         })
 
     return {
@@ -866,7 +958,8 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         last_name,
                         input_data.get("schoolName"),
                         input_data.get("yearLevel"),
-                        input_data.get("joinPermissionReceived")
+                        input_data.get("joinPermissionReceived"),
+                        supervisor_email=input_data.get("supervisorEmail") or _UNSET,
                     )
                 
                 if role == "supervisor":
@@ -955,15 +1048,33 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
     """
     created = []
     skipped = []
-    
+
     results = add_users_by_role(users_input)
-    
+
     for result in results:
         if result["data"]:
             created.append(result["data"])
         else:
             skipped.append(result["input"].get("email", "unknown"))
-    
+
+    # Second pass: fix supervisor links for students where the supervisor was also
+    # created in this same batch and may not have existed when the student was processed.
+    for input_data in users_input:
+        if input_data.get("role") == "student" and input_data.get("supervisorEmail"):
+            email = (input_data.get("email") or "").lower().strip()
+            student_user = User.objects.filter(email=email).first()
+            if not student_user:
+                continue
+            sup_email = input_data["supervisorEmail"].strip()
+            sup_user = User.objects.filter(email__iexact=sup_email).first()
+            if not sup_user:
+                continue
+            sup_profile = SupervisorProfile.objects.filter(user_id=sup_user.id).first()
+            if sup_profile:
+                StudentProfile.objects.filter(user_id=student_user.id).update(
+                    supervisor_id=sup_profile.user_id
+                )
+
     return {
         "msg": f"Bulk import complete: {len(created)} created, {len(skipped)} skipped",
         "data": {
@@ -1126,7 +1237,8 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                     input_data.get("lastName", user.last_name),
                     input_data.get("schoolName"),
                     input_data.get("yearLevel"),
-                    input_data.get("joinPermissionReceived")
+                    input_data.get("joinPermissionReceived"),
+                    supervisor_email=input_data["supervisorEmail"] if "supervisorEmail" in input_data else _UNSET,
                 )
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)

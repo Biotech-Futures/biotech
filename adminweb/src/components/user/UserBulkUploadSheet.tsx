@@ -40,6 +40,7 @@ const USER_IMPORT_TEMPLATE = [
     "maxGroupCount",
     "background",
     "joinPermissionReceived",
+    "supervisorEmail",
     "status",
   ],
   [
@@ -58,6 +59,7 @@ const USER_IMPORT_TEMPLATE = [
     "",
     "",
     "yes",
+    "mia.chen@example.com",
     "active",
   ],
   [
@@ -75,6 +77,7 @@ const USER_IMPORT_TEMPLATE = [
     "Interested in supporting student research projects",
     "2",
     "Research",
+    "",
     "",
     "active",
   ],
@@ -94,6 +97,7 @@ const USER_IMPORT_TEMPLATE = [
     "",
     "",
     "",
+    "",
     "active",
   ],
   [
@@ -104,6 +108,7 @@ const USER_IMPORT_TEMPLATE = [
     "",
     "AUS-NSW|AUS-QLD",
     "no",
+    "",
     "",
     "",
     "",
@@ -245,7 +250,9 @@ export function UserBulkUploadSheet({
             Upload a CSV with either a single name column or split firstName and
             lastName columns, plus email, role, track, adminTracks, adminIsGlobal, school,
             yearLevel, interests, institution, mentorReason, maxGroupCount,
-            background, joinPermissionReceived, and status.
+            background, joinPermissionReceived, status, and supervisorEmail (student rows only —
+            use the supervisor's email to link them; the supervisor must also be in
+            this CSV or already exist in the system).
           </DialogDescription>
         </DialogHeader>
 

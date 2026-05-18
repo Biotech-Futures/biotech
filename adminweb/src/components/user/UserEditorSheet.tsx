@@ -35,6 +35,7 @@ interface UserEditorSheetProps {
   mode: "create" | "edit";
   user: UserAccount | null;
   tracks?: TrackOption[];
+  supervisors?: Array<{ id: string; name: string; email: string }>;
   onSubmit: (values: UserFormValues) => Promise<void> | void;
   onDelete?: (user: UserAccount) => Promise<void> | void;
   isPending?: boolean;
@@ -59,6 +60,7 @@ const initialValues: UserFormValues = {
   interests: [],
   joinPermissionReceived: false,
   active: true,
+  supervisorEmail: "",
 };
 
 function isValidEmail(email: string) {
@@ -94,6 +96,7 @@ export function UserEditorSheet({
   mode,
   user,
   tracks,
+  supervisors,
   onSubmit,
   onDelete,
   isPending,
@@ -133,6 +136,7 @@ export function UserEditorSheet({
         interests: user.interests,
         joinPermissionReceived: user.joinPermissionReceived,
         active: user.active,
+        supervisorEmail: user.role === "student" ? (user.supervisorEmail ?? "") : "",
       });
       return;
     }
@@ -437,6 +441,33 @@ export function UserEditorSheet({
                     No
                   </Button>
                 </div>
+              </UserFormRow>
+
+              <UserFormRow label="Supervisor" htmlFor="user-supervisor-email">
+                <Input
+                  id="user-supervisor-email"
+                  list="user-supervisor-datalist"
+                  value={values.supervisorEmail}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      supervisorEmail: event.target.value,
+                    }))
+                  }
+                  placeholder="Search by name or email (optional)"
+                />
+                {supervisors && supervisors.length > 0 && (
+                  <datalist id="user-supervisor-datalist">
+                    {supervisors.map((sup) => (
+                      <option key={sup.id} value={sup.email} label={sup.name} />
+                    ))}
+                  </datalist>
+                )}
+                {values.supervisorEmail && supervisors && (
+                  <p className="text-xs text-muted-foreground">
+                    {supervisors.find((s) => s.email === values.supervisorEmail)?.name ?? ""}
+                  </p>
+                )}
               </UserFormRow>
             </>
           ) : null}

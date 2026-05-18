@@ -72,6 +72,12 @@ export function UserDetailSheet({
                     : "-",
                 },
                 { label: "Group", value: user.groupName || "-" },
+                {
+                  label: "Supervisor",
+                  value: user.supervisorName
+                    ? `${user.supervisorName} (${user.supervisorEmail})`
+                    : "-",
+                },
               ]}
             />
           )}
@@ -101,6 +107,14 @@ export function UserDetailSheet({
               items={[
                 { label: "School", value: user.schoolName || "-" },
                 { label: "Group", value: user.groupName || "-" },
+                {
+                  label: "Supervisees",
+                  value: user.supervisees.length
+                    ? user.supervisees
+                        .map((s) => `${s.name} (${s.email})`)
+                        .join(", ")
+                    : "-",
+                },
               ]}
             />
           )}

@@ -182,7 +182,6 @@ interface EventFormProps {
   onSubmit: (e: React.FormEvent) => void;
   // image props
   existingImageUrl?: string | null;
-  imageFile: File | null;
   imagePreviewUrl: string | null;
   onImageFileSelected: (file: File | null) => void;
 }
@@ -237,7 +236,6 @@ function EventForm({
   onToggleTrack,
   onSubmit,
   existingImageUrl,
-  imageFile,
   imagePreviewUrl,
   onImageFileSelected,
 }: EventFormProps) {
@@ -927,16 +925,16 @@ function EventPage() {
             </EventDetailRow>
 
             {/* Event Image — thumbnail + click to open full size */}
-            {viewingEvent?.["eventImage(img)"] && (
+            {viewingEvent?.eventImage && (
               <EventDetailRow label="Event Image">
                 <a
-                  href={viewingEvent["eventImage(img)"]!}
+                  href={viewingEvent.eventImage!}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Click to open full image"
                 >
                   <img
-                    src={viewingEvent["eventImage(img)"]!}
+                    src={viewingEvent.eventImage!}
                     alt="Event banner"
                     className="h-20 w-auto rounded-md border object-cover transition-opacity hover:opacity-80"
                   />
@@ -1056,7 +1054,6 @@ function EventPage() {
             }
             onSubmit={handleSubmit(onSubmit)}
             existingImageUrl={null}
-            imageFile={createImageFile}
             imagePreviewUrl={createImagePreviewUrl}
             onImageFileSelected={handleCreateImageSelected}
           />
@@ -1222,8 +1219,7 @@ function EventPage() {
               )
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
-            existingImageUrl={editingEvent?.["eventImage(img)"] ?? null}
-            imageFile={editImageFile}
+            existingImageUrl={editingEvent?.eventImage ?? null}
             imagePreviewUrl={editImagePreviewUrl}
             onImageFileSelected={handleEditImageSelected}
           />

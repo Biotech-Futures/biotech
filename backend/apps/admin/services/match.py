@@ -16,6 +16,7 @@ from apps.admin.algorithms.student import (
     format_recommendation_input,
     recommend_groups_by_track,
 )
+from apps.groups.services import sync_supervisor_memberships_for_student
 
 
 DEFAULT_GROUP_MAX_SIZE = 5
@@ -764,5 +765,7 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
         
         if memberships:
             GroupMembership.objects.bulk_create(memberships)
-    
+            for student_id in [m.user_id for m in memberships]:
+                sync_supervisor_memberships_for_student(student_id)
+
     return {'assigned_count': len(resolved_assignments)}

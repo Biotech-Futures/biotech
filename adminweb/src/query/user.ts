@@ -32,6 +32,7 @@ type CreateUserPayload = {
   yearLevel?: number;
   interests?: string[];
   joinPermissionReceived?: boolean;
+  supervisorEmail?: string;
   active?: boolean;
 };
 
@@ -51,6 +52,7 @@ type UpdateUserPayload = {
   yearLevel?: number | null;
   interests?: string[];
   joinPermissionReceived?: boolean;
+  supervisorEmail?: string;
 };
 
 type UpdateStatusPayload = {
@@ -295,6 +297,9 @@ export function normalizeServerUser(
       user.updatedAt ?? user.activatedAt ?? user.invitedAt ?? new Date(0).toISOString(),
     active: Boolean(user.active ?? user.isActive),
     source: "server",
+    supervisorName: (user as any).supervisorName ?? null,
+    supervisorEmail: (user as any).supervisorEmail ?? null,
+    supervisees: Array.isArray((user as any).supervisees) ? (user as any).supervisees : [],
   };
 }
 
@@ -327,6 +332,9 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
       values.role === "mentor" ? values.mentorMaxGroupCount : null,
     joinPermissionReceived:
       values.role === "student" ? values.joinPermissionReceived : false,
+    supervisorName: null,
+    supervisorEmail: null,
+    supervisees: [],
     adminTracks: values.role === "admin" ? values.adminTracks : [],
     adminIsGlobal: values.role === "admin" ? values.adminIsGlobal : false,
     interests:
@@ -421,6 +429,7 @@ export function parseCsvUsers(text: string) {
         row[headerIndex.joinpermission] ??
         ""
       ).trim();
+      const supervisorEmailRaw = (row[headerIndex.supervisoremail] ?? "").trim();
       const mentorMaxGroupCountRaw =
         (row[headerIndex.maxgroupcount] ?? row[headerIndex.maxgroups] ?? "").trim();
       const mentorMaxGroupCount = mentorMaxGroupCountRaw
@@ -471,6 +480,7 @@ export function parseCsvUsers(text: string) {
         interests: parseInterestList(interestsRaw),
         joinPermissionReceived: parseBoolean(joinPermissionRaw),
         active: statusRaw ? statusRaw !== "inactive" : true,
+        supervisorEmail: role === "student" ? supervisorEmailRaw : "",
       } satisfies CsvUserRow;
     });
 }

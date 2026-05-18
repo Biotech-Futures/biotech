@@ -28,6 +28,9 @@ export type UserAccount = {
   updatedAt: string;
   active: boolean;
   source: UserSource;
+  supervisorName: string | null;
+  supervisorEmail: string | null;
+  supervisees: { name: string; email: string }[];
 };
 
 export type ServerUser = Omit<UserAccount, "source">;
@@ -61,6 +64,7 @@ export type UserFormValues = {
   interests: string[];
   joinPermissionReceived: boolean;
   active: boolean;
+  supervisorEmail: string;
 };
 
 export type CsvUserRow = UserFormValues & {
