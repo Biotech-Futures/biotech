@@ -1,5 +1,11 @@
 from rest_framework import serializers
-from .models import User, StudentProfile, MentorProfile
+from .models import (
+    User,
+    StudentProfile,
+    MentorProfile,
+    SupervisorProfile,
+    UserInterest,
+)
 from apps.resources.models import RoleAssignmentHistory
 from apps.groups.models import Tracks
 from django.db.models import Q
@@ -54,6 +60,17 @@ class UserSerializer(serializers.ModelSerializer):
     ment_reason = serializers.SerializerMethodField()
     ment_max_groups = serializers.SerializerMethodField()
 
+    # Profile page additions (read-only):
+    #   * `interests` is the user's selected areas of interest (any role).
+    #   * `supervisor_name` / `supervisor_email` are populated for students,
+    #     resolved via StudentProfile.supervisor -> SupervisorProfile.user.
+    #   * `supervisor_school_name` is populated for users currently holding the
+    #     supervisor role (role_id == 2), pulled from their SupervisorProfile.
+    interests = serializers.SerializerMethodField()
+    supervisor_name = serializers.SerializerMethodField()
+    supervisor_email = serializers.SerializerMethodField()
+    supervisor_school_name = serializers.SerializerMethodField()
+
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
     # flow before they're allowed into the dashboard. See `get_must_change_password`.
@@ -61,8 +78,37 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email", "account_status", "track", "current_role_id", "current_role_name", "pg_firstname", "pg_lastname", "year_lvl", "school_name", "join_perm", "ment_inst", "ment_reason", "ment_max_groups", "must_change_password", "timezone"]
-        read_only_fields = ["id"]
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "account_status",
+            "track",
+            "current_role_id",
+            "current_role_name",
+            "pg_firstname",
+            "pg_lastname",
+            "year_lvl",
+            "school_name",
+            "join_perm",
+            "ment_inst",
+            "ment_reason",
+            "ment_max_groups",
+            "interests",
+            "supervisor_name",
+            "supervisor_email",
+            "supervisor_school_name",
+            "must_change_password",
+            "timezone",
+        ]
+        read_only_fields = [
+            "id",
+            "interests",
+            "supervisor_name",
+            "supervisor_email",
+            "supervisor_school_name",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -71,6 +117,8 @@ class UserSerializer(serializers.ModelSerializer):
         self._cache_assignment: dict[int, object] = {}
         self._cache_student: dict[int, object] = {}
         self._cache_mentor: dict[int, object] = {}
+        self._cache_supervisor: dict[int, object] = {}
+        self._cache_interests: dict[int, list[str]] = {}
 
     def validate_timezone(self, value):
         if value not in available_timezones():
@@ -98,7 +146,15 @@ class UserSerializer(serializers.ModelSerializer):
         rah = self._active_assignment(user)
         profile = None
         if rah and rah.role_id == 4:
-            profile = StudentProfile.objects.filter(user=user).first()
+            # Pull the linked supervisor + supervisor's user row in the same
+            # query so the new supervisor_name / supervisor_email fields don't
+            # add two extra round-trips per student.
+            profile = (
+                StudentProfile.objects
+                .select_related("supervisor", "supervisor__user")
+                .filter(user=user)
+                .first()
+            )
         self._cache_student[user.id] = profile
         return profile
 
@@ -111,6 +167,29 @@ class UserSerializer(serializers.ModelSerializer):
             profile = MentorProfile.objects.filter(user=user).first()
         self._cache_mentor[user.id] = profile
         return profile
+
+    def _supervisor_profile(self, user):
+        if user.id in self._cache_supervisor:
+            return self._cache_supervisor[user.id]
+        rah = self._active_assignment(user)
+        profile = None
+        if rah and rah.role_id == 2:
+            profile = SupervisorProfile.objects.filter(user=user).first()
+        self._cache_supervisor[user.id] = profile
+        return profile
+
+    def _interests(self, user):
+        if user.id in self._cache_interests:
+            return self._cache_interests[user.id]
+        descs = list(
+            UserInterest.objects
+            .filter(user=user)
+            .select_related("interest")
+            .order_by("interest__interest_desc")
+            .values_list("interest__interest_desc", flat=True)
+        )
+        self._cache_interests[user.id] = descs
+        return descs
 
     # Annotation add to explicitly declare output type as drf-speculator cannot infer “unable to resolve type hint for..."
     @extend_schema_field(serializers.IntegerField(allow_null=True))
@@ -162,6 +241,39 @@ class UserSerializer(serializers.ModelSerializer):
     def get_ment_max_groups(self, obj):
         mp = self._mentor_profile(obj)
         return None if mp is None else mp.max_group_count
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_interests(self, obj):
+        # Always a list (possibly empty); never null. Sorted alphabetically so
+        # the FE can render a stable order without sorting client-side.
+        return self._interests(obj)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_supervisor_name(self, obj):
+        # Only meaningful for students; for everyone else (and for students
+        # without a linked supervisor) we return null.
+        sp = self._student_profile(obj)
+        if sp is None or sp.supervisor_id is None or sp.supervisor.user is None:
+            return None
+        sup_user = sp.supervisor.user
+        full_name = f"{sup_user.first_name} {sup_user.last_name}".strip()
+        return full_name or None
+
+    @extend_schema_field(serializers.EmailField(allow_null=True))
+    def get_supervisor_email(self, obj):
+        sp = self._student_profile(obj)
+        if sp is None or sp.supervisor_id is None or sp.supervisor.user is None:
+            return None
+        return sp.supervisor.user.email
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_supervisor_school_name(self, obj):
+        # Only populated when the user themselves is currently in the
+        # supervisor role (role_id == 2). For students this stays null even
+        # though their linked supervisor has a school name — that's exposed
+        # via the student-side fields above.
+        sp = self._supervisor_profile(obj)
+        return None if sp is None else sp.school_name
 
     @extend_schema_field(serializers.BooleanField())
     def get_must_change_password(self, obj) -> bool:
