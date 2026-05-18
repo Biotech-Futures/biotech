@@ -121,6 +121,38 @@
             <span class="profile-field-value">{{ user.student.yearLevel }}</span>
           </div>
           <div class="profile-field">
+            <span class="profile-field-label">Areas of Interest:</span>
+            <span class="profile-field-value">
+              <span v-if="user.student.interests.length" class="profile-interest-list">
+                <span
+                  v-for="interest in user.student.interests"
+                  :key="interest"
+                  class="profile-interest"
+                >
+                  {{ interest }}
+                </span>
+              </span>
+              <span v-else>{{ user.student.interestsFallback }}</span>
+            </span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Supervisor:</span>
+            <span class="profile-field-value">{{ user.student.supervisorName }}</span>
+          </div>
+          <div class="profile-field">
+            <span class="profile-field-label">Supervisor Email:</span>
+            <span class="profile-field-value">
+              <a
+                v-if="user.student.supervisorEmailAddress"
+                class="profile-link"
+                :href="`mailto:${user.student.supervisorEmailAddress}`"
+              >
+                {{ user.student.supervisorEmailAddress }}
+              </a>
+              <span v-else>{{ user.student.supervisorEmail }}</span>
+            </span>
+          </div>
+          <div class="profile-field">
             <span class="profile-field-label">Parent/Guardian:</span>
             <span class="profile-field-value">{{ user.student.guardianName }}</span>
           </div>
@@ -294,6 +326,14 @@ const valueOrFallback = (value, fallback = 'Not provided') => {
   return text || fallback
 }
 
+const listOrEmpty = (value) => {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean)
+}
+
 const normaliseRole = (value) => {
   const role = String(value || '').trim().toLowerCase()
   if (role.includes('admin')) return 'admin'
@@ -310,6 +350,9 @@ const user = computed(() => {
   const roleKey = normaliseRole(roleName)
   const trackId = Number(source?.track)
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
+  const interests = listOrEmpty(source?.interests)
+  const supervisorEmail = valueOrFallback(source?.supervisor_email)
+  const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
   const supervisedStudents = Array.isArray(source?.supervised_students)
     ? source.supervised_students.map((student) => {
       const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || student?.email || 'Student'
@@ -321,7 +364,13 @@ const user = computed(() => {
       }
     })
     : []
-  const hasStudentDetails = roleKey === 'student' && ([source?.school_name, source?.year_lvl, guardianName].some(Boolean) || source?.join_perm != null)
+  const hasStudentDetails = roleKey === 'student' && ([
+    source?.school_name,
+    source?.year_lvl,
+    guardianName,
+    source?.supervisor_name,
+    source?.supervisor_email
+  ].some(Boolean) || source?.join_perm != null || interests.length > 0)
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
@@ -335,6 +384,11 @@ const user = computed(() => {
       hasDetails: hasStudentDetails,
       schoolName: valueOrFallback(source?.school_name),
       yearLevel: valueOrFallback(source?.year_lvl),
+      interests,
+      interestsFallback: 'Not provided',
+      supervisorName: valueOrFallback(source?.supervisor_name),
+      supervisorEmail,
+      supervisorEmailAddress,
       guardianName: valueOrFallback(guardianName),
       joinPermission: source?.join_perm === true ? 'Granted' : source?.join_perm === false ? 'Not granted' : 'Not provided'
     },
@@ -572,6 +626,29 @@ onMounted(() => {
   margin: 0;
 }
 
+.profile-interest-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.profile-interest {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.profile-link {
+  color: var(--dark-green);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .status-card {
     top: 0.75rem;
@@ -586,6 +663,16 @@ onMounted(() => {
 
   .profile-loading-value {
     width: 100%;
+  }
+
+  :deep(.profile-field) {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  :deep(.profile-field-label) {
+    width: auto;
   }
 
   .timezone-actions {
