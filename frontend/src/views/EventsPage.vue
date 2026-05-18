@@ -171,6 +171,11 @@
         :key="ev.id"
         class="event-card"
         :style="{ '--enter-delay': `${Math.min(idx, 8) * 50}ms` }"
+        role="button"
+        tabindex="0"
+        @click="openDetailsFromCard(ev, $event)"
+        @keydown.enter="openDetailsFromCard(ev, $event)"
+        @keydown.space="openDetailsFromCard(ev, $event)"
       >
         <div class="event-banner">
           <img
@@ -269,14 +274,6 @@
           </div>
 
           <div class="cta-row">
-            <button
-              type="button"
-              class="btn btn-outline"
-              @click="openDetails(ev, $event)"
-            >
-              View Details
-            </button>
-
             <div
               v-if="shouldShowWaitlistAction(ev)"
               class="rsvp-actions"
@@ -653,14 +650,14 @@ const rsvpFilterOptions: Array<{ value: EventRsvpStatus; label: string }> = [
   { value: 'pending', label: 'Pending' },
   { value: 'accepted', label: 'Going' },
   { value: 'tentative', label: 'Maybe' },
-  { value: 'declined', label: 'Declined' },
+  { value: 'declined', label: 'Not going' },
   { value: 'waitlisted', label: 'Waitlisted' }
 ]
 
 const rsvpChoices: Array<{ value: UserRsvpStatus; label: string; shortLabel: string }> = [
   { value: 'accepted', label: 'Going', shortLabel: 'Going' },
   { value: 'tentative', label: 'Maybe', shortLabel: 'Maybe' },
-  { value: 'declined', label: 'Decline', shortLabel: 'Decline' }
+  { value: 'declined', label: 'Not going', shortLabel: 'Not going' }
 ]
 
 const hasActiveFilters = computed(() =>
@@ -1004,7 +1001,7 @@ const eventStatus = (ev?: BackendEvent | null): EventRsvpStatus | null => {
 const rsvpLabel = (status?: EventRsvpStatus | null) => {
   if (status === 'accepted') return 'Going'
   if (status === 'tentative') return 'Maybe'
-  if (status === 'declined') return 'Declined'
+  if (status === 'declined') return 'Not going'
   if (status === 'pending') return 'Pending'
   if (status === 'waitlisted') return 'Waitlisted'
   return 'No response'
@@ -1068,6 +1065,18 @@ const openDetails = (ev: BackendEvent, event?: MouseEvent) => {
   }
 }
 
+const shouldIgnoreCardOpen = (event?: Event) => {
+  const target = event?.target
+  if (!(target instanceof Element)) return false
+  return Boolean(target.closest('a, button, input, select, textarea, [data-event-card-ignore]'))
+}
+
+const openDetailsFromCard = (ev: BackendEvent, event: MouseEvent | KeyboardEvent) => {
+  if (shouldIgnoreCardOpen(event)) return
+  event.preventDefault()
+  openDetails(ev, event as MouseEvent)
+}
+
 const openDetailsById = async (rawId: string | string[] | undefined) => {
   const id = Array.isArray(rawId) ? rawId[0] : rawId
   if (!id) return
@@ -1115,6 +1124,7 @@ const closeDetails = () => {
 const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   if (!ev?.id || isRsvpClosed(ev)) return
 
+  const previousStatus = eventStatus(ev)
   settingRsvpFor.value = ev.id
   statusVisible.value = false
 
@@ -1128,8 +1138,10 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
     ev.accepted = response.rsvp_status === 'accepted'
     if (status === 'accepted' && response.rsvp_status === 'waitlisted') {
       showStatusMessage("Event full — you're on the waitlist.")
+    } else if (previousStatus === 'waitlisted' && status === 'declined') {
+      showStatusMessage('RSVP updated: Removed from waitlist')
     } else {
-      showStatusMessage(`RSVP updated: ${rsvpLabel(response.rsvp_status)}.`)
+      showStatusMessage(`RSVP updated: ${rsvpLabel(response.rsvp_status)}`)
     }
     await loadEvents(true)
   } catch (err: any) {
@@ -1143,6 +1155,17 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 
 <style scoped>
 .events-page {
+  --event-dark-green: #017151;
+  --event-light-green: #bad7bb;
+  --event-air-force-blue: #39687b;
+  --event-mint-green: #5ea99e;
+  --event-yellow: #f1e5a6;
+  --event-charcoal: #174243;
+  --event-soft-green: rgba(186, 215, 187, 0.44);
+  --event-soft-mint: rgba(94, 169, 158, 0.18);
+  --event-soft-blue: rgba(57, 104, 123, 0.12);
+  --event-soft-yellow: rgba(241, 229, 166, 0.78);
+
   width: 100%;
   min-height: calc(100vh - 64px);
   padding: clamp(1rem, 2vw, 1.5rem);
@@ -1193,12 +1216,12 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .event-tab:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
+  color: var(--event-charcoal);
+  background: var(--event-soft-green);
 }
 
 .event-tab.active {
-  background: var(--dark-green);
+  background: var(--event-dark-green);
   color: var(--white);
   box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
@@ -1271,7 +1294,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 
 .filter-input:focus {
   outline: none;
-  border-color: var(--dark-green);
+  border-color: var(--event-dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
@@ -1301,8 +1324,8 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .filter-search-clear:hover {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
+  color: var(--event-charcoal);
+  background: var(--event-soft-green);
 }
 
 .filter-actions {
@@ -1332,9 +1355,9 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   margin: 0;
   padding: 0.75rem 1rem;
   border-radius: 8px;
-  background: var(--surface-elevated);
-  color: var(--dark-green);
-  border: 1px solid var(--accent-green-soft);
+  background: var(--event-soft-green);
+  color: var(--event-dark-green);
+  border: 1px solid var(--event-light-green);
   box-shadow: 0 8px 24px var(--shadow);
   font-weight: 600;
 }
@@ -1368,8 +1391,8 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    var(--dark-green) 40%,
-    var(--dark-green) 60%,
+    var(--event-dark-green) 40%,
+    var(--event-dark-green) 60%,
     transparent 100%
   );
   animation: event-refresh-slide 1.1s linear infinite;
@@ -1411,6 +1434,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 1px 2px var(--shadow);
+  cursor: pointer;
   margin-bottom: 0;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
   /* Tells the browser this card's paint and layout are self-contained,
@@ -1421,7 +1445,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 .event-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 18px var(--shadow);
-  border-color: var(--accent-green-soft);
+  border-color: var(--event-light-green);
 }
 
 .event-banner {
@@ -1431,7 +1455,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   align-items: center;
   justify-content: center;
   color: var(--white);
-  background: linear-gradient(135deg, var(--dark-green), var(--eucalypt));
+  background: linear-gradient(135deg, var(--event-dark-green), var(--event-mint-green));
   overflow: hidden;
 }
 
@@ -1465,27 +1489,40 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
+  line-height: 1;
 }
 
 .event-date {
-  display: inline-block;
-  background-color: var(--accent-green-soft);
-  color: var(--dark-green);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 26px;
+  min-height: 26px;
+  margin: 0;
+  background-color: var(--event-soft-green);
+  color: var(--event-dark-green);
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 700;
+  line-height: 1;
   letter-spacing: 0.02em;
 }
 
 .rsvp-badge {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 26px;
+  min-height: 26px;
+  margin: 0;
   border-radius: 999px;
-  padding: 0.18rem 0.6rem;
+  padding: 0.2rem 0.65rem;
   font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: var(--border-light);
@@ -1493,18 +1530,18 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .rsvp-badge-accepted {
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
+  background: var(--event-soft-green);
+  color: var(--event-dark-green);
 }
 
 .rsvp-badge-tentative {
-  background: rgba(241, 229, 166, 0.55);
-  color: #856404;
+  background: var(--event-soft-yellow);
+  color: var(--event-air-force-blue);
 }
 
 .rsvp-badge-pending {
-  background: rgba(96, 165, 250, 0.18);
-  color: var(--info);
+  background: var(--event-soft-blue);
+  color: var(--event-air-force-blue);
 }
 
 .rsvp-badge-declined {
@@ -1513,8 +1550,8 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .rsvp-badge-waitlisted {
-  background: rgba(113, 163, 153, 0.22);
-  color: var(--eucalypt);
+  background: var(--event-soft-mint);
+  color: var(--event-air-force-blue);
 }
 
 .event-capacity-row {
@@ -1534,21 +1571,21 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .event-capacity-pill--open {
-  background: rgba(40, 167, 69, 0.14);
-  color: #1e7e34;
-  border-color: rgba(40, 167, 69, 0.3);
+  background: var(--event-soft-green);
+  color: var(--event-dark-green);
+  border-color: var(--event-light-green);
 }
 
 .event-capacity-pill--low {
-  background: rgba(255, 193, 7, 0.18);
-  color: #8a6d11;
-  border-color: rgba(255, 193, 7, 0.4);
+  background: var(--event-soft-yellow);
+  color: var(--event-air-force-blue);
+  border-color: rgba(57, 104, 123, 0.28);
 }
 
 .event-capacity-pill--full {
-  background: rgba(220, 53, 69, 0.16);
-  color: var(--danger);
-  border-color: rgba(220, 53, 69, 0.4);
+  background: var(--event-soft-blue);
+  color: var(--event-air-force-blue);
+  border-color: rgba(57, 104, 123, 0.28);
 }
 
 .event-title {
@@ -1616,14 +1653,14 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .event-meta-item i {
-  color: var(--dark-green);
+  color: var(--event-dark-green);
   font-size: 0.78rem;
   width: 12px;
   text-align: center;
 }
 
 .event-link {
-  color: var(--dark-green);
+  color: var(--event-dark-green);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1669,14 +1706,14 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .rsvp-choice:hover:not(:disabled):not(.active) {
-  border-color: var(--dark-green);
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
+  border-color: var(--event-dark-green);
+  background: var(--event-soft-green);
+  color: var(--event-dark-green);
 }
 
 .rsvp-choice.active {
-  border-color: var(--dark-green);
-  background: var(--dark-green);
+  border-color: var(--event-dark-green);
+  background: var(--event-dark-green);
   color: var(--white);
 }
 
@@ -1690,20 +1727,20 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem 0.85rem;
-  border-color: var(--eucalypt);
-  color: var(--eucalypt);
-  background: rgba(113, 163, 153, 0.12);
+  border-color: var(--event-mint-green);
+  color: var(--event-air-force-blue);
+  background: var(--event-soft-mint);
 }
 
 .rsvp-choice-waitlist:hover:not(:disabled):not(.active) {
-  background: rgba(113, 163, 153, 0.22);
-  border-color: var(--eucalypt);
-  color: var(--eucalypt);
+  background: rgba(94, 169, 158, 0.26);
+  border-color: var(--event-mint-green);
+  color: var(--event-air-force-blue);
 }
 
 .rsvp-choice-waitlist.active {
-  background: var(--eucalypt);
-  border-color: var(--eucalypt);
+  background: var(--event-air-force-blue);
+  border-color: var(--event-air-force-blue);
   color: var(--white);
 }
 
@@ -1713,12 +1750,12 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   gap: 0.3rem;
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
-  background: rgba(113, 163, 153, 0.16);
-  color: var(--eucalypt);
+  background: var(--event-soft-mint);
+  color: var(--event-air-force-blue);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  border: 1px solid rgba(113, 163, 153, 0.3);
+  border: 1px solid rgba(94, 169, 158, 0.34);
 }
 
 .event-waitlist-chip i {
@@ -1881,19 +1918,19 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .empty-ring-outer {
-  background: var(--accent-green-soft);
+  background: var(--event-soft-green);
   opacity: 0.45;
 }
 
 .empty-ring-mid {
   inset: 14px;
-  background: var(--accent-green-soft);
+  background: var(--event-light-green);
   opacity: 0.7;
 }
 
 .empty-ring-inner {
   inset: 28px;
-  background: var(--dark-green);
+  background: var(--event-dark-green);
   color: var(--white);
 }
 
@@ -1952,7 +1989,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   align-items: center;
   justify-content: center;
   color: var(--white);
-  background: linear-gradient(135deg, var(--dark-green), var(--eucalypt));
+  background: linear-gradient(135deg, var(--event-dark-green), var(--event-mint-green));
   border-radius: 8px;
   margin-bottom: 1rem;
   overflow: hidden;
@@ -1985,7 +2022,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 
 .detail-meta i,
 .detail-location i {
-  color: var(--dark-green);
+  color: var(--event-dark-green);
 }
 
 .detail-description {
@@ -2007,15 +2044,15 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .detail-pending-callout {
-  border: 1px solid rgba(96, 165, 250, 0.3);
-  background: rgba(96, 165, 250, 0.12);
-  color: var(--info);
+  border: 1px solid rgba(57, 104, 123, 0.28);
+  background: var(--event-soft-blue);
+  color: var(--event-air-force-blue);
 }
 
 .detail-waitlist-callout {
-  border: 1px solid rgba(113, 163, 153, 0.35);
-  background: rgba(113, 163, 153, 0.14);
-  color: var(--eucalypt);
+  border: 1px solid rgba(94, 169, 158, 0.34);
+  background: var(--event-soft-mint);
+  color: var(--event-air-force-blue);
 }
 
 .detail-pending-callout i,
@@ -2139,7 +2176,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 .filter-search-clear:focus-visible,
 .rsvp-choice:focus-visible,
 .event-card:focus-within {
-  outline: 2px solid var(--dark-green);
+  outline: 2px solid var(--event-dark-green);
   outline-offset: 2px;
 }
 
