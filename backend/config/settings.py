@@ -240,6 +240,11 @@ DATABASES = {
         # timeouts; each gunicorn worker keeps one warm connection per request
         # path. Total idle conns ≈ worker_count, well within Burstable caps.
         "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=300, cast=int),
+        # Drop dead connections at the start of each request instead of
+        # raising OperationalError. Pairs with CONN_MAX_AGE — Azure Postgres
+        # idles connections out under load and reconnect-on-demand keeps the
+        # site usable instead of cascading to 500s until the workers restart.
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
