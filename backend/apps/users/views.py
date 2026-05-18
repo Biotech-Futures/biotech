@@ -74,27 +74,29 @@ class PasswordLoginView(APIView):
     def post(self, request):
         email = request.data.get("email")
         password = request.data.get("password")
-        
-        # Clean Code: Guard against Brute-Force
+
+        # Brute-force guard: 5 failed attempts → 5 min lockout per email.
         cache_key = f"pwd_login_attempts:{email}"
         attempts = cache.get(cache_key, 0)
         if attempts >= 5:
             raise TooManyFailedAttempts()
 
+        # Single bcrypt check (was being done twice — once here, once inside
+        # authenticate() — adding ~300ms per login).
         user_obj = User.objects.filter(email=email).first()
-        if user_obj and user_obj.check_password(password):
-            if user_obj.account_status in ['suspended', 'deactivated']:
-                raise AccountInactive()
-
-        user = authenticate(request, username=email, password=password)
-
-        if user is not None:
-            login(request, user) # Initiates Django Session
-            cache.delete(cache_key)
-            return Response(UserSerializer(user).data)
-        else:
-            cache.set(cache_key, attempts + 1, 300) # 5 min lockout
+        if user_obj is None or not user_obj.check_password(password):
+            cache.set(cache_key, attempts + 1, 300)
             raise InvalidCredentials()
+
+        if user_obj.account_status in ['suspended', 'deactivated']:
+            raise AccountInactive()
+
+        # Bypass authenticate()'s second bcrypt by setting the backend manually;
+        # login() only needs to know which auth backend to associate with the session.
+        user_obj.backend = 'django.contrib.auth.backends.ModelBackend'
+        login(request, user_obj)
+        cache.delete(cache_key)
+        return Response(UserSerializer(user_obj).data)
 
 class UserPagePagination(PageNumberPagination):
     page_size = 10

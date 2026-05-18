@@ -58,7 +58,7 @@ import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
-  'You have not been assigned to a group yet. Please contact your mentor.';
+  'Please contact the administrator via info@biotechfutures.org';
 
 // /groups has no id of its own — resolve the user's first group from the
 // store and forward there. Falls back to /dashboard when the user has no

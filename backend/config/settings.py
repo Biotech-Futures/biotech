@@ -235,7 +235,16 @@ DATABASES = {
             "sslmode": "require",
             "connect_timeout": 5,
         },
-        "CONN_MAX_AGE": 0,
+        # Persistent connections — avoids a TLS handshake (100-300ms on Azure
+        # Postgres) on every request. 300s is a safe default below worker idle
+        # timeouts; each gunicorn worker keeps one warm connection per request
+        # path. Total idle conns ≈ worker_count, well within Burstable caps.
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=300, cast=int),
+        # Drop dead connections at the start of each request instead of
+        # raising OperationalError. Pairs with CONN_MAX_AGE — Azure Postgres
+        # idles connections out under load and reconnect-on-demand keeps the
+        # site usable instead of cascading to 500s until the workers restart.
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
