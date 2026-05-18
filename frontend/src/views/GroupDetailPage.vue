@@ -953,7 +953,6 @@
                     <option value="text">Text</option>
                     <option value="attachment">Attachments</option>
                     <option value="resource">Resources</option>
-                    <option value="gif">GIFs</option>
                   </select>
                 </label>
                 <label>
@@ -1278,9 +1277,11 @@
                   </div>
                   <form v-else class="message-edit-form" @submit.prevent="saveMessageEdit(message)">
                     <textarea
+                      ref="editingMessageInputRef"
                       v-model="editingMessageText"
                       class="chat-input-field"
                       rows="2"
+                      @keydown="handleEditKeydown($event, message)"
                     ></textarea>
                     <div class="message-edit-actions">
                       <button
@@ -1399,8 +1400,8 @@
                           <button
                             type="button"
                             class="resource-choice-btn"
-                            title="Open in a new tab"
-                            aria-label="Open"
+                            title="Open resource"
+                            aria-label="Open resource"
                             :disabled="resourceChoiceLoading"
                             @click="openResourceAction(resource, 'open')"
                           >
@@ -1411,7 +1412,7 @@
                             class="resource-choice-btn"
                             title="Download"
                             aria-label="Download"
-                            :disabled="resourceChoiceLoading"
+                            :disabled="resourceChoiceLoading || !canDownloadResource(resource)"
                             @click="openResourceAction(resource, 'download')"
                           >
                             <i class="fas fa-arrow-down"></i>
@@ -1651,76 +1652,6 @@
                   </div>
                 </div>
               </div>
-              <div v-if="supportsGifs && showGifPanel" class="gif-panel">
-                <div class="gif-panel-header">
-                  <input
-                    v-model.trim="gifQuery"
-                    type="text"
-                    class="gif-search-input"
-                    placeholder="Search Tenor GIFs"
-                    aria-label="Search GIFs"
-                    @input="scheduleGifSearch"
-                    @keydown.enter.prevent="searchGifs"
-                  />
-                  <button type="button" class="btn btn-outline btn-sm" @click="searchGifs">
-                    Search
-                  </button>
-                </div>
-                <div v-if="gifError" class="gif-status gif-status--error">
-                  {{ gifError }}
-                  <button type="button" class="message-action-btn" @click="fetchGifResults(gifPanelMode)">Retry</button>
-                </div>
-                <div
-                  v-if="isLoadingGifs && !gifResults.length"
-                  class="gif-grid gif-grid--skeleton"
-                  aria-hidden="true"
-                >
-                  <div v-for="i in 6" :key="`gif-sk-${i}`" class="gif-skeleton skeleton-block"></div>
-                </div>
-                <div
-                  v-else-if="!isLoadingGifs && !gifResults.length && !gifError"
-                  class="gif-status gif-status--empty"
-                >
-                  <i class="far fa-image"></i>
-                  <span>{{ gifQuery.trim() ? `No GIFs found for "${gifQuery}"` : 'No trending GIFs right now.' }}</span>
-                </div>
-                <div
-                  v-else
-                  class="gif-grid"
-                  @scroll="handleGifGridScroll"
-                >
-                  <button
-                    v-for="gif in gifResults"
-                    :key="gif.id"
-                    type="button"
-                    class="gif-card"
-                    :title="gif.title"
-                    @click="sendGifMessage(gif)"
-                  >
-                    <img
-                      :src="gif.previewUrl || gif.url"
-                      :alt="gif.title || 'GIF'"
-                      width="170"
-                      height="170"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </button>
-                </div>
-                <div v-if="gifNextPos && gifResults.length" class="gif-load-more-row">
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-sm"
-                    :disabled="isLoadingMoreGifs"
-                    @click="loadMoreGifs"
-                  >
-                    <i v-if="isLoadingMoreGifs" class="fas fa-circle-notch fa-spin"></i>
-                    {{ isLoadingMoreGifs ? 'Loading…' : 'Load more' }}
-                  </button>
-                </div>
-                <div class="gif-attribution">Powered by Tenor</div>
-              </div>
-
               <div class="chat-input-group">
                 <textarea
                   ref="composer"
@@ -1749,17 +1680,6 @@
                 </div>
                 <div class="chat-actions">
                   <button
-                    class="chat-btn chat-btn--toggle"
-                    type="button"
-                    :class="{ active: showGifPanel }"
-                    :aria-pressed="showGifPanel"
-                    :title="supportsGifs ? (showGifPanel ? 'Close GIF picker' : 'GIF picker') : 'GIF search is not available yet'"
-                    :disabled="!supportsGifs"
-                    @click="toggleGifPanel"
-                  >
-                    <span class="chat-btn-gif-glyph" aria-hidden="true">GIF</span>
-                  </button>
-                  <button
                     class="chat-btn"
                     type="button"
                     title="Attach file"
@@ -1782,7 +1702,7 @@
                   <input
                     ref="fileInputRef"
                     type="file"
-                    accept=".pdf,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                    accept=".pdf,.txt,.csv,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
                     class="hidden-file-input"
                     @change="uploadAttachment"
                   />
@@ -1811,7 +1731,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { fetchResources } from '@/utils/resourcesAPI'
+import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -1829,7 +1749,6 @@ const auth = useAuthStore()
 const groupsStore = useGroupsStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const SIDEBAR_GROUP_READ_EVENT = 'biotech:group-chat-read'
-const supportsGifs = true
 const supportsAttachments = true
 const supportsMessageReactions = true
 const supportsChatClientSocketActions = true
@@ -2028,6 +1947,7 @@ const messages = ref([])
 
 const newMessage = ref('')
 const composer = ref(null)
+const editingMessageInputRef = ref(null)
 const msgList = ref(null)
 const fileInputRef = ref(null)
 const messageSearchInputRef = ref(null)
@@ -2037,18 +1957,8 @@ const isSendingMessage = ref(false)
 const isUploadingFile = ref(false)
 const isUpdatingMessage = ref(false)
 const isDeletingMessageId = ref(null)
-const isLoadingGifs = ref(false)
-const isLoadingMoreGifs = ref(false)
 const chatError = ref('')
 const chatNotice = ref('')
-const gifError = ref('')
-const showGifPanel = ref(false)
-const gifQuery = ref('')
-const gifResults = ref([])
-const gifNextPos = ref(null)
-const gifPanelMode = ref('trending')
-let gifSearchDebounceTimer = null
-const GIF_SEARCH_DEBOUNCE_MS = 300
 const showResourcePanel = ref(false)
 const resourceQuery = ref('')
 const chatResourceOptions = ref([])
@@ -2273,24 +2183,6 @@ const buildMentionReadUrl = (mentionId) =>
 
 const buildMentionMarkAllReadUrl = () =>
   `${API_BASE_URL}/api/v1/chat/mentions/mark-all-read/`
-
-const buildGifSearchUrl = (query, pos = '', limit = 30) => {
-  const params = new URLSearchParams({ q: query })
-  if (pos) params.set('pos', pos)
-  if (limit) params.set('limit', String(limit))
-  return `${API_BASE_URL}/api/v1/chat/gifs/search?${params.toString()}`
-}
-
-const buildGifTrendingUrl = (pos = '', limit = 30) => {
-  const params = new URLSearchParams()
-  if (pos) params.set('pos', pos)
-  if (limit) params.set('limit', String(limit))
-  const qs = params.toString()
-  return `${API_BASE_URL}/api/v1/chat/gifs/trending${qs ? `?${qs}` : ''}`
-}
-
-const buildChatSendGifUrl = (gid) =>
-  `${API_BASE_URL}/api/v1/chat/groups/${gid}/messages/send-gif/`
 
 const buildChatMessageStatusUrl = (gid, messageId) =>
   `${API_BASE_URL}/api/v1/chat/groups/${gid}/messages/${messageId}/status/`
@@ -2518,33 +2410,6 @@ const normalizeReactionMap = (reactions) => {
       })
       .filter(([, data]) => data.count > 0),
   )
-}
-
-const normalizeGifResults = (data) => {
-  const items = extractCollectionItems(data)
-  const normalized = items
-    .map((item, index) => ({
-      id: item?.id || item?.media_id || item?.url || `gif-${index}`,
-      url:
-        item?.gif_url ||
-        item?.url ||
-        item?.media?.gif?.url ||
-        item?.media_formats?.gif?.url ||
-        item?.itemurl ||
-        '',
-      previewUrl:
-        item?.preview_url ||
-        item?.preview ||
-        item?.media_formats?.tinygif?.url ||
-        item?.media_formats?.nanogif?.url ||
-        item?.gif_url ||
-        item?.url ||
-        '',
-      title: item?.title || item?.content_description || 'GIF',
-    }))
-    .filter((item) => item.url)
-
-  return normalized
 }
 
 const loadGroup = async () => {
@@ -3394,22 +3259,66 @@ const downloadAttachment = async (attachment) => {
   }
 }
 
-// Click a resource chip in a chat bubble → prompt the user to either
-// Open (view in a new tab) or Download (force-save). The choice popover
-// fetches the resolved URL lazily from the backend and triggers the right
-// action. ``access`` returns ``external_url`` for link-resources and a
-// signed SAS for managed files; ``download`` always returns a Content-
-// Disposition: attachment stream for managed files.
+// Click a resource chip in a chat bubble → prompt the user to open the
+// resource detail page or download the backing file. The popover fetches
+// access metadata lazily and uses the same download target rules as the
+// Resource detail page, so it never navigates users to the raw access JSON.
 const openResourceChoiceKey = ref(null)
 const resourceChoiceLoading = ref(false)
 const resourceChoiceStatus = ref('')
+const resourceAccessCache = ref(new Map())
 // Same Open/Download/Cancel popover but keyed by ``messageId:attachmentId``.
 const openAttachmentChoiceKey = ref(null)
 const attachmentChoiceLoading = ref(false)
 const attachmentChoiceStatus = ref('')
 
-const toggleResourceChoice = (messageId, resource) => {
-  const rid = resource?.resource_id || resource?.id
+const getResourceId = (resource) => Number(resource?.resource_id || resource?.id || 0)
+
+const getCachedResourceAccess = (resource) => {
+  const id = getResourceId(resource)
+  if (!id) return null
+  return resourceAccessCache.value.get(id) || null
+}
+
+const getResourceDownloadEndpoint = (access) => {
+  if (!access || access.access_mode === 'unavailable') return null
+  return access.download_url || `/resources/resource-files/${access.resource_id}/download/`
+}
+
+const getResourceDownloadTarget = (access) => {
+  if (!access || access.access_mode === 'unavailable') return null
+  const accessMode = access.access_mode || ''
+  const endpoint = getResourceDownloadEndpoint(access)
+
+  if (accessMode === 'managed_file' || accessMode === 'managed_page') {
+    return endpoint ? buildResourceUrl(endpoint) : null
+  }
+
+  if (accessMode === 'external_file') {
+    if (!endpoint) return null
+    const sep = endpoint.includes('?') ? '&' : '?'
+    return buildResourceUrl(`${endpoint}${sep}force=1`)
+  }
+
+  return null
+}
+
+const canDownloadResource = (resource) => Boolean(getResourceDownloadTarget(getCachedResourceAccess(resource)))
+
+const ensureResourceAccess = async (resource) => {
+  const id = getResourceId(resource)
+  if (!id) return null
+  const cached = resourceAccessCache.value.get(id)
+  if (cached) return cached
+  const access = await fetchResourceAccess(id)
+  const nextCache = new Map(resourceAccessCache.value)
+  nextCache.set(id, access)
+  resourceAccessCache.value = nextCache
+  return access
+}
+
+const toggleResourceChoice = async (messageId, resource) => {
+  const rid = getResourceId(resource)
   if (!rid) return
   const key = `${messageId}:${rid}`
   if (openResourceChoiceKey.value === key) {
@@ -3418,6 +3327,19 @@ const toggleResourceChoice = (messageId, resource) => {
   }
   openResourceChoiceKey.value = key
   resourceChoiceStatus.value = ''
+  resourceChoiceLoading.value = true
+  try {
+    const access = await ensureResourceAccess(resource)
+    if (!getResourceDownloadTarget(access)) {
+      resourceChoiceStatus.value = access?.detail || 'This resource cannot be downloaded from chat.'
+    }
+  } catch (error) {
+    resourceChoiceStatus.value = error instanceof Error
+      ? error.message
+      : 'Resource access could not be checked.'
+  } finally {
+    resourceChoiceLoading.value = false
+  }
 }
 
 const closeResourceChoice = () => {
@@ -3481,55 +3403,37 @@ const openAttachmentAction = async (attachment, mode) => {
 }
 
 const openResourceAction = async (resource, mode) => {
-  const id = resource?.resource_id || resource?.id
+  const id = getResourceId(resource)
   if (!id) return
+  if (mode === 'open') {
+    closeResourceChoice()
+    await router.push({ name: 'resource-detail', params: { id } })
+    return
+  }
+
   resourceChoiceLoading.value = true
-  resourceChoiceStatus.value = mode === 'download'
-    ? 'Preparing download…'
-    : 'Opening…'
+  resourceChoiceStatus.value = 'Preparing download…'
   try {
-    const data = await requestJson(`${API_BASE_URL}/resources/resource-files/${id}/access/`)
-    const externalUrl = data?.external_url
-    const downloadUrl = data?.download_url
-    const accessUrl = data?.access_url || downloadUrl
-    if (mode === 'download') {
-      // For managed files the download endpoint already streams the file
-      // with ``Content-Disposition: attachment``. For external link
-      // resources we tack on ``?force=1`` so the backend proxies the upstream
-      // bytes through us with the same header — without it the browser's
-      // ``<a download>`` hint is ignored cross-origin and the file opens
-      // inline instead of saving.
-      let target = downloadUrl || externalUrl || accessUrl
-      if (!target) {
-        resourceChoiceStatus.value = data?.detail || 'This resource has no downloadable file.'
-        resourceChoiceLoading.value = false
-        return
-      }
-      if (downloadUrl) {
-        const sep = downloadUrl.includes('?') ? '&' : '?'
-        target = `${downloadUrl}${sep}force=1`
-      }
-      const a = document.createElement('a')
-      a.href = target
-      a.rel = 'noopener noreferrer'
-      a.download = data?.file_name || ''
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-    } else {
-      const target = externalUrl || accessUrl || downloadUrl
-      if (!target) {
-        resourceChoiceStatus.value = data?.detail || 'This resource cannot be opened.'
-        resourceChoiceLoading.value = false
-        return
-      }
-      window.open(target, '_blank', 'noopener,noreferrer')
+    const access = await ensureResourceAccess(resource)
+    const target = getResourceDownloadTarget(access)
+    if (!target) {
+      resourceChoiceStatus.value = access?.detail || 'This resource cannot be downloaded.'
+      resourceChoiceLoading.value = false
+      return
     }
+
+    const link = document.createElement('a')
+    link.href = target
+    link.rel = 'noopener noreferrer'
+    link.download = access?.file_name || getResourceLabel(resource)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
     closeResourceChoice()
   } catch (error) {
     resourceChoiceStatus.value = error instanceof Error
       ? error.message
-      : 'Resource could not be opened.'
+      : 'Resource could not be downloaded.'
     resourceChoiceLoading.value = false
   }
 }
@@ -3587,7 +3491,7 @@ const getMentionSenderLabel = (mention) => {
 const getMessageTextSegments = (text) => {
   const source = String(text || '')
   const segments = []
-  const pattern = /<@(\d+)>|(?<![\w@])@(here|channel)\b/gi
+  const pattern = /<@(\d+)>|(?<![\w@])@(here|channel|everyone)\b/gi
   let cursor = 0
   let isHidingBroadcastExpansion = false
   let match = pattern.exec(source)
@@ -3603,7 +3507,10 @@ const getMessageTextSegments = (text) => {
     if (match.index > cursor) {
       segments.push({ type: 'text', text: gap })
     }
-    const label = match[1] ? getMentionLabel(match[1]) : String(match[2] || '').toLowerCase()
+    const broadcastLabel = String(match[2] || '').toLowerCase()
+    const label = match[1]
+      ? getMentionLabel(match[1])
+      : (broadcastLabel === 'here' || broadcastLabel === 'channel' ? 'everyone' : broadcastLabel)
     segments.push({ type: 'mention', text: `@${label}` })
     isHidingBroadcastExpansion = Boolean(match[2])
     cursor = match.index + match[0].length
@@ -4004,17 +3911,9 @@ const mentionMembers = computed(() =>
 
 const broadcastMentionOptions = computed(() => [
   {
-    key: 'broadcast-here',
-    token: 'here',
-    label: 'here',
-    role: 'Notify everyone in this group',
-    icon: 'fas fa-bullhorn',
-    isBroadcast: true,
-  },
-  {
-    key: 'broadcast-channel',
-    token: 'channel',
-    label: 'channel',
+    key: 'broadcast-everyone',
+    token: 'everyone',
+    label: 'everyone',
     role: 'Notify everyone in this group',
     icon: 'fas fa-bullhorn',
     isBroadcast: true,
@@ -4436,7 +4335,7 @@ const insertMention = (member) => {
 }
 
 // Convert visible mention tokens to backend ``<@id>`` tokens just before
-// sending. ``@here`` / ``@channel`` remain in the stored text; we append
+// sending. ``@everyone`` remains in the stored text; we append
 // machine-readable user tokens after them so the unchanged backend can still
 // create normal mention rows.
 const resolveComposerMentions = (text) => {
@@ -4450,9 +4349,9 @@ const resolveComposerMentions = (text) => {
     out = out.replace(new RegExp(safe, 'g'), `<@${userId}>`)
   }
 
-  if (/@(here|channel)\b/i.test(out)) {
+  if (/@(everyone|channel)\b/i.test(out)) {
     let didExpandBroadcast = false
-    out = out.replace(/(?<![\w@])@(here|channel)\b/gi, (token) => {
+    out = out.replace(/(?<![\w@])@(everyone|channel)\b/gi, (token) => {
       if (didExpandBroadcast) return token
 
       const alreadyMentioned = new Set(
@@ -4465,7 +4364,7 @@ const resolveComposerMentions = (text) => {
 
       if (!broadcastMentions.length) return token
       didExpandBroadcast = true
-      return `${token} ${broadcastMentions.join(' ')}`
+      return `@everyone ${broadcastMentions.join(' ')}`
     })
   }
 
@@ -4726,8 +4625,10 @@ const scrollMessagesToBottomAfterRender = async () => {
 
 const setReplyTarget = (message) => {
   if (!message || isPendingMessage(message)) return
+  if (editingMessageId.value) cancelMessageEdit()
+  closeAllComposerPanels({ except: null })
   replyTarget.value = message
-  composer.value?.focus()
+  nextTick(() => composer.value?.focus())
 }
 
 const clearReplyTarget = () => {
@@ -4746,14 +4647,35 @@ const canManageMessage = (message) => {
 
 const startMessageEdit = (message) => {
   if (!canManageMessage(message)) return
+  clearReplyTarget()
+  closeAllComposerPanels({ except: null })
   editingMessageId.value = message.id
   editingMessageText.value = message.text || ''
-  nextTick(() => composer.value?.blur())
+  nextTick(() => {
+    composer.value?.blur()
+    const editInput = Array.isArray(editingMessageInputRef.value)
+      ? editingMessageInputRef.value[0]
+      : editingMessageInputRef.value
+    editInput?.focus()
+  })
 }
 
 const cancelMessageEdit = () => {
   editingMessageId.value = null
   editingMessageText.value = ''
+}
+
+const handleEditKeydown = (event, message) => {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelMessageEdit()
+    return
+  }
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault()
+    void saveMessageEdit(message)
+  }
 }
 
 const saveMessageEdit = async (message) => {
@@ -5514,48 +5436,6 @@ const sendMessage = async () => {
   }
 }
 
-const sendGifMessage = async (gif) => {
-  if (!supportsGifs) {
-    gifError.value = 'GIF search is not available in the backend yet.'
-    return
-  }
-  if (!gif?.url || isSendingMessage.value) return
-  const backendGroupId = getBackendGroupId()
-  if (!backendGroupId) {
-    chatError.value = 'Live discussion needs a backend numeric group id.'
-    return
-  }
-  const caption = newMessage.value.trim()
-  const wireCaption = resolveComposerMentions(caption)
-  isSendingMessage.value = true
-  chatError.value = ''
-  gifError.value = ''
-  try {
-    await requestJson(buildChatSendGifUrl(backendGroupId), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        provider: 'tenor',
-        provider_id: String(gif.id ?? ''),
-        gif_url: gif.url,
-        preview_url: gif.previewUrl || '',
-        title: gif.title || '',
-        ...(wireCaption ? { message_text: wireCaption } : {}),
-      }),
-    })
-    pendingComposerMentions.value.clear()
-    newMessage.value = ''
-    showGifPanel.value = false
-    // The WS ``message.created`` broadcast delivers the rendered bubble into
-    // the list — no local upsert needed.
-  } catch (error) {
-    gifError.value = error instanceof Error ? error.message : 'GIF could not be sent.'
-  } finally {
-    isSendingMessage.value = false
-    composer.value?.focus()
-  }
-}
-
 const openFilePicker = () => {
   if (!supportsAttachments) {
     chatError.value = 'File upload is not available in the backend yet.'
@@ -5727,57 +5607,10 @@ const uploadAttachment = async (event) => {
   }
 }
 
-const fetchGifResults = async (mode = 'trending', { append = false } = {}) => {
-  if (!supportsGifs) {
-    gifResults.value = []
-    gifError.value = 'GIF search is not available in the backend yet.'
-    return
-  }
-  gifPanelMode.value = mode
-  if (append) {
-    if (isLoadingMoreGifs.value || !gifNextPos.value) return
-    isLoadingMoreGifs.value = true
-  } else {
-    isLoadingGifs.value = true
-  }
-  gifError.value = ''
-
-  try {
-    const url = mode === 'search'
-      ? buildGifSearchUrl(gifQuery.value.trim(), append ? gifNextPos.value : '')
-      : buildGifTrendingUrl(append ? gifNextPos.value : '')
-    const data = await requestJson(url, { method: 'GET' })
-    const items = normalizeGifResults({ results: data?.items ?? data?.results ?? [] })
-    gifResults.value = append ? [...gifResults.value, ...items] : items
-    gifNextPos.value = data?.next_pos ?? data?.next ?? null
-  } catch {
-    if (!append) gifResults.value = []
-    gifError.value = 'Live GIF search is unavailable right now.'
-  } finally {
-    if (append) isLoadingMoreGifs.value = false
-    else isLoadingGifs.value = false
-  }
-}
-
-const loadMoreGifs = async () => {
-  if (!gifNextPos.value || isLoadingMoreGifs.value) return
-  await fetchGifResults(gifPanelMode.value, { append: true })
-}
-
-const handleGifGridScroll = (event) => {
-  const target = event?.currentTarget
-  if (!target || !gifNextPos.value || isLoadingMoreGifs.value) return
-  const remaining = target.scrollHeight - (target.scrollTop + target.clientHeight)
-  if (remaining < 120) {
-    void loadMoreGifs()
-  }
-}
-
 // Generic helper: only one composer-adjacent panel may be open at a time.
 // Closes the other panels + the message-search / mention-inbox / kebab /
 // reaction picker so they don't all stack on top of each other.
 const closeAllComposerPanels = ({ except } = {}) => {
-  if (except !== 'gif') showGifPanel.value = false
   if (except !== 'resource') showResourcePanel.value = false
   if (except !== 'search') showMessageSearch.value = false
   if (except !== 'mentions') showMentionInbox.value = false
@@ -5789,36 +5622,6 @@ const closeAllComposerPanels = ({ except } = {}) => {
     activeReactionPickerMessageId.value = null
     reactionPickerAnchor.value = null
   }
-}
-
-const toggleGifPanel = async () => {
-  if (!supportsGifs) {
-    gifError.value = 'GIF search is not available in the backend yet.'
-    return
-  }
-  const next = !showGifPanel.value
-  closeAllComposerPanels({ except: next ? 'gif' : null })
-  showGifPanel.value = next
-  if (showGifPanel.value) {
-    gifNextPos.value = null
-    await fetchGifResults('trending')
-  }
-}
-
-const searchGifs = async () => {
-  gifNextPos.value = null
-  if (!gifQuery.value.trim()) {
-    await fetchGifResults('trending')
-    return
-  }
-  await fetchGifResults('search')
-}
-
-const scheduleGifSearch = () => {
-  if (gifSearchDebounceTimer) clearTimeout(gifSearchDebounceTimer)
-  gifSearchDebounceTimer = setTimeout(() => {
-    void searchGifs()
-  }, GIF_SEARCH_DEBOUNCE_MS)
 }
 
 const loadChatResources = async () => {
@@ -6160,7 +5963,6 @@ onBeforeUnmount(() => {
   clearTimeout(typingStopTimer)
   clearTimeout(taskFilterReloadTimer)
   clearTimeout(searchHighlightTimer)
-  clearTimeout(gifSearchDebounceTimer)
   typingUserTimers.forEach((timer) => clearTimeout(timer))
   typingUserTimers.clear()
   if (manageWindowTimer) {
@@ -8559,106 +8361,12 @@ onBeforeUnmount(() => {
   color: #cfe8ff;
 }
 
-.gif-panel {
-  border-top: 1px solid var(--border-default);
-  border-bottom: 1px solid var(--border-default);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 0.85rem;
-}
-
-.gif-panel-header {
-  display: flex;
-  gap: 0.6rem;
-  margin-bottom: 0.8rem;
-}
-
 .gif-search-input {
   flex: 1;
   border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 0.65rem 0.8rem;
   background: rgba(255, 255, 255, 0.9);
-}
-
-.gif-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
-  max-height: 320px;
-  overflow-y: auto;
-  padding-right: 0.25rem;
-}
-
-.gif-grid--skeleton {
-  pointer-events: none;
-}
-
-.gif-card {
-  border: 1px solid var(--border-default);
-  border-radius: 16px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-  cursor: pointer;
-  padding: 0;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-  /* Pause off-screen GIFs in the picker grid. */
-  content-visibility: auto;
-  contain-intrinsic-size: 170px 170px;
-}
-
-.gif-card:hover,
-.gif-card:focus-visible {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-  outline: none;
-}
-
-.gif-card img {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  display: block;
-}
-
-.gif-skeleton {
-  aspect-ratio: 1 / 1;
-  border-radius: 16px;
-}
-
-.gif-status--empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 1.2rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
-.gif-status--empty i {
-  font-size: 1.5rem;
-  opacity: 0.6;
-}
-
-.gif-status--error {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.gif-load-more-row {
-  display: flex;
-  justify-content: center;
-  margin-top: 0.6rem;
-}
-
-.gif-attribution {
-  margin-top: 0.6rem;
-  text-align: right;
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  opacity: 0.75;
 }
 
 .chat-btn:disabled {
@@ -9082,10 +8790,6 @@ onBeforeUnmount(() => {
   .pane--discussion {
     min-height: 520px;
   }
-
-  .gif-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 .group-detail {
   position: relative;
@@ -9488,8 +9192,7 @@ onBeforeUnmount(() => {
   background: #f8f9fa;
 }
 
-.pane--discussion .chat-input,
-.gif-panel {
+.pane--discussion .chat-input {
   background: var(--white);
   border-color: var(--border-light);
 }
@@ -9570,20 +9273,7 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
-/* "GIF" glyph mark — small caps label inside a circular button. Matches the
-   Tenor / iMessage convention better than a generic image icon. */
-.chat-btn-gif-glyph {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  padding: 0.15rem 0.32rem;
-  border: 1.5px solid currentColor;
-  border-radius: 4px;
-  font-family: var(--font-mono, "SFMono-Regular", "Menlo", monospace);
-}
-
-/* Panel-toggle buttons (GIF / Resources) keep an active state while their
+/* Panel-toggle buttons keep an active state while their
    panel is open so the user sees what's currently expanded. */
 .chat-btn--toggle.active {
   background: rgba(31, 122, 63, 0.12);
@@ -9604,8 +9294,7 @@ onBeforeUnmount(() => {
 .message-preview,
 .attachment-chip,
 .reaction-btn,
-.reaction-summary-btn,
-.gif-card {
+.reaction-summary-btn {
   border: 1px solid var(--border-light);
   background: var(--white);
   color: var(--charcoal);
