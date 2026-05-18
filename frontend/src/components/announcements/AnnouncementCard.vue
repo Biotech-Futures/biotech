@@ -2,14 +2,18 @@
   <article
     class="announcement"
     :class="{
-      'announcement--with-media': hasImages,
-      'announcement--expanded': expanded
+      'announcement--with-media': hasImages
     }"
+    role="link"
+    tabindex="0"
+    @click="openDetailsFromCard"
+    @keydown.enter="openDetailsFromCard"
+    @keydown.space="openDetailsFromCard"
   >
     <div v-if="hasImages" class="announcement__media">
       <AnnouncementGallery
         :images="announcement.images"
-        @open="openLightbox"
+        @open="openDetails"
         @image-error="onImageError"
       />
     </div>
@@ -27,7 +31,7 @@
               :datetime="announcement.date || undefined"
               :title="fullDate"
             >
-              {{ relativeDate }}
+              {{ overviewDateTime }}
             </time>
           </div>
         </div>
@@ -50,22 +54,11 @@
 
       <div
         class="announcement__content"
-        :class="{ 'announcement__content--collapsed': isLong && !expanded }"
       >
         <div class="announcement__rich" v-html="announcement.bodyHtml"></div>
       </div>
 
       <div class="announcement__footer">
-        <button
-          v-if="isLong"
-          type="button"
-          class="announcement__toggle"
-          :aria-expanded="expanded"
-          @click="expanded = !expanded"
-        >
-          {{ expanded ? 'Show less' : 'Read more' }}
-        </button>
-
         <div class="announcement__actions">
           <RouterLink
             v-if="announcement.route"
@@ -93,24 +86,17 @@
         </div>
       </div>
     </div>
-
-    <AnnouncementLightbox
-      v-model:open="lightboxOpen"
-      :images="announcement.images"
-      :initial-index="lightboxIndex"
-    />
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
-import AnnouncementLightbox from './AnnouncementLightbox.vue'
 import {
   authorInitial,
   formatFullDate,
-  formatRelativeDate,
+  formatOverviewDateTime,
   getAudienceClass,
   getAudienceLabel,
   type Announcement
@@ -124,20 +110,31 @@ const emit = defineEmits<{
   (e: 'image-error', payload: { id: Announcement['id']; url: string }): void
 }>()
 
-const READ_MORE_THRESHOLD = 320
+const router = useRouter()
 
 const hasImages = computed(() => props.announcement.images.length > 0)
-const isLong = computed(() => props.announcement.bodyText.length > READ_MORE_THRESHOLD)
-const relativeDate = computed(() => formatRelativeDate(props.announcement.date))
+const overviewDateTime = computed(() => formatOverviewDateTime(props.announcement.date))
 const fullDate = computed(() => formatFullDate(props.announcement.date))
 
-const expanded = ref(false)
-const lightboxOpen = ref(false)
-const lightboxIndex = ref(0)
+const detailRoute = computed(() => ({
+  name: 'announcement-detail',
+  params: { id: props.announcement.id }
+}))
 
-const openLightbox = (index: number) => {
-  lightboxIndex.value = index
-  lightboxOpen.value = true
+const openDetails = () => {
+  router.push(detailRoute.value)
+}
+
+const shouldIgnoreCardOpen = (event?: Event) => {
+  const target = event?.target
+  if (!(target instanceof Element)) return false
+  return Boolean(target.closest('a, button, input, select, textarea'))
+}
+
+const openDetailsFromCard = (event: MouseEvent | KeyboardEvent) => {
+  if (shouldIgnoreCardOpen(event)) return
+  event.preventDefault()
+  openDetails()
 }
 
 const onImageError = (url: string) => {
@@ -148,10 +145,12 @@ const onImageError = (url: string) => {
 <style scoped>
 .announcement {
   position: relative;
+  height: 300px;
   background: var(--white);
   border: 1px solid rgba(14, 31, 25, 0.08);
   border-radius: 18px;
   box-shadow: 0 1px 2px rgba(7, 17, 15, 0.03);
+  cursor: pointer;
   overflow: hidden;
   transition:
     transform 0.25s ease,
@@ -165,6 +164,11 @@ const onImageError = (url: string) => {
   box-shadow: 0 18px 40px rgba(7, 17, 15, 0.08);
 }
 
+.announcement:focus-visible {
+  outline: 3px solid rgba(1, 113, 81, 0.22);
+  outline-offset: 3px;
+}
+
 .announcement--with-media {
   display: grid;
   grid-template-columns: minmax(280px, 40%) minmax(0, 1fr);
@@ -175,9 +179,15 @@ const onImageError = (url: string) => {
   min-height: 100%;
 }
 
+.announcement__media :deep(.gallery__item) {
+  cursor: pointer;
+}
+
 .announcement__body {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  height: 100%;
   padding: 1.5rem 1.75rem;
   gap: 1rem;
 }
@@ -245,12 +255,17 @@ const onImageError = (url: string) => {
 }
 
 .announcement__title-link {
+  display: -webkit-box;
   color: var(--charcoal);
   text-decoration: none;
   background-image: linear-gradient(currentColor, currentColor);
   background-size: 0 1px;
   background-repeat: no-repeat;
   background-position: 0 100%;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   transition: background-size 0.25s ease, color 0.2s ease;
 }
 
@@ -262,24 +277,30 @@ const onImageError = (url: string) => {
 }
 
 .announcement__content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   color: var(--charcoal);
   line-height: 1.7;
+  max-height: 6.9em;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 
-.announcement__content--collapsed {
-  position: relative;
-  max-height: 8.4em;
-  overflow: hidden;
-}
-
-.announcement__content--collapsed::after {
+.announcement__content::after {
   content: '';
   position: absolute;
   inset: auto 0 0 0;
-  height: 4em;
+  height: 3em;
   background: linear-gradient(180deg, transparent, var(--white) 80%);
   pointer-events: none;
+}
+
+.announcement__content :deep(img),
+.announcement__content :deep(figure),
+.announcement__content :deep(table),
+.announcement__content :deep(pre) {
+  display: none;
 }
 
 .announcement__rich :deep(*) {
@@ -399,23 +420,6 @@ const onImageError = (url: string) => {
   flex-wrap: wrap;
 }
 
-.announcement__toggle {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 0.35rem 0;
-  color: var(--dark-green);
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.announcement__toggle:hover,
-.announcement__toggle:focus-visible {
-  text-decoration: underline;
-  outline: none;
-}
-
 .announcement__actions {
   display: flex;
   gap: 0.5rem;
@@ -452,6 +456,11 @@ const onImageError = (url: string) => {
 }
 
 @media (max-width: 780px) {
+  .announcement {
+    height: auto;
+    min-height: 300px;
+  }
+
   .announcement--with-media {
     grid-template-columns: 1fr;
   }
