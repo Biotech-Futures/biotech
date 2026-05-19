@@ -404,6 +404,65 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('filename="redacted.pdf"', response["Content-Disposition"])
 
+    def test_managed_pdf_download_supports_inline_query_param(self):
+        # ``?inline=1`` flips Content-Disposition to ``inline`` so the
+        # frontend can window.open the URL and let the browser render the
+        # PDF in its built-in viewer instead of forcing a save.
+        _, resource = self._create_resource(
+            user=self.global_admin,
+            name="Inline Preview Guide",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+
+        default_response = self.client.get(
+            reverse("resource-files-download", kwargs={"pk": resource.id})
+        )
+        self.assertEqual(default_response.status_code, status.HTTP_200_OK)
+        self.assertIn("attachment;", default_response["Content-Disposition"])
+
+        inline_response = self.client.get(
+            reverse("resource-files-download", kwargs={"pk": resource.id}),
+            {"inline": "1"},
+        )
+        self.assertEqual(inline_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(inline_response["Content-Type"], "application/pdf")
+        self.assertTrue(
+            inline_response["Content-Disposition"].startswith("inline;"),
+            msg=inline_response["Content-Disposition"],
+        )
+        self.assertNotIn("attachment", inline_response["Content-Disposition"])
+        self.assertEqual(
+            b"".join(inline_response.streaming_content),
+            b"program guide payload",
+        )
+
+    def test_managed_pdf_download_accepts_truthy_inline_values(self):
+        # The query param is normalised against the same truthy set as the
+        # chat attachment endpoint (1/true/yes) so the two surfaces stay in
+        # lock-step for the frontend.
+        _, resource = self._create_resource(
+            user=self.global_admin,
+            name="Inline Preview Truthy",
+            visibility_scope=Resources.VisibilityScope.TRACK,
+            track=self.primary_track,
+        )
+
+        self.client.force_authenticate(user=self.global_admin)
+        for value in ("1", "true", "TRUE", "yes"):
+            response = self.client.get(
+                reverse("resource-files-download", kwargs={"pk": resource.id}),
+                {"inline": value},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(
+                response["Content-Disposition"].startswith("inline;"),
+                msg=f"inline={value!r} did not produce inline disposition: "
+                f"{response['Content-Disposition']!r}",
+            )
+
     def test_external_http_resource_download_is_blocked(self):
         resource = Resources.objects.create(
             name="Legacy External Guide",
