@@ -132,7 +132,7 @@
                   {{ interest }}
                 </span>
               </span>
-              <span v-else>{{ user.student.interestsFallback }}</span>
+              <span v-else>{{ unsetLabel }}</span>
             </span>
           </div>
           <div class="profile-field">
@@ -151,14 +151,6 @@
               </a>
               <span v-else>{{ user.student.supervisorEmail }}</span>
             </span>
-          </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Parent/Guardian:</span>
-            <span class="profile-field-value">{{ user.student.guardianName }}</span>
-          </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Join Permission:</span>
-            <span class="profile-field-value">{{ user.student.joinPermission }}</span>
           </div>
         </div>
 
@@ -225,6 +217,7 @@ const timezoneSaving = ref(false)
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
 const trackById = ref(new Map())
+const unsetLabel = 'Not set'
 let statusMessageTimer = null
 const commonTimeZones = [
   'UTC',
@@ -349,9 +342,8 @@ const user = computed(() => {
   const roleName = String(source?.current_role_name || auth.roleLabel || 'Member').trim()
   const roleKey = normaliseRole(roleName)
   const trackId = Number(source?.track)
-  const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
   const interests = listOrEmpty(source?.interests)
-  const supervisorEmail = valueOrFallback(source?.supervisor_email)
+  const supervisorEmail = valueOrFallback(source?.supervisor_email, unsetLabel)
   const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
   const supervisedStudents = Array.isArray(source?.supervised_students)
     ? source.supervised_students.map((student) => {
@@ -364,13 +356,7 @@ const user = computed(() => {
       }
     })
     : []
-  const hasStudentDetails = roleKey === 'student' && ([
-    source?.school_name,
-    source?.year_lvl,
-    guardianName,
-    source?.supervisor_name,
-    source?.supervisor_email
-  ].some(Boolean) || source?.join_perm != null || interests.length > 0)
+  const hasStudentDetails = roleKey === 'student'
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
 
@@ -382,15 +368,12 @@ const user = computed(() => {
     track: trackById.value.get(trackId) || (source?.track ? `Track ${source.track}` : 'Unassigned'),
     student: {
       hasDetails: hasStudentDetails,
-      schoolName: valueOrFallback(source?.school_name),
-      yearLevel: valueOrFallback(source?.year_lvl),
+      schoolName: valueOrFallback(source?.school_name, unsetLabel),
+      yearLevel: valueOrFallback(source?.year_lvl, unsetLabel),
       interests,
-      interestsFallback: 'Not provided',
-      supervisorName: valueOrFallback(source?.supervisor_name),
+      supervisorName: valueOrFallback(source?.supervisor_name, unsetLabel),
       supervisorEmail,
-      supervisorEmailAddress,
-      guardianName: valueOrFallback(guardianName),
-      joinPermission: source?.join_perm === true ? 'Granted' : source?.join_perm === false ? 'Not granted' : 'Not provided'
+      supervisorEmailAddress
     },
     mentor: {
       hasDetails: hasMentorDetails,
