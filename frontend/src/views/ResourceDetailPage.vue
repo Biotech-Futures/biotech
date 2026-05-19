@@ -24,6 +24,16 @@
           </div>
           <h1>{{ resource.name }}</h1>
           <p class="detail-description">{{ resource.description }}</p>
+          <dl v-if="!isPageResource" class="detail-file-facts" aria-label="File details">
+            <div>
+              <dt>File type</dt>
+              <dd>{{ fileTypeLabel }}</dd>
+            </div>
+            <div>
+              <dt>File size</dt>
+              <dd>{{ fileSizeLabel }}</dd>
+            </div>
+          </dl>
           <div v-if="resource.labels?.length" class="label-list">
             <span v-for="label in resource.labels" :key="label.id" class="label-chip">
               {{ label.name }}
@@ -47,15 +57,6 @@
         <article class="preview-panel">
           <div class="preview-header">
             <h2>Preview</h2>
-            <a
-              v-if="openTarget"
-              class="btn btn-outline btn-sm"
-              :href="openTarget"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <i class="fas fa-external-link-alt" aria-hidden="true"></i> Open
-            </a>
           </div>
 
           <div v-if="previewLoading" class="preview-empty">
@@ -143,44 +144,6 @@
             </button>
           </div>
         </article>
-
-        <aside class="metadata-panel card">
-          <h2>Details</h2>
-          <dl class="metadata-list">
-            <div>
-              <dt>File name</dt>
-              <dd>{{ access?.file_name || resource.file_name || resource.name }}</dd>
-            </div>
-            <div>
-              <dt>Kind</dt>
-              <dd>{{ resourceKindLabel }}</dd>
-            </div>
-            <div>
-              <dt>Type</dt>
-              <dd>{{ resourceTypeLabel }}</dd>
-            </div>
-            <div>
-              <dt>Modified</dt>
-              <dd>{{ formatDateTime(resource.uploaded_at) }}</dd>
-            </div>
-            <div>
-              <dt>Uploaded by</dt>
-              <dd>{{ resource.uploader_name || 'Unknown' }}</dd>
-            </div>
-            <div>
-              <dt>Size</dt>
-              <dd>{{ formatFileSize(access?.file_size || resource.file_size) }}</dd>
-            </div>
-            <div>
-              <dt>MIME type</dt>
-              <dd>{{ access?.file_mime_type || resource.file_mime_type || 'Unknown' }}</dd>
-            </div>
-            <div>
-              <dt>Storage</dt>
-              <dd>{{ storageLabel }}</dd>
-            </div>
-          </dl>
-        </aside>
       </section>
     </template>
   </div>
@@ -194,8 +157,7 @@ import {
   fetchResource,
   fetchResourceAccess,
   type Resource,
-  type ResourceAccess,
-  type ResourceKind
+  type ResourceAccess
 } from '../utils/resourcesAPI'
 
 type PreviewMode = 'none' | 'html' | 'frame' | 'image' | 'video' | 'audio' | 'text'
@@ -233,23 +195,17 @@ const resourceTypeLabel = computed(() =>
   formatTypeName(resource.value?.type_name || resource.value?.resource_type_detail?.type_name),
 )
 
-const resourceKindLabel = computed(() =>
-  getResourceKindLabel(resource.value?.kind || access.value?.kind || 'file'),
-)
-
 const isPageResource = computed(() =>
   (resource.value?.kind || access.value?.kind || '').toLowerCase() === 'page',
 )
 
-const storageLabel = computed(() => {
-  const value = access.value?.storage_status || resource.value?.storage_status
-  const labels: Record<string, string> = {
-    managed_key: 'Managed storage',
-    external_url: 'External URL',
-    unavailable: 'Unavailable'
-  }
-  return value ? labels[value] || formatTypeName(value) : 'Unknown'
-})
+const fileTypeLabel = computed(() =>
+  access.value?.file_mime_type || resource.value?.file_mime_type || resourceTypeLabel.value,
+)
+
+const fileSizeLabel = computed(() =>
+  formatFileSize(access.value?.file_size || resource.value?.file_size),
+)
 
 const accessMode = computed<ResourceAccessMode | ''>(() => access.value?.access_mode || '')
 
@@ -285,15 +241,6 @@ const downloadTarget = computed(() => {
   return null
 })
 
-const openTarget = computed(() => {
-  if (!access.value || accessError.value) return null
-  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
-    return resourceDownloadEndpoint.value ? buildResourceUrl(resourceDownloadEndpoint.value) : null
-  }
-  if (accessMode.value !== 'external_page' && accessMode.value !== 'external_file') return null
-  return access.value.external_url ? buildResourceUrl(access.value.external_url) : null
-})
-
 const isTextLike = computed(() => {
   const mime = mimeType.value
   return mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('csv')
@@ -303,6 +250,22 @@ const canFrameMime = computed(() => {
   const mime = mimeType.value
   return mime.includes('pdf') || mime === 'text/html'
 })
+
+const preparePdfBlobPreview = async (target: string): Promise<void> => {
+  const response = await fetch(buildResourceUrl(target), {
+    credentials: 'include',
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  const blob = await response.blob()
+  const pdfBlob = blob.type.includes('pdf') ? blob : new Blob([blob], { type: 'application/pdf' })
+  objectUrl = window.URL.createObjectURL(pdfBlob)
+  previewUrl.value = objectUrl
+  previewMode.value = 'frame'
+}
 
 const clearPreview = (): void => {
   if (objectUrl) {
@@ -367,6 +330,16 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
+  if (mimeType.value.includes('pdf')) {
+    try {
+      await preparePdfBlobPreview(target)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      previewError.value = `PDF preview could not be loaded: ${message}`
+    }
+    return
+  }
+
   previewError.value = 'Open or download this file to view it.'
 }
 
@@ -420,19 +393,6 @@ const downloadResource = (): void => {
   link.remove()
 }
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return 'Unknown'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Unknown'
-  return date.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
 const formatTypeName = (value?: string | null): string => {
   if (!value) return 'Resource'
   return value
@@ -440,15 +400,6 @@ const formatTypeName = (value?: string | null): string => {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
-}
-
-const getResourceKindLabel = (kind: ResourceKind): string => {
-  const labels: Record<string, string> = {
-    file: 'File',
-    page: 'Page',
-    attachment: 'Attachment'
-  }
-  return labels[kind] || formatTypeName(kind)
 }
 
 const formatFileSize = (value?: number | null): string => {
@@ -514,6 +465,32 @@ onBeforeUnmount(clearPreview)
   max-width: 760px;
 }
 
+.detail-file-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0 0 0.85rem;
+}
+
+.detail-file-facts div {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.detail-file-facts dt {
+  color: var(--dark-green);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.detail-file-facts dd {
+  color: var(--charcoal);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
 .detail-warning {
   background: #fff3cd;
   border: 1px solid rgba(133, 100, 4, 0.2);
@@ -525,10 +502,7 @@ onBeforeUnmount(clearPreview)
 }
 
 .detail-layout {
-  align-items: start;
-  display: grid;
-  gap: 1.25rem;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  display: block;
 }
 
 .preview-panel {
@@ -547,8 +521,7 @@ onBeforeUnmount(clearPreview)
   padding: 1rem 1.25rem;
 }
 
-.preview-header h2,
-.metadata-panel h2 {
+.preview-header h2 {
   font-size: 1.25rem;
   margin: 0;
 }
@@ -717,40 +690,6 @@ onBeforeUnmount(clearPreview)
   font-size: 2rem;
 }
 
-.metadata-panel {
-  margin: 0;
-}
-
-.metadata-list {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.metadata-list div {
-  border-bottom: 1px solid var(--border-light);
-  padding-bottom: 0.85rem;
-}
-
-.metadata-list div:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.metadata-list dt {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin-bottom: 0.25rem;
-  text-transform: uppercase;
-}
-
-.metadata-list dd {
-  color: var(--charcoal);
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 .label-list {
   display: flex;
   flex-wrap: wrap;
@@ -771,14 +710,6 @@ onBeforeUnmount(clearPreview)
 @media (max-width: 1000px) {
   .detail-header {
     flex-direction: column;
-  }
-
-  .detail-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .metadata-panel {
-    order: -1;
   }
 
   .resource-page-body {
