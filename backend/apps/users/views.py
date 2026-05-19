@@ -68,7 +68,9 @@ class PasswordLoginView(APIView):
 
         # Bypass authenticate()'s second bcrypt by setting the backend manually;
         # login() only needs to know which auth backend to associate with the session.
-        user_obj.backend = 'django.contrib.auth.backends.ModelBackend'
+        # Path must match AUTHENTICATION_BACKENDS so the session resolves
+        # back to a real backend on subsequent requests.
+        user_obj.backend = 'apps.users.backends.CachedModelBackend'
         login(request, user_obj)
         cache.delete(cache_key)
         return Response(UserSerializer(user_obj).data)
