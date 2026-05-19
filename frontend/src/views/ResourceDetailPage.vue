@@ -84,6 +84,13 @@
             </button>
           </div>
 
+          <article
+            v-else-if="previewMode === 'html' && isPageResource"
+            class="resource-page-preview"
+          >
+            <div class="resource-page-body announcement-rich" v-html="htmlPreview"></div>
+          </article>
+
           <iframe
             v-else-if="previewMode === 'html'"
             class="preview-frame"
@@ -228,6 +235,10 @@ const resourceTypeLabel = computed(() =>
 
 const resourceKindLabel = computed(() =>
   getResourceKindLabel(resource.value?.kind || access.value?.kind || 'file'),
+)
+
+const isPageResource = computed(() =>
+  (resource.value?.kind || access.value?.kind || '').toLowerCase() === 'page',
 )
 
 const storageLabel = computed(() => {
@@ -582,6 +593,113 @@ onBeforeUnmount(clearPreview)
   white-space: pre-wrap;
 }
 
+.resource-page-preview {
+  background: var(--white);
+  color: var(--charcoal);
+}
+
+.resource-page-body {
+  font-size: 1rem;
+  line-height: 1.75;
+  padding: 1.75rem 2.25rem;
+}
+
+.announcement-rich :deep(*) {
+  max-width: 100%;
+}
+
+.announcement-rich :deep(p),
+.announcement-rich :deep(ul),
+.announcement-rich :deep(ol),
+.announcement-rich :deep(blockquote),
+.announcement-rich :deep(pre),
+.announcement-rich :deep(table),
+.announcement-rich :deep(figure) {
+  margin: 0 0 1rem;
+}
+
+.announcement-rich :deep(h1),
+.announcement-rich :deep(h2),
+.announcement-rich :deep(h3),
+.announcement-rich :deep(h4),
+.announcement-rich :deep(h5),
+.announcement-rich :deep(h6) {
+  color: var(--dark-green);
+  line-height: 1.25;
+  margin: 1.25rem 0 0.55rem;
+}
+
+.announcement-rich :deep(h1:first-child),
+.announcement-rich :deep(h2:first-child),
+.announcement-rich :deep(h3:first-child),
+.announcement-rich :deep(h4:first-child),
+.announcement-rich :deep(h5:first-child),
+.announcement-rich :deep(h6:first-child) {
+  margin-top: 0;
+}
+
+.announcement-rich :deep(ul),
+.announcement-rich :deep(ol) {
+  padding-left: 1.4rem;
+}
+
+.announcement-rich :deep(a) {
+  color: var(--dark-green);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.announcement-rich :deep(blockquote) {
+  background: rgba(1, 113, 81, 0.06);
+  border-left: 3px solid var(--dark-green);
+  border-radius: 0 10px 10px 0;
+  padding: 0.85rem 1.1rem;
+}
+
+.announcement-rich :deep(pre) {
+  background: #f5f7f8;
+  border-radius: 10px;
+  overflow-x: auto;
+  padding: 0.95rem 1.1rem;
+}
+
+.announcement-rich :deep(code) {
+  background: #f5f7f8;
+  border-radius: 4px;
+  font-size: 0.92em;
+  padding: 0.1rem 0.3rem;
+}
+
+.announcement-rich :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.announcement-rich :deep(img) {
+  background: var(--light-green);
+  border-radius: 10px;
+  display: block;
+  height: auto;
+  max-height: 480px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.announcement-rich :deep(table) {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.announcement-rich :deep(th),
+.announcement-rich :deep(td) {
+  border: 1px solid rgba(1, 113, 81, 0.14);
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+}
+
 .preview-empty {
   align-items: center;
   color: var(--text-muted);
@@ -661,6 +779,10 @@ onBeforeUnmount(clearPreview)
 
   .metadata-panel {
     order: -1;
+  }
+
+  .resource-page-body {
+    padding: 1.25rem;
   }
 }
 </style>

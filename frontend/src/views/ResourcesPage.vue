@@ -99,7 +99,7 @@
           <button @click="loadResources" class="btn btn-primary">Retry</button>
         </div>
 
-        <div v-else-if="resources.length === 0" class="card resource-state">
+        <div v-else-if="resources.length === 0" class="card resource-state resource-empty-state">
           <h3>No resources found</h3>
           <p>Try changing your search or filters.</p>
         </div>
@@ -430,6 +430,22 @@ onMounted(() => {
   align-items: center;
   display: flex;
   gap: 0.75rem;
+}
+
+.resource-empty-state {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.resource-empty-state h3,
+.resource-empty-state p {
+  margin: 0;
+}
+
+.resource-empty-state p {
+  color: var(--text-muted);
 }
 
 .resource-state-error {
