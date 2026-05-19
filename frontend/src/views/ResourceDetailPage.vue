@@ -68,12 +68,12 @@
             <i class="fas fa-file-download" aria-hidden="true"></i>
             <p>{{ previewError }}</p>
             <button
-              v-if="downloadTarget"
+              v-if="isPdfResource ? pdfPreviewTarget : downloadTarget"
               type="button"
               class="btn btn-primary"
-              @click="downloadResource"
+              @click="isPdfResource ? previewPdfResource() : downloadResource()"
             >
-              Download file
+              {{ isPdfResource ? 'Preview' : 'Download file' }}
             </button>
             <button
               v-if="accessError"
@@ -199,6 +199,8 @@ const isPageResource = computed(() =>
   (resource.value?.kind || access.value?.kind || '').toLowerCase() === 'page',
 )
 
+const isPdfResource = computed(() => mimeType.value.includes('pdf'))
+
 const fileTypeLabel = computed(() =>
   access.value?.file_mime_type || resource.value?.file_mime_type || resourceTypeLabel.value,
 )
@@ -241,6 +243,14 @@ const downloadTarget = computed(() => {
   return null
 })
 
+const pdfPreviewTarget = computed(() => {
+  if (!access.value || accessError.value || !isPdfResource.value) return null
+  if ((accessMode.value === 'external_file' || accessMode.value === 'external_page') && access.value.external_url) {
+    return buildResourceUrl(access.value.external_url)
+  }
+  return resourceDownloadEndpoint.value ? buildResourceUrl(resourceDownloadEndpoint.value) : null
+})
+
 const isTextLike = computed(() => {
   const mime = mimeType.value
   return mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('csv')
@@ -248,24 +258,8 @@ const isTextLike = computed(() => {
 
 const canFrameMime = computed(() => {
   const mime = mimeType.value
-  return mime.includes('pdf') || mime === 'text/html'
+  return mime === 'text/html'
 })
-
-const preparePdfBlobPreview = async (target: string): Promise<void> => {
-  const response = await fetch(buildResourceUrl(target), {
-    credentials: 'include',
-  })
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-  }
-
-  const blob = await response.blob()
-  const pdfBlob = blob.type.includes('pdf') ? blob : new Blob([blob], { type: 'application/pdf' })
-  objectUrl = window.URL.createObjectURL(pdfBlob)
-  previewUrl.value = objectUrl
-  previewMode.value = 'frame'
-}
 
 const clearPreview = (): void => {
   if (objectUrl) {
@@ -310,6 +304,10 @@ const preparePreview = async (): Promise<void> => {
   }
 
   if (accessMode.value === 'external_file' && access.value.external_url) {
+    if (isPdfResource.value) {
+      previewError.value = 'Preview this PDF in a new window.'
+      return
+    }
     previewUrl.value = buildResourceUrl(access.value.external_url)
     if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
     else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
@@ -330,13 +328,8 @@ const preparePreview = async (): Promise<void> => {
     return
   }
 
-  if (mimeType.value.includes('pdf')) {
-    try {
-      await preparePdfBlobPreview(target)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      previewError.value = `PDF preview could not be loaded: ${message}`
-    }
+  if (isPdfResource.value) {
+    previewError.value = 'Preview this PDF in a new window.'
     return
   }
 
@@ -391,6 +384,11 @@ const downloadResource = (): void => {
   document.body.appendChild(link)
   link.click()
   link.remove()
+}
+
+const previewPdfResource = (): void => {
+  if (!pdfPreviewTarget.value) return
+  window.open(pdfPreviewTarget.value, '_blank', 'noopener,noreferrer')
 }
 
 const formatTypeName = (value?: string | null): string => {
