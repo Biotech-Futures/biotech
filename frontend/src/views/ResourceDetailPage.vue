@@ -388,12 +388,10 @@ const downloadResource = (): void => {
 
 const previewPdfResource = (): void => {
   if (!pdfPreviewTarget.value || !resource.value) return
-  const previewWindow = window.open('', '_blank', 'noopener,noreferrer')
-  if (!previewWindow) return
 
   const safeTitle = escapeHtml(resource.value.name || 'PDF preview')
   const safeUrl = escapeHtml(pdfPreviewTarget.value)
-  previewWindow.document.write(`
+  const previewHtml = `
     <!doctype html>
     <html lang="en">
       <head>
@@ -460,8 +458,16 @@ const previewPdfResource = (): void => {
         </main>
       </body>
     </html>
-  `)
-  previewWindow.document.close()
+  `
+  const previewPageUrl = window.URL.createObjectURL(
+    new Blob([previewHtml], { type: 'text/html' }),
+  )
+  const previewWindow = window.open(previewPageUrl, '_blank', 'noopener,noreferrer')
+  if (!previewWindow) {
+    window.URL.revokeObjectURL(previewPageUrl)
+    return
+  }
+  window.setTimeout(() => window.URL.revokeObjectURL(previewPageUrl), 60_000)
 }
 
 const escapeHtml = (value: string): string =>
