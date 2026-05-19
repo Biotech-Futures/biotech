@@ -248,7 +248,12 @@ const pdfPreviewTarget = computed(() => {
   if ((accessMode.value === 'external_file' || accessMode.value === 'external_page') && access.value.external_url) {
     return buildResourceUrl(access.value.external_url)
   }
-  return resourceDownloadEndpoint.value ? buildResourceUrl(resourceDownloadEndpoint.value) : null
+  const target = resourceDownloadEndpoint.value
+  if (!target) return null
+  // ``?inline=1`` tells the backend to return ``Content-Disposition: inline``
+  // so window.open renders the PDF in the browser instead of forcing a save.
+  const separator = target.includes('?') ? '&' : '?'
+  return buildResourceUrl(`${target}${separator}inline=1`)
 })
 
 const isTextLike = computed(() => {
