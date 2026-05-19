@@ -363,6 +363,16 @@ SESSION_COOKIE_SAMESITE = 'None'
 SESSION_COOKIE_DOMAIN = None
 SESSION_SAVE_EVERY_REQUEST = False
 
+# Cached auth backend skips the User.objects.get() in
+# AuthenticationMiddleware on every request — see apps/users/backends.py.
+# Sessions stay on the DB backend because the password-reset flow scans
+# django_session to revoke all of a user's sessions; moving sessions to
+# Redis would silently break that security guarantee. Revisit once we
+# have a Redis-aware session-flush helper.
+AUTHENTICATION_BACKENDS = [
+    "apps.users.backends.CachedModelBackend",
+]
+
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_SECURE = True
