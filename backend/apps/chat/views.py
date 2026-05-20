@@ -20,7 +20,6 @@ from .management.permissions import (
 from .rbac import can_access_chat_group
 from .models import (
     MessageAttachment,
-    MessageGif,
     MessageMention,
     MessagePreview,
     MessageReaction,
@@ -32,13 +31,11 @@ from .og_extractor import extract_urls
 from .serializers import (
     MentionSerializer,
     MessageAttachmentUploadSerializer,
-    MessageGifCreateSerializer,
     MessagePublicSerializer,
     MessageSerializer,
     MessageUpdateSerializer,
     aggregate_reactions,
 )
-from .services.gifs import cached_fetch, clamp_limit, clamp_pos, clamp_query
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
@@ -189,15 +186,18 @@ def serialize_message_for_broadcast(message, context=None):
         data["deleted_by_is_admin"] = public.get("deleted_by_is_admin", False)
     data["attachments"] = public.get("attachments", [])
     data["preview"] = public.get("preview")
-    data["gif"] = public.get("gif")
     return data
 
 
 def apply_mentions(message) -> list[int]:
-    """Parse ``<@N>`` tokens in ``message.message_text``, filter to
-    active members of the message's group (excluding the sender), insert
-    any new ``MessageMention`` rows, and broadcast ``mention.created`` to
-    each newly mentioned user.
+    """Parse ``<@N>`` and ``@everyone`` tokens in ``message.message_text``,
+    filter to active members of the message's group (excluding the sender),
+    insert any new ``MessageMention`` rows, and broadcast
+    ``mention.created`` to each newly mentioned user.
+
+    ``@everyone`` resolves to the message's current active membership at
+    broadcast time. Members who join the group later are not retroactively
+    notified — same semantics as Slack/Discord.
 
     Idempotent: re-running on an edited message that re-mentions the
     same user does *not* duplicate rows (unique_together) and does not
@@ -208,22 +208,32 @@ def apply_mentions(message) -> list[int]:
     Returns the list of user IDs that received a new mention row (for
     test introspection).
     """
-    candidate_ids = parse_mentions(message.message_text or "")
-    if not candidate_ids:
+    candidate_ids, has_everyone = parse_mentions(message.message_text or "")
+    if not candidate_ids and not has_everyone:
         return []
     # Drop self-mentions and any IDs outside the current active group
     # membership. The DB filter is the source of truth — never trust a
     # client-supplied ID list.
     candidate_ids.discard(message.sender_user_id)
-    valid_ids = set(
-        GroupMembership.objects
-        .filter(
-            group_id=message.group_id,
-            user_id__in=candidate_ids,
-            left_at__isnull=True,
+    if has_everyone:
+        # ``@everyone`` subsumes any individual mentions in the same
+        # message: one row per active group member, sender excluded.
+        valid_ids = set(
+            GroupMembership.objects
+            .filter(group_id=message.group_id, left_at__isnull=True)
+            .exclude(user_id=message.sender_user_id)
+            .values_list("user_id", flat=True)
         )
-        .values_list("user_id", flat=True)
-    )
+    else:
+        valid_ids = set(
+            GroupMembership.objects
+            .filter(
+                group_id=message.group_id,
+                user_id__in=candidate_ids,
+                left_at__isnull=True,
+            )
+            .values_list("user_id", flat=True)
+        )
     if not valid_ids:
         return []
 
@@ -338,7 +348,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             # Edit and delete share the same window-bounded RBAC rule, but the
             # permission classes stay split so view wiring expresses intent.
             return [IsAuthenticated(), CanEditMessage()]
-        if self.action in {"upload", "attachment_download", "send_gif"}:
+        if self.action in {"upload", "attachment_download"}:
             return [IsAuthenticated()]
         if self.action in {"read", "delivered", "react", "message_status"}:
             return [IsAuthenticated(), IsGroupMemberOrAdmin()]
@@ -347,8 +357,6 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == "upload":
             return MessageAttachmentUploadSerializer
-        if self.action == "send_gif":
-            return MessageGifCreateSerializer
         if self.action == "partial_update":
             return MessageUpdateSerializer
         if self.action == "retrieve":
@@ -366,7 +374,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         base_qs = Messages.objects.all() if include_deleted else Messages.objects.filter(deleted_at__isnull=True)
         return (
             base_qs
-            .select_related("sender_user", "deleted_by", "reply_to", "preview", "gif")
+            .select_related("sender_user", "deleted_by", "reply_to", "preview")
             .prefetch_related(
                 "attachments",
                 "resources__resource",
@@ -446,7 +454,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             user_id = getattr(user_id, "id", None)
             try:
                 message = (
-                    Messages.objects.select_related("sender_user", "deleted_by", "reply_to", "preview", "gif")
+                    Messages.objects.select_related("sender_user", "deleted_by", "reply_to", "preview")
                     .prefetch_related(
                         "attachments",
                         "resources__resource",
@@ -582,8 +590,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         gid = self.kwargs.get("group_pk")
         q = (request.query_params.get("q") or "").strip()
         # Filters are optional refinements; a search with only filters and
-        # no ``q`` is still useful ("all GIFs from last week") so we don't
-        # short-circuit on an empty q anymore — the filters can stand alone.
+        # no ``q`` is still useful (e.g. "all attachments from last week")
+        # so we don't short-circuit on an empty q — filters stand alone.
         filter_type = (request.query_params.get("type") or "").strip().lower()
         filter_from = (request.query_params.get("from") or "").strip()
         filter_to = (request.query_params.get("to") or "").strip()
@@ -595,10 +603,8 @@ class MessageViewSet(viewsets.ModelViewSet):
         if q:
             qs = qs.filter(message_text__icontains=q)
 
-        # ``text`` / ``gif`` map directly to ``message_type``. ``attachment``
-        # and ``resource`` are stored as ``message_type='attachment'`` /
-        # ``'resource'`` already, so the same column filter covers them.
-        if filter_type in {"text", "attachment", "resource", "gif"}:
+        # All filterable types map directly to ``message_type``.
+        if filter_type in {"text", "attachment", "resource"}:
             qs = qs.filter(message_type=filter_type)
 
         # Date filters are inclusive whole-day windows in the server's TZ.
@@ -917,58 +923,6 @@ class MessageViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["post"], url_path="send-gif")
-    def send_gif(self, request, *args, **kwargs):
-        """Create a ``message_type=GIF`` message + sidecar in one transaction.
-
-        The Tenor URL is stored verbatim — we trust the provider URL we
-        already proxied. Captions still flow through ``sanitize_text`` via
-        :class:`MessageGifCreateSerializer.validate_message_text`, so a GIF
-        send can't bypass the chat moderation filter.
-
-        Broadcast and unfurl semantics mirror ``perform_create`` so the FE
-        renders a GIF bubble the same way it renders a text one.
-        """
-        group = self._get_group()
-        if group is None:
-            return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
-        if not can_access_chat_group(request.user, group):
-            return Response(
-                {"detail": "You do not have access to this group."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        serializer = MessageGifCreateSerializer(data=request.data, context=self.get_serializer_context())
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-        gid = group.id
-
-        with transaction.atomic():
-            message = Messages.objects.create(
-                sender_user=request.user,
-                group_id=gid,
-                message_type=MessageType.GIF,
-                message_text=data.get("message_text", ""),
-                reply_to=data.get("reply_to"),
-            )
-            MessageGif.objects.create(
-                message=message,
-                provider=data.get("provider", "tenor"),
-                provider_id=data["provider_id"],
-                gif_url=data["gif_url"],
-                preview_url=data.get("preview_url", ""),
-                title=data.get("title", ""),
-            )
-            apply_mentions(message)
-            _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
-            # Captions can still carry URLs — keep unfurl symmetric with
-            # plain text + attachment sends.
-            self._dispatch_link_previews(message)
-
-        return Response(
-            self._serialize_public_message(message), status=status.HTTP_201_CREATED,
-        )
-
     @action(detail=True, methods=["get"], url_path="status")
     def message_status(self, request, *args, **kwargs):
         """Return the per-user delivery + read state for one message.
@@ -1143,48 +1097,3 @@ class MentionViewSet(viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
-
-class GifViewSet(viewsets.ViewSet):
-    """Tenor GIF proxy + sanitised search.
-
-    Endpoints:
-      * GET /api/v1/chat/gifs/search?q=&pos=&limit=
-      * GET /api/v1/chat/gifs/trending?pos=&limit=
-
-    Per issue #95, any query containing a blacklisted stem/whole-word
-    returns ``{items: [], next_pos: null}`` immediately without reaching
-    Tenor. This is layered on top of Tenor's own ``contentfilter=high``
-    so we still blank slurs even if upstream filtering ever loosens.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    @action(detail=False, methods=["get"], url_path="search")
-    def search(self, request, *args, **kwargs):
-        query = clamp_query(request.query_params.get("q"))
-        pos = clamp_pos(request.query_params.get("pos"))
-        limit = clamp_limit(request.query_params.get("limit"))
-
-        if not query:
-            return Response(
-                {"items": [], "next_pos": None}, status=status.HTTP_200_OK,
-            )
-
-        # Issue #95 contract: ill / irrelevant words -> blank output. The
-        # check runs BEFORE any provider call so we never spend the Tenor
-        # rate-limit budget on a query we wouldn't surface anyway, and a
-        # malicious client cannot use the chat as a slur-aware GIF lookup.
-        if contains_blacklisted(query):
-            return Response(
-                {"items": [], "next_pos": None}, status=status.HTTP_200_OK,
-            )
-
-        payload = cached_fetch("search", query, pos, limit)
-        return Response(payload, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=["get"], url_path="trending")
-    def trending(self, request, *args, **kwargs):
-        pos = clamp_pos(request.query_params.get("pos"))
-        limit = clamp_limit(request.query_params.get("limit"))
-        payload = cached_fetch("featured", "", pos, limit)
-        return Response(payload, status=status.HTTP_200_OK)

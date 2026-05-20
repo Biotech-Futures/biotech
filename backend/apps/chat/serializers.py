@@ -4,13 +4,13 @@ from rest_framework.reverse import reverse
 
 from apps.common.filenames import sanitize_upload_filename
 from apps.common.upload_validation import validate_uploaded_file
+from apps.groups.models import GroupMembership
 from apps.resources.models import Resources
 from apps.resources.rbac import can_access_resource_file
 from apps.users.utils.admin_scope import is_operational_admin
 
 from .models import (
     MessageAttachment,
-    MessageGif,
     MessageMention,
     MessageReaction,
     MessageResource,
@@ -24,6 +24,21 @@ from .utils import sanitize_text
 
 def is_admin_actor(user) -> bool:
     return bool(user is not None and is_operational_admin(user))
+
+
+def _group_members_blocked_from_resource(group_id, resource) -> bool:
+    """True if *any* active member of ``group_id`` cannot access ``resource``.
+
+    Membership lists are small (typically <30) so the per-user permission
+    walk is acceptable. Returns ``False`` for groups with no active members
+    (nothing to break).
+    """
+    members = (
+        GroupMembership.objects
+        .filter(group_id=group_id, left_at__isnull=True)
+        .select_related("user")
+    )
+    return any(not can_access_resource_file(m.user, resource) for m in members)
 
 
 def aggregate_reactions(message):
@@ -64,12 +79,25 @@ class MessageResourceSerializer(serializers.ModelSerializer):
 
     def validate_resource_id(self, value):
         request = self.context.get("request")
+        view = self.context.get("view")
         user = getattr(request, "user", None)
         # Group-message resource links are user-facing references to the active
         # resource catalogue. Admin recovery of deleted resources stays on the
         # resource management endpoint, not in chat message creation.
         if not can_access_resource_file(user, value):
             raise serializers.ValidationError("You do not have access to this resource.")
+        # Reject resources that some active group members cannot open —
+        # otherwise the link is born broken (and reviewer-reported as "broken
+        # click") for any member whose role/track is outside the resource's
+        # audience. Posting users keep the option to widen the resource's
+        # visibility on the resource management page, then re-attach.
+        group_pk = view.kwargs.get("group_pk") if view is not None else None
+        if group_pk and _group_members_blocked_from_resource(group_pk, value):
+            raise serializers.ValidationError(
+                "This resource isn't visible to every member of this group. "
+                "Share a resource scoped to this group, this group's track, "
+                "or one shared publicly."
+            )
         return value
 
 
@@ -87,15 +115,6 @@ class MessageStatusSerializer(serializers.ModelSerializer):
         model = MessageStatus
         fields = ["id", "user", "status", "delivered_at", "read_at"]
         read_only_fields = ["id", "delivered_at", "read_at"]
-
-
-class MessageGifSerializer(serializers.ModelSerializer):
-    """Read-side projection of the GIF sidecar attached to a ``MessageType.GIF`` message."""
-
-    class Meta:
-        model = MessageGif
-        fields = ["provider", "provider_id", "gif_url", "preview_url", "title"]
-        read_only_fields = fields
 
 
 class MessageAttachmentSerializer(serializers.ModelSerializer):
@@ -255,7 +274,6 @@ class MessageSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
-    gif = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
@@ -283,7 +301,6 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_delivered_to_me",
             "reply_to",
             "reply_to_id",
-            "gif",
         ]
         read_only_fields = [
             "id", "group", "sender_user", "deleted_by", "deleted_by_name", "deleted_by_is_admin",
@@ -305,15 +322,6 @@ class MessageSerializer(serializers.ModelSerializer):
     def get_reactions(self, obj):
         return aggregate_reactions(obj)
 
-    def get_gif(self, obj):
-        # Reverse OneToOne raises DoesNotExist when no row — guard with
-        # ``getattr`` so messages without a GIF sidecar serialize as
-        # ``gif: null`` instead of raising.
-        gif = getattr(obj, "gif", None)
-        if gif is None:
-            return None
-        return MessageGifSerializer(gif).data
-
     def create(self, validated_data):
         resources_data = validated_data.pop("resources", [])
         message = Messages.objects.create(**validated_data)
@@ -326,12 +334,7 @@ class MessageSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         msg = attrs.get("message_text", "").strip()
         resources_data = self.initial_data.get("resources", [])
-        message_type = attrs.get("message_type") or getattr(self.instance, "message_type", None)
-        # GIF messages are created via a dedicated ``send-gif`` action and
-        # may legitimately have empty caption text. Other types still
-        # require text or a resource — empty rows would render as blank
-        # bubbles, which is worse than rejecting them on the write side.
-        if message_type != MessageType.GIF and not msg and not resources_data:
+        if not msg and not resources_data:
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
@@ -371,8 +374,6 @@ class MessagePublicSerializer(serializers.ModelSerializer):
     # WS event so the FE renderer can be one code path. ``None`` when the
     # message has no URL or the worker hasn't completed yet.
     preview = serializers.SerializerMethodField()
-    # Nested GIF sidecar for ``message_type == 'gif'`` rows.
-    gif = serializers.SerializerMethodField()
 
     class Meta:
         model = Messages
@@ -398,7 +399,6 @@ class MessagePublicSerializer(serializers.ModelSerializer):
             "is_delivered_to_me",
             "reply_to",
             "preview",
-            "gif",
         ]
         read_only_fields = fields
 
@@ -447,14 +447,6 @@ class MessagePublicSerializer(serializers.ModelSerializer):
         if preview is None:
             return None
         return preview.to_payload()
-
-    def get_gif(self, obj):
-        if obj.deleted_at is not None:
-            return None
-        gif = getattr(obj, "gif", None)
-        if gif is None:
-            return None
-        return MessageGifSerializer(gif).data
 
 
 class MessageAttachmentUploadSerializer(serializers.Serializer):
@@ -561,34 +553,3 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         instance.edited_at = timezone.now()
         instance.save(update_fields=["message_text", "edited_at"])
         return instance
-
-
-class MessageGifCreateSerializer(serializers.Serializer):
-    """Write payload for ``POST .../messages/send-gif/``.
-
-    Caption text is optional but still runs through ``sanitize_text`` so a
-    GIF send cannot bypass the chat moderation filter. ``reply_to_id``
-    works exactly like the JSON message-create path — same group-scoped,
-    soft-delete-aware queryset via :class:`ReplyToIdField`.
-    """
-
-    provider = serializers.CharField(max_length=32, required=False, default="tenor")
-    provider_id = serializers.CharField(max_length=128)
-    gif_url = serializers.URLField(max_length=500)
-    preview_url = serializers.URLField(
-        max_length=500, required=False, allow_blank=True, default=""
-    )
-    title = serializers.CharField(
-        max_length=255, required=False, allow_blank=True, default=""
-    )
-    message_text = serializers.CharField(
-        required=False, allow_blank=True, trim_whitespace=True, default=""
-    )
-    reply_to_id = ReplyToIdField(
-        source="reply_to",
-        required=False,
-        allow_null=True,
-    )
-
-    def validate_message_text(self, value):
-        return sanitize_text((value or "").strip())

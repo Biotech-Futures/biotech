@@ -436,22 +436,6 @@ CHAT_SANITIZER_BLACKLIST = config(
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
-# --- GIF proxy (Tenor v2) ----------------------------------------------------
-# We proxy GIF search/trending through the chat API so:
-#   1. clients never see the Tenor key,
-#   2. queries pass through ``contains_blacklisted`` first — a slur in the
-#      query returns ``{items: []}`` with no upstream call, satisfying the
-#      "ill words -> blank output" requirement of issue #95,
-#   3. responses can be cached in Redis (same store as link previews) to
-#      keep repeat searches fast.
-# An empty ``TENOR_API_KEY`` triggers fail-soft behaviour: endpoints return
-# 200 with an empty list rather than 500, so dev environments without a key
-# still load the UI.
-TENOR_API_KEY = config("TENOR_API_KEY", default="")
-TENOR_CLIENT_KEY = config("TENOR_CLIENT_KEY", default="biotech-chat")
-TENOR_TIMEOUT = config("TENOR_TIMEOUT", default=5, cast=int)
-GIF_CACHE_TTL = config("GIF_CACHE_TTL", default=300, cast=int)
-
 # Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
 # /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
 # schedulers. The endpoint returns 503 if it's unset, so a misconfigured deploy
