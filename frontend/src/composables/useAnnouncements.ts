@@ -56,8 +56,7 @@ interface AnnouncementApiItem {
   track?: number | null
   published_at?: string | null
   archived_at?: string | null
-  author_email?: string | null
-  author?: string | null
+  sender_name?: string | null
   image_url?: string | string[] | null
   image_urls?: unknown[] | null
   images?: unknown[] | null
@@ -299,7 +298,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
     id: a?.id,
     title: a?.title || 'Untitled announcement',
     date: a?.published_at || '',
-    author: ANNOUNCEMENT_AUTHOR_LABEL,
+    author: a?.sender_name || ANNOUNCEMENT_AUTHOR_LABEL,
     bodyText: buildBodyText(body),
     bodyHtml: renderAnnouncementBody(body),
     audience,

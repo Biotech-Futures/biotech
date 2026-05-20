@@ -1017,7 +1017,7 @@ function normalizeAnnouncement(announcement) {
     bodyHtml: sanitizeDashboardAnnouncementRichText(body),
     date: announcement?.published_at || announcement?.date || announcement?.created_at,
     updated: announcement?.published_at || announcement?.updated || announcement?.created_at,
-    author: announcement?.author_email || announcement?.author || 'Program Team',
+    author: announcement?.sender_name || 'Administrator',
     audience,
   }
 }

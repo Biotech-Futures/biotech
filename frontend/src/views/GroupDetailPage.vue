@@ -964,8 +964,8 @@
                   <input type="date" v-model="messageSearchFilters.to" />
                 </label>
               </div>
-              <div v-if="messageSearchError" class="gif-status">{{ messageSearchError }}</div>
-              <div v-if="isSearchingMessages" class="gif-status">Searching messages...</div>
+              <div v-if="messageSearchError" class="chat-panel-status">{{ messageSearchError }}</div>
+              <div v-if="isSearchingMessages" class="chat-panel-status">Searching messages...</div>
               <div v-else class="message-search-list">
                 <button
                   v-for="result in messageSearchResults"
@@ -1023,7 +1023,7 @@
                     !messageSearchError &&
                     hasSearchedMessages
                   "
-                  class="gif-status"
+                  class="chat-panel-status"
                 >
                   No matching messages.
                 </div>
@@ -1041,8 +1041,8 @@
                   Mark all read
                 </button>
               </div>
-              <div v-if="mentionInboxError" class="gif-status">{{ mentionInboxError }}</div>
-              <div v-if="isLoadingMentions" class="gif-status">Loading mentions...</div>
+              <div v-if="mentionInboxError" class="chat-panel-status">{{ mentionInboxError }}</div>
+              <div v-if="isLoadingMentions" class="chat-panel-status">Loading mentions...</div>
               <div v-else class="mention-list">
                 <button
                   v-for="mention in mentionItems"
@@ -1069,7 +1069,7 @@
                   </strong>
                   <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
                 </button>
-                <div v-if="!mentionItems.length && !mentionInboxError" class="gif-status">
+                <div v-if="!mentionItems.length && !mentionInboxError" class="chat-panel-status">
                   No mentions yet.
                 </div>
               </div>
@@ -1251,17 +1251,7 @@
                     <span>{{ getReplyLabel(message.replyTo) }}</span>
                     <strong>{{ getReplyText(message.replyTo) }}</strong>
                   </div>
-                  <img
-                    v-if="!message.isDeleted && message.messageType === 'gif' && message.gifUrl"
-                    :src="message.gifUrl"
-                    :alt="message.text || 'GIF message'"
-                    class="message-gif"
-                    width="280"
-                    height="210"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <div v-else-if="message.isDeleted" class="message-text message-text--deleted">
+                  <div v-if="message.isDeleted" class="message-text message-text--deleted">
                     {{ getDeletedMessageText(message) }}
                   </div>
                   <div v-else-if="editingMessageId !== message.id" class="message-text">
@@ -1624,7 +1614,7 @@
                   <input
                     v-model.trim="resourceQuery"
                     type="search"
-                    class="gif-search-input"
+                    class="chat-panel-search-input"
                     placeholder="Search resources"
                     @keydown.enter.prevent="loadChatResources"
                   />
@@ -1632,8 +1622,8 @@
                     Search
                   </button>
                 </div>
-                <div v-if="resourcePickerError" class="gif-status">{{ resourcePickerError }}</div>
-                <div v-if="isLoadingResources" class="gif-status">Loading resources...</div>
+                <div v-if="resourcePickerError" class="chat-panel-status">{{ resourcePickerError }}</div>
+                <div v-if="isLoadingResources" class="chat-panel-status">Loading resources...</div>
                 <div v-else class="resource-picker-list">
                   <button
                     v-for="resource in chatResourceOptions"
@@ -1647,7 +1637,7 @@
                     <span>{{ resource.resource_name }}</span>
                     <i v-if="isResourceSelected(resource.id)" class="fas fa-check"></i>
                   </button>
-                  <div v-if="!chatResourceOptions.length && !resourcePickerError" class="gif-status">
+                  <div v-if="!chatResourceOptions.length && !resourcePickerError" class="chat-panel-status">
                     No resources found.
                   </div>
                 </div>
@@ -2150,7 +2140,7 @@ const extractCollectionItems = (data) => {
   return []
 }
 
-// Chat / GIF endpoints used to be wrapped in dual-URL helpers (``/api/v1/...``
+// Chat endpoints used to be wrapped in dual-URL helpers (``/api/v1/...``
 // primary, ``/...`` fallback) because only the legacy mount existed. The
 // backend now serves chat under both prefixes via ``config.urls._DUAL_MOUNTS``,
 // so every helper returns a single canonical URL.
@@ -3127,28 +3117,6 @@ const normalizeMessage = (item) => {
   const isOwnMessage = isOwn || (isDeleted && deletedById > 0 && deletedById === currentUserId)
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
-  // Backend ships GIFs as ``{message_type: 'gif', gif: {gif_url, preview_url, title, provider_id}}``.
-  // Keep this idempotent because recent-message sync can pass already-normalized
-  // frontend objects back through this function before upserting them.
-  const gifPayload = raw?.gif && typeof raw.gif === 'object' ? raw.gif : null
-  const fallbackGifUrl = /^https?:\/\//i.test(messageText) ? messageText : ''
-  const gifUrl = messageType === 'gif'
-    ? (
-        gifPayload?.gif_url ||
-        gifPayload?.gifUrl ||
-        gifPayload?.url ||
-        raw?.gif_url ||
-        raw?.gifUrl ||
-        fallbackGifUrl
-      )
-    : ''
-  const gifPreviewUrl =
-    gifPayload?.preview_url ||
-    gifPayload?.previewUrl ||
-    raw?.gif_preview_url ||
-    raw?.gifPreviewUrl ||
-    ''
-  const gifTitle = gifPayload?.title || raw?.gif_title || raw?.gifTitle || ''
   const author = isOwnMessage
     ? 'You'
     : raw?.sender_name || raw?.author || getMentionLabel(senderId)
@@ -3162,9 +3130,6 @@ const normalizeMessage = (item) => {
     date: sentAt,
     isOwn: isOwnMessage,
     messageType,
-    gifUrl,
-    gifPreviewUrl,
-    gifTitle,
     attachments,
     resources,
     reactions: normalizeReactionMap(raw?.reactions),
@@ -3491,7 +3456,7 @@ const getMentionSenderLabel = (mention) => {
 const getMessageTextSegments = (text) => {
   const source = String(text || '')
   const segments = []
-  const pattern = /<@(\d+)>|(?<![\w@])@(here|channel|everyone)\b/gi
+  const pattern = /<@(\d+)>|(?<![\w@])@(everyone)\b/gi
   let cursor = 0
   let isHidingBroadcastExpansion = false
   let match = pattern.exec(source)
@@ -3508,9 +3473,7 @@ const getMessageTextSegments = (text) => {
       segments.push({ type: 'text', text: gap })
     }
     const broadcastLabel = String(match[2] || '').toLowerCase()
-    const label = match[1]
-      ? getMentionLabel(match[1])
-      : (broadcastLabel === 'here' || broadcastLabel === 'channel' ? 'everyone' : broadcastLabel)
+    const label = match[1] ? getMentionLabel(match[1]) : broadcastLabel
     segments.push({ type: 'mention', text: `@${label}` })
     isHidingBroadcastExpansion = Boolean(match[2])
     cursor = match.index + match[0].length
@@ -3542,6 +3505,7 @@ const isResourceSelected = (resourceId) =>
 const toggleSelectedResource = (resource) => {
   const normalized = normalizeChatResource(resource)
   if (!normalized.id) return
+  resourcePickerError.value = ''
 
   if (isResourceSelected(normalized.id)) {
     selectedChatResources.value = selectedChatResources.value.filter(
@@ -3555,6 +3519,7 @@ const toggleSelectedResource = (resource) => {
 
 const clearSelectedResources = () => {
   selectedChatResources.value = []
+  resourcePickerError.value = ''
 }
 
 const getBackendGroupId = () => {
@@ -4334,10 +4299,9 @@ const insertMention = (member) => {
   })
 }
 
-// Convert visible mention tokens to backend ``<@id>`` tokens just before
-// sending. ``@everyone`` remains in the stored text; we append
-// machine-readable user tokens after them so the unchanged backend can still
-// create normal mention rows.
+// Convert visible member mention tokens to backend ``<@id>`` tokens just before
+// sending. Broadcast mentions stay as bare ``@everyone`` because the backend
+// now handles fan-out for active group members.
 const resolveComposerMentions = (text) => {
   if (!text) return text
   const entries = [...pendingComposerMentions.value.entries()].sort(
@@ -4348,26 +4312,6 @@ const resolveComposerMentions = (text) => {
     const safe = visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     out = out.replace(new RegExp(safe, 'g'), `<@${userId}>`)
   }
-
-  if (/@(everyone|channel)\b/i.test(out)) {
-    let didExpandBroadcast = false
-    out = out.replace(/(?<![\w@])@(everyone|channel)\b/gi, (token) => {
-      if (didExpandBroadcast) return token
-
-      const alreadyMentioned = new Set(
-        [...out.matchAll(/<@(\d+)>/g)].map((match) => Number(match[1])),
-      )
-      const broadcastMentions = mentionMembers.value
-        .map((member) => Number(member.userId))
-        .filter((userId) => Number.isFinite(userId) && !alreadyMentioned.has(userId))
-        .map((userId) => `<@${userId}>`)
-
-      if (!broadcastMentions.length) return token
-      didExpandBroadcast = true
-      return `@everyone ${broadcastMentions.join(' ')}`
-    })
-  }
-
   return out
 }
 
@@ -4385,7 +4329,7 @@ const onComposerBlur = (event) => {
 }
 
 // Tapping into the composer always returns focus to "I'm typing a message",
-// so any open side panels (GIF / Resources / Search / Mentions / kebab /
+// so any open side panels (Resources / Search / Mentions / kebab /
 // reaction picker) should yield. Without this, panels stayed visible after
 // the user tapped the textarea, which is unexpected.
 const onComposerFocus = () => {
@@ -4721,8 +4665,6 @@ const deleteMessage = async (message) => {
       resources: [],
       reactions: {},
       preview: null,
-      gifUrl: '',
-      gifPreviewUrl: '',
       deletedAt: new Date().toISOString(),
       deletedById: currentUserId.value,
       deletedByName: auth.isAdmin ? 'Admin' : getCurrentUserMentionName(),
@@ -4891,8 +4833,6 @@ const handleSocketPayload = async (payload) => {
         resources: [],
         reactions: {},
         preview: null,
-        gifUrl: '',
-        gifPreviewUrl: '',
         deletedAt: payload.deleted_at || new Date().toISOString(),
         deletedById: Number(payload.deleted_by || 0),
         deletedByName: deletedByIsAdmin ? 'Admin' : payload.deleted_by_name || '',
@@ -5172,7 +5112,7 @@ const searchMessages = async (reset = true) => {
     messageSearchError.value = 'Live discussion needs a backend numeric group id.'
     return
   }
-  // Allow filter-only searches (e.g. "all GIFs from last week"). Bail only if
+  // Allow filter-only searches (e.g. "attachments from last week"). Bail only if
   // there is neither a query nor any active filter.
   if (!query && !hasActiveSearchFilters()) {
     clearMessageSearch()
@@ -5246,6 +5186,24 @@ const insertMessageFromSearch = (message) => {
   if (insertIndex === -1) messages.value.push(normalized)
   else messages.value.splice(insertIndex, 0, normalized)
   return normalized
+}
+
+const collectErrorMessages = (value) => {
+  if (!value) return []
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(collectErrorMessages)
+  if (typeof value === 'object') return Object.values(value).flatMap(collectErrorMessages)
+  return [String(value)]
+}
+
+const extractChatResourceError = (error) => {
+  const body = error?.body
+  const resources = Array.isArray(body?.resources) ? body.resources : []
+  const resourceMessages = resources.flatMap((item) =>
+    collectErrorMessages(item?.resource_id || item?.resource || item),
+  )
+  const fieldMessages = collectErrorMessages(body?.fields?.resources)
+  return resourceMessages[0] || fieldMessages[0] || ''
 }
 
 const scrollToMessageId = async (messageId) => {
@@ -5373,6 +5331,7 @@ const sendMessage = async () => {
   const now = new Date()
   const pendingId = `pending-${Date.now()}`
   const selectedResources = selectedChatResources.value.map((resource) => ({ ...resource }))
+  resourcePickerError.value = ''
   const draftMessage = {
     id: pendingId,
     author: 'You',
@@ -5426,10 +5385,16 @@ const sendMessage = async () => {
         }),
       },
     })
-  } catch {
+  } catch (error) {
     newMessage.value = text
     replyTarget.value = currentReplyTarget
     selectedChatResources.value = selectedResources
+    const resourceError = selectedResources.length ? extractChatResourceError(error) : ''
+    if (resourceError) {
+      resourcePickerError.value = resourceError
+      chatError.value = resourceError
+      showResourcePanel.value = true
+    }
   } finally {
     isSendingMessage.value = false
     composer.value?.focus()
@@ -7607,7 +7572,7 @@ onBeforeUnmount(() => {
 }
 
 .typing-indicator,
-.gif-status {
+.chat-panel-status {
   padding: 0.55rem 0.9rem;
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -8361,7 +8326,7 @@ onBeforeUnmount(() => {
   color: #cfe8ff;
 }
 
-.gif-search-input {
+.chat-panel-search-input {
   flex: 1;
   border: 1px solid var(--border-default);
   border-radius: 12px;
@@ -8424,8 +8389,7 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
 }
 
-/* Stop animating off-screen GIFs (and skip paint for off-screen text) by
-   letting the browser skip rendering work for messages outside the viewport.
+/* Let the browser skip rendering work for messages outside the viewport.
    contain-intrinsic-size keeps the scrollbar honest while the browser
    learns each message's real height. */
 .chat-messages .message {
@@ -8475,14 +8439,6 @@ onBeforeUnmount(() => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-}
-
-.message-gif {
-  width: min(100%, 280px);
-  border-radius: 18px;
-  display: block;
-  margin-top: 0.4rem;
-  box-shadow: var(--shadow-sm);
 }
 
 .message-attachments {
@@ -9172,7 +9128,7 @@ onBeforeUnmount(() => {
 .message-date,
 .message-time,
 .typing-indicator,
-.gif-status {
+.chat-panel-status {
   color: #6c757d !important;
 }
 
@@ -9198,7 +9154,7 @@ onBeforeUnmount(() => {
 }
 
 .chat-input-field,
-.gif-search-input {
+.chat-panel-search-input {
   background: var(--white);
   color: var(--charcoal);
   border: 1px solid var(--border-light);
@@ -9210,12 +9166,12 @@ onBeforeUnmount(() => {
 }
 
 .chat-input-field::placeholder,
-.gif-search-input::placeholder {
+.chat-panel-search-input::placeholder {
   color: #8a949e;
 }
 
 .chat-input-field:focus,
-.gif-search-input:focus {
+.chat-panel-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
   background: var(--white);
