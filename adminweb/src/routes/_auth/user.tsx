@@ -123,7 +123,11 @@ function UserManagementPage() {
     sortOrder,
   });
   const { data: tracksData } = useQueryTracks();
-  const { data: supervisorsData } = useQueryUsers({ page: 1, limit: 200, role: "supervisor" });
+  const { data: supervisorsData } = useQueryUsers({
+    page: 1,
+    limit: 200,
+    role: "supervisor",
+  });
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const updateUserStatus = useUpdateUserStatus();
@@ -391,10 +395,10 @@ function UserManagementPage() {
       const createdCount = response.data?.created?.length ?? 0;
       const skippedCount = response.data?.skipped?.length ?? 0;
 
-      if (!createdCount && skippedCount) {
-        toast.error(response.msg || "No users were imported.");
-        return;
-      }
+      // if (!createdCount && skippedCount) {
+      //   toast.error(response.msg || "No users were imported.");
+      //   return;
+      // }
 
       toast.success(response.msg || `Imported ${createdCount} users.`);
       setBulkOpen(false);
