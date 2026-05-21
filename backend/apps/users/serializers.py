@@ -8,6 +8,7 @@ from .models import (
 )
 from apps.resources.models import RoleAssignmentHistory
 from apps.groups.models import Tracks
+from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
 from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
@@ -65,7 +66,7 @@ class UserSerializer(serializers.ModelSerializer):
     #   * `supervisor_name` / `supervisor_email` are populated for students,
     #     resolved via StudentProfile.supervisor -> SupervisorProfile.user.
     #   * `supervisor_school_name` is populated for users currently holding the
-    #     supervisor role (role_id == 2), pulled from their SupervisorProfile.
+    #     supervisor role, pulled from their SupervisorProfile.
     interests = serializers.SerializerMethodField()
     supervisor_name = serializers.SerializerMethodField()
     supervisor_email = serializers.SerializerMethodField()
@@ -140,12 +141,22 @@ class UserSerializer(serializers.ModelSerializer):
         self._cache_assignment[user.id] = rah
         return rah
 
+    @staticmethod
+    def _is_role(rah, expected_name: str) -> bool:
+        # Identify the active role by canonical name instead of PK. ``role`` is
+        # already ``select_related`` on ``_active_assignment`` so this stays a
+        # zero-extra-query check, and matches the case-insensitive contract
+        # documented in ``apps.common.role_names``.
+        if rah is None or rah.role is None:
+            return False
+        return (rah.role.role_name or "").strip().lower() == expected_name
+
     def _student_profile(self, user):
         if user.id in self._cache_student:
             return self._cache_student[user.id]
         rah = self._active_assignment(user)
         profile = None
-        if rah and rah.role_id == 4:
+        if self._is_role(rah, ROLE_STUDENT):
             # Pull the linked supervisor + supervisor's user row in the same
             # query so the new supervisor_name / supervisor_email fields don't
             # add two extra round-trips per student.
@@ -163,7 +174,7 @@ class UserSerializer(serializers.ModelSerializer):
             return self._cache_mentor[user.id]
         rah = self._active_assignment(user)
         profile = None
-        if rah and rah.role_id == 3:
+        if self._is_role(rah, ROLE_MENTOR):
             profile = MentorProfile.objects.filter(user=user).first()
         self._cache_mentor[user.id] = profile
         return profile
@@ -173,7 +184,7 @@ class UserSerializer(serializers.ModelSerializer):
             return self._cache_supervisor[user.id]
         rah = self._active_assignment(user)
         profile = None
-        if rah and rah.role_id == 2:
+        if self._is_role(rah, ROLE_SUPERVISOR):
             profile = SupervisorProfile.objects.filter(user=user).first()
         self._cache_supervisor[user.id] = profile
         return profile
@@ -269,9 +280,9 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_supervisor_school_name(self, obj):
         # Only populated when the user themselves is currently in the
-        # supervisor role (role_id == 2). For students this stays null even
-        # though their linked supervisor has a school name — that's exposed
-        # via the student-side fields above.
+        # supervisor role. For students this stays null even though their
+        # linked supervisor has a school name — that's exposed via the
+        # student-side fields above.
         sp = self._supervisor_profile(obj)
         return None if sp is None else sp.school_name
 
