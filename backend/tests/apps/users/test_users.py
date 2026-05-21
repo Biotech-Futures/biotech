@@ -215,6 +215,55 @@ class AuthUnificationTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_password_login_per_ip_throttle_blocks_credential_stuffing(self):
+        """Regression: a single IP must not be able to fan out brute-force
+        attempts across many guessed emails. The per-email lockout alone left
+        this attack vector open — see CONSOLIDATED 1.2."""
+        from apps.users.views import PWD_LOGIN_PER_IP_LIMIT
+
+        # Burn the per-IP budget using a fresh email each attempt so the
+        # per-email counter never trips. All requests come from the same
+        # REMOTE_ADDR (APIClient default 127.0.0.1).
+        for i in range(PWD_LOGIN_PER_IP_LIMIT):
+            response = self.client.post(
+                reverse("password-login"),
+                {"email": f"stuff{i}@example.com", "password": "WrongPassword"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Next attempt — even with valid credentials for a real user — must
+        # be rejected because the IP budget is exhausted.
+        response = self.client.post(
+            reverse("password-login"),
+            {"email": self.user_email, "password": self.user_pass},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_password_login_success_clears_ip_counter(self):
+        """A successful login from an IP should reset its failure counter so
+        a legitimate user behind a shared NAT isn't permanently penalized by
+        their own typo history."""
+        from django.core.cache import cache
+        from apps.users.views import PWD_LOGIN_PER_IP_LIMIT
+
+        # Accumulate failures from the same IP but stop one short of the cap.
+        for i in range(PWD_LOGIN_PER_IP_LIMIT - 1):
+            self.client.post(
+                reverse("password-login"),
+                {"email": f"stuff{i}@example.com", "password": "WrongPassword"},
+                format="json",
+            )
+
+        response = self.client.post(
+            reverse("password-login"),
+            {"email": self.user_email, "password": self.user_pass},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(cache.get("pwd_login_attempts_ip:127.0.0.1"), None)
+
 
 class UserDetailLockdownTests(TestCase):
     """Regression tests for the legacy ``AllowAny`` on ``UsersRetrieveUpdateView``
