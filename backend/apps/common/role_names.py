@@ -1,73 +1,75 @@
 """Canonical role-name constants and lookup helpers.
 
-All references to business-domain roles SHOULD go through this module instead
-of hardcoding numeric primary keys or repeating ``role_name__iexact=...``
-queries inline. Role PKs are not stable across environments (they depend on
-seed order); role *names* are the contract.
+The four role names below mirror the values seeded into
+``apps_resources.Roles.role_name`` by data migrations and by
+``create_test_users.py``. They also match the lowercase strings returned
+by ``apps.common.rbac.active_role_names``.
 
-Use ``get_role_by_name`` whenever you need a ``Roles`` row, and the
-``ROLE_*`` constants when comparing the active role of a user.
+Why these constants exist:
+
+* Views that need to fetch a role by name (e.g. ``UserRegisterView``
+  assigning a freshly registered student to ``role_id=4``) historically
+  hardcoded primary keys like ``get_object_or_404(Roles, pk=4)``. That
+  couples view logic to a brittle ordering of the seed data. Looking up
+  by name via :func:`get_role_by_name` is the safer pattern.
+* Comparisons against ``active_role_names(user)`` should use these
+  constants instead of bare string literals so a rename in the DB is a
+  single-file change here.
 """
+
 from __future__ import annotations
 
-from typing import Optional
-
 from django.apps import apps
-from django.core.exceptions import ObjectDoesNotExist
 
 
 ROLE_ADMIN = "admin"
 ROLE_SUPERVISOR = "supervisor"
 ROLE_MENTOR = "mentor"
 ROLE_STUDENT = "student"
-ROLE_BASIC_USER = "basic_user"
-
-NON_STUDENT_ROLES = frozenset({ROLE_ADMIN, ROLE_SUPERVISOR, ROLE_MENTOR, "administrator"})
-
-DEFAULT_ROLE_NAME = ROLE_BASIC_USER
 
 
-def normalize_role_name(name: Optional[str]) -> str:
-    """Return a case/whitespace-normalized role name suitable for comparisons."""
-    if not name:
-        return ""
-    return str(name).strip().lower()
+ALL_ROLES: frozenset[str] = frozenset({
+    ROLE_ADMIN,
+    ROLE_SUPERVISOR,
+    ROLE_MENTOR,
+    ROLE_STUDENT,
+})
 
 
-def get_role_by_name(name: str, *, create_missing: bool = False):
-    """Look up a ``Roles`` row by name (case-insensitive).
+def get_role_by_name(name: str):
+    """Return the ``Roles`` row whose ``role_name`` matches ``name``.
 
-    Set ``create_missing=True`` for bootstrapping/registration flows that
-    must succeed even if the seed data hasn't been applied yet. Returns the
-    ``Roles`` instance.
+    Case-insensitive: ``Role.role_name`` is stored lowercase in seed data
+    but callers may pass mixed-case strings. Lookup goes through
+    ``django.apps.get_model`` (rather than a top-level
+    ``from apps.resources.models import Roles`` import) so this module is
+    safe to import at any point in the Django app-loading lifecycle —
+    matching the pattern used in ``apps/common/rbac.py``.
 
-    Raises ``Roles.DoesNotExist`` if the role is missing and
-    ``create_missing`` is False.
+    Raises ``Roles.DoesNotExist`` if the role is not seeded. We deliberately
+    don't return ``None`` or 404 here: a missing core role is a deploy
+    misconfiguration that should fail loud, not silently degrade.
+
+    Use :func:`try_get_role_by_name` instead when "not seeded" is a normal,
+    non-fatal condition (e.g. optional capability checks).
     """
     Roles = apps.get_model("resources", "Roles")
-    normalized = (name or "").strip()
-    if not normalized:
-        raise ValueError("Role name must be a non-empty string")
-
-    role = Roles.objects.filter(role_name__iexact=normalized).first()
-    if role is not None:
-        return role
-
-    if create_missing:
-        role, _ = Roles.objects.get_or_create(
-            role_name__iexact=normalized,
-            defaults={"role_name": normalized},
-        )
-        return role
-
-    # Re-raise as the standard Django DoesNotExist so callers can catch it
-    # the same way they would for any other model lookup.
-    raise Roles.DoesNotExist(f"Role with name {normalized!r} not found")
+    return Roles.objects.get(role_name__iexact=name)
 
 
 def try_get_role_by_name(name: str):
-    """Like ``get_role_by_name`` but returns ``None`` if the role is missing."""
+    """Soft variant of :func:`get_role_by_name`: returns ``None`` instead
+    of raising when the role is not seeded.
+
+    Use this for callers that treat a missing role as a feature flag —
+    e.g. RBAC checks that fall through to a default permission set when
+    the canonical role row hasn't been created yet (fresh DB, partial
+    migration). For required-role lookups (registration, role assignment
+    flows) prefer :func:`get_role_by_name` so a misconfigured deploy
+    fails loud.
+    """
+    Roles = apps.get_model("resources", "Roles")
     try:
-        return get_role_by_name(name)
-    except (ObjectDoesNotExist, ValueError):
+        return Roles.objects.get(role_name__iexact=name)
+    except Roles.DoesNotExist:
         return None
