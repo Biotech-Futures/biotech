@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -62,12 +63,35 @@ const initialValues: UserFormValues = {
   supervisorEmail: "",
 };
 
+const AREA_OF_INTEREST_OPTIONS = [
+  "Biomedical Innovations",
+  "Environmental Sustainability & Climate Tech",
+  "Space & Astrobiology",
+  "AI & Robotics and Smart Systems",
+  "Nanotechnology & Materials Science",
+  "Food & Agriculture Technology",
+  "Neuroscience & Mental Health Tech",
+  "Water & Energy Tech",
+  "Ethical & Societal Impacts of Emerging Tech",
+];
+
+const AREA_OF_INTEREST_SELECT_OPTIONS = AREA_OF_INTEREST_OPTIONS.map((interest) => ({
+  label: interest,
+  value: interest,
+}));
+
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function roleUsesInterests(role: UserRole) {
   return role === "student" || role === "mentor";
+}
+
+function normalizeInterestSelections(interests: string[]) {
+  return interests.filter((interest) =>
+    AREA_OF_INTEREST_OPTIONS.includes(interest),
+  );
 }
 
 function UserFormRow({
@@ -132,7 +156,7 @@ export function UserEditorSheet({
         mentorMaxGroupCount:
           user.role === "mentor" ? (user.mentorMaxGroupCount ?? 2) : 2,
         yearLevel: user.age,
-        interests: user.interests,
+        interests: normalizeInterestSelections(user.interests),
         active: user.active,
         supervisorEmail: user.role === "student" ? (user.supervisorEmail ?? "") : "",
       });
@@ -217,6 +241,7 @@ export function UserEditorSheet({
       mentorBackground: values.mentorBackground.trim(),
       mentorInstitution: values.mentorInstitution.trim(),
       mentorReason: values.mentorReason.trim(),
+      interests: normalizeInterestSelections(values.interests),
     });
   };
 
@@ -531,19 +556,18 @@ export function UserEditorSheet({
               }
               htmlFor="user-interests"
             >
-              <Textarea
+              <MultiSelect
                 id="user-interests"
-                value={values.interests.join(", ")}
-                onChange={(event) =>
+                options={AREA_OF_INTEREST_SELECT_OPTIONS}
+                value={values.interests}
+                onValueChange={(interests) =>
                   setValues((current) => ({
                     ...current,
-                    interests: event.target.value
-                      .split(",")
-                      .map((item) => item.trim())
-                      .filter(Boolean),
+                    interests: normalizeInterestSelections(interests),
                   }))
                 }
-                placeholder="biology, genetics, ai"
+                placeholder="Select areas of interest"
+                searchPlaceholder="Search areas..."
               />
             </UserFormRow>
           ) : null}
