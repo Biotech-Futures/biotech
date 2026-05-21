@@ -358,8 +358,22 @@ def _client_ip(request) -> str:
     if getattr(settings, "TRUST_FORWARDED_FOR", False):
         xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
         if xff:
-            return xff.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR", "") or ""
+            return _strip_port(xff.split(",")[0])
+    return _strip_port(request.META.get("REMOTE_ADDR", "") or "")
+
+
+def _strip_port(addr: str) -> str:
+    # Azure App Service forwards `IP:PORT` in X-Forwarded-For / REMOTE_ADDR;
+    # GenericIPAddressField rejects the port suffix.
+    addr = addr.strip()
+    if not addr:
+        return ""
+    if addr.startswith("["):
+        end = addr.find("]")
+        return addr[1:end] if end != -1 else addr
+    if addr.count(":") == 1:
+        return addr.split(":", 1)[0]
+    return addr
 
 
 def _email_request_key(email: str) -> str:
