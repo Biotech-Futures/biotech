@@ -84,6 +84,26 @@ class AdminUserServiceTests(TestCase):
             ).exists()
         )
 
+    def test_update_user_always_sets_student_join_permission(self):
+        result = update_user(
+            self.user.id,
+            {
+                "firstName": "Chen",
+                "lastName": "Supervisor",
+                "role": "student",
+                "track": "AUS-NSW",
+                "schoolName": "Test School",
+                "yearLevel": 10,
+                "interests": ["Biotechnology"],
+                "joinPermissionReceived": False,
+            },
+        )
+
+        self.assertEqual(result["msg"], "User updated successfully")
+        profile = StudentProfile.objects.get(user=self.user)
+        self.assertTrue(profile.has_join_permission)
+        self.assertTrue(result["data"]["joinPermissionReceived"])
+
     def test_query_users_filters_students_with_active_group(self):
         grouped_student = self._create_student("grouped@example.com", "Grouped")
         ungrouped_student = self._create_student("ungrouped@example.com", "Ungrouped")

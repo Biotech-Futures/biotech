@@ -104,7 +104,6 @@ def upsert_student_profile(
     last_name: str,
     school_name: Optional[str],
     year_level: Optional[int],
-    join_permission_received: Optional[bool],
     supervisor_email: Any = _UNSET,
 ) -> None:
     """
@@ -119,7 +118,7 @@ def upsert_student_profile(
         "parent_guardian_flag": True,
         "school_name": (school_name or "").strip(),
         "year_lvl": str(year_level or ""),
-        "has_join_permission": join_permission_received or False,
+        "has_join_permission": True,
         "joinperm_responseID": None,
     }
 
@@ -265,7 +264,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "mentorReason": mentor_profile.mentor_reason if mentor_profile else None,
         "mentorMaxGroupCount": mentor_profile.max_group_count if mentor_profile else None,
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
-        "joinPermissionReceived": student_profile.has_join_permission if student_profile else False,
+        "joinPermissionReceived": True if student_profile else False,
         "interests": interests,
         "adminTracks": admin_tracks,
         "adminIsGlobal": admin_is_global,
@@ -578,7 +577,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "mentorReason": mp.mentor_reason if mp else None,
             "mentorMaxGroupCount": mp.max_group_count if mp else None,
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
-            "joinPermissionReceived": sp.has_join_permission if sp else False,
+            "joinPermissionReceived": True if sp else False,
             "interests": interests_map.get(uid, []),
             "adminTracks": admin_scope["tracks"],
             "adminIsGlobal": admin_scope["is_global"],
@@ -754,7 +753,7 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "accountStatus": "active" if user.is_active else "deactivated",
             "schoolName": student_profile.school_name,
             "yearLevel": int(student_profile.year_lvl) if student_profile.year_lvl else None,
-            "hasJoinPermission": student_profile.has_join_permission,
+            "hasJoinPermission": True,
             "joinpermResponseId": student_profile.joinperm_responseID,
             "groupId": group_id,
             "groupName": group_name,
@@ -972,7 +971,6 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         last_name,
                         input_data.get("schoolName"),
                         input_data.get("yearLevel"),
-                        input_data.get("joinPermissionReceived"),
                         supervisor_email=input_data.get("supervisorEmail") or _UNSET,
                     )
                 
@@ -1254,7 +1252,6 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                     input_data.get("lastName", user.last_name),
                     input_data.get("schoolName"),
                     input_data.get("yearLevel"),
-                    input_data.get("joinPermissionReceived"),
                     supervisor_email=input_data["supervisorEmail"] if "supervisorEmail" in input_data else _UNSET,
                 )
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():

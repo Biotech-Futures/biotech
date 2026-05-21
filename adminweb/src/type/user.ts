@@ -20,7 +20,6 @@ export type UserAccount = {
   mentorInstitution: string | null;
   mentorReason: string | null;
   mentorMaxGroupCount: number | null;
-  joinPermissionReceived: boolean;
   interests: string[];
   adminTracks: string[];
   adminIsGlobal: boolean;
@@ -62,7 +61,6 @@ export type UserFormValues = {
   mentorMaxGroupCount: number | null;
   yearLevel: number | null;
   interests: string[];
-  joinPermissionReceived: boolean;
   active: boolean;
   supervisorEmail: string;
 };
@@ -122,7 +120,6 @@ export type StudentUser = {
   accountStatus: string;
   schoolName: string | null;
   yearLevel: number | null;
-  hasJoinPermission: boolean;
   joinpermResponseId: string | null;
   groupId: number | null;
   groupName: string | null;

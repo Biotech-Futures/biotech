@@ -232,10 +232,6 @@ function UserManagementPage() {
             values.role === "student" || values.role === "mentor"
               ? values.interests
               : undefined,
-          joinPermissionReceived:
-            values.role === "student"
-              ? values.joinPermissionReceived
-              : undefined,
           supervisorEmail:
             values.role === "student" && values.supervisorEmail
               ? values.supervisorEmail
@@ -283,8 +279,6 @@ function UserManagementPage() {
             values.role === "student" || values.role === "mentor"
               ? values.interests
               : [],
-          joinPermissionReceived:
-            values.role === "student" ? values.joinPermissionReceived : false,
           supervisorEmail:
             values.role === "student" ? values.supervisorEmail : undefined,
         },
@@ -382,8 +376,6 @@ function UserManagementPage() {
             row.role === "student" || row.role === "mentor"
               ? row.interests
               : undefined,
-          joinPermissionReceived:
-            row.role === "student" ? row.joinPermissionReceived : undefined,
           supervisorEmail:
             row.role === "student" && row.supervisorEmail
               ? row.supervisorEmail

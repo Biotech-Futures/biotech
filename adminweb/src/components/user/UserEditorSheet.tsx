@@ -58,7 +58,6 @@ const initialValues: UserFormValues = {
   mentorMaxGroupCount: 2,
   yearLevel: null,
   interests: [],
-  joinPermissionReceived: false,
   active: true,
   supervisorEmail: "",
 };
@@ -134,7 +133,6 @@ export function UserEditorSheet({
           user.role === "mentor" ? (user.mentorMaxGroupCount ?? 2) : 2,
         yearLevel: user.age,
         interests: user.interests,
-        joinPermissionReceived: user.joinPermissionReceived,
         active: user.active,
         supervisorEmail: user.role === "student" ? (user.supervisorEmail ?? "") : "",
       });
@@ -412,35 +410,6 @@ export function UserEditorSheet({
                   }
                   placeholder="10"
                 />
-              </UserFormRow>
-
-              <UserFormRow label="Join Permission">
-                <div className="flex gap-2">
-                  <Button
-                    variant={values.joinPermissionReceived ? "default" : "outline"}
-                    size="sm"
-                    onClick={() =>
-                      setValues((current) => ({
-                        ...current,
-                        joinPermissionReceived: true,
-                      }))
-                    }
-                  >
-                    Yes
-                  </Button>
-                  <Button
-                    variant={!values.joinPermissionReceived ? "default" : "outline"}
-                    size="sm"
-                    onClick={() =>
-                      setValues((current) => ({
-                        ...current,
-                        joinPermissionReceived: false,
-                      }))
-                    }
-                  >
-                    No
-                  </Button>
-                </div>
               </UserFormRow>
 
               <UserFormRow label="Supervisor" htmlFor="user-supervisor-email">
