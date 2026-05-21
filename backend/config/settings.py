@@ -382,13 +382,39 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=Csv()
 )
 
-FRONTEND_BASE_URL = config(
-    "FRONTEND_BASE_URL", default="http://localhost:5173"
-).rstrip("/")
+# Public base URLs of the SPAs. Used to build the user-visible links in
+# password-reset and magic-link emails (apps/services/auth_service). MUST
+# be set explicitly in any non-DEBUG deploy — a missing env var would
+# otherwise silently email reset/magic links pointing at
+# http://localhost:5173 (or, worse for ADMIN_FRONTEND_BASE_URL, at the
+# production admin portal from a staging deploy), breaking login and
+# leaking infra info. In DEBUG (local dev) we keep the localhost default
+# for FRONTEND_BASE_URL so `runserver` works out of the box; the admin
+# portal has no public dev URL so it falls back to the canonical prod
+# host only under DEBUG.
+_FRONTEND_BASE_URL_RAW = config("FRONTEND_BASE_URL", default="")
+if not _FRONTEND_BASE_URL_RAW:
+    if DEBUG:
+        _FRONTEND_BASE_URL_RAW = "http://localhost:5173"
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "FRONTEND_BASE_URL must be set (e.g. https://mentoring.biotechfutures.org) "
+            "outside DEBUG. Password-reset and magic-link emails are built from it."
+        )
+FRONTEND_BASE_URL = _FRONTEND_BASE_URL_RAW.rstrip("/")
 
-ADMIN_FRONTEND_BASE_URL = config(
-    "ADMIN_FRONTEND_BASE_URL", default="https://mentoringadmin.biotechfutures.org"
-).rstrip("/")
+_ADMIN_FRONTEND_BASE_URL_RAW = config("ADMIN_FRONTEND_BASE_URL", default="")
+if not _ADMIN_FRONTEND_BASE_URL_RAW:
+    if DEBUG:
+        _ADMIN_FRONTEND_BASE_URL_RAW = "https://mentoringadmin.biotechfutures.org"
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "ADMIN_FRONTEND_BASE_URL must be set (e.g. https://mentoringadmin.biotechfutures.org) "
+            "outside DEBUG. Admin password-reset and magic-link emails are built from it."
+        )
+ADMIN_FRONTEND_BASE_URL = _ADMIN_FRONTEND_BASE_URL_RAW.rstrip("/")
 
 # Magic link still uses hash routing while the others use path routing —
 # unify in a follow-up once the SPA serves /auth/callback without a hash.
