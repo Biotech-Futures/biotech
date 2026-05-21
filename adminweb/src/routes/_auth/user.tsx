@@ -393,7 +393,7 @@ function UserManagementPage() {
       );
 
       const createdCount = response.data?.created?.length ?? 0;
-      const skippedCount = response.data?.skipped?.length ?? 0;
+      // const skippedCount = response.data?.skipped?.length ?? 0;
 
       // if (!createdCount && skippedCount) {
       //   toast.error(response.msg || "No users were imported.");
