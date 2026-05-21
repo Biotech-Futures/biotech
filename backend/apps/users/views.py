@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
 from django.contrib.auth import authenticate, login
+from django.middleware.csrf import get_token
 from django.core.cache import cache
 from rest_framework import generics, permissions, status, serializers
 from rest_framework.response import Response
@@ -128,7 +129,11 @@ class PasswordLoginView(APIView):
         login(request, user_obj)
         cache.delete(email_key)
         cache.delete(ip_key)
-        return Response(UserSerializer(user_obj).data)
+        payload = UserSerializer(user_obj).data
+        # login() rotates the CSRF token; surface the new one so the SPA
+        # doesn't keep using the pre-login value on subsequent writes.
+        payload["csrfToken"] = get_token(request)
+        return Response(payload)
 
 class UserPagePagination(PageNumberPagination):
     page_size = 10
