@@ -229,39 +229,52 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
+# --- Self-PATCH field policy for MeRetrieveView -----------------------------
+# An explicit allowlist of fields the user is permitted to mutate on their own
+# profile, paired with an explicit denylist of fields that must NEVER be
+# accepted from the self endpoint. The legacy implementation accepted
+# ``role_id`` and ``account_status`` straight from ``request.data`` and applied
+# them to ``request.user`` with no admin check, which let any authenticated
+# session self-assign the admin role (via ``RoleAssignmentHistory.objects
+# .create``) or bypass a suspension. Privileged role / status / track changes
+# must go through ``UsersRetrieveUpdateView`` (admin + track scope).
+#
+# Why both lists?
+#   * The allowlist is the security floor — anything not on it is ignored
+#     (and ``UserSerializer`` itself rejects unknown writable fields). Adding
+#     a new self-mutable field is a deliberate code-review event.
+#   * The denylist is for *known* admin-only fields. Hitting one returns 400
+#     with a field-keyed error so attacker probes and FE wiring mistakes
+#     surface immediately instead of looking like a silent no-op.
+SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
+
+SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
+    "role_id", "role",
+    "account_status",
+    "is_staff", "is_superuser", "is_active",
+    "track", "track_id",
+})
+
+SELF_PATCH_REJECTED_MESSAGE = (
+    "This field cannot be changed via /users/me/. Contact an admin."
+)
+
+
 #issue 40
 class MeRetrieveView(generics.RetrieveAPIView):
     """Authenticated user's self-profile endpoint.
 
-    PATCH is intentionally restricted to fields a user is allowed to mutate
-    *for themselves* (currently just ``timezone``). The legacy implementation
-    accepted ``role_id`` and ``account_status`` from the body without any
-    auth-scope check, which let any authenticated user self-assign the admin
-    role (via ``RoleAssignmentHistory.objects.create``) or re-activate a
-    suspended account. Privileged role / status / track changes must go
-    through :class:`UsersRetrieveUpdateView`, which enforces
-    ``is_operational_admin`` + ``can_admin_track``. See CONSOLIDATED issues
-    list (privilege escalation via PATCH /me/).
+    PATCH is intentionally restricted to ``SELF_PATCHABLE_FIELDS`` (currently
+    just ``timezone``). Any field in ``SELF_PATCH_REJECTED_FIELDS`` aborts the
+    entire request with HTTP 400 and a field-keyed error message — see the
+    module-level comment above for the security rationale. The legitimate
+    admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
+    and is gated on ``is_operational_admin`` + ``can_admin_track``.
     """
 
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
-
-    # Fields a user MUST NOT be able to mutate via /me/. Detected up front so
-    # any forbidden field aborts the *whole* request — a body that sneaks
-    # ``role_id`` in alongside a legit ``timezone`` change must NOT apply the
-    # timezone half. The custom exception handler reshapes
-    # ``ValidationError({field: msg, ...})`` into ``response.data["fields"]``.
-    _FORBIDDEN_SELF_PATCH_FIELDS: dict[str, str] = {
-        "role_id": "Role assignment is not editable via /me/.",
-        "account_status": "Account status is not self-editable.",
-        "is_staff": "Staff flag is not self-editable.",
-        "is_superuser": "Superuser flag is not self-editable.",
-        "is_active": "is_active is not self-editable.",
-        "track_id": "Track is not self-editable via /me/.",
-        "track": "Track is not self-editable via /me/.",
-    }
 
     def get_object(self):
         return self.request.user
@@ -270,24 +283,29 @@ class MeRetrieveView(generics.RetrieveAPIView):
         user = self.get_object()
         data = request.data
 
-        violations = {
-            field: message
-            for field, message in self._FORBIDDEN_SELF_PATCH_FIELDS.items()
-            if field in data
-        }
-        if violations:
-            # Log every forbidden-field PATCH attempt so a credential-stuffed
-            # account or compromised client surface as 4xx spikes in metrics
-            # instead of silent no-ops.
+        rejected = sorted(field for field in data if field in SELF_PATCH_REJECTED_FIELDS)
+        if rejected:
+            # One warning per blocked attempt so credential-stuffed accounts
+            # and compromised clients show up as 4xx spikes in log metrics
+            # instead of silent no-ops. Format matches the audit PR contract.
             logger.warning(
-                "MeRetrieveView.patch: rejected forbidden field(s) "
-                "user_id=%s ip=%s fields=%s",
-                user.id, _client_ip(request), sorted(violations),
+                "MeRetrieveView.patch: user=%s attempted to mutate admin-only fields=%s",
+                user.id, rejected,
             )
-            raise serializers.ValidationError(violations)
+            raise serializers.ValidationError(
+                {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
+            )
 
-        if "timezone" in data:
-            serializer = UserSerializer(user, data={"timezone": data["timezone"]}, partial=True)
+        # Route every allowed field through ``UserSerializer`` so the same
+        # validators the rest of the codebase relies on (e.g. the IANA
+        # timezone check on ``validate_timezone``) apply here — no bespoke
+        # per-field branches and no risk of drift if a new self-mutable
+        # field is added to ``SELF_PATCHABLE_FIELDS``.
+        update_data = {
+            key: value for key, value in data.items() if key in SELF_PATCHABLE_FIELDS
+        }
+        if update_data:
+            serializer = UserSerializer(user, data=update_data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
