@@ -97,15 +97,21 @@ function normalizeInterestSelections(interests: string[]) {
 function UserFormRow({
   label,
   htmlFor,
+  required,
   children,
 }: {
   label: string;
   htmlFor?: string;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4">
-      <Label htmlFor={htmlFor} className="pt-2 sm:text-right">
+      <Label
+        htmlFor={htmlFor}
+        className="pt-2 sm:justify-end sm:text-right"
+        requiredMarker={required}
+      >
         {label}
       </Label>
       <div className="min-w-0 space-y-1.5">{children}</div>
@@ -256,7 +262,7 @@ export function UserEditorSheet({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
-          <UserFormRow label="First Name" htmlFor="user-first-name">
+          <UserFormRow label="First Name" htmlFor="user-first-name" required>
             <Input
               id="user-first-name"
               value={values.firstName}
@@ -267,7 +273,7 @@ export function UserEditorSheet({
             />
           </UserFormRow>
 
-          <UserFormRow label="Last Name" htmlFor="user-last-name">
+          <UserFormRow label="Last Name" htmlFor="user-last-name" required>
             <Input
               id="user-last-name"
               value={values.lastName}
@@ -278,7 +284,7 @@ export function UserEditorSheet({
             />
           </UserFormRow>
 
-          <UserFormRow label="Email" htmlFor="user-email">
+          <UserFormRow label="Email" htmlFor="user-email" required>
             <Input
               id="user-email"
               type="email"
@@ -293,7 +299,7 @@ export function UserEditorSheet({
             />
           </UserFormRow>
 
-          <UserFormRow label="Role" htmlFor="user-role-select">
+          <UserFormRow label="Role" htmlFor="user-role-select" required>
             <Select
               value={values.role}
               onValueChange={(value) =>
@@ -320,7 +326,7 @@ export function UserEditorSheet({
           </UserFormRow>
 
           {values.role === "admin" ? (
-            <UserFormRow label="Admin Scope">
+            <UserFormRow label="Admin Scope" required>
               <div className="space-y-3">
                 <label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm">
                   <Checkbox
@@ -377,7 +383,7 @@ export function UserEditorSheet({
               </div>
             </UserFormRow>
           ) : (
-            <UserFormRow label="Track" htmlFor="user-track-select">
+            <UserFormRow label="Track" htmlFor="user-track-select" required>
               <Select
                 value={values.track ?? "none"}
                 onValueChange={(value) =>
@@ -404,7 +410,7 @@ export function UserEditorSheet({
 
           {values.role === "student" ? (
             <>
-              <UserFormRow label="School" htmlFor="user-school-name">
+              <UserFormRow label="School" htmlFor="user-school-name" required>
                 <Input
                   id="user-school-name"
                   value={values.schoolName}
@@ -418,7 +424,7 @@ export function UserEditorSheet({
                 />
               </UserFormRow>
 
-              <UserFormRow label="Year Level" htmlFor="user-year-level">
+              <UserFormRow label="Year Level" htmlFor="user-year-level" required>
                 <Input
                   id="user-year-level"
                   type="number"
@@ -467,7 +473,7 @@ export function UserEditorSheet({
           ) : null}
 
           {values.role === "supervisor" ? (
-            <UserFormRow label="School" htmlFor="user-supervisor-school-name">
+            <UserFormRow label="School" htmlFor="user-supervisor-school-name" required>
               <Input
                 id="user-supervisor-school-name"
                 value={values.supervisorSchoolName}
@@ -484,7 +490,7 @@ export function UserEditorSheet({
 
           {values.role === "mentor" ? (
             <>
-              <UserFormRow label="Institution" htmlFor="user-mentor-institution">
+              <UserFormRow label="Institution" htmlFor="user-mentor-institution" required>
                 <Input
                   id="user-mentor-institution"
                   value={values.mentorInstitution}
@@ -512,7 +518,7 @@ export function UserEditorSheet({
                 />
               </UserFormRow>
 
-              <UserFormRow label="Mentor Reason" htmlFor="user-mentor-reason">
+              <UserFormRow label="Mentor Reason" htmlFor="user-mentor-reason" required>
                 <Textarea
                   id="user-mentor-reason"
                   value={values.mentorReason}
@@ -529,6 +535,7 @@ export function UserEditorSheet({
               <UserFormRow
                 label="Max Groups"
                 htmlFor="user-mentor-max-group-count"
+                required
               >
                 <Input
                   id="user-mentor-max-group-count"
@@ -555,6 +562,7 @@ export function UserEditorSheet({
                 values.role === "mentor" ? "Interests / Expertise" : "Interests"
               }
               htmlFor="user-interests"
+              required
             >
               <MultiSelect
                 id="user-interests"

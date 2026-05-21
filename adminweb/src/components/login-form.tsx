@@ -67,13 +67,13 @@ export function LoginForm({
               <div className="flex items-center justify-center rounded-md">
                 <img
                   src="/logo.png"
-                  alt="BioTech Logo"
+                  alt="BIOTech Logo"
                   width={40}
                   height={40}
                 />
                 {/* <GalleryVerticalEndIcon className="size-6" /> */}
               </div>
-              <span className="sr-only">BioTech</span>
+              <span className="sr-only">BIOTech</span>
             </a>
             <h1 className="text-xl font-bold">Welcome to BioTech</h1>
           </div>
@@ -102,7 +102,9 @@ export function LoginForm({
             control={control}
             render={({ field }) => (
               <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <FieldLabel htmlFor="email" requiredMarker>
+                  Email
+                </FieldLabel>
                 <Input
                   id="email"
                   type="email"
@@ -122,7 +124,9 @@ export function LoginForm({
               render={({ field }) => (
                 <Field>
                   <div className="flex items-center justify-between">
-                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    <FieldLabel htmlFor="password" requiredMarker>
+                      Password
+                    </FieldLabel>
                     <Link
                       to="/reset-password"
                       search={{ token: undefined }}

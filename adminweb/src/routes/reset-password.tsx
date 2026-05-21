@@ -217,7 +217,9 @@ function ResetPasswordPage() {
                 className="space-y-4"
               >
                 <div className="space-y-1">
-                  <Label htmlFor="reset-email">Email address</Label>
+                  <Label htmlFor="reset-email" requiredMarker>
+                    Email address
+                  </Label>
                   <Input
                     id="reset-email"
                     type="email"
@@ -273,7 +275,9 @@ function ResetPasswordPage() {
               className="space-y-4"
             >
               <div className="space-y-1">
-                <Label htmlFor="new-password">New password</Label>
+                <Label htmlFor="new-password" requiredMarker>
+                  New password
+                </Label>
                 <Input
                   id="new-password"
                   type={showPassword ? "text" : "password"}
@@ -288,7 +292,9 @@ function ResetPasswordPage() {
               </div>
 
               <div className="space-y-1">
-                <Label htmlFor="confirm-password">Confirm password</Label>
+                <Label htmlFor="confirm-password" requiredMarker>
+                  Confirm password
+                </Label>
                 <Input
                   id="confirm-password"
                   type={showPassword ? "text" : "password"}

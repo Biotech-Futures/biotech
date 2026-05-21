@@ -188,14 +188,18 @@ interface EventFormProps {
 
 function EventFormRow({
   label,
+  required,
   children,
 }: {
   label: string;
+  required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4">
-      <Label className="pt-2 sm:text-right">{label}</Label>
+      <Label className="pt-2 sm:justify-end sm:text-right" requiredMarker={required}>
+        {label}
+      </Label>
       <div className="min-w-0 space-y-1.5">{children}</div>
     </div>
   );
@@ -250,7 +254,7 @@ function EventForm({
         />
       </EventFormRow>
 
-      <EventFormRow label="Event Name">
+      <EventFormRow label="Event Name" required>
         <Input placeholder="Event name" {...register("eventName")} />
         {errors.eventName && (
           <p className="text-sm text-destructive">{errors.eventName.message}</p>
@@ -311,7 +315,7 @@ function EventForm({
         control={control}
         name="startAt"
         render={({ field }) => (
-          <EventFormRow label="Start">
+          <EventFormRow label="Start" required>
             <DateTimeLocalInput field={field} />
             {errors.startAt && (
               <p className="text-sm text-destructive">
@@ -326,7 +330,7 @@ function EventForm({
         control={control}
         name="endsAt"
         render={({ field }) => (
-          <EventFormRow label="End">
+          <EventFormRow label="End" required>
             <DateTimeLocalInput field={field} />
             {errors.endsAt && (
               <p className="text-sm text-destructive">
