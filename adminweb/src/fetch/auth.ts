@@ -99,9 +99,12 @@ export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
       try {
+        resetCsrfToken();
+        await ensureCsrfToken();
         await authFetch.post("/services/logout/");
         resetCsrfToken();
       } catch (error) {
+        resetCsrfToken();
         const message = getAuthErrorMessage(error, "Failed to sign out");
         toast.error(message);
         throw new Error(message);
