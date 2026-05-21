@@ -55,6 +55,18 @@ REGISTRATION_PER_IP_LIMIT = 10
 REGISTRATION_WINDOW_SECONDS = 900  # 15 min
 
 
+# --- Password login rate limits --------------------------------------------
+# Per-email lockout alone lets an attacker fan out across many guessed
+# accounts from a single host (credential stuffing). We pair the existing
+# 5-attempts-per-email guard with a per-IP cap so a single source can't
+# accumulate unbounded failures across different emails. The IP cap is
+# deliberately higher than the per-email cap to absorb legitimate shared
+# egress (corporate NAT, school networks) without locking out real users.
+PWD_LOGIN_PER_EMAIL_LIMIT = 5
+PWD_LOGIN_PER_IP_LIMIT = 20
+PWD_LOGIN_WINDOW_SECONDS = 300  # 5 min — matches the existing per-email window
+
+
 def _client_ip(request) -> str:
     # Only honor X-Forwarded-For when the deployment sits behind a trusted
     # reverse proxy / CDN (Azure Front Door, App Service ingress, ALB). Direct
@@ -80,17 +92,29 @@ class PasswordLoginView(APIView):
         email = request.data.get("email")
         password = request.data.get("password")
 
-        # Brute-force guard: 5 failed attempts → 5 min lockout per email.
-        cache_key = f"pwd_login_attempts:{email}"
-        attempts = cache.get(cache_key, 0)
-        if attempts >= 5:
+        ip = _client_ip(request)
+        email_key = f"pwd_login_attempts:{email}"
+        ip_key = f"pwd_login_attempts_ip:{ip}"
+
+        # Dual brute-force guard: per-email blocks targeted attacks on one
+        # account; per-IP blocks credential stuffing fanned across many
+        # accounts from the same source. Check both BEFORE bcrypt so a
+        # locked-out attacker can't keep burning CPU on hash checks.
+        email_attempts = cache.get(email_key, 0)
+        ip_attempts = cache.get(ip_key, 0)
+        if email_attempts >= PWD_LOGIN_PER_EMAIL_LIMIT or ip_attempts >= PWD_LOGIN_PER_IP_LIMIT:
+            logger.warning(
+                "password_login: rate limit hit email=%s ip=%s email_attempts=%s ip_attempts=%s",
+                email, ip, email_attempts, ip_attempts,
+            )
             raise TooManyFailedAttempts()
 
         # Single bcrypt check (was being done twice — once here, once inside
         # authenticate() — adding ~300ms per login).
         user_obj = User.objects.filter(email=email).first()
         if user_obj is None or not user_obj.check_password(password):
-            cache.set(cache_key, attempts + 1, 300)
+            cache.set(email_key, email_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
+            cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             raise InvalidCredentials()
 
         if user_obj.account_status in ['suspended', 'deactivated']:
@@ -102,7 +126,8 @@ class PasswordLoginView(APIView):
         # back to a real backend on subsequent requests.
         user_obj.backend = 'apps.users.backends.CachedModelBackend'
         login(request, user_obj)
-        cache.delete(cache_key)
+        cache.delete(email_key)
+        cache.delete(ip_key)
         return Response(UserSerializer(user_obj).data)
 
 class UserPagePagination(PageNumberPagination):
@@ -204,36 +229,83 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
+# --- Self-PATCH field policy for MeRetrieveView -----------------------------
+# An explicit allowlist of fields the user is permitted to mutate on their own
+# profile, paired with an explicit denylist of fields that must NEVER be
+# accepted from the self endpoint. The legacy implementation accepted
+# ``role_id`` and ``account_status`` straight from ``request.data`` and applied
+# them to ``request.user`` with no admin check, which let any authenticated
+# session self-assign the admin role (via ``RoleAssignmentHistory.objects
+# .create``) or bypass a suspension. Privileged role / status / track changes
+# must go through ``UsersRetrieveUpdateView`` (admin + track scope).
+#
+# Why both lists?
+#   * The allowlist is the security floor — anything not on it is ignored
+#     (and ``UserSerializer`` itself rejects unknown writable fields). Adding
+#     a new self-mutable field is a deliberate code-review event.
+#   * The denylist is for *known* admin-only fields. Hitting one returns 400
+#     with a field-keyed error so attacker probes and FE wiring mistakes
+#     surface immediately instead of looking like a silent no-op.
+SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
+
+SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
+    "role_id", "role",
+    "account_status",
+    "is_staff", "is_superuser", "is_active",
+    "track", "track_id",
+})
+
+SELF_PATCH_REJECTED_MESSAGE = (
+    "This field cannot be changed via /users/me/. Contact an admin."
+)
+
+
 #issue 40
 class MeRetrieveView(generics.RetrieveAPIView):
+    """Authenticated user's self-profile endpoint.
+
+    PATCH is intentionally restricted to ``SELF_PATCHABLE_FIELDS`` (currently
+    just ``timezone``). Any field in ``SELF_PATCH_REJECTED_FIELDS`` aborts the
+    entire request with HTTP 400 and a field-keyed error message — see the
+    module-level comment above for the security rationale. The legitimate
+    admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
+    and is gated on ``is_operational_admin`` + ``can_admin_track``.
+    """
+
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
 
     def get_object(self):
-        obj = self.request.user
-        return obj
+        return self.request.user
 
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
-        data=request.data
-        if "account_status" in data:
-            user.apply_account_status(data["account_status"])
+        data = request.data
 
-        # `role_id` is the FK into the Roles table; the canonical mapping
-        # lives in the database and is referenced by name elsewhere (see
-        # apps.common.role_names). Do NOT rely on specific PKs here — they
-        # are not stable across environments.
-        if "role_id" in data:
-            role = get_object_or_404(Roles, pk=data["role_id"])
-            now = timezone.now()
+        rejected = sorted(field for field in data if field in SELF_PATCH_REJECTED_FIELDS)
+        if rejected:
+            # One warning per blocked attempt so credential-stuffed accounts
+            # and compromised clients show up as 4xx spikes in log metrics
+            # instead of silent no-ops. Format matches the audit PR contract.
+            logger.warning(
+                "MeRetrieveView.patch: user=%s attempted to mutate admin-only fields=%s",
+                user.id, rejected,
+            )
+            raise serializers.ValidationError(
+                {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
+            )
 
-            with transaction.atomic():
-                # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
-                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
-
-        if "timezone" in data:
-            serializer = UserSerializer(user, data={"timezone": data["timezone"]}, partial=True)
+        # Route every allowed field through ``UserSerializer`` so the same
+        # validators the rest of the codebase relies on (e.g. the IANA
+        # timezone check on ``validate_timezone``) apply here — no bespoke
+        # per-field branches and no risk of drift if a new self-mutable
+        # field is added to ``SELF_PATCHABLE_FIELDS``.
+        update_data = {
+            key: value for key, value in data.items() if key in SELF_PATCHABLE_FIELDS
+        }
+        if update_data:
+            serializer = UserSerializer(user, data=update_data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
