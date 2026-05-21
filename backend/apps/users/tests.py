@@ -1,10 +1,20 @@
+from datetime import timedelta
+
 from django.core.exceptions import FieldDoesNotExist
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.groups.models import Countries, CountryStates, Tracks
-from apps.users.models import User
+from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.users.models import (
+    AreasOfInterest,
+    StudentProfile,
+    SupervisorProfile,
+    User,
+    UserInterest,
+)
 from apps.users.serializers import UserSerializer
 
 
@@ -143,3 +153,167 @@ class MustChangePasswordFlagTests(TestCase):
         response = client.get(reverse("MeListHTMLView"))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data["must_change_password"])
+
+
+class ProfilePageFieldsTests(TestCase):
+    """Contract tests for the new read-only profile fields surfaced by
+    `UserSerializer` (and therefore `/api/v1/users/me/`):
+
+      * `interests` — list of the user's selected areas of interest.
+      * `supervisor_name` / `supervisor_email` — populated for students from
+        their linked SupervisorProfile.user.
+      * `supervisor_school_name` — populated for users currently in the
+        supervisor role from their own SupervisorProfile.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        # Role IDs are referenced by integer throughout the existing code
+        # (e.g. `if rah.role_id == 4`). Mirror that here.
+        cls.student_role = Roles.objects.create(pk=4, role_name="Student")
+        cls.supervisor_role = Roles.objects.create(pk=2, role_name="Supervisor")
+
+    def _assign_role(self, user, role):
+        now = timezone.now()
+        RoleAssignmentHistory.objects.create(
+            user=user,
+            role=role,
+            valid_from=now - timedelta(minutes=1),
+            valid_to=now + timedelta(weeks=52),
+        )
+
+    def _make_student(self, *, email, supervisor_profile=None, school_name="Test High"):
+        user = User.objects.create_user(
+            email=email,
+            first_name="Stu",
+            last_name="Dent",
+        )
+        self._assign_role(user, self.student_role)
+        StudentProfile.objects.create(
+            user=user,
+            pg_first_name="Pa",
+            pg_last_name="Rent",
+            parent_guardian_flag=True,
+            supervisor=supervisor_profile,
+            school_name=school_name,
+            year_lvl="10",
+        )
+        return user
+
+    def _make_supervisor(self, *, email, first_name, last_name, school_name):
+        user = User.objects.create_user(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        self._assign_role(user, self.supervisor_role)
+        return user, SupervisorProfile.objects.create(user=user, school_name=school_name)
+
+    def _serialize(self, user):
+        return UserSerializer(user).data
+
+    def test_interests_returns_sorted_descriptions(self):
+        user = User.objects.create_user(
+            email="interested@example.com",
+            first_name="In",
+            last_name="Terested",
+        )
+        bio = AreasOfInterest.objects.create(interest_desc="Biology")
+        chem = AreasOfInterest.objects.create(interest_desc="Chemistry")
+        astro = AreasOfInterest.objects.create(interest_desc="Astrophysics")
+        UserInterest.objects.create(user=user, interest=bio)
+        UserInterest.objects.create(user=user, interest=chem)
+        UserInterest.objects.create(user=user, interest=astro)
+
+        data = self._serialize(user)
+        self.assertEqual(
+            data["interests"],
+            ["Astrophysics", "Biology", "Chemistry"],
+        )
+
+    def test_interests_empty_list_when_user_has_none(self):
+        user = User.objects.create_user(
+            email="boring@example.com",
+            first_name="No",
+            last_name="Interests",
+        )
+        data = self._serialize(user)
+        self.assertEqual(data["interests"], [])
+
+    def test_student_sees_supervisor_name_and_email(self):
+        _sup_user, sup_profile = self._make_supervisor(
+            email="super@example.com",
+            first_name="Super",
+            last_name="Visor",
+            school_name="Acme Academy",
+        )
+        student = self._make_student(
+            email="student@example.com",
+            supervisor_profile=sup_profile,
+        )
+
+        data = self._serialize(student)
+        self.assertEqual(data["supervisor_name"], "Super Visor")
+        self.assertEqual(data["supervisor_email"], "super@example.com")
+        # Students themselves are not supervisors -> supervisor_school_name null.
+        self.assertIsNone(data["supervisor_school_name"])
+
+    def test_student_without_linked_supervisor_returns_null_supervisor_fields(self):
+        student = self._make_student(
+            email="orphan-student@example.com",
+            supervisor_profile=None,
+        )
+        data = self._serialize(student)
+        self.assertIsNone(data["supervisor_name"])
+        self.assertIsNone(data["supervisor_email"])
+        self.assertIsNone(data["supervisor_school_name"])
+
+    def test_supervisor_sees_their_own_school_name(self):
+        sup_user, _ = self._make_supervisor(
+            email="myschool@example.com",
+            first_name="Sue",
+            last_name="Perv",
+            school_name="River High",
+        )
+        data = self._serialize(sup_user)
+        self.assertEqual(data["supervisor_school_name"], "River High")
+        # The student-only fields stay null for a supervisor account.
+        self.assertIsNone(data["supervisor_name"])
+        self.assertIsNone(data["supervisor_email"])
+
+    def test_non_student_non_supervisor_returns_null_for_all_supervisor_fields(self):
+        # No role assignment at all -> all supervisor-related fields null,
+        # interests defaults to empty list.
+        user = User.objects.create_user(
+            email="roleless@example.com",
+            first_name="No",
+            last_name="Role",
+        )
+        data = self._serialize(user)
+        self.assertIsNone(data["supervisor_name"])
+        self.assertIsNone(data["supervisor_email"])
+        self.assertIsNone(data["supervisor_school_name"])
+        self.assertEqual(data["interests"], [])
+
+    def test_me_endpoint_exposes_new_profile_fields(self):
+        _sup_user, sup_profile = self._make_supervisor(
+            email="me-sup@example.com",
+            first_name="My",
+            last_name="Sup",
+            school_name="Hilltop School",
+        )
+        student = self._make_student(
+            email="me-student@example.com",
+            supervisor_profile=sup_profile,
+        )
+        bio = AreasOfInterest.objects.create(interest_desc="Biology")
+        UserInterest.objects.create(user=student, interest=bio)
+
+        client = APIClient()
+        client.force_authenticate(user=student)
+        response = client.get(reverse("MeListHTMLView"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["interests"], ["Biology"])
+        self.assertEqual(response.data["supervisor_name"], "My Sup")
+        self.assertEqual(response.data["supervisor_email"], "me-sup@example.com")
+        self.assertIsNone(response.data["supervisor_school_name"])

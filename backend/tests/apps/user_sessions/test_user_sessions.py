@@ -25,13 +25,29 @@ class SessionTrackingMiddlewareTests(TestCase):
         )
         self.middleware = SessionTrackingMiddleware(lambda request: HttpResponse("ok"))
 
-    def _build_request(self):
-        request = self.factory.get("/services/session-test/")
+    def _build_request(self, method="post"):
+        # Tracking middleware only writes on state-changing methods, so the
+        # tracking-behaviour tests below use POST. The GET-skip behaviour has
+        # its own test (test_skips_safe_methods).
+        builder = getattr(self.factory, method)
+        request = builder("/services/session-test/")
         session_middleware = SessionMiddleware(lambda req: HttpResponse("ok"))
         session_middleware.process_request(request)
         request.session.create()
         request.user = self.user
         return request
+
+    def test_skips_safe_methods(self):
+        for method in ("get", "head", "options"):
+            UserSession.objects.all().delete()
+            request = self._build_request(method=method)
+            response = self.middleware(request)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                UserSession.objects.count(),
+                0,
+                f"{method.upper()} should not create a user_session row",
+            )
 
     def test_reopens_existing_row_for_same_sid_without_creating_duplicate(self):
         request = self._build_request()

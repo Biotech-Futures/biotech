@@ -592,6 +592,12 @@ class ResourcesViewSet(mixins.ListModelMixin,
         # opening inline instead of downloading. The force path is opt-in so
         # callers that just want a preview still get the cheap redirect.
         force = (request.query_params.get("force") or "").lower() in {"1", "true", "yes"}
+        # ``?inline=1`` flips ``Content-Disposition`` from ``attachment`` to
+        # ``inline`` so the browser previews the file in a tab (PDF viewer,
+        # image, etc.) instead of forcing a save. Mirrors the chat attachment
+        # download contract so the frontend can use one query convention for
+        # both surfaces. Without the flag the default download semantics stand.
+        inline = (request.query_params.get("inline") or "").lower() in {"1", "true", "yes"}
         if external_url and payload["access_mode"] in {"external_file", "external_page"}:
             if not force:
                 return HttpResponseRedirect(external_url)
@@ -617,7 +623,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 upstream.iter_content(chunk_size=64 * 1024),
                 content_type=mime_type,
             )
-            response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+            disposition = "inline" if inline else "attachment"
+            response["Content-Disposition"] = f'{disposition}; filename="{file_name}"'
             content_length = upstream.headers.get("content-length")
             if content_length:
                 response["Content-Length"] = content_length
@@ -629,6 +636,10 @@ class ResourcesViewSet(mixins.ListModelMixin,
             )
 
         storage_key = (resource.storage_key or "").strip()
+        # Pages always render inline; files default to attachment so existing
+        # download callers are unaffected. ``?inline=1`` lets the frontend opt
+        # files into inline rendering for PDF/image previews.
+        as_attachment = (resource.kind == Resources.ResourceKind.FILE) and not inline
         return serve_managed_file(
             resolve_url=RESOURCE_FILE_SERVICE.resolve_url,
             open_file=RESOURCE_FILE_SERVICE.open,
@@ -636,7 +647,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             filename=payload["file_name"] or resource.name,
             mime_type=resource.file_mime_type,
             size=resource.file_size,
-            as_attachment=resource.kind == Resources.ResourceKind.FILE,
+            as_attachment=as_attachment,
             on_open_failure_detail="The stored file could not be opened for download.",
         )
 

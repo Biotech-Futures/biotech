@@ -8,6 +8,8 @@ charset-normalizer==3.4.3
 coverage==7.11.0
 daphne==4.1.2
 autobahn==24.4.2
+gunicorn==21.2.0
+uvicorn[standard]==0.27.1
 Django==5.2.5
 django-cors-headers==4.8.0
 django-filter==24.3

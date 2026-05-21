@@ -14,6 +14,7 @@ interface User {
   last_name: string
   timezone?: string
   must_change_password?: boolean
+  account_status?: string
   status?: boolean
   current_role_id?: number | null
   current_role_name?: string | null
@@ -26,6 +27,9 @@ interface User {
   year_lvl?: string | null
   school_name?: string | null
   join_perm?: boolean | null
+  interests?: string[]
+  supervisor_name?: string | null
+  supervisor_email?: string | null
   ment_bg?: string | null
   ment_inst?: string | null
   ment_reason?: string | null

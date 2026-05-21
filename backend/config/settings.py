@@ -232,10 +232,19 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": "default",
             "connect_timeout": 5,
         },
-        "CONN_MAX_AGE": 0,
+        # Persistent connections — avoids a TLS handshake (100-300ms on Azure
+        # Postgres) on every request. 300s is a safe default below worker idle
+        # timeouts; each gunicorn worker keeps one warm connection per request
+        # path. Total idle conns ≈ worker_count, well within Burstable caps.
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=300, cast=int),
+        # Drop dead connections at the start of each request instead of
+        # raising OperationalError. Pairs with CONN_MAX_AGE — Azure Postgres
+        # idles connections out under load and reconnect-on-demand keeps the
+        # site usable instead of cascading to 500s until the workers restart.
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -354,6 +363,16 @@ SESSION_COOKIE_SAMESITE = 'None'
 SESSION_COOKIE_DOMAIN = None
 SESSION_SAVE_EVERY_REQUEST = False
 
+# Cached auth backend skips the User.objects.get() in
+# AuthenticationMiddleware on every request — see apps/users/backends.py.
+# Sessions stay on the DB backend because the password-reset flow scans
+# django_session to revoke all of a user's sessions; moving sessions to
+# Redis would silently break that security guarantee. Revisit once we
+# have a Redis-aware session-flush helper.
+AUTHENTICATION_BACKENDS = [
+    "apps.users.backends.CachedModelBackend",
+]
+
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_SECURE = True
@@ -386,7 +405,24 @@ LOGIN_REDIRECT_URL = "/admin/"
 PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
     "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
 )
-BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
+
+# Public base URL of this backend. Used to build the magic-link href in OTP
+# emails (apps/services/auth_service.send_login_code). MUST be set explicitly
+# in any non-DEBUG deploy — otherwise a missing env var would silently email
+# magic links pointing at http://localhost:8000, breaking login and leaking
+# infra info. In DEBUG (local dev) we keep the localhost default so
+# `runserver` works out of the box.
+_BACKEND_URL_RAW = config("BACKEND_URL", default="")
+if not _BACKEND_URL_RAW:
+    if DEBUG:
+        _BACKEND_URL_RAW = "http://localhost:8000"
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "BACKEND_URL must be set (e.g. https://api.biotechfutures.org) "
+            "outside DEBUG. Magic-link emails are built from it."
+        )
+BACKEND_URL = _BACKEND_URL_RAW.rstrip("/")
 
 # --- Chat sanitiser ----------------------------------------------------------
 # Sanitisation policy is sourced from environment variables so moderation
@@ -417,27 +453,18 @@ CHAT_SANITIZER_BLACKLIST = config(
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
-# --- GIF proxy (Tenor v2) ----------------------------------------------------
-# We proxy GIF search/trending through the chat API so:
-#   1. clients never see the Tenor key,
-#   2. queries pass through ``contains_blacklisted`` first — a slur in the
-#      query returns ``{items: []}`` with no upstream call, satisfying the
-#      "ill words -> blank output" requirement of issue #95,
-#   3. responses can be cached in Redis (same store as link previews) to
-#      keep repeat searches fast.
-# An empty ``TENOR_API_KEY`` triggers fail-soft behaviour: endpoints return
-# 200 with an empty list rather than 500, so dev environments without a key
-# still load the UI.
-TENOR_API_KEY = config("TENOR_API_KEY", default="")
-TENOR_CLIENT_KEY = config("TENOR_CLIENT_KEY", default="biotech-chat")
-TENOR_TIMEOUT = config("TENOR_TIMEOUT", default=5, cast=int)
-GIF_CACHE_TTL = config("GIF_CACHE_TTL", default=300, cast=int)
-
 # Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
 # /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
 # schedulers. The endpoint returns 503 if it's unset, so a misconfigured deploy
 # fails loud instead of silently exposing an unauthenticated trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
+
+# Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
+# alias). The upstream join-permission consent form sends this token in the
+# ``X-Join-Permission-Token`` header. Same fail-loud contract as
+# ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
+# misconfigured deploy can't silently expose an unauthenticated webhook.
+JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h

@@ -66,9 +66,9 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
 
       return (
         <div className="flex max-w-sm flex-wrap gap-1">
-          {items.map((item) => (
-            <Badge key={item.id} variant="outline">
-              {item.description}
+          {items.map((item, index) => (
+            <Badge key={index} variant="outline">
+              {item}
             </Badge>
           ))}
         </div>

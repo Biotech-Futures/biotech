@@ -33,19 +33,19 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     login_token = LoginToken.create_for_user(user, expiry_minutes=10)
     token = login_token.token
 
-    # edbert: Use provided redirect_url from frontend, fallback to settings or default
     if redirect_url:
         base_redirect = redirect_url
     else:
-        # edbert: Fallback to settings configuration
-        base_redirect = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/auth/callback')
+        base_redirect = settings.MAGIC_LINK_REDIRECT_URL
 
-    # edbert: Build magic link that points to backend magic endpoint with email and code
-    backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000')
+    # Build magic link from the canonical BACKEND_URL. Sourced from settings
+    # (env-driven, fail-loud in prod via config/settings.py) so a misconfigured
+    # deploy can't silently email magic links pointing at http://localhost:8000.
+    backend_url = settings.BACKEND_URL.rstrip("/")
     query_params = {
         'email': email,
         'code': token,
-        'redirect_url': base_redirect
+        'redirect_url': base_redirect,
     }
     magic_link = f"{backend_url}/services/magic/?{urlencode(query_params)}"
 

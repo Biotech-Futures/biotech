@@ -66,7 +66,7 @@
           <div class="legacy-logo-icon">
             <img :src="logo" alt="BIOTech Futures" />
           </div>
-          <h1 class="legacy-brand-title">BIOTech Futures Hub</h1>
+          <h1 class="legacy-brand-title">BIOTech Connect</h1>
         </div>
 
         <div class="legacy-custom-content">
@@ -90,7 +90,7 @@
             target="_blank"
             rel="noopener noreferrer"
           >
-            Visit Main Website
+            Visit Website
           </a>
         </div>
       </div>
@@ -101,10 +101,10 @@
       <div class="auth-shell">
         <!-- Top bar with trust badges and language switcher. -->
         <div class="auth-topbar">
-          <div class="top-badges">
-            <span class="top-badge">{{ t('secureAccess') }}</span>
-            <span class="top-badge">{{ t('enterpriseReady') }}</span>
-          </div>
+<!--          <div class="top-badges">-->
+<!--            <span class="top-badge">{{ t('secureAccess') }}</span>-->
+<!--            <span class="top-badge">{{ t('enterpriseReady') }}</span>-->
+<!--          </div>-->
 
           <div class="language-switcher" role="tablist" aria-label="Language switcher">
             <button
@@ -156,9 +156,9 @@
                 <p class="auth-subtitle">{{ authSubtitle }}</p>
 
                 <!-- Meta chips for selected identity and auth method. -->
-                <div class="meta-row">
-                  <span class="meta-chip meta-chip--neutral">{{ activeLoginModeLabel }}</span>
-                </div>
+<!--                <div class="meta-row">-->
+<!--                  <span class="meta-chip meta-chip&#45;&#45;neutral">{{ activeLoginModeLabel }}</span>-->
+<!--                </div>-->
               </header>
 
               <!-- Email submission form. -->
@@ -204,7 +204,7 @@
                     />
                   </div>
 
-                  <small class="field-help">{{ emailStepHelper }}</small>
+<!--                  <small class="field-help">{{ emailStepHelper }}</small>-->
                 </div>
 
                 <div
@@ -241,7 +241,8 @@
                   class="primary-button"
                   :disabled="sendingCode || loginOnCooldown"
                 >
-                  <span v-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
+                  <span v-if="sendingCode && isPasswordLoginMode">{{ t('loadingDashboard') }}</span>
+                  <span v-else-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
                   <span v-else>{{ loginActionLabel }}</span>
                 </button>
               </form>
@@ -325,7 +326,7 @@
                   :disabled="verifyingCode || !isOtpComplete"
                   @click="verifyOTP"
                 >
-                  <span v-if="verifyingCode" class="button-spinner" aria-hidden="true"></span>
+                  <span v-if="verifyingCode">{{ t('loadingDashboard') }}</span>
                   <span v-else>{{ t('verifyCode') }}</span>
                 </button>
 
@@ -408,7 +409,7 @@ const messages = LOGIN_MESSAGES
 */
 const email = ref('')
 const password = ref('')
-const loginMode = ref('password')
+const loginMode = ref('code')
 const currentStep = ref('email')
 const error = ref('')
 const statusMessage = ref('')
@@ -828,7 +829,7 @@ const handleLogin = async () => {
 
   email.value = normalizedEmail
   sendingCode.value = true
-  statusMessage.value = isPasswordLoginMode.value ? t('signingIn') : t('sendingCode')
+  statusMessage.value = isPasswordLoginMode.value ? '' : t('sendingCode')
 
   try {
     if (isPasswordLoginMode.value) {
@@ -893,7 +894,7 @@ const verifyOTP = async () => {
 
   clearMessages()
   verifyingCode.value = true
-  statusMessage.value = t('signingIn')
+  statusMessage.value = ''
 
   try {
     const response = await postJson('/services/verify-login-code/', {
@@ -1053,6 +1054,8 @@ onBeforeUnmount(() => {
 */
 
 .login-shell {
+  --login-font-primary: Arial, Helvetica, sans-serif;
+  --login-font-accent: "Times New Roman", Times, serif;
   --emerald-950: #081714;
   --emerald-900: #0d241f;
   --emerald-850: #123129;
@@ -1079,6 +1082,7 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
   min-height: 100vh;
   min-height: 100dvh;
+  font-family: var(--login-font-primary);
   background:
     radial-gradient(circle at top left, rgba(48, 173, 138, 0.16), transparent 24%),
     radial-gradient(circle at bottom right, rgba(23, 93, 79, 0.08), transparent 28%),
@@ -1088,6 +1092,25 @@ onBeforeUnmount(() => {
 .login-shell,
 .login-shell * {
   box-sizing: border-box;
+}
+
+.login-shell button,
+.login-shell input {
+  font-family: var(--login-font-primary);
+  font-style: normal;
+}
+
+.legacy-info-title,
+.legacy-custom-content p,
+.legacy-info-list,
+.auth-subtitle,
+.field-help,
+.status-message,
+.error-message,
+.otp-footer-copy p,
+.support-row {
+  font-family: var(--login-font-accent);
+  font-style: italic;
 }
 
 /*
@@ -1588,7 +1611,7 @@ onBeforeUnmount(() => {
 
 .forgot-password-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: 4px;
 }
 
@@ -1908,7 +1931,7 @@ onBeforeUnmount(() => {
   }
 
   .otp-box {
-    //grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* grid-template-columns: repeat(3, minmax(0, 1fr)); */
   }
 }
 

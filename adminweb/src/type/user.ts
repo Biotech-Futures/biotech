@@ -126,7 +126,7 @@ export type StudentUser = {
   joinpermResponseId: string | null;
   groupId: number | null;
   groupName: string | null;
-  interests: StudentInterest[];
+  interests: string[];
 };
 
 export type StudentPaginatedResponse = {

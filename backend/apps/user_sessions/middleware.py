@@ -8,10 +8,19 @@ from django.utils import timezone
 from .models import UserSession
 
 
+# RFC 7231 idempotent / safe methods. Skipping these avoids 2 DB writes
+# (get_or_create + save) on every read request — typically ~70% of traffic.
+# State-changing methods (POST/PATCH/PUT/DELETE) still update last_activity_at,
+# so any real user action keeps the analytics row fresh. Purely passive
+# read-only users will show stale last_activity_at, which is acceptable since
+# the field isn't consumed by any security/operational logic.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
 class SessionTrackingMiddleware:
     """
     Middleware to track user sessions in the Sessions model for analytics.
-    Records authenticated requests to track user activity.
+    Records authenticated *state-changing* requests to track user activity.
     """
 
     def __init__(self, get_response):
@@ -19,6 +28,9 @@ class SessionTrackingMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
+
+        if request.method in _SAFE_METHODS:
+            return response
 
         # Track authenticated requests using Django's native session key
         if request.user.is_authenticated:

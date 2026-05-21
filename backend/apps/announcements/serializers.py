@@ -27,7 +27,11 @@ class AnnouncementAudienceWriteSerializer(serializers.Serializer):
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):
-    author_email = serializers.EmailField(source="author_user.email", read_only=True)
+    # Authors are masked on the public API: every announcement surfaces as
+    # "Administrator" regardless of which admin sent it. The real
+    # ``author_user`` FK still exists on the model for audit/filter use;
+    # the admin dashboard (apps.admin) has its own serializer that exposes it.
+    sender_name = serializers.CharField(default="Administrator", read_only=True)
     audiences = AnnouncementAudienceSerializer(many=True, read_only=True)
     audience_rules = AnnouncementAudienceWriteSerializer(many=True, write_only=True, required=False)
 
@@ -39,8 +43,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         model = Announcement
         fields = [
             "id",
-            "author_user",
-            "author_email",
+            "sender_name",
             "track",
             "title",
             "body",
@@ -50,7 +53,7 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "audiences",
             "audience_rules",
         ]
-        read_only_fields = ["id", "author_user", "published_at", "audiences"]
+        read_only_fields = ["id", "published_at", "audiences"]
 
     def _replace_audiences(self, announcement, audience_rules):
         if audience_rules is None:

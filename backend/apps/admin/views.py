@@ -545,7 +545,12 @@ class ResourceDownloadView(APIView):
             data["content"],
             content_type=data.get("mime_type") or "application/octet-stream",
         )
-        response["Content-Disposition"] = f'attachment; filename="{data["file_name"]}"'
+        # ``?inline=1`` flips ``Content-Disposition`` to ``inline`` so the
+        # admin UI can preview PDFs/images directly in a tab. Same convention
+        # as the user-facing resource download endpoint.
+        inline = (request.query_params.get("inline") or "").lower() in {"1", "true", "yes"}
+        disposition = "inline" if inline else "attachment"
+        response["Content-Disposition"] = f'{disposition}; filename="{data["file_name"]}"'
         return response
 
 

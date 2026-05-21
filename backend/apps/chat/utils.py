@@ -15,21 +15,27 @@ from apps.common.text import (  # noqa: F401
 
 
 _MENTION_RE = re.compile(r"<@(\d+)>")
+# Bare ``@everyone`` keyword. Mirrors the FE pattern at
+# GroupDetailPage.vue:3494 so a message authored in the composer survives
+# the round-trip and still gets fanned out server-side. The lookbehind
+# rejects ``foo@everyone`` and ``@@everyone`` so only standalone usages
+# count.
+_EVERYONE_RE = re.compile(r"(?<![\w@])@everyone\b", re.IGNORECASE)
 
 
-def parse_mentions(text: str) -> set[int]:
-    """Return the set of user IDs referenced by ``<@123>`` tokens in ``text``.
+def parse_mentions(text: str) -> tuple[set[int], bool]:
+    """Extract mentions from ``text``.
 
-    The token shape is fixed (Slack-style) so the FE owns the
-    autocomplete UX while the backend can find mentions without
-    ambiguity. Duplicates collapse — a user mentioned twice in the same
-    message still gets one ``MessageMention`` row.
+    Returns a tuple of (user IDs from ``<@123>`` tokens, ``@everyone`` flag).
+    The two token shapes are kept distinct because ``@everyone`` resolves
+    against group membership at apply-time — the caller cannot know who
+    "everyone" is without the message's group context.
 
-    Cross-group membership is *not* enforced here; this util just
-    extracts IDs. The serializer is responsible for filtering the
-    resulting set against the message's group membership before
-    inserting rows.
+    Duplicates collapse; the ``@everyone`` flag is a single bool regardless
+    of how many times the keyword appears.
     """
     if not text:
-        return set()
-    return {int(m) for m in _MENTION_RE.findall(text)}
+        return set(), False
+    user_ids = {int(m) for m in _MENTION_RE.findall(text)}
+    has_everyone = bool(_EVERYONE_RE.search(text))
+    return user_ids, has_everyone

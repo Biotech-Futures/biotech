@@ -36,6 +36,7 @@ export interface LoadFailure {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const LIST_ENDPOINT = `${API_BASE_URL}/announcements/v1/?page_size=100`
 const DETAIL_ENDPOINT = (id: string | number) => `${API_BASE_URL}/announcements/v1/${id}/`
+const ANNOUNCEMENT_AUTHOR_LABEL = 'Administrator'
 
 interface AnnouncementAudience {
   role_name?: string | null
@@ -55,8 +56,7 @@ interface AnnouncementApiItem {
   track?: number | null
   published_at?: string | null
   archived_at?: string | null
-  author_email?: string | null
-  author?: string | null
+  sender_name?: string | null
   image_url?: string | string[] | null
   image_urls?: unknown[] | null
   images?: unknown[] | null
@@ -298,7 +298,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
     id: a?.id,
     title: a?.title || 'Untitled announcement',
     date: a?.published_at || '',
-    author: a?.author_email || a?.author || 'Program Team',
+    author: a?.sender_name || ANNOUNCEMENT_AUTHOR_LABEL,
     bodyText: buildBodyText(body),
     bodyHtml: renderAnnouncementBody(body),
     audience,
@@ -537,6 +537,19 @@ export function formatFullDate(iso: string): string {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+export function formatOverviewDateTime(iso: string): string {
+  if (!iso) return 'Recently posted'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'Recently posted'
+  return d.toLocaleString('en-AU', {
+    day: 'numeric',
+    month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit'

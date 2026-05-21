@@ -24,7 +24,7 @@
         <input
           v-model="q"
           type="text"
-          placeholder="Search by title, author, or body"
+          placeholder="Search by title, body, or audience"
           aria-label="Search announcements"
         />
         <button
@@ -39,8 +39,16 @@
       </label>
     </header>
 
-    <div class="announcements__filterbar">
-      <div class="announcements__filters" role="tablist" aria-label="Filter by audience">
+    <div
+      v-if="visibleAudienceFilters.length || myGroups.length"
+      class="announcements__filterbar"
+    >
+      <div
+        v-if="visibleAudienceFilters.length"
+        class="announcements__filters"
+        role="tablist"
+        aria-label="Filter by audience"
+      >
         <button
           v-for="option in visibleAudienceFilters"
           :key="option.value"
@@ -49,7 +57,7 @@
           :aria-selected="audienceFilter === option.value"
           class="filter-chip"
           :class="{ 'filter-chip--active': audienceFilter === option.value }"
-          @click="audienceFilter = option.value"
+          @click="toggleAudienceFilter(option.value)"
         >
           {{ option.label }}
         </button>
@@ -140,13 +148,16 @@ const callerRole = computed<'admin' | 'mentor' | 'supervisor' | 'student'>(() =>
   return 'student'
 })
 
-// Visible chips depend on the caller's role. A student never sees the
+// Available chips depend on the caller's role. A student never sees the
 // Mentor / Supervisor chips because their backend-scoped feed wouldn't
 // contain matching announcements anyway.
-const visibleAudienceFilters = computed(() => AUDIENCE_FILTERS_FOR_ROLE(callerRole.value))
+const roleAudienceFilters = computed(() => AUDIENCE_FILTERS_FOR_ROLE(callerRole.value))
+const visibleAudienceFilters = computed(() =>
+  roleAudienceFilters.value.filter((option) => !['all', 'student'].includes(option.value))
+)
 
 // If the active chip becomes hidden after a role change, snap back to All.
-watch(visibleAudienceFilters, (chips) => {
+watch(roleAudienceFilters, (chips) => {
   if (!chips.some((c) => c.value === audienceFilter.value)) {
     audienceFilter.value = 'all'
   }
@@ -161,7 +172,7 @@ const filtered = computed(() => {
     if (!audienceMatches(item, audienceFilter.value)) return false
     if (gid && !item.groupIds.includes(gid)) return false
     if (!text) return true
-    return [item.title, item.bodyText, item.author, getAudienceLabel(item.audience)].some(
+    return [item.title, item.bodyText, getAudienceLabel(item.audience)].some(
       field => String(field || '').toLowerCase().includes(text)
     )
   })
@@ -197,6 +208,10 @@ function clearFilters() {
   q.value = ''
   audienceFilter.value = 'all'
   groupFilter.value = 0
+}
+
+function toggleAudienceFilter(value: string) {
+  audienceFilter.value = audienceFilter.value === value ? 'all' : value
 }
 
 function onImageError({ id, url }: { id: number | string; url: string }) {

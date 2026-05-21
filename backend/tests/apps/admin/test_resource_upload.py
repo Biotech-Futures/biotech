@@ -183,6 +183,41 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertIn('filename="brief.pdf"', response["Content-Disposition"])
 
+    @patch("apps.admin.services.resource.download_file_bytes")
+    def test_resource_file_download_supports_inline_query_param(
+        self,
+        download_file_bytes_mock,
+    ):
+        # ``?inline=1`` lets the admin UI preview PDFs in a tab using the
+        # same query convention as the user-facing resource endpoint.
+        download_file_bytes_mock.return_value = b"attached file content"
+        upload = SimpleUploadedFile(
+            "brief.pdf",
+            b"attached file content",
+            content_type="application/pdf",
+        )
+        upload_response = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": upload,
+                "resource_name": "Brief",
+                "resource_description": "A brief file",
+            },
+            format="multipart",
+        )
+        resource_id = upload_response.data["data"]["id"]
+
+        response = self.client.get(
+            reverse("admin_api:resource-download", args=[resource_id]),
+            {"inline": "1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(
+            response["Content-Disposition"], 'inline; filename="brief.pdf"'
+        )
+
     def test_admin_page_resource_returns_content_html(self):
         response = self.client.post(
             reverse("admin_api:resource-list-create"),

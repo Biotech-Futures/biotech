@@ -193,7 +193,7 @@
             <div class="account-copy">
               <h4 class="notification-title">My account</h4>
               <p class="account-subtitle">
-                {{ auth.isAdmin ? 'Administrator access' : 'Standard member access' }}
+                {{ auth.roleLabel ? `${auth.roleLabel} access` : 'Member access' }}
               </p>
             </div>
           </div>
@@ -212,7 +212,7 @@
             <span class="panel-quick-icon"><i class="fas fa-user"></i></span>
             <span class="panel-quick-copy">
               <strong>Profile</strong>
-              <small>Update your time zone</small>
+              <small>View profile</small>
             </span>
           </button>
         </div>

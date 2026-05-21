@@ -24,6 +24,16 @@
           </div>
           <h1>{{ resource.name }}</h1>
           <p class="detail-description">{{ resource.description }}</p>
+          <dl v-if="!isPageResource" class="detail-file-facts" aria-label="File details">
+            <div>
+              <dt>File type</dt>
+              <dd>{{ fileTypeLabel }}</dd>
+            </div>
+            <div>
+              <dt>File size</dt>
+              <dd>{{ fileSizeLabel }}</dd>
+            </div>
+          </dl>
           <div v-if="resource.labels?.length" class="label-list">
             <span v-for="label in resource.labels" :key="label.id" class="label-chip">
               {{ label.name }}
@@ -47,15 +57,6 @@
         <article class="preview-panel">
           <div class="preview-header">
             <h2>Preview</h2>
-            <a
-              v-if="openTarget"
-              class="btn btn-outline btn-sm"
-              :href="openTarget"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <i class="fas fa-external-link-alt" aria-hidden="true"></i> Open
-            </a>
           </div>
 
           <div v-if="previewLoading" class="preview-empty">
@@ -67,12 +68,12 @@
             <i class="fas fa-file-download" aria-hidden="true"></i>
             <p>{{ previewError }}</p>
             <button
-              v-if="downloadTarget"
+              v-if="isPdfResource ? pdfPreviewTarget : downloadTarget"
               type="button"
               class="btn btn-primary"
-              @click="downloadResource"
+              @click="isPdfResource ? previewPdfResource() : downloadResource()"
             >
-              Download file
+              {{ isPdfResource ? 'Preview' : 'Download file' }}
             </button>
             <button
               v-if="accessError"
@@ -83,6 +84,13 @@
               Retry preview
             </button>
           </div>
+
+          <article
+            v-else-if="previewMode === 'html' && isPageResource"
+            class="resource-page-preview"
+          >
+            <div class="resource-page-body announcement-rich" v-html="htmlPreview"></div>
+          </article>
 
           <iframe
             v-else-if="previewMode === 'html'"
@@ -136,44 +144,6 @@
             </button>
           </div>
         </article>
-
-        <aside class="metadata-panel card">
-          <h2>Details</h2>
-          <dl class="metadata-list">
-            <div>
-              <dt>File name</dt>
-              <dd>{{ access?.file_name || resource.file_name || resource.name }}</dd>
-            </div>
-            <div>
-              <dt>Kind</dt>
-              <dd>{{ resourceKindLabel }}</dd>
-            </div>
-            <div>
-              <dt>Type</dt>
-              <dd>{{ resourceTypeLabel }}</dd>
-            </div>
-            <div>
-              <dt>Modified</dt>
-              <dd>{{ formatDateTime(resource.uploaded_at) }}</dd>
-            </div>
-            <div>
-              <dt>Uploaded by</dt>
-              <dd>{{ resource.uploader_name || 'Unknown' }}</dd>
-            </div>
-            <div>
-              <dt>Size</dt>
-              <dd>{{ formatFileSize(access?.file_size || resource.file_size) }}</dd>
-            </div>
-            <div>
-              <dt>MIME type</dt>
-              <dd>{{ access?.file_mime_type || resource.file_mime_type || 'Unknown' }}</dd>
-            </div>
-            <div>
-              <dt>Storage</dt>
-              <dd>{{ storageLabel }}</dd>
-            </div>
-          </dl>
-        </aside>
       </section>
     </template>
   </div>
@@ -187,8 +157,7 @@ import {
   fetchResource,
   fetchResourceAccess,
   type Resource,
-  type ResourceAccess,
-  type ResourceKind
+  type ResourceAccess
 } from '../utils/resourcesAPI'
 
 type PreviewMode = 'none' | 'html' | 'frame' | 'image' | 'video' | 'audio' | 'text'
@@ -226,19 +195,19 @@ const resourceTypeLabel = computed(() =>
   formatTypeName(resource.value?.type_name || resource.value?.resource_type_detail?.type_name),
 )
 
-const resourceKindLabel = computed(() =>
-  getResourceKindLabel(resource.value?.kind || access.value?.kind || 'file'),
+const isPageResource = computed(() =>
+  (resource.value?.kind || access.value?.kind || '').toLowerCase() === 'page',
 )
 
-const storageLabel = computed(() => {
-  const value = access.value?.storage_status || resource.value?.storage_status
-  const labels: Record<string, string> = {
-    managed_key: 'Managed storage',
-    external_url: 'External URL',
-    unavailable: 'Unavailable'
-  }
-  return value ? labels[value] || formatTypeName(value) : 'Unknown'
-})
+const isPdfResource = computed(() => mimeType.value.includes('pdf'))
+
+const fileTypeLabel = computed(() =>
+  access.value?.file_mime_type || resource.value?.file_mime_type || resourceTypeLabel.value,
+)
+
+const fileSizeLabel = computed(() =>
+  formatFileSize(access.value?.file_size || resource.value?.file_size),
+)
 
 const accessMode = computed<ResourceAccessMode | ''>(() => access.value?.access_mode || '')
 
@@ -274,13 +243,17 @@ const downloadTarget = computed(() => {
   return null
 })
 
-const openTarget = computed(() => {
-  if (!access.value || accessError.value) return null
-  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
-    return resourceDownloadEndpoint.value ? buildResourceUrl(resourceDownloadEndpoint.value) : null
+const pdfPreviewTarget = computed(() => {
+  if (!access.value || accessError.value || !isPdfResource.value) return null
+  if ((accessMode.value === 'external_file' || accessMode.value === 'external_page') && access.value.external_url) {
+    return buildResourceUrl(access.value.external_url)
   }
-  if (accessMode.value !== 'external_page' && accessMode.value !== 'external_file') return null
-  return access.value.external_url ? buildResourceUrl(access.value.external_url) : null
+  const target = resourceDownloadEndpoint.value
+  if (!target) return null
+  // ``?inline=1`` tells the backend to return ``Content-Disposition: inline``
+  // so window.open renders the PDF in the browser instead of forcing a save.
+  const separator = target.includes('?') ? '&' : '?'
+  return buildResourceUrl(`${target}${separator}inline=1`)
 })
 
 const isTextLike = computed(() => {
@@ -290,7 +263,7 @@ const isTextLike = computed(() => {
 
 const canFrameMime = computed(() => {
   const mime = mimeType.value
-  return mime.includes('pdf') || mime === 'text/html'
+  return mime === 'text/html'
 })
 
 const clearPreview = (): void => {
@@ -336,6 +309,10 @@ const preparePreview = async (): Promise<void> => {
   }
 
   if (accessMode.value === 'external_file' && access.value.external_url) {
+    if (isPdfResource.value) {
+      previewError.value = 'Preview this PDF in a new window.'
+      return
+    }
     previewUrl.value = buildResourceUrl(access.value.external_url)
     if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
     else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
@@ -353,6 +330,11 @@ const preparePreview = async (): Promise<void> => {
   const target = resourceDownloadEndpoint.value
   if (!target) {
     previewError.value = access.value.detail || 'This resource has no file to preview.'
+    return
+  }
+
+  if (isPdfResource.value) {
+    previewError.value = 'Preview this PDF in a new window.'
     return
   }
 
@@ -409,17 +391,9 @@ const downloadResource = (): void => {
   link.remove()
 }
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return 'Unknown'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Unknown'
-  return date.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+const previewPdfResource = (): void => {
+  if (!pdfPreviewTarget.value || !resource.value) return
+  window.open(pdfPreviewTarget.value, '_blank', 'noopener,noreferrer')
 }
 
 const formatTypeName = (value?: string | null): string => {
@@ -429,15 +403,6 @@ const formatTypeName = (value?: string | null): string => {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
-}
-
-const getResourceKindLabel = (kind: ResourceKind): string => {
-  const labels: Record<string, string> = {
-    file: 'File',
-    page: 'Page',
-    attachment: 'Attachment'
-  }
-  return labels[kind] || formatTypeName(kind)
 }
 
 const formatFileSize = (value?: number | null): string => {
@@ -503,6 +468,32 @@ onBeforeUnmount(clearPreview)
   max-width: 760px;
 }
 
+.detail-file-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0 0 0.85rem;
+}
+
+.detail-file-facts div {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.detail-file-facts dt {
+  color: var(--dark-green);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.detail-file-facts dd {
+  color: var(--charcoal);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
 .detail-warning {
   background: #fff3cd;
   border: 1px solid rgba(133, 100, 4, 0.2);
@@ -514,10 +505,7 @@ onBeforeUnmount(clearPreview)
 }
 
 .detail-layout {
-  align-items: start;
-  display: grid;
-  gap: 1.25rem;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  display: block;
 }
 
 .preview-panel {
@@ -536,8 +524,7 @@ onBeforeUnmount(clearPreview)
   padding: 1rem 1.25rem;
 }
 
-.preview-header h2,
-.metadata-panel h2 {
+.preview-header h2 {
   font-size: 1.25rem;
   margin: 0;
 }
@@ -582,6 +569,113 @@ onBeforeUnmount(clearPreview)
   white-space: pre-wrap;
 }
 
+.resource-page-preview {
+  background: var(--white);
+  color: var(--charcoal);
+}
+
+.resource-page-body {
+  font-size: 1rem;
+  line-height: 1.75;
+  padding: 1.75rem 2.25rem;
+}
+
+.announcement-rich :deep(*) {
+  max-width: 100%;
+}
+
+.announcement-rich :deep(p),
+.announcement-rich :deep(ul),
+.announcement-rich :deep(ol),
+.announcement-rich :deep(blockquote),
+.announcement-rich :deep(pre),
+.announcement-rich :deep(table),
+.announcement-rich :deep(figure) {
+  margin: 0 0 1rem;
+}
+
+.announcement-rich :deep(h1),
+.announcement-rich :deep(h2),
+.announcement-rich :deep(h3),
+.announcement-rich :deep(h4),
+.announcement-rich :deep(h5),
+.announcement-rich :deep(h6) {
+  color: var(--dark-green);
+  line-height: 1.25;
+  margin: 1.25rem 0 0.55rem;
+}
+
+.announcement-rich :deep(h1:first-child),
+.announcement-rich :deep(h2:first-child),
+.announcement-rich :deep(h3:first-child),
+.announcement-rich :deep(h4:first-child),
+.announcement-rich :deep(h5:first-child),
+.announcement-rich :deep(h6:first-child) {
+  margin-top: 0;
+}
+
+.announcement-rich :deep(ul),
+.announcement-rich :deep(ol) {
+  padding-left: 1.4rem;
+}
+
+.announcement-rich :deep(a) {
+  color: var(--dark-green);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.announcement-rich :deep(blockquote) {
+  background: rgba(1, 113, 81, 0.06);
+  border-left: 3px solid var(--dark-green);
+  border-radius: 0 10px 10px 0;
+  padding: 0.85rem 1.1rem;
+}
+
+.announcement-rich :deep(pre) {
+  background: #f5f7f8;
+  border-radius: 10px;
+  overflow-x: auto;
+  padding: 0.95rem 1.1rem;
+}
+
+.announcement-rich :deep(code) {
+  background: #f5f7f8;
+  border-radius: 4px;
+  font-size: 0.92em;
+  padding: 0.1rem 0.3rem;
+}
+
+.announcement-rich :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.announcement-rich :deep(img) {
+  background: var(--light-green);
+  border-radius: 10px;
+  display: block;
+  height: auto;
+  max-height: 480px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.announcement-rich :deep(table) {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.announcement-rich :deep(th),
+.announcement-rich :deep(td) {
+  border: 1px solid rgba(1, 113, 81, 0.14);
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+}
+
 .preview-empty {
   align-items: center;
   color: var(--text-muted);
@@ -597,40 +691,6 @@ onBeforeUnmount(clearPreview)
 .preview-empty i {
   color: var(--dark-green);
   font-size: 2rem;
-}
-
-.metadata-panel {
-  margin: 0;
-}
-
-.metadata-list {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.metadata-list div {
-  border-bottom: 1px solid var(--border-light);
-  padding-bottom: 0.85rem;
-}
-
-.metadata-list div:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.metadata-list dt {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin-bottom: 0.25rem;
-  text-transform: uppercase;
-}
-
-.metadata-list dd {
-  color: var(--charcoal);
-  margin: 0;
-  overflow-wrap: anywhere;
 }
 
 .label-list {
@@ -655,12 +715,8 @@ onBeforeUnmount(clearPreview)
     flex-direction: column;
   }
 
-  .detail-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .metadata-panel {
-    order: -1;
+  .resource-page-body {
+    padding: 1.25rem;
   }
 }
 </style>

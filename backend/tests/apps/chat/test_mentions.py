@@ -19,21 +19,36 @@ from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 
 class ParseMentionsTests(TestCase):
     def test_parses_single_token(self):
-        self.assertEqual(parse_mentions("hi <@5> there"), {5})
+        self.assertEqual(parse_mentions("hi <@5> there"), ({5}, False))
 
     def test_parses_multiple_unique_tokens(self):
-        self.assertEqual(parse_mentions("<@5> and <@7> and <@5> again"), {5, 7})
+        self.assertEqual(parse_mentions("<@5> and <@7> and <@5> again"), ({5, 7}, False))
 
     def test_returns_empty_for_no_tokens(self):
-        self.assertEqual(parse_mentions("plain text with no mentions"), set())
+        self.assertEqual(parse_mentions("plain text with no mentions"), (set(), False))
 
     def test_handles_empty_and_none(self):
-        self.assertEqual(parse_mentions(""), set())
-        self.assertEqual(parse_mentions(None), set())
+        self.assertEqual(parse_mentions(""), (set(), False))
+        self.assertEqual(parse_mentions(None), (set(), False))
 
     def test_ignores_malformed_tokens(self):
         # The regex requires digits inside <@...>; bare @5 or <@x> are no-ops.
-        self.assertEqual(parse_mentions("ping @5 and <@x>"), set())
+        self.assertEqual(parse_mentions("ping @5 and <@x>"), (set(), False))
+
+    def test_detects_everyone_keyword(self):
+        self.assertEqual(parse_mentions("heads up @everyone"), (set(), True))
+
+    def test_everyone_is_case_insensitive(self):
+        self.assertEqual(parse_mentions("@Everyone read this"), (set(), True))
+
+    def test_everyone_combines_with_user_mentions(self):
+        self.assertEqual(
+            parse_mentions(f"<@5> ping and @everyone too"), ({5}, True),
+        )
+
+    def test_everyone_inside_word_is_ignored(self):
+        # ``foo@everyone`` is not a mention — guards against email-ish text.
+        self.assertEqual(parse_mentions("contact foo@everyone.com"), (set(), False))
 
 
 class MentionWireupTests(TestCase):
@@ -295,3 +310,68 @@ class MentionWireupTests(TestCase):
         self.assertEqual(payload["message_id"], resp.data["id"])
         self.assertEqual(payload["sender_user_id"], self.alice.id)
         self.assertIn("see this", payload["preview"])
+
+    # ----- @everyone -----
+
+    def test_everyone_creates_row_for_each_active_member_except_sender(self):
+        resp = self.client_alice.post(
+            self._post_url(),
+            {"message_text": "heads up @everyone", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        ids = set(
+            MessageMention.objects
+            .filter(message_id=resp.data["id"])
+            .values_list("mentioned_user_id", flat=True)
+        )
+        self.assertEqual(ids, {self.bob.id, self.carol.id})
+
+    def test_everyone_does_not_reach_other_groups(self):
+        resp = self.client_alice.post(
+            self._post_url(),
+            {"message_text": "@everyone in this group only", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        ids = set(
+            MessageMention.objects
+            .filter(message_id=resp.data["id"])
+            .values_list("mentioned_user_id", flat=True)
+        )
+        self.assertNotIn(self.outsider.id, ids)
+
+    def test_everyone_subsumes_individual_mention_of_member(self):
+        # Mixing @everyone with an explicit <@bob> still yields one row for Bob.
+        resp = self.client_alice.post(
+            self._post_url(),
+            {"message_text": f"@everyone and <@{self.bob.id}>", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(
+            MessageMention.objects
+            .filter(message_id=resp.data["id"], mentioned_user=self.bob)
+            .count(),
+            1,
+        )
+
+    @patch("apps.chat.views.get_channel_layer")
+    def test_everyone_publishes_to_each_member_channel(self, mock_get_channel_layer):
+        fake_layer = MagicMock()
+        fake_layer.group_send = AsyncMock()
+        mock_get_channel_layer.return_value = fake_layer
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client_alice.post(
+                self._post_url(),
+                {"message_text": "@everyone come look", "resources": []},
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 201, resp.content)
+
+        channel_names = [call.args[0] for call in fake_layer.group_send.call_args_list]
+        self.assertIn(f"user_{self.bob.id}", channel_names)
+        self.assertIn(f"user_{self.carol.id}", channel_names)
+        self.assertNotIn(f"user_{self.alice.id}", channel_names)  # sender excluded
+        self.assertNotIn(f"user_{self.outsider.id}", channel_names)  # other group
