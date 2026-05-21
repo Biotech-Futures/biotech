@@ -442,6 +442,13 @@ CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 # fails loud instead of silently exposing an unauthenticated trigger.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
+# Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
+# alias). The upstream join-permission consent form sends this token in the
+# ``X-Join-Permission-Token`` header. Same fail-loud contract as
+# ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
+# misconfigured deploy can't silently expose an unauthenticated webhook.
+JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h
 # capture per kind under an hourly trigger.
