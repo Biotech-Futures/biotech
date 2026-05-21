@@ -75,7 +75,7 @@ export function LoginForm({
               </div>
               <span className="sr-only">BIOTech</span>
             </a>
-            <h1 className="text-xl font-bold">Welcome to BioTech</h1>
+            <h1 className="text-xl font-bold">Welcome to BIOTech</h1>
           </div>
 
           <div className="grid grid-cols-2 gap-2 rounded-md bg-muted p-1">

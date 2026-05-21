@@ -718,7 +718,7 @@ def send_announcement_email(
     excerpt = _build_excerpt(row.get("body", ""))
     platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
     detail_url = f"{platform_url}/#/announcements/{announcement_id}"
-    subject = f"[BioTech] {row.get('title')}"
+    subject = f"[BIOTech] {row.get('title')}"
     text_body = (
         f"{row.get('title')}\n\n{excerpt}\n\n"
         f"View on the platform: {detail_url}"

@@ -121,7 +121,7 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
 
           <div className="space-y-6 px-8 py-6">
             <div className="space-y-1.5">
-              <Label htmlFor="ann-title">Title</Label>
+              <Label htmlFor="ann-title" requiredMarker>Title</Label>
               <Input
                 id="ann-title"
                 value={title}
@@ -130,7 +130,10 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
               />
             </div>
 
-            <RichEditor key={editing?.id ?? "new"} value={body} onChange={setBody} />
+            <div className="space-y-1.5">
+              <Label requiredMarker>Body</Label>
+              <RichEditor key={editing?.id ?? "new"} value={body} onChange={setBody} />
+            </div>
 
             {(tracks?.length ?? 0) > 0 && (
               <div className="space-y-2">
