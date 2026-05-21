@@ -49,6 +49,27 @@ def get_role_by_name(name: str):
     Raises ``Roles.DoesNotExist`` if the role is not seeded. We deliberately
     don't return ``None`` or 404 here: a missing core role is a deploy
     misconfiguration that should fail loud, not silently degrade.
+
+    Use :func:`try_get_role_by_name` instead when "not seeded" is a normal,
+    non-fatal condition (e.g. optional capability checks).
     """
     Roles = apps.get_model("resources", "Roles")
     return Roles.objects.get(role_name__iexact=name)
+
+
+def try_get_role_by_name(name: str):
+    """Soft variant of :func:`get_role_by_name`: returns ``None`` instead
+    of raising when the role is not seeded.
+
+    Use this for callers that treat a missing role as a feature flag —
+    e.g. RBAC checks that fall through to a default permission set when
+    the canonical role row hasn't been created yet (fresh DB, partial
+    migration). For required-role lookups (registration, role assignment
+    flows) prefer :func:`get_role_by_name` so a misconfigured deploy
+    fails loud.
+    """
+    Roles = apps.get_model("resources", "Roles")
+    try:
+        return Roles.objects.get(role_name__iexact=name)
+    except Roles.DoesNotExist:
+        return None
