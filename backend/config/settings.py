@@ -232,7 +232,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": "require",
+            "sslmode": "default",
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -405,7 +405,24 @@ LOGIN_REDIRECT_URL = "/admin/"
 PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = config(
     "PASSWORD_RESET_TOKEN_EXPIRY_MINUTES", default=30, cast=int,
 )
-BACKEND_URL = config("BACKEND_URL", default="http://localhost:8000")
+
+# Public base URL of this backend. Used to build the magic-link href in OTP
+# emails (apps/services/auth_service.send_login_code). MUST be set explicitly
+# in any non-DEBUG deploy — otherwise a missing env var would silently email
+# magic links pointing at http://localhost:8000, breaking login and leaking
+# infra info. In DEBUG (local dev) we keep the localhost default so
+# `runserver` works out of the box.
+_BACKEND_URL_RAW = config("BACKEND_URL", default="")
+if not _BACKEND_URL_RAW:
+    if DEBUG:
+        _BACKEND_URL_RAW = "http://localhost:8000"
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured(
+            "BACKEND_URL must be set (e.g. https://api.biotechfutures.org) "
+            "outside DEBUG. Magic-link emails are built from it."
+        )
+BACKEND_URL = _BACKEND_URL_RAW.rstrip("/")
 
 # --- Chat sanitiser ----------------------------------------------------------
 # Sanitisation policy is sourced from environment variables so moderation
