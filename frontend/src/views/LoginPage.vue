@@ -1055,7 +1055,7 @@ onBeforeUnmount(() => {
 
 .login-shell {
   --login-font-primary: Arial, Helvetica, sans-serif;
-  --login-font-accent: "Times New Roman", Times, serif;
+  --login-font-accent: Arial, Helvetica, sans-serif;
   --emerald-950: #081714;
   --emerald-900: #0d241f;
   --emerald-850: #123129;
@@ -1110,7 +1110,7 @@ onBeforeUnmount(() => {
 .otp-footer-copy p,
 .support-row {
   font-family: var(--login-font-accent);
-  font-style: italic;
+  font-style: normal;
 }
 
 /*
