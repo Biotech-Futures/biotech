@@ -3,8 +3,6 @@ from rest_framework import mixins, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils.dateparse import parse_date
-from django.utils import timezone
-from django.db.models import Q
 from .models import MentorCertificate
 from .serializers import (
     MentorCertificateSerializer,
@@ -13,7 +11,8 @@ from .serializers import (
     AdminCertificateUpdateSerializer,
 )
 from .permissions import CertificatePermission
-from apps.resources.models import RoleAssignmentHistory
+from apps.common.rbac import get_active_role_name
+from apps.common.role_names import ROLE_MENTOR, ROLE_SUPERVISOR
 from config.errors import AdminVerificationRequired
 
 
@@ -48,30 +47,10 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
         "certificate_type", "mentor_profile"
     )
     permission_classes = [CertificatePermission]
-    
-    def _get_active_role(self, user):
-        """
-        Get the user's current active role from RoleAssignmentHistory
-        Returns the role_name (e.g., 'Mentor', 'Student', 'Supervisor', 'Admin')
-        """
-        if not user or not user.is_authenticated:
-            return None
-        
-        now = timezone.now()
-        
-        # Get active role: valid_to is NULL (ongoing) or in the future
-        active_role = RoleAssignmentHistory.objects.filter(
-            user=user,
-            valid_from__lte=now
-        ).filter(
-            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-        ).select_related('role').first()
-        
-        if active_role and active_role.role:
-            return active_role.role.role_name
-        
-        return None
-    
+
+    # Active-role lookup is intentionally delegated to apps.common.rbac
+    # so this viewset stays consistent with the rest of the RBAC stack.
+
     def get_queryset(self):
         """
         Filter queryset based on user role:
@@ -96,25 +75,23 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             return queryset
         
         # Get user's active role
-        role_name = self._get_active_role(user)
-        
+        role_name = get_active_role_name(user)
+
         if not role_name:
             return queryset.none()  # No active role = no access
-        
-        role_name = role_name.lower()
-        
+
         # Mentors can only see their own certificates
-        if role_name == 'mentor':
+        if role_name == ROLE_MENTOR:
             if hasattr(user, 'mentorprofile'):
                 return queryset.filter(mentor_profile=user.mentorprofile)
             return queryset.none()
-        
+
         # Supervisors can see certificates of mentors they oversee
-        if role_name == 'supervisor':
+        if role_name == ROLE_SUPERVISOR:
             # TODO: Implement logic to filter by supervised mentors
             # For now, return all certificates (adjust based on your supervisor-mentor relationship)
             return queryset
-        
+
         # Default: return empty queryset (students, etc.)
         return queryset.none()
     
@@ -152,9 +129,9 @@ class MentorCertificateViewSet(mixins.ListModelMixin,
             return
         
         # Get user's active role
-        role_name = self._get_active_role(user)
-        
-        if role_name and role_name.lower() == 'mentor':
+        role_name = get_active_role_name(user)
+
+        if role_name == ROLE_MENTOR:
             # Mentor creating their own certificate
             if hasattr(user, 'mentorprofile'):
                 # Auto-set mentor_profile to current user, starts unverified

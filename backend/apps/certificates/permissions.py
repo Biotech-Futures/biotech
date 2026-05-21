@@ -2,9 +2,9 @@
 Custom permissions for Certificate management
 """
 from rest_framework import permissions
-from django.utils import timezone
-from django.db.models import Q
-from apps.resources.models import RoleAssignmentHistory
+
+from apps.common.rbac import get_active_role_name
+from apps.common.role_names import ROLE_MENTOR, ROLE_SUPERVISOR
 
 
 class CertificatePermission(permissions.BasePermission):
@@ -14,30 +14,10 @@ class CertificatePermission(permissions.BasePermission):
     - Admins: Full CRUD access to all certificates
     - Supervisors: Read-only access to certificates of mentors they oversee
     - Students: No access
-    """
 
-    def _get_active_role(self, user):
-        """
-        Get the user's current active role from RoleAssignmentHistory
-        Returns the role_name (e.g., 'Mentor', 'Student', 'Supervisor', 'Admin')
-        """
-        if not user or not user.is_authenticated:
-            return None
-        
-        now = timezone.now()
-        
-        # Get active role: valid_to is NULL (ongoing) or in the future
-        active_role = RoleAssignmentHistory.objects.filter(
-            user=user,
-            valid_from__lte=now
-        ).filter(
-            Q(valid_to__isnull=True) | Q(valid_to__gte=now)
-        ).select_related('role').first()
-        
-        if active_role and active_role.role:
-            return active_role.role.role_name
-        
-        return None
+    Active-role resolution is delegated to ``apps.common.rbac.get_active_role_name``
+    so role-name comparisons stay in lock-step with the rest of the codebase.
+    """
 
     def has_permission(self, request, view):
         """
@@ -51,17 +31,12 @@ class CertificatePermission(permissions.BasePermission):
         if request.user.is_staff or request.user.is_superuser:
             return True
 
-        # Get user's active role
-        role_name = self._get_active_role(request.user)
-        
+        role_name = get_active_role_name(request.user)
         if not role_name:
-            return False  # No active role = no access
-
-        # Normalize role name for comparison (case-insensitive)
-        role_name = role_name.lower()
+            return False
 
         # Mentors can create and manage their own certificates
-        if role_name == 'mentor':
+        if role_name == ROLE_MENTOR:
             # Mentors can POST (create) and GET (list/retrieve)
             if request.method in ['GET', 'POST']:
                 return True
@@ -72,7 +47,7 @@ class CertificatePermission(permissions.BasePermission):
             return False
 
         # Supervisors can only read (GET)
-        if role_name == 'supervisor':
+        if role_name == ROLE_SUPERVISOR:
             if request.method in permissions.SAFE_METHODS:  # GET, HEAD, OPTIONS
                 return True
             return False
@@ -88,16 +63,12 @@ class CertificatePermission(permissions.BasePermission):
         if request.user.is_staff or request.user.is_superuser:
             return True
 
-        # Get user's active role
-        role_name = self._get_active_role(request.user)
-        
+        role_name = get_active_role_name(request.user)
         if not role_name:
             return False
-        
-        role_name = role_name.lower()
 
         # Mentors can read and update ONLY their own certificates
-        if role_name == 'mentor':
+        if role_name == ROLE_MENTOR:
             # Check if user has a mentor profile and owns this certificate
             if hasattr(request.user, 'mentorprofile'):
                 if obj.mentor_profile == request.user.mentorprofile:
@@ -109,7 +80,7 @@ class CertificatePermission(permissions.BasePermission):
             return False
 
         # Supervisors can read certificates of mentors they oversee
-        if role_name == 'supervisor':
+        if role_name == ROLE_SUPERVISOR:
             if request.method in permissions.SAFE_METHODS:
                 # TODO: Implement logic to check if supervisor oversees this mentor
                 # This would require a relationship between supervisors and mentors
