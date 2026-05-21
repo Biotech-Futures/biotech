@@ -23,6 +23,7 @@ from apps.common.role_names import (
     ROLE_STUDENT,
     ROLE_SUPERVISOR,
     get_role_by_name,
+    try_get_role_by_name,
 )
 from apps.resources.models import Roles
 
@@ -62,3 +63,17 @@ class GetRoleByNameTests(TestCase):
     def test_unknown_role_raises_does_not_exist(self):
         with self.assertRaises(Roles.DoesNotExist):
             get_role_by_name("nonexistent-role")
+
+
+class TryGetRoleByNameTests(TestCase):
+    def setUp(self):
+        self.student_role = Roles.objects.create(role_name=ROLE_STUDENT)
+
+    def test_returns_role_for_known_name(self):
+        self.assertEqual(try_get_role_by_name(ROLE_STUDENT), self.student_role)
+
+    def test_lookup_is_case_insensitive(self):
+        self.assertEqual(try_get_role_by_name("Student"), self.student_role)
+
+    def test_unknown_role_returns_none(self):
+        self.assertIsNone(try_get_role_by_name("nonexistent-role"))
