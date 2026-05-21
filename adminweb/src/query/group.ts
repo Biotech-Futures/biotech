@@ -15,10 +15,12 @@ interface QueryGroupsParams {
   searchGroup?: string;
   track?: Track;
   mentorStatus?: MentorStatusFilter;
+  sortBy?: "name" | "track" | "members" | "mentor" | "createdAt";
+  sortOrder?: "asc" | "desc";
 }
 
 export function useQueryGroups(params: QueryGroupsParams) {
-  const { page, limit = 10, searchName, searchGroup, track, mentorStatus } =
+  const { page, limit = 10, searchName, searchGroup, track, mentorStatus, sortBy, sortOrder } =
     params;
   return useQuery({
     queryKey: [
@@ -29,6 +31,8 @@ export function useQueryGroups(params: QueryGroupsParams) {
       searchGroup,
       track,
       mentorStatus,
+      sortBy,
+      sortOrder,
     ],
     queryFn: async (): Promise<PaginatedResponse<Group>> => {
       const res = await myFetch.get<PaginatedResponse<Group>>(`/group`, {
@@ -39,6 +43,8 @@ export function useQueryGroups(params: QueryGroupsParams) {
           searchGroup,
           track,
           mentorStatus,
+          sortBy,
+          sortOrder,
         },
       });
       return res.data;

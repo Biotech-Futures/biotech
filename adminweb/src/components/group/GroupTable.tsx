@@ -33,6 +33,9 @@ interface GroupTableProps {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
+  manualSorting?: boolean;
   isPending?: boolean;
 }
 
@@ -42,14 +45,23 @@ export function GroupTable({
   page,
   totalPages,
   onPageChange,
+  sorting: controlledSorting,
+  onSortingChange,
+  manualSorting,
   isPending,
 }: GroupTableProps) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const sorting = controlledSorting ?? internalSorting;
   const table = useReactTable({
     data,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (onSortingChange) onSortingChange(next);
+      else setInternalSorting(next);
+    },
+    manualSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });

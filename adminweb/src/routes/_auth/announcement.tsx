@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/table";
 import {
   SortableTableHead,
-  useSortableRows,
   type SortState,
 } from "@/components/ui/sortable-table";
 import {
@@ -61,11 +60,15 @@ function AnnouncementPage() {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [sortState, setSortState] = useState<SortState<AnnouncementSortKey>>(
+    initialAnnouncementSort,
+  );
 
   const { data, isPending } = useListAnnouncements(
     page,
     search,
     showArchived ? true : false,
+    sortState,
   );
   const { data: editingAnn } = useGetAnnouncement(editingId);
   const { mutateAsync: archive } = useArchiveAnnouncement();
@@ -73,32 +76,6 @@ function AnnouncementPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / 10);
-  const getSortValue = useCallback(
-    (item: AnnouncementListItem, key: AnnouncementSortKey) => {
-      switch (key) {
-        case "title":
-          return item.title;
-        case "audience":
-          return [
-            scopeLabel(item.visibilityScope),
-            item.trackName,
-            ...item.audiences.map((audience) => audience.roleName),
-          ]
-            .filter(Boolean)
-            .join(" ");
-        case "published":
-          return item.publishedAt;
-        case "status":
-          return item.archivedAt ? "Archived" : "Active";
-      }
-    },
-    [],
-  );
-  const { sortState, setSortState, sortedRows } = useSortableRows(
-    items,
-    initialAnnouncementSort,
-    getSortValue,
-  );
 
   function openCreate() {
     setEditingId(null);
@@ -165,7 +142,10 @@ function AnnouncementPage() {
                   label="Title"
                   sortKey="title"
                   sortState={sortState}
-                  onSortChange={setSortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
                 />
               </TableHead>
               <TableHead>
@@ -173,7 +153,10 @@ function AnnouncementPage() {
                   label="Audience"
                   sortKey="audience"
                   sortState={sortState}
-                  onSortChange={setSortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
                 />
               </TableHead>
               <TableHead>
@@ -181,7 +164,10 @@ function AnnouncementPage() {
                   label="Published"
                   sortKey="published"
                   sortState={sortState}
-                  onSortChange={setSortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
                 />
               </TableHead>
               <TableHead>
@@ -189,7 +175,10 @@ function AnnouncementPage() {
                   label="Status"
                   sortKey="status"
                   sortState={sortState}
-                  onSortChange={setSortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
                 />
               </TableHead>
               <TableHead className="w-10" />
@@ -215,7 +204,7 @@ function AnnouncementPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              sortedRows.map((item) => (
+              items.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell>
                     <button

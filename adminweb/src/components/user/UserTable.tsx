@@ -2,7 +2,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   SortableTableHead,
-  useSortableRows,
   type SortState,
 } from "@/components/ui/sortable-table";
 import {
@@ -14,14 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
-import { useCallback } from "react";
 
-type UserSortKey = "name" | "email" | "role" | "track" | "status";
-
-const initialUserSort: SortState<UserSortKey> = {
-  key: "name",
-  direction: "asc",
-};
+export type UserSortKey = "name" | "email" | "role" | "track" | "status";
 
 interface UserTableProps {
   data: UserAccount[];
@@ -31,6 +24,8 @@ interface UserTableProps {
   onView: (user: UserAccount) => void;
   onEdit: (user: UserAccount) => void;
   onToggleActive: (user: UserAccount) => void;
+  sortState: SortState<UserSortKey>;
+  onSortChange: (sortState: SortState<UserSortKey>) => void;
   isPending?: boolean;
 }
 
@@ -42,28 +37,10 @@ export function UserTable({
   onView,
   onEdit,
   onToggleActive,
+  sortState,
+  onSortChange,
   isPending,
 }: UserTableProps) {
-  const getSortValue = useCallback((user: UserAccount, key: UserSortKey) => {
-    switch (key) {
-      case "name":
-        return user.name;
-      case "email":
-        return user.email;
-      case "role":
-        return labelizeUserRole(user.role);
-      case "track":
-        return labelizeTrack(user.track);
-      case "status":
-        return user.active;
-    }
-  }, []);
-  const { sortState, setSortState, sortedRows } = useSortableRows(
-    data,
-    initialUserSort,
-    getSortValue,
-  );
-
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
@@ -75,7 +52,7 @@ export function UserTable({
                   label="Name"
                   sortKey="name"
                   sortState={sortState}
-                  onSortChange={setSortState}
+                  onSortChange={onSortChange}
                 />
               </TableHead>
               <TableHead>
@@ -83,33 +60,12 @@ export function UserTable({
                   label="Email"
                   sortKey="email"
                   sortState={sortState}
-                  onSortChange={setSortState}
+                  onSortChange={onSortChange}
                 />
               </TableHead>
-              <TableHead>
-                <SortableTableHead
-                  label="Role"
-                  sortKey="role"
-                  sortState={sortState}
-                  onSortChange={setSortState}
-                />
-              </TableHead>
-              <TableHead>
-                <SortableTableHead
-                  label="Track"
-                  sortKey="track"
-                  sortState={sortState}
-                  onSortChange={setSortState}
-                />
-              </TableHead>
-              <TableHead>
-                <SortableTableHead
-                  label="Status"
-                  sortKey="status"
-                  sortState={sortState}
-                  onSortChange={setSortState}
-                />
-              </TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Track</TableHead>
+              <TableHead>Status</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -121,7 +77,7 @@ export function UserTable({
                 </TableCell>
               </TableRow>
             ) : data.length ? (
-              sortedRows.map((user) => (
+              data.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">
                     <button

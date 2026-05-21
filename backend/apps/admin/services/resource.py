@@ -98,6 +98,8 @@ class QueryResourcesInput(TypedDict):
     track_id: Optional[int]
     search: Optional[str]
     order: str
+    sort_by: Optional[str]
+    sort_order: str
     uploader: Optional[str]
     role_slug: Optional[str]
 
@@ -562,15 +564,48 @@ def query_resources(params: QueryResourcesInput, requesting_user=None) -> Dict[s
             )
         ]
     
-    # Sort
+    # Sort. ``order`` is the legacy uploaded-time control; sortBy/sortOrder is
+    # used by clickable table headers.
     order = params.get('order', 'newest')
+    sort_by = params.get('sort_by')
+    sort_order = params.get('sort_order', 'desc')
     def get_timestamp(resource: ResourceDict) -> float:
         try:
             return datetime.fromisoformat(resource['uploaded_at']).timestamp()
         except (ValueError, TypeError):
             return 0
-    
-    if order == 'oldest':
+
+    def get_role_label(resource: ResourceDict) -> str:
+        return ", ".join(
+            sorted(
+                {
+                    a["role"]["slug"]
+                    for a in resource["audiences"]
+                    if a.get("role") and a["role"].get("slug") != ADMIN_ROLE_SLUG
+                }
+            )
+        )
+
+    def get_track_label(resource: ResourceDict) -> str:
+        return str(resource.get("track_id") or "")
+
+    sort_getters = {
+        "name": lambda r: r["resource_name"] or "",
+        "type_name": lambda r: r["resource_type"] or "",
+        "visibility": lambda r: r["visibility_scope"] or "",
+        "role": get_role_label,
+        "track": get_track_label,
+        "uploader": lambda r: f"{r['uploader']['first_name']} {r['uploader']['last_name']} {r['uploader']['email']}",
+        "uploaded_at": lambda r: get_timestamp(r),
+    }
+
+    if sort_by in sort_getters:
+        reverse = sort_order == "desc"
+        resources_list.sort(
+            key=lambda r: (sort_getters[sort_by](r), r["resource_name"]),
+            reverse=reverse,
+        )
+    elif order == 'oldest':
         resources_list.sort(key=lambda r: (get_timestamp(r), r['resource_name']))
     else:
         resources_list.sort(

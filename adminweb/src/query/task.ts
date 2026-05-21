@@ -13,6 +13,8 @@ export function useQueryTasks(params: {
   page?: number;
   limit?: number;
   task_type?: string;
+  sortBy?: "completed" | "name" | "type" | "target" | "status" | "due" | "createdAt";
+  sortOrder?: "asc" | "desc";
 }) {
   return useQuery({
     queryKey: [QUERY_KEY, params],
@@ -21,6 +23,8 @@ export function useQueryTasks(params: {
         params: {
           page: params.page ?? 1,
           limit: params.limit ?? 10,
+          sortBy: params.sortBy,
+          sortOrder: params.sortOrder,
           ...(params.task_type ? { task_type: params.task_type } : {}),
         },
       });

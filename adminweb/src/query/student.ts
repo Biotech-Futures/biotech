@@ -12,13 +12,15 @@ interface QueryStudentsParams {
   search?: string;
   track?: StudentTrack;
   inGroup?: "yes" | "no";
+  sortBy?: "name" | "email" | "track" | "status" | "school" | "yearLevel" | "group" | "createdAt";
+  sortOrder?: "asc" | "desc";
 }
 
 export function useQueryStudents(params: QueryStudentsParams) {
-  const { page, limit = 10, search, track, inGroup } = params;
+  const { page, limit = 10, search, track, inGroup, sortBy, sortOrder } = params;
 
   return useQuery({
-    queryKey: ["students", page, limit, search, track, inGroup],
+    queryKey: ["students", page, limit, search, track, inGroup, sortBy, sortOrder],
     queryFn: async (): Promise<StudentPaginatedResponse> => {
       const res = await myFetch.get<StudentPaginatedResponse>("/user", {
         params: {
@@ -28,6 +30,8 @@ export function useQueryStudents(params: QueryStudentsParams) {
           role: "student",
           track,
           inGroup,
+          sortBy,
+          sortOrder,
         },
       });
       return res.data;

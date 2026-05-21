@@ -18,6 +18,14 @@ import type { StudentUser } from "@/type/user";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { useState } from "react";
 
+export type StudentSortKey =
+  | "name"
+  | "school"
+  | "yearLevel"
+  | "track"
+  | "group"
+  | "interests";
+
 interface StudentTableProps {
   data: StudentUser[];
   columns: ColumnDef<StudentUser>[];
@@ -25,6 +33,9 @@ interface StudentTableProps {
   totalPages: number;
   onPageChange: (page: number) => void;
   onRowClick?: (student: StudentUser) => void;
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
+  manualSorting?: boolean;
   isPending?: boolean;
 }
 
@@ -35,14 +46,23 @@ export function StudentTable({
   totalPages,
   onPageChange,
   onRowClick,
+  sorting: controlledSorting,
+  onSortingChange,
+  manualSorting,
   isPending,
 }: StudentTableProps) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const sorting = controlledSorting ?? internalSorting;
   const table = useReactTable({
     data,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (onSortingChange) onSortingChange(next);
+      else setInternalSorting(next);
+    },
+    manualSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });

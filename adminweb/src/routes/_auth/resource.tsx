@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import type { SortingState } from "@tanstack/react-table";
 import {
   ResourceFilters,
   ResourceTable,
@@ -43,6 +44,9 @@ function ResourcePage() {
   const [uploader, setUploader] = useState("");
   const [trackId, setTrackId] = useState<number | undefined>();
   const [order, setOrder] = useState<ResourceOrder>("newest");
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "uploaded_at", desc: true },
+  ]);
   const [resourceType, setResourceType] = useState<
     ResourceTypeName | undefined
   >();
@@ -74,6 +78,17 @@ function ResourcePage() {
     uploader,
     track_id: trackId,
     order,
+    sortBy:
+      sorting[0]?.id === "name" ||
+      sorting[0]?.id === "type_name" ||
+      sorting[0]?.id === "visibility" ||
+      sorting[0]?.id === "role" ||
+      sorting[0]?.id === "track" ||
+      sorting[0]?.id === "uploader" ||
+      sorting[0]?.id === "uploaded_at"
+        ? sorting[0].id
+        : undefined,
+    sortOrder: sorting[0]?.desc ? "desc" : "asc",
     resource_type: resourceType,
   });
 
@@ -100,42 +115,7 @@ function ResourcePage() {
 
   const availableRoles = rolesData?.data.filter((role) => role.slug !== "admin") ?? [];
 
-  const resources = useMemo(() => {
-    const items = [...(data?.data.items ?? [])];
-
-    const getSortTimestamp = (resource: Resource) => {
-      const raw = resource.uploaded_at ?? "";
-      let normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
-      normalized = normalized
-        .replace(/([+-]\d{2})$/, "$1:00")
-        .replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
-      const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized);
-      const parsed = Date.parse(hasTimezone ? normalized : `${normalized}Z`);
-      if (!Number.isNaN(parsed)) return parsed;
-
-      const idNumber = Number.parseInt(
-        String(resource.id).replace(/\D/g, ""),
-        10,
-      );
-      if (!Number.isNaN(idNumber)) return idNumber;
-
-      return 0;
-    };
-
-    if (order === "oldest") {
-      return items.sort(
-        (a, b) =>
-          getSortTimestamp(a) - getSortTimestamp(b) ||
-          a.name.localeCompare(b.name),
-      );
-    }
-
-    return items.sort(
-      (a, b) =>
-        getSortTimestamp(b) - getSortTimestamp(a) ||
-        a.name.localeCompare(b.name),
-    );
-  }, [data?.data.items, order]);
+  const resources = data?.data.items ?? [];
   const totalPages = Math.max(
     1,
     Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10)),
@@ -598,6 +578,12 @@ function ResourcePage() {
         bulkMode={bulkMode}
         selectedIds={selectedIds}
         onSelectedIdsChange={setSelectedIds}
+        sorting={sorting}
+        onSortingChange={(nextSorting) => {
+          setSorting(nextSorting);
+          setPage(1);
+        }}
+        manualSorting
         isPending={isPending}
       />
 

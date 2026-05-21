@@ -188,6 +188,8 @@ class GroupListView(APIView):
             track=request.query_params.get("track"),
             mentor_status=request.query_params.get("mentorStatus"),
             requesting_user=request.user,
+            sort_by=request.query_params.get("sortBy", "createdAt"),
+            sort_order=request.query_params.get("sortOrder", "desc"),
         )
         return Response(result)
 
@@ -345,6 +347,8 @@ class EventListCreateView(APIView):
             "limit": int(request.query_params.get("limit", 10)),
             "host_user_id": request.query_params.get("hostUserId"),
             "upcoming": upcoming,
+            "sort_by": request.query_params.get("sortBy", "start"),
+            "sort_order": request.query_params.get("sortOrder", "asc"),
         }, requesting_user=request.user)
         return Response(result)
 
@@ -478,6 +482,8 @@ class ResourceListCreateView(APIView):
             ),
             "search": request.query_params.get("search"),
             "order": request.query_params.get("order", "newest"),
+            "sort_by": request.query_params.get("sortBy"),
+            "sort_order": request.query_params.get("sortOrder", "desc"),
             "uploader": request.query_params.get("uploader"),
             "role_slug": request.query_params.get("roleSlug"),
         }, requesting_user=request.user)
@@ -686,6 +692,8 @@ class AnnouncementListCreateView(APIView):
             "limit": int(request.query_params.get("limit", 10)),
             "search": request.query_params.get("search"),
             "archived": archived,
+            "sort_by": request.query_params.get("sortBy", "published"),
+            "sort_order": request.query_params.get("sortOrder", "desc"),
         }, requesting_user=request.user)
         return Response(result)
 
@@ -916,7 +924,13 @@ class AdminTaskListCreateView(APIView):
         limit = int(request.query_params.get("limit", 10))
         task_type = request.query_params.get("task_type") or None
         result = list_admin_tasks(
-            request.user, page=page, limit=limit, task_type=task_type)
+            request.user,
+            page=page,
+            limit=limit,
+            task_type=task_type,
+            sort_by=request.query_params.get("sortBy", "createdAt"),
+            sort_order=request.query_params.get("sortOrder", "desc"),
+        )
         return Response(result)
 
     def post(self, request):

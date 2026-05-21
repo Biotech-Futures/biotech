@@ -69,7 +69,7 @@ interface QueryUsersParams {
   role?: UserRole;
   track?: UserTrack;
   active?: boolean;
-  sortBy?: "name" | "createdAt";
+  sortBy?: "name" | "email" | "role" | "track" | "status" | "createdAt";
   sortOrder?: "asc" | "desc";
 }
 

@@ -11,7 +11,7 @@ import {
 } from "@/query/student";
 import type { StudentTrack, StudentUser } from "@/type/user";
 import { ShuffleIcon } from "lucide-react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import ManualAssignDialog from "@/components/student/ManualAssignDialog";
 
 export const Route = createFileRoute("/_auth/student")({
@@ -24,6 +24,9 @@ function StudentPage() {
   const [track, setTrack] = useState<StudentTrack | undefined>();
   const [inGroup, setInGroup] = useState<"yes" | "no" | "all">("all");
   const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "name", desc: false },
+  ]);
   const [assigningStudent, setAssigningStudent] = useState<StudentUser | null>(
     null,
   );
@@ -34,6 +37,14 @@ function StudentPage() {
     search: search || undefined,
     track,
     inGroup: inGroup === "all" ? undefined : inGroup,
+    sortBy:
+      sorting[0]?.id === "school" ||
+      sorting[0]?.id === "yearLevel" ||
+      sorting[0]?.id === "track" ||
+      sorting[0]?.id === "group"
+        ? sorting[0].id
+        : "name",
+    sortOrder: sorting[0]?.desc ? "desc" : "asc",
   });
 
   const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
@@ -108,6 +119,12 @@ function StudentPage() {
         page={page}
         totalPages={totalPages}
         onPageChange={setPage}
+        sorting={sorting}
+        onSortingChange={(nextSorting) => {
+          setSorting(nextSorting);
+          setPage(1);
+        }}
+        manualSorting
         isPending={isPending}
       />
 

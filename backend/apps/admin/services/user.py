@@ -435,12 +435,19 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     # Get total count
     total = queryset.values('id').distinct().count()
 
-    # Determine sort order
-    order_by = []
-    if sort_by == "name":
-        order_by = ["first_name", "last_name", "id"]
-    else:  # createdAt
-        order_by = ["date_joined", "id"]
+    # Determine sort order. Keep the public API keys aligned with adminweb.
+    sort_map = {
+        "name": ["first_name", "last_name", "id"],
+        "email": ["email", "id"],
+        "role": ["roleassignmenthistory__role__role_name", "first_name", "last_name", "id"],
+        "track": ["track__track_name", "first_name", "last_name", "id"],
+        "status": ["is_active", "first_name", "last_name", "id"],
+        "school": ["studentprofile__school_name", "first_name", "last_name", "id"],
+        "yearLevel": ["studentprofile__year_lvl", "first_name", "last_name", "id"],
+        "group": ["groupmembership__group__group_name", "first_name", "last_name", "id"],
+        "createdAt": ["date_joined", "id"],
+    }
+    order_by = sort_map.get(sort_by, sort_map["createdAt"])
 
     if sort_order == "desc":
         order_by = [f"-{field}" if field != "id" else field for field in order_by]

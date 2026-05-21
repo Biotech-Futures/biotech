@@ -19,10 +19,11 @@ import {
 import { useQueryUsers } from "@/query/user";
 import { useQuery } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
-import { TaskTable } from "@/components/task/TaskTable";
+import { TaskTable, type TaskSortKey } from "@/components/task/TaskTable";
 import { TaskEditorSheet } from "@/components/task/TaskEditorSheet";
 import type { Task, TaskCreateValues, TaskUpdateValues } from "@/type/task";
 import { toast } from "sonner";
+import type { SortState } from "@/components/ui/sortable-table";
 
 type TaskTypeFilter = "all" | "group" | "individual";
 type SearchParams = { page: number; task_type?: TaskTypeFilter };
@@ -46,6 +47,10 @@ function TaskManagementPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [sortState, setSortState] = useState<SortState<TaskSortKey>>({
+    key: "due",
+    direction: "asc",
+  });
 
   const typeFilter: TaskTypeFilter = task_type ?? "all";
 
@@ -53,6 +58,8 @@ function TaskManagementPage() {
     page,
     limit: PAGE_SIZE,
     task_type: typeFilter === "all" ? undefined : typeFilter,
+    sortBy: sortState.key,
+    sortOrder: sortState.direction,
   });
 
   const { data: usersData } = useQueryUsers({ page: 1, limit: 200 });
@@ -193,6 +200,11 @@ function TaskManagementPage() {
         onEdit={openEdit}
         onDelete={handleDelete}
         onToggle={handleToggle}
+        sortState={sortState}
+        onSortChange={(nextSort) => {
+          setSortState(nextSort);
+          updatePage(1);
+        }}
         isPending={isPending || isMutating}
         groups={groups}
         users={users}

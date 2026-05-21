@@ -14,8 +14,6 @@ import {
   type UserTrack,
 } from "@/type/user";
 
-type SortOption = "createdAt_desc" | "createdAt_asc" | "name_asc" | "name_desc";
-
 interface UserFiltersProps {
   search: string;
   onSearchChange: (value: string) => void;
@@ -26,8 +24,6 @@ interface UserFiltersProps {
   tracks?: TrackOption[];
   status: "all" | "active" | "inactive";
   onStatusChange: (value: "all" | "active" | "inactive") => void;
-  sort: SortOption;
-  onSortChange: (value: SortOption) => void;
 }
 
 export function UserFilters({
@@ -40,8 +36,6 @@ export function UserFilters({
   tracks,
   status,
   onStatusChange,
-  sort,
-  onSortChange,
 }: UserFiltersProps) {
   const availableTracks = (tracks ?? []).map((item) => item.trackName);
 
@@ -59,7 +53,10 @@ export function UserFilters({
 
       <div className="space-y-1">
         <Label htmlFor="user-role">Role</Label>
-        <Select value={role} onValueChange={(value) => onRoleChange(value as UserRole | "all")}>
+        <Select
+          value={role}
+          onValueChange={(value) => onRoleChange(value as UserRole | "all")}
+        >
           <SelectTrigger id="user-role">
             <SelectValue placeholder="All roles" />
           </SelectTrigger>
@@ -76,7 +73,10 @@ export function UserFilters({
 
       <div className="space-y-1">
         <Label htmlFor="user-track">Track</Label>
-        <Select value={track} onValueChange={(value) => onTrackChange(value as UserTrack | "all")}>
+        <Select
+          value={track}
+          onValueChange={(value) => onTrackChange(value as UserTrack | "all")}
+        >
           <SelectTrigger id="user-track">
             <SelectValue placeholder="All tracks" />
           </SelectTrigger>
@@ -93,7 +93,12 @@ export function UserFilters({
 
       <div className="space-y-1">
         <Label htmlFor="user-status">Status</Label>
-        <Select value={status} onValueChange={(value) => onStatusChange(value as "all" | "active" | "inactive")}>
+        <Select
+          value={status}
+          onValueChange={(value) =>
+            onStatusChange(value as "all" | "active" | "inactive")
+          }
+        >
           <SelectTrigger id="user-status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -101,21 +106,6 @@ export function UserFilters({
             <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="inactive">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-1">
-        <Label htmlFor="user-sort">Sort by</Label>
-        <Select value={sort} onValueChange={(value) => onSortChange(value as SortOption)}>
-          <SelectTrigger id="user-sort">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="createdAt_desc">Date created (newest first)</SelectItem>
-            <SelectItem value="createdAt_asc">Date created (oldest first)</SelectItem>
-            <SelectItem value="name_asc">Name A → Z</SelectItem>
-            <SelectItem value="name_desc">Name Z → A</SelectItem>
           </SelectContent>
         </Select>
       </div>

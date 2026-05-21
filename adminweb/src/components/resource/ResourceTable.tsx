@@ -39,6 +39,9 @@ interface ResourceTableProps {
   bulkMode: boolean;
   selectedIds: number[];
   onSelectedIdsChange: (ids: number[]) => void;
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
+  manualSorting?: boolean;
   isPending?: boolean;
 }
 
@@ -51,10 +54,14 @@ export function ResourceTable({
   bulkMode,
   selectedIds,
   onSelectedIdsChange,
+  sorting: controlledSorting,
+  onSortingChange,
+  manualSorting,
   isPending,
 }: ResourceTableProps) {
   const [pageInput, setPageInput] = useState(String(page));
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const sorting = controlledSorting ?? internalSorting;
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -76,7 +83,12 @@ export function ResourceTable({
     data,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (onSortingChange) onSortingChange(next);
+      else setInternalSorting(next);
+    },
+    manualSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });

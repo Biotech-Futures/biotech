@@ -6,6 +6,7 @@ import type {
   RoleOption,
   TrackOption,
 } from "@/type/announcement";
+import type { SortState } from "@/components/ui/sortable-table";
 
 const BASE = "/announcement";
 
@@ -13,9 +14,10 @@ export function useListAnnouncements(
   page: number,
   search: string,
   archived?: boolean,
+  sort?: SortState<"title" | "audience" | "published" | "status">,
 ) {
   return useQuery({
-    queryKey: ["announcements", page, search, archived],
+    queryKey: ["announcements", page, search, archived, sort?.key, sort?.direction],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(page),
@@ -24,6 +26,10 @@ export function useListAnnouncements(
       if (search) params.set("search", search);
       if (archived === true) params.set("archived", "true");
       if (archived === false) params.set("archived", "false");
+      if (sort) {
+        params.set("sortBy", sort.key);
+        params.set("sortOrder", sort.direction);
+      }
       const res = await myFetch.get<{ msg: string; data: PaginatedAnnouncements }>(
         `${BASE}?${params}`,
       );

@@ -1,7 +1,7 @@
 from typing import TypedDict, Optional, List
 from datetime import datetime
 
-from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanField, Count
+from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanField, Count, Min
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
@@ -233,6 +233,8 @@ def query_groups(
     track: Optional[str] = None,
     mentor_status: Optional[str] = None,
     requesting_user=None,
+    sort_by: str = "createdAt",
+    sort_order: str = "desc",
 ) -> dict:
     """
     Query groups with pagination and filtering.
@@ -258,12 +260,45 @@ def query_groups(
     # Get total count
     total = Groups.objects.filter(where).count()
     
+    sort_map = {
+        "name": ["group_name", "id"],
+        "track": ["track__track_name", "group_name", "id"],
+        "members": ["member_count", "group_name", "id"],
+        "mentor": ["mentor_name", "group_name", "id"],
+        "createdAt": ["created_at", "id"],
+    }
+    order_by = sort_map.get(sort_by, sort_map["createdAt"])
+    if sort_order == "desc":
+        order_by = [f"-{field}" if field != "id" else field for field in order_by]
+
     # Fetch paginated base rows
     base_rows = list(
         Groups.objects
         .select_related("track")
         .filter(where)
-        .order_by("-created_at", "-id")
+        .annotate(
+            member_count=Count(
+                "groupmembership",
+                filter=Q(
+                    groupmembership__left_at__isnull=True,
+                    groupmembership__user__studentprofile__isnull=False,
+                ),
+                distinct=True,
+            ),
+            mentor_name=Min(
+                Concat(
+                    F("groupmembership__user__first_name"),
+                    Value(" "),
+                    F("groupmembership__user__last_name"),
+                    output_field=CharField(),
+                ),
+                filter=Q(
+                    groupmembership__left_at__isnull=True,
+                    groupmembership__user__mentorprofile__isnull=False,
+                ),
+            ),
+        )
+        .order_by(*order_by)
         .values("id", "group_name", "track__track_name", "created_at")[offset:offset + limit]
     )
     
