@@ -208,7 +208,7 @@ export function TaskEditorSheet({
           )}
 
           <div className="space-y-1">
-            <Label>Name</Label>
+            <Label requiredMarker>Name</Label>
             <Controller
               control={control}
               name="name"

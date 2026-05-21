@@ -80,6 +80,7 @@ export function createResourceColumns({
     },
     {
       id: "type_name",
+      accessorFn: (row) => getResourceTypeLabel(row.type_name),
       header: "Type",
       meta: {
         headClassName: "",
@@ -91,6 +92,7 @@ export function createResourceColumns({
     },
     {
       id: "visibility",
+      accessorFn: (row) => row.visibility_scope,
       header: "Visibility",
       meta: {
         headClassName: "",
@@ -102,6 +104,7 @@ export function createResourceColumns({
     },
     {
       id: "role",
+      accessorFn: (row) => getVisibleRoleSlugs(row).join(", "),
       header: "Role",
       meta: {
         headClassName: "",
@@ -117,6 +120,12 @@ export function createResourceColumns({
     },
     {
       id: "track",
+      accessorFn: (row) => {
+        const trackId = Number(row.track_id);
+        return Number.isFinite(trackId)
+          ? (trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId))
+          : "Unassigned";
+      },
       header: "Track",
       meta: {
         headClassName: "",
@@ -137,6 +146,7 @@ export function createResourceColumns({
     },
     {
       id: "uploader",
+      accessorFn: formatUploaderName,
       header: "Uploader",
       meta: {
         headClassName: "",
@@ -162,6 +172,7 @@ export function createResourceColumns({
     },
     {
       id: "actions",
+      enableSorting: false,
       meta: {
         headClassName: "w-[56px]",
         cellClassName: "align-top w-[56px]",

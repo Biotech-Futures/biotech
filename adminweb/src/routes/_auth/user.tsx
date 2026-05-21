@@ -20,15 +20,28 @@ import {
   type UserTrack,
 } from "@/type/user";
 import { UserFilters } from "@/components/user/UserFilters";
-import { UserTable } from "@/components/user/UserTable";
+import { UserTable, type UserSortKey } from "@/components/user/UserTable";
 import { UserEditorSheet } from "@/components/user/UserEditorSheet";
 import { UserBulkUploadSheet } from "@/components/user/UserBulkUploadSheet";
 import { UserDetailSheet } from "@/components/user/UserDetailSheet";
+import type { SortState } from "@/components/ui/sortable-table";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 10;
 type UserStatusFilter = "all" | "active" | "inactive";
-type SortOption = "createdAt_desc" | "createdAt_asc" | "name_asc" | "name_desc";
+type SortOption =
+  | "createdAt_desc"
+  | "createdAt_asc"
+  | "name_asc"
+  | "name_desc"
+  | "email_asc"
+  | "email_desc"
+  | "role_asc"
+  | "role_desc"
+  | "track_asc"
+  | "track_desc"
+  | "status_asc"
+  | "status_desc";
 type UserSearchParams = {
   page: number;
   search?: string;
@@ -103,9 +116,13 @@ function UserManagementPage() {
   const sort = searchParams.sort ?? "createdAt_desc";
   const page = searchParams.page;
   const [sortBy, sortOrder] = sort.split("_") as [
-    "name" | "createdAt",
+    "name" | "email" | "role" | "track" | "status" | "createdAt",
     "asc" | "desc",
   ];
+  const tableSortState: SortState<UserSortKey> = {
+    key: sortBy === "createdAt" ? "name" : sortBy,
+    direction: sortOrder,
+  };
   const [editorOpen, setEditorOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -123,7 +140,11 @@ function UserManagementPage() {
     sortOrder,
   });
   const { data: tracksData } = useQueryTracks();
-  const { data: supervisorsData } = useQueryUsers({ page: 1, limit: 200, role: "supervisor" });
+  const { data: supervisorsData } = useQueryUsers({
+    page: 1,
+    limit: 200,
+    role: "supervisor",
+  });
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const updateUserStatus = useUpdateUserStatus();
@@ -228,10 +249,6 @@ function UserManagementPage() {
             values.role === "student" || values.role === "mentor"
               ? values.interests
               : undefined,
-          joinPermissionReceived:
-            values.role === "student"
-              ? values.joinPermissionReceived
-              : undefined,
           supervisorEmail:
             values.role === "student" && values.supervisorEmail
               ? values.supervisorEmail
@@ -279,8 +296,6 @@ function UserManagementPage() {
             values.role === "student" || values.role === "mentor"
               ? values.interests
               : [],
-          joinPermissionReceived:
-            values.role === "student" ? values.joinPermissionReceived : false,
           supervisorEmail:
             values.role === "student" ? values.supervisorEmail : undefined,
         },
@@ -378,8 +393,6 @@ function UserManagementPage() {
             row.role === "student" || row.role === "mentor"
               ? row.interests
               : undefined,
-          joinPermissionReceived:
-            row.role === "student" ? row.joinPermissionReceived : undefined,
           supervisorEmail:
             row.role === "student" && row.supervisorEmail
               ? row.supervisorEmail
@@ -389,12 +402,12 @@ function UserManagementPage() {
       );
 
       const createdCount = response.data?.created?.length ?? 0;
-      const skippedCount = response.data?.skipped?.length ?? 0;
+      // const skippedCount = response.data?.skipped?.length ?? 0;
 
-      if (!createdCount && skippedCount) {
-        toast.error(response.msg || "No users were imported.");
-        return;
-      }
+      // if (!createdCount && skippedCount) {
+      //   toast.error(response.msg || "No users were imported.");
+      //   return;
+      // }
 
       toast.success(response.msg || `Imported ${createdCount} users.`);
       setBulkOpen(false);
@@ -427,8 +440,6 @@ function UserManagementPage() {
           tracks={tracksData?.data ?? []}
           status={status}
           onStatusChange={(value) => updateFilters({ status: value })}
-          sort={sort}
-          onSortChange={(value) => updateFilters({ sort: value })}
         />
       </div>
 
@@ -437,6 +448,12 @@ function UserManagementPage() {
         page={page}
         totalPages={totalPages}
         onPageChange={updatePage}
+        sortState={tableSortState}
+        onSortChange={(nextSort) =>
+          updateFilters({
+            sort: `${nextSort.key}_${nextSort.direction}` as SortOption,
+          })
+        }
         onView={openDetail}
         onEdit={openEdit}
         onToggleActive={handleToggleActive}

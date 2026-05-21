@@ -4,7 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import type { Group, Track } from "@/type/group";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, UsersIcon, UserIcon } from "lucide-react";
+import { UsersIcon, UserIcon } from "lucide-react";
 
 function getTrackColor(track: Track) {
   switch (track.toLowerCase()) {
@@ -33,17 +33,7 @@ export function createColumns({
   return [
     {
       accessorKey: "name",
-      header: ({ column }) => {
-        return (
-          <Button
-            variant="ghost"
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            Group Name
-            <ArrowUpDown className="ml-2 size-4" />
-          </Button>
-        );
-      },
+      header: "Group Name",
       cell: ({ row }) => {
         const group = row.original;
         return (
@@ -69,6 +59,7 @@ export function createColumns({
     },
     {
       id: "members",
+      accessorFn: (row) => row.members.length,
       header: () => (
         <div className="flex items-center gap-1">
           <UsersIcon className="size-4" />
@@ -82,6 +73,7 @@ export function createColumns({
     },
     {
       id: "mentor",
+      accessorFn: (row) => row.mentor?.name ?? "",
       header: () => (
         <div className="flex items-center gap-1">
           <UserIcon className="size-4" />

@@ -61,6 +61,8 @@ class QueryAnnouncementsInput(TypedDict, total=False):
     limit: int
     search: Optional[str]
     archived: Optional[bool]
+    sort_by: str
+    sort_order: str
 
 
 class CreateAnnouncementInput(TypedDict, total=False):
@@ -251,6 +253,8 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
     limit = params.get("limit", 10)
     search = params.get("search")
     archived = params.get("archived")
+    sort_by = params.get("sort_by", "published")
+    sort_order = params.get("sort_order", "desc")
     
     offset = (page - 1) * limit
     
@@ -275,9 +279,19 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
     total = queryset.count()
     
     # Fetch items
+    sort_map = {
+        "title": ["title", "id"],
+        "audience": ["visibility_scope", "track__track_name", "title", "id"],
+        "published": ["published_at", "id"],
+        "status": ["archived_at", "published_at", "id"],
+    }
+    order_by = sort_map.get(sort_by, sort_map["published"])
+    if sort_order == "desc":
+        order_by = [f"-{field}" if field != "id" else field for field in order_by]
+
     raw_items = list(
         queryset
-        .order_by("-published_at")
+        .order_by(*order_by)
         .values(
             "id",
             "title",

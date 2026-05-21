@@ -19,7 +19,7 @@ export function Logo() {
               <img src="/logo.png" alt="Logo" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-medium">BioTech Inc</span>
+              <span className="truncate font-medium">BIOTech Inc</span>
               <span className="truncate text-xs">Enterprise</span>
             </div>
           </Link>

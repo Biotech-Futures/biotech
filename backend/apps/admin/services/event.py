@@ -123,6 +123,8 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     limit = params.get("limit", 10)
     host_user_id = params.get("host_user_id")
     upcoming = params.get("upcoming", False)
+    sort_by = params.get("sort_by", "start")
+    sort_order = params.get("sort_order", "asc")
 
     offset = (page - 1) * limit
 
@@ -146,8 +148,20 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     # Fetch only fields used by the admin list. Calling values() with no
     # field list selects every model column, so a newly added unrelated column
     # can break this endpoint before production migrations have caught up.
+    sort_map = {
+        "id": ["id"],
+        "name": ["event_name", "id"],
+        "host": ["host_user__first_name", "host_user__last_name", "id"],
+        "location": ["location", "location_link", "id"],
+        "start": ["start_datetime", "id"],
+        "end": ["ends_datetime", "id"],
+    }
+    order_by = sort_map.get(sort_by, sort_map["start"])
+    if sort_order == "desc":
+        order_by = [f"-{field}" if field != "id" else field for field in order_by]
+
     raw_items = list(
-        queryset.order_by("start_datetime")[offset:offset + limit].values(
+        queryset.order_by(*order_by)[offset:offset + limit].values(
             "id",
             "event_name",
             "description",

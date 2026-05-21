@@ -103,6 +103,8 @@ def list_admin_tasks(
     page: int = 1,
     limit: int = 10,
     task_type: Optional[str] = None,
+    sort_by: str = "createdAt",
+    sort_order: str = "desc",
 ) -> Dict[str, Any]:
     """
     List tasks visible to the requesting admin with optional type filter.
@@ -116,10 +118,23 @@ def list_admin_tasks(
     Returns:
         Dictionary with tasks list and pagination info
     """
+    sort_map = {
+        "completed": ["completed", "id"],
+        "name": ["name", "id"],
+        "type": ["task_type", "name", "id"],
+        "target": ["group_id", "assigned_user_id", "id"],
+        "status": ["status", "name", "id"],
+        "due": ["due_date", "id"],
+        "createdAt": ["created_at", "id"],
+    }
+    order_by = sort_map.get(sort_by, sort_map["createdAt"])
+    if sort_order == "desc":
+        order_by = [f"-{field}" if field != "id" else field for field in order_by]
+
     qs = (
         _admin_visible_tasks(requesting_user)
         .select_related("created_by")
-        .order_by("-created_at", "-id")
+        .order_by(*order_by)
     )
     if task_type:
         qs = qs.filter(task_type=task_type)

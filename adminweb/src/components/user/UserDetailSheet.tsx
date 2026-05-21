@@ -60,12 +60,6 @@ export function UserDetailSheet({
                 { label: "School", value: user.schoolName || "-" },
                 { label: "Year Level", value: user.age ?? "-" },
                 {
-                  label: "Join Permission",
-                  value: user.joinPermissionReceived
-                    ? "Received"
-                    : "Not received",
-                },
-                {
                   label: "Interests",
                   value: user.interests.length
                     ? user.interests.join(", ")

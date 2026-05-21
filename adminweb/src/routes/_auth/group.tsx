@@ -2,6 +2,7 @@
 
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
+import type { SortingState } from "@tanstack/react-table";
 import {
   GroupFilters,
   GroupTable,
@@ -72,6 +73,9 @@ function GroupPage() {
   const [messageGroup, setMessageGroup] = useState<Group | null>(null);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "createdAt", desc: true },
+  ]);
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -80,6 +84,14 @@ function GroupPage() {
     searchGroup,
     track,
     mentorStatus,
+    sortBy:
+      sorting[0]?.id === "name" ||
+      sorting[0]?.id === "track" ||
+      sorting[0]?.id === "members" ||
+      sorting[0]?.id === "mentor"
+        ? sorting[0].id
+        : "createdAt",
+    sortOrder: sorting[0]?.desc ? "desc" : "asc",
   });
   const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
 
@@ -208,6 +220,12 @@ function GroupPage() {
         page={page}
         totalPages={totalPages}
         onPageChange={handlePageChange}
+        sorting={sorting}
+        onSortingChange={(nextSorting) => {
+          setSorting(nextSorting);
+          handlePageChange(1);
+        }}
+        manualSorting
         isPending={isPending}
       />
 

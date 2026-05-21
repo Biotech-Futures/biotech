@@ -106,6 +106,8 @@ interface QueryResourcesParams {
   order?: ResourceOrder;
   resource_type?: ResourceTypeName;
   resource_kind?: ResourceKind;
+  sortBy?: "name" | "type_name" | "visibility" | "role" | "track" | "uploader" | "uploaded_at";
+  sortOrder?: "asc" | "desc";
 }
 
 export function useQueryResources(params: QueryResourcesParams) {
@@ -117,6 +119,8 @@ export function useQueryResources(params: QueryResourcesParams) {
     order,
     resource_type,
     resource_kind,
+    sortBy,
+    sortOrder,
   } = params;
 
   return useQuery({
@@ -129,6 +133,8 @@ export function useQueryResources(params: QueryResourcesParams) {
       order,
       resource_type,
       resource_kind,
+      sortBy,
+      sortOrder,
     ],
     queryFn: async (): Promise<PaginatedResponse<Resource>> => {
       const res = await myFetch.get<PaginatedResponse<ApiResource>>(
@@ -142,6 +148,8 @@ export function useQueryResources(params: QueryResourcesParams) {
             resource_type,
             resource_kind,
             order: order ?? "newest",
+            sortBy,
+            sortOrder,
           },
         },
       );

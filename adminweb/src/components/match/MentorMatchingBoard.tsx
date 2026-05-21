@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import type { MentorGroupRecommendation, MentorListItem, UnmatchedGroup } from "@/type/mentorMatch";
 import type { MatchMode } from "@/query/mentorMatch";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
@@ -44,6 +49,20 @@ const MATCH_MODES: {
       "Two-phase matching: first assigns same-track mentors, then uses remaining mentor capacity to cover still-unmatched groups across other tracks. Maximises the number of matched groups.",
   },
 ];
+
+type RecommendationSortKey =
+  | "group"
+  | "track"
+  | "students"
+  | "mentor"
+  | "institution"
+  | "capacity"
+  | "score";
+
+const initialRecommendationSort: SortState<RecommendationSortKey> = {
+  key: "score",
+  direction: "desc",
+};
 
 type MentorMatchingBoardProps = {
   recommendations: MentorGroupRecommendation[];
@@ -274,6 +293,38 @@ export function MentorMatchingBoard({
         );
       });
   }, [recommendations, trackFilter, search]);
+  const getRecommendationSortValue = useCallback(
+    (rec: MentorGroupRecommendation, key: RecommendationSortKey) => {
+      const overrideMentorId = overrides.get(rec.group.groupId);
+      const overrideMentor = overrideMentorId !== undefined
+        ? mentors.find((m) => m.mentorId === overrideMentorId)
+        : undefined;
+      const mentor = overrideMentor ?? rec.recommendedMentor;
+
+      switch (key) {
+        case "group":
+          return rec.group.groupName;
+        case "track":
+          return rec.group.trackCode;
+        case "students":
+          return rec.group.studentCount;
+        case "mentor":
+          return mentor?.name ?? "";
+        case "institution":
+          return mentor?.institution ?? "";
+        case "capacity":
+          return mentor?.remainingCapacity ?? -1;
+        case "score":
+          return overrideMentorId !== undefined ? -1 : rec.score;
+      }
+    },
+    [mentors, overrides],
+  );
+  const {
+    sortState,
+    setSortState,
+    sortedRows: sortedRecommendations,
+  } = useSortableRows(filtered, initialRecommendationSort, getRecommendationSortValue);
 
   const selectableIds = filtered
     .filter((r) => r.recommendedMentor !== null || overrides.has(r.group.groupId))
@@ -663,13 +714,63 @@ export function MentorMatchingBoard({
                     {allSelected && <CheckIcon className="size-3" />}
                   </button>
                 </TableHead>
-                <TableHead>Group</TableHead>
-                <TableHead>Track</TableHead>
-                <TableHead>Students</TableHead>
-                <TableHead>Recommended Mentor</TableHead>
-                <TableHead>Institution</TableHead>
-                <TableHead>Capacity left</TableHead>
-                <TableHead className="text-right">Score</TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Group"
+                    sortKey="group"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Track"
+                    sortKey="track"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Students"
+                    sortKey="students"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Recommended Mentor"
+                    sortKey="mentor"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Institution"
+                    sortKey="institution"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Capacity left"
+                    sortKey="capacity"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead className="text-right">
+                  <SortableTableHead
+                    label="Score"
+                    sortKey="score"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                    align="right"
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -683,7 +784,7 @@ export function MentorMatchingBoard({
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.flatMap((rec) => {
+                sortedRecommendations.flatMap((rec) => {
                   const groupId = rec.group.groupId;
                   const isSelected = selectedIds.has(groupId);
                   const isExpanded = expandedIds.has(groupId);

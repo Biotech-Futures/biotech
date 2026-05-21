@@ -1,7 +1,8 @@
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import {
@@ -14,6 +15,16 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import type { StudentUser } from "@/type/user";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
+import { useState } from "react";
+
+export type StudentSortKey =
+  | "name"
+  | "school"
+  | "yearLevel"
+  | "track"
+  | "group"
+  | "interests";
 
 interface StudentTableProps {
   data: StudentUser[];
@@ -22,6 +33,9 @@ interface StudentTableProps {
   totalPages: number;
   onPageChange: (page: number) => void;
   onRowClick?: (student: StudentUser) => void;
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
+  manualSorting?: boolean;
   isPending?: boolean;
 }
 
@@ -32,12 +46,25 @@ export function StudentTable({
   totalPages,
   onPageChange,
   onRowClick,
+  sorting: controlledSorting,
+  onSortingChange,
+  manualSorting,
   isPending,
 }: StudentTableProps) {
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const sorting = controlledSorting ?? internalSorting;
   const table = useReactTable({
     data,
     columns,
+    state: { sorting },
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (onSortingChange) onSortingChange(next);
+      else setInternalSorting(next);
+    },
+    manualSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
@@ -49,7 +76,26 @@ export function StudentTable({
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 px-2"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.column.getIsSorted() === "asc" ? (
+                          <ArrowUpIcon className="ml-1.5 size-3.5" />
+                        ) : header.column.getIsSorted() === "desc" ? (
+                          <ArrowDownIcon className="ml-1.5 size-3.5" />
+                        ) : (
+                          <ArrowUpDownIcon className="ml-1.5 size-3.5" />
+                        )}
+                      </Button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
                   </TableHead>
                 ))}
               </TableRow>

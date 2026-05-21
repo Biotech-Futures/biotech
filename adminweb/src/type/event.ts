@@ -44,4 +44,6 @@ export type QueryEventsParams = {
   limit?: number;
   hostUserId?: number;
   upcoming?: boolean;
+  sortBy?: "id" | "name" | "host" | "location" | "start" | "end";
+  sortOrder?: "asc" | "desc";
 };

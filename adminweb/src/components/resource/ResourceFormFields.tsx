@@ -58,15 +58,22 @@ function formatFileSize(file: File | null) {
 interface ResourceFieldRowProps {
   label: string;
   htmlFor?: string;
+  required?: boolean;
   children: ReactNode;
 }
 
-function ResourceFieldRow({ label, htmlFor, children }: ResourceFieldRowProps) {
+function ResourceFieldRow({
+  label,
+  htmlFor,
+  required,
+  children,
+}: ResourceFieldRowProps) {
   return (
     <div className="grid gap-2 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start">
       <Label
         htmlFor={htmlFor}
         className="pt-2 text-sm font-medium text-muted-foreground"
+        requiredMarker={required}
       >
         {label}
       </Label>
@@ -116,7 +123,7 @@ export function ResourceFormFields({
         </Select>
       </ResourceFieldRow>
 
-      <ResourceFieldRow label="Resource Name" htmlFor="resource-name">
+      <ResourceFieldRow label="Resource Name" htmlFor="resource-name" required>
         <Input
           id="resource-name"
           value={value.name}
@@ -125,7 +132,7 @@ export function ResourceFormFields({
         />
       </ResourceFieldRow>
 
-      <ResourceFieldRow label="Description" htmlFor="resource-description">
+      <ResourceFieldRow label="Description" htmlFor="resource-description" required>
         <Textarea
           id="resource-description"
           value={value.description}
@@ -152,7 +159,7 @@ export function ResourceFormFields({
       </ResourceFieldRow>
 
       {value.visibilityScope === "track_based" ? (
-        <ResourceFieldRow label="Track" htmlFor="resource-track">
+        <ResourceFieldRow label="Track" htmlFor="resource-track" required>
           <Select
             value={value.trackId === null ? "none" : String(value.trackId)}
             onValueChange={(nextValue) =>
@@ -177,7 +184,7 @@ export function ResourceFormFields({
       ) : null}
 
       {value.visibilityScope === "role_based" ? (
-        <ResourceFieldRow label="Visible Roles">
+        <ResourceFieldRow label="Visible Roles" required>
           <ResourceRoleSelector
             mode="edit"
             roles={roles}
@@ -223,7 +230,7 @@ export function ResourceFormFields({
       </ResourceFieldRow>
 
       {value.kind === "page" ? (
-        <ResourceFieldRow label="Page Content">
+        <ResourceFieldRow label="Page Content" required>
           <div className="flex flex-wrap items-center gap-2">
             {/* <Button
               type="button"

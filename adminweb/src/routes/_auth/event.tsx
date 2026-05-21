@@ -33,6 +33,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   createEventSchema,
   updateEventSchema,
   type CreateEvent,
@@ -68,7 +73,14 @@ import {
   XIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
@@ -81,6 +93,19 @@ const RSVP_STATUS_LABELS: Record<
   going: { label: "Going", variant: "default" },
   maybe: { label: "Maybe", variant: "secondary" },
   declined: { label: "Declined", variant: "outline" },
+};
+
+type EventSortKey = "id" | "name" | "host" | "location" | "start" | "end";
+type RsvpSortKey = "id" | "student" | "status" | "responded";
+
+const initialEventSort: SortState<EventSortKey> = {
+  key: "start",
+  direction: "asc",
+};
+
+const initialRsvpSort: SortState<RsvpSortKey> = {
+  key: "responded",
+  direction: "desc",
 };
 
 // ── Image upload sub-component ────────────────────────────────────────────────
@@ -188,14 +213,21 @@ interface EventFormProps {
 
 function EventFormRow({
   label,
+  required,
   children,
 }: {
   label: string;
+  required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start sm:gap-4">
-      <Label className="pt-2 sm:text-right">{label}</Label>
+      <Label
+        className="pt-2 sm:justify-end sm:text-right"
+        requiredMarker={required}
+      >
+        {label}
+      </Label>
       <div className="min-w-0 space-y-1.5">{children}</div>
     </div>
   );
@@ -250,7 +282,7 @@ function EventForm({
         />
       </EventFormRow>
 
-      <EventFormRow label="Event Name">
+      <EventFormRow label="Event Name" required>
         <Input placeholder="Event name" {...register("eventName")} />
         {errors.eventName && (
           <p className="text-sm text-destructive">{errors.eventName.message}</p>
@@ -262,9 +294,14 @@ function EventForm({
       </EventFormRow>
 
       <EventFormRow label="Image URL">
-        <Input placeholder="https://example.com/image.jpg" {...register("eventImage")} />
+        <Input
+          placeholder="https://example.com/image.jpg"
+          {...register("eventImage")}
+        />
         {errors.eventImage && (
-          <p className="text-sm text-destructive">{errors.eventImage.message}</p>
+          <p className="text-sm text-destructive">
+            {errors.eventImage.message}
+          </p>
         )}
       </EventFormRow>
 
@@ -311,7 +348,7 @@ function EventForm({
         control={control}
         name="startAt"
         render={({ field }) => (
-          <EventFormRow label="Start">
+          <EventFormRow label="Start" required>
             <DateTimeLocalInput field={field} />
             {errors.startAt && (
               <p className="text-sm text-destructive">
@@ -326,7 +363,7 @@ function EventForm({
         control={control}
         name="endsAt"
         render={({ field }) => (
-          <EventFormRow label="End">
+          <EventFormRow label="End" required>
             <DateTimeLocalInput field={field} />
             {errors.endsAt && (
               <p className="text-sm text-destructive">
@@ -461,18 +498,30 @@ function EventPage() {
   const [createEventOpen, setCreateEventOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [rsvpEventId, setRsvpEventId] = useState<number | null>(null);
+  const [eventSortState, setEventSortState] =
+    useState<SortState<EventSortKey>>(initialEventSort);
   const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
 
   // image state for create dialog
   const [createImageFile, setCreateImageFile] = useState<File | null>(null);
-  const [createImagePreviewUrl, setCreateImagePreviewUrl] = useState<string | null>(null);
+  const [createImagePreviewUrl, setCreateImagePreviewUrl] = useState<
+    string | null
+  >(null);
 
   // image state for edit dialog
   const [editImageFile, setEditImageFile] = useState<File | null>(null);
-  const [editImagePreviewUrl, setEditImagePreviewUrl] = useState<string | null>(null);
+  const [editImagePreviewUrl, setEditImagePreviewUrl] = useState<string | null>(
+    null,
+  );
 
   const { user: currentUser } = useAuthContext();
-  const { data, isPending } = useQueryEvents({ page, limit: 10, upcoming });
+  const { data, isPending } = useQueryEvents({
+    page,
+    limit: 10,
+    upcoming,
+    sortBy: eventSortState.key,
+    sortOrder: eventSortState.direction,
+  });
   const { data: usersData } = useQueryUsers();
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
@@ -487,7 +536,8 @@ function EventPage() {
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
   const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
-  const { mutateAsync: uploadEventImage, isPending: isUploading } = useUploadEventImage();
+  const { mutateAsync: uploadEventImage, isPending: isUploading } =
+    useUploadEventImage();
   const { data: rsvpData, isPending: isRsvpLoading } =
     useQueryEventRsvps(rsvpEventId);
 
@@ -625,6 +675,29 @@ function EventPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
+  const getRsvpSortValue = useCallback(
+    (rsvp: EventRsvp, key: RsvpSortKey) => {
+      const student = usersById.get(rsvp.userId);
+      switch (key) {
+        case "id":
+          return rsvp.id;
+        case "student":
+          return student
+            ? `${student.name} ${student.email}`
+            : `User #${rsvp.userId}`;
+        case "status":
+          return RSVP_STATUS_LABELS[rsvp.rsvpStatus]?.label ?? rsvp.rsvpStatus;
+        case "responded":
+          return rsvp.respondedAt ?? "";
+      }
+    },
+    [usersById],
+  );
+  const {
+    sortState: rsvpSortState,
+    setSortState: setRsvpSortState,
+    sortedRows: sortedRsvps,
+  } = useSortableRows(rsvps, initialRsvpSort, getRsvpSortValue);
 
   const toggleId = (
     ids: number[],
@@ -641,7 +714,10 @@ function EventPage() {
           const newEventId = result.data.id;
           // Upload image if one was selected
           if (createImageFile && newEventId) {
-            await uploadEventImage({ eventId: newEventId, file: createImageFile });
+            await uploadEventImage({
+              eventId: newEventId,
+              file: createImageFile,
+            });
           }
           setCreateEventOpen(false);
           handleCreateImageSelected(null);
@@ -672,7 +748,10 @@ function EventPage() {
         onSuccess: async () => {
           // Upload image if a new one was selected
           if (editImageFile) {
-            await uploadEventImage({ eventId: editingEvent.id, file: editImageFile });
+            await uploadEventImage({
+              eventId: editingEvent.id,
+              file: editImageFile,
+            });
           }
           setEditingEvent(null);
           handleEditImageSelected(null);
@@ -714,12 +793,61 @@ function EventPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Event Name</TableHead>
-              <TableHead>Host</TableHead>
-              <TableHead>Location / Link</TableHead>
-              <TableHead>Start</TableHead>
-              <TableHead>End</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Event Name"
+                  sortKey="name"
+                  sortState={eventSortState}
+                  onSortChange={(nextSort) => {
+                    setEventSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Host"
+                  sortKey="host"
+                  sortState={eventSortState}
+                  onSortChange={(nextSort) => {
+                    setEventSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Location / Link"
+                  sortKey="location"
+                  sortState={eventSortState}
+                  onSortChange={(nextSort) => {
+                    setEventSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Start"
+                  sortKey="start"
+                  sortState={eventSortState}
+                  onSortChange={(nextSort) => {
+                    setEventSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="End"
+                  sortKey="end"
+                  sortState={eventSortState}
+                  onSortChange={(nextSort) => {
+                    setEventSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -733,7 +861,6 @@ function EventPage() {
             ) : eventsList.length > 0 ? (
               eventsList.map((event) => (
                 <TableRow key={event.id}>
-                  <TableCell>{event.id}</TableCell>
                   <TableCell>{event.eventName}</TableCell>
                   <TableCell>{formatEventHost(event, usersById)}</TableCell>
                   <TableCell>
@@ -1064,7 +1191,11 @@ function EventPage() {
               disabled={isCreating || isUploading}
             >
               <CalendarIcon className="size-4" />
-              {isCreating ? "Creating..." : isUploading ? "Uploading image..." : "Create Event"}
+              {isCreating
+                ? "Creating..."
+                : isUploading
+                  ? "Uploading image..."
+                  : "Create Event"}
             </Button>
             <Button
               type="button"
@@ -1104,10 +1235,38 @@ function EventPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>RSVP ID</TableHead>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Responded At</TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="RSVP ID"
+                          sortKey="id"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="Student"
+                          sortKey="student"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="Status"
+                          sortKey="status"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="Responded At"
+                          sortKey="responded"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1118,10 +1277,8 @@ function EventPage() {
                         </TableCell>
                       </TableRow>
                     ) : rsvps.length > 0 ? (
-                      rsvps.map((rsvp) => {
-                        const student = allUsers.find(
-                          (u) => Number(u.id) === rsvp.userId,
-                        );
+                      sortedRsvps.map((rsvp) => {
+                        const student = usersById.get(rsvp.userId);
                         const statusInfo = RSVP_STATUS_LABELS[
                           rsvp.rsvpStatus
                         ] ?? {
@@ -1229,7 +1386,11 @@ function EventPage() {
               type="submit"
               disabled={isUpdating || isUploading}
             >
-              {isUpdating ? "Saving..." : isUploading ? "Uploading image..." : "Save Changes"}
+              {isUpdating
+                ? "Saving..."
+                : isUploading
+                  ? "Uploading image..."
+                  : "Save Changes"}
             </Button>
             <Button
               type="button"

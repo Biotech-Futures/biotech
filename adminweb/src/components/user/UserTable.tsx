@@ -1,6 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  SortableTableHead,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   Table,
   TableBody,
   TableCell,
@@ -10,6 +14,8 @@ import {
 } from "@/components/ui/table";
 import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
 
+export type UserSortKey = "name" | "email" | "role" | "track" | "status";
+
 interface UserTableProps {
   data: UserAccount[];
   page: number;
@@ -18,6 +24,8 @@ interface UserTableProps {
   onView: (user: UserAccount) => void;
   onEdit: (user: UserAccount) => void;
   onToggleActive: (user: UserAccount) => void;
+  sortState: SortState<UserSortKey>;
+  onSortChange: (sortState: SortState<UserSortKey>) => void;
   isPending?: boolean;
 }
 
@@ -29,6 +37,8 @@ export function UserTable({
   onView,
   onEdit,
   onToggleActive,
+  sortState,
+  onSortChange,
   isPending,
 }: UserTableProps) {
   return (
@@ -37,8 +47,22 @@ export function UserTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Name"
+                  sortKey="name"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Email"
+                  sortKey="email"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Track</TableHead>
               <TableHead>Status</TableHead>
@@ -48,7 +72,7 @@ export function UserTable({
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={6} className="h-24 text-center">
                   Loading users...
                 </TableCell>
               </TableRow>
@@ -102,7 +126,7 @@ export function UserTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={6} className="h-24 text-center">
                   No users found.
                 </TableCell>
               </TableRow>

@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 export const studentColumns: ColumnDef<StudentUser>[] = [
   {
     id: "name",
+    accessorFn: (row) => `${row.firstName} ${row.lastName}`.trim(),
     header: "Student",
     cell: ({ row }) => {
       const { firstName, lastName, email } = row.original;
@@ -22,11 +23,13 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
   },
   {
     id: "school",
+    accessorFn: (row) => row.schoolName ?? "",
     header: "School",
     cell: ({ row }) => row.original.schoolName ?? "-",
   },
   {
     id: "yearLevel",
+    accessorFn: (row) => row.yearLevel ?? 0,
     header: "Year",
     cell: ({ row }) => {
       const yearLevel = row.original.yearLevel;
@@ -40,6 +43,7 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
   },
   {
     id: "group",
+    accessorFn: (row) => row.groupName ?? "",
     header: "Group",
     cell: ({ row }) => {
       const { groupId, groupName } = row.original;
@@ -60,6 +64,8 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
   {
     accessorKey: "interests",
     header: "Interests",
+    sortingFn: (a, b) =>
+      a.original.interests.join(", ").localeCompare(b.original.interests.join(", ")),
     cell: ({ row }) => {
       const items = row.original.interests;
       if (!items.length) return "-";

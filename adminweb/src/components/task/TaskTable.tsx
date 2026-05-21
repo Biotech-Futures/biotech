@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  SortableTableHead,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PencilIcon,
@@ -18,6 +22,7 @@ import {
 import type { Task } from "@/type/task";
 import { TASK_STATUS_LABELS } from "@/type/task";
 import type { UserAccount } from "@/type/user";
+import { useCallback, useMemo } from "react";
 
 interface GroupOption {
   id: number;
@@ -35,6 +40,8 @@ interface TaskTableProps {
   isPending?: boolean;
   groups?: GroupOption[];
   users?: UserAccount[];
+  sortState: SortState<TaskSortKey>;
+  onSortChange: (sortState: SortState<TaskSortKey>) => void;
 }
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -43,6 +50,8 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   done: "default",
   blocked: "destructive",
 };
+
+export type TaskSortKey = "completed" | "name" | "type" | "target" | "status" | "due";
 
 export function TaskTable({
   data,
@@ -55,21 +64,73 @@ export function TaskTable({
   isPending,
   groups = [],
   users = [],
+  sortState,
+  onSortChange,
 }: TaskTableProps) {
-  const groupMap = new Map(groups.map((g) => [g.id, g.name]));
-  const userMap = new Map(users.map((u) => [Number(u.id), u.name]));
+  const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups]);
+  const userMap = useMemo(() => new Map(users.map((u) => [Number(u.id), u.name])), [users]);
+  const getTargetLabel = useCallback(
+    (task: Task) =>
+      task.task_type === "group"
+        ? (task.group != null ? (groupMap.get(task.group) ?? `Group #${task.group}`) : "—")
+        : (task.assigned_user != null ? (userMap.get(task.assigned_user) ?? `User #${task.assigned_user}`) : "—"),
+    [groupMap, userMap],
+  );
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10">Completed</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Target</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Due</TableHead>
+              <TableHead className="w-10">
+                <SortableTableHead
+                  label="Completed"
+                  sortKey="completed"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Name"
+                  sortKey="name"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Type"
+                  sortKey="type"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Target"
+                  sortKey="target"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Status"
+                  sortKey="status"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Due"
+                  sortKey="due"
+                  sortState={sortState}
+                  onSortChange={onSortChange}
+                />
+              </TableHead>
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -104,9 +165,7 @@ export function TaskTable({
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {task.task_type === "group"
-                      ? (task.group != null ? (groupMap.get(task.group) ?? `Group #${task.group}`) : "—")
-                      : (task.assigned_user != null ? (userMap.get(task.assigned_user) ?? `User #${task.assigned_user}`) : "—")}
+                    {getTargetLabel(task)}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[task.status] ?? "outline"}>

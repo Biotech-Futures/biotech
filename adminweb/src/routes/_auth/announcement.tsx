@@ -12,6 +12,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  SortableTableHead,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -39,6 +43,13 @@ function scopeLabel(scope: string) {
   return scope;
 }
 
+type AnnouncementSortKey = "title" | "audience" | "published" | "status";
+
+const initialAnnouncementSort: SortState<AnnouncementSortKey> = {
+  key: "published",
+  direction: "desc",
+};
+
 function AnnouncementPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -49,11 +60,15 @@ function AnnouncementPage() {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [sortState, setSortState] = useState<SortState<AnnouncementSortKey>>(
+    initialAnnouncementSort,
+  );
 
   const { data, isPending } = useListAnnouncements(
     page,
     search,
     showArchived ? true : false,
+    sortState,
   );
   const { data: editingAnn } = useGetAnnouncement(editingId);
   const { mutateAsync: archive } = useArchiveAnnouncement();
@@ -122,10 +137,50 @@ function AnnouncementPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Title</TableHead>
-              <TableHead>Audience</TableHead>
-              <TableHead>Published</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Title"
+                  sortKey="title"
+                  sortState={sortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Audience"
+                  sortKey="audience"
+                  sortState={sortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Published"
+                  sortKey="published"
+                  sortState={sortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Status"
+                  sortKey="status"
+                  sortState={sortState}
+                  onSortChange={(nextSort) => {
+                    setSortState(nextSort);
+                    setPage(1);
+                  }}
+                />
+              </TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>

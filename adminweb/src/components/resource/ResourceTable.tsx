@@ -1,7 +1,8 @@
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import {
@@ -14,7 +15,13 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from "lucide-react";
 import type { Resource } from "@/type/resource";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -32,6 +39,9 @@ interface ResourceTableProps {
   bulkMode: boolean;
   selectedIds: number[];
   onSelectedIdsChange: (ids: number[]) => void;
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
+  manualSorting?: boolean;
   isPending?: boolean;
 }
 
@@ -44,9 +54,14 @@ export function ResourceTable({
   bulkMode,
   selectedIds,
   onSelectedIdsChange,
+  sorting: controlledSorting,
+  onSortingChange,
+  manualSorting,
   isPending,
 }: ResourceTableProps) {
   const [pageInput, setPageInput] = useState(String(page));
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const sorting = controlledSorting ?? internalSorting;
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -67,7 +82,15 @@ export function ResourceTable({
   const table = useReactTable({
     data,
     columns,
+    state: { sorting },
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (onSortingChange) onSortingChange(next);
+      else setInternalSorting(next);
+    },
+    manualSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
 
   const pageIds = useMemo(() => data.map((item) => item.id), [data]);
@@ -129,9 +152,28 @@ export function ResourceTable({
                         ?.headClassName
                     }
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 min-w-0 px-2"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        <span className="truncate">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
+                        {header.column.getIsSorted() === "asc" ? (
+                          <ArrowUpIcon className="ml-1.5 size-3.5 shrink-0" />
+                        ) : header.column.getIsSorted() === "desc" ? (
+                          <ArrowDownIcon className="ml-1.5 size-3.5 shrink-0" />
+                        ) : (
+                          <ArrowUpDownIcon className="ml-1.5 size-3.5 shrink-0" />
+                        )}
+                      </Button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
                   </TableHead>
                 ))}
               </TableRow>

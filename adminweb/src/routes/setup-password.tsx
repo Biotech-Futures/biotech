@@ -64,7 +64,9 @@ function SetupPasswordPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
-              <Label htmlFor="password">New Password</Label>
+              <Label htmlFor="password" requiredMarker>
+                New Password
+              </Label>
               <Input
                 id="password"
                 type="password"
@@ -75,7 +77,9 @@ function SetupPasswordPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="confirm">Confirm Password</Label>
+              <Label htmlFor="confirm" requiredMarker>
+                Confirm Password
+              </Label>
               <Input
                 id="confirm"
                 type="password"
