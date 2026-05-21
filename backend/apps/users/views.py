@@ -16,11 +16,6 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
-from apps.common.role_names import (
-    ROLE_STUDENT,
-    ROLE_SUPERVISOR,
-    get_role_by_name,
-)
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
 from apps.events.models import Events
 from apps.matching_runtime.models import MatchRecommendation
@@ -55,6 +50,18 @@ REGISTRATION_PER_IP_LIMIT = 10
 REGISTRATION_WINDOW_SECONDS = 900  # 15 min
 
 
+# --- Password login rate limits --------------------------------------------
+# Per-email lockout alone lets an attacker fan out across many guessed
+# accounts from a single host (credential stuffing). We pair the existing
+# 5-attempts-per-email guard with a per-IP cap so a single source can't
+# accumulate unbounded failures across different emails. The IP cap is
+# deliberately higher than the per-email cap to absorb legitimate shared
+# egress (corporate NAT, school networks) without locking out real users.
+PWD_LOGIN_PER_EMAIL_LIMIT = 5
+PWD_LOGIN_PER_IP_LIMIT = 20
+PWD_LOGIN_WINDOW_SECONDS = 300  # 5 min — matches the existing per-email window
+
+
 def _client_ip(request) -> str:
     # Only honor X-Forwarded-For when the deployment sits behind a trusted
     # reverse proxy / CDN (Azure Front Door, App Service ingress, ALB). Direct
@@ -80,17 +87,29 @@ class PasswordLoginView(APIView):
         email = request.data.get("email")
         password = request.data.get("password")
 
-        # Brute-force guard: 5 failed attempts → 5 min lockout per email.
-        cache_key = f"pwd_login_attempts:{email}"
-        attempts = cache.get(cache_key, 0)
-        if attempts >= 5:
+        ip = _client_ip(request)
+        email_key = f"pwd_login_attempts:{email}"
+        ip_key = f"pwd_login_attempts_ip:{ip}"
+
+        # Dual brute-force guard: per-email blocks targeted attacks on one
+        # account; per-IP blocks credential stuffing fanned across many
+        # accounts from the same source. Check both BEFORE bcrypt so a
+        # locked-out attacker can't keep burning CPU on hash checks.
+        email_attempts = cache.get(email_key, 0)
+        ip_attempts = cache.get(ip_key, 0)
+        if email_attempts >= PWD_LOGIN_PER_EMAIL_LIMIT or ip_attempts >= PWD_LOGIN_PER_IP_LIMIT:
+            logger.warning(
+                "password_login: rate limit hit email=%s ip=%s email_attempts=%s ip_attempts=%s",
+                email, ip, email_attempts, ip_attempts,
+            )
             raise TooManyFailedAttempts()
 
         # Single bcrypt check (was being done twice — once here, once inside
         # authenticate() — adding ~300ms per login).
         user_obj = User.objects.filter(email=email).first()
         if user_obj is None or not user_obj.check_password(password):
-            cache.set(cache_key, attempts + 1, 300)
+            cache.set(email_key, email_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
+            cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             raise InvalidCredentials()
 
         if user_obj.account_status in ['suspended', 'deactivated']:
@@ -102,7 +121,8 @@ class PasswordLoginView(APIView):
         # back to a real backend on subsequent requests.
         user_obj.backend = 'apps.users.backends.CachedModelBackend'
         login(request, user_obj)
-        cache.delete(cache_key)
+        cache.delete(email_key)
+        cache.delete(ip_key)
         return Response(UserSerializer(user_obj).data)
 
 class UserPagePagination(PageNumberPagination):
@@ -205,6 +225,31 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 #issue 40
+# Fields a user may set on themselves via PATCH /users/me/. Anything else
+# (role_id, account_status, track, is_staff, ...) is admin-only and must
+# go through UsersRetrieveUpdateView with its operational-admin + track-scope
+# checks. The previous implementation processed ``role_id`` and
+# ``account_status`` from the request body unconditionally, which let any
+# authenticated user — including a freshly registered student — assign
+# themselves the admin role (pk=1) or flip their own account_status. This
+# was a P0 privilege-escalation vector (CONSOLIDATED 1.x).
+SELF_PATCHABLE_FIELDS = frozenset({"timezone"})
+
+# Fields explicitly rejected with 400 rather than silently ignored, so the
+# frontend / API client sees a clear contract violation instead of thinking
+# the change went through.
+SELF_PATCH_REJECTED_FIELDS = frozenset({
+    "role_id",
+    "role",
+    "account_status",
+    "is_staff",
+    "is_superuser",
+    "is_active",
+    "track",
+    "track_id",
+})
+
+
 class MeRetrieveView(generics.RetrieveAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -216,24 +261,28 @@ class MeRetrieveView(generics.RetrieveAPIView):
 
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
-        data=request.data
-        if "account_status" in data:
-            user.apply_account_status(data["account_status"])
+        data = request.data
 
-        # `role_id` is the FK into the Roles table; the canonical mapping
-        # lives in the database and is referenced by name elsewhere (see
-        # apps.common.role_names). Do NOT rely on specific PKs here — they
-        # are not stable across environments.
-        if "role_id" in data:
-            role = get_object_or_404(Roles, pk=data["role_id"])
-            now = timezone.now()
+        # Fail loud on admin-only fields. Silently ignoring would let an
+        # attacker think the escalation worked AND would hide frontend bugs
+        # that wire the wrong field to a self-edit form.
+        forbidden = SELF_PATCH_REJECTED_FIELDS.intersection(data.keys())
+        if forbidden:
+            logger.warning(
+                "MeRetrieveView.patch: user=%s attempted to mutate admin-only fields=%s",
+                user.id, sorted(forbidden),
+            )
+            raise serializers.ValidationError({
+                field: "This field cannot be changed via /users/me/. Contact an admin."
+                for field in forbidden
+            })
 
-            with transaction.atomic():
-                # RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now, valid_to__gte=now).update(valid_to=now-timedelta(seconds=1))
-                RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
-
-        if "timezone" in data:
-            serializer = UserSerializer(user, data={"timezone": data["timezone"]}, partial=True)
+        # Route every accepted field through UserSerializer's validators so
+        # e.g. ``timezone`` gets the same IANA-zone check the rest of the
+        # codebase uses; no bespoke per-field branches needed here.
+        patch_data = {k: v for k, v in data.items() if k in SELF_PATCHABLE_FIELDS}
+        if patch_data:
+            serializer = UserSerializer(user, data=patch_data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
@@ -305,18 +354,20 @@ class UserRegisterView(APIView):
 
         user.save()
 
-        # roleassignmenthistory creation
-        # Look up roles by stable name (registration must work in any env, regardless of seed order).
         now = timezone.now()
-        role = get_role_by_name(ROLE_STUDENT)
+        role = get_object_or_404(Roles, pk=4)
         rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
-        #supervisorprofile check
-        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
-        sup.first_name = databody["SupervisorFirstName"]
-        sup.last_name = databody["SupervisorSurname"]
-        sup.save()
-        sup_role = get_role_by_name(ROLE_SUPERVISOR)
+        # Look up the supervisor. If they already exist we MUST NOT overwrite
+        # their first/last name from anonymous request data — that was the
+        # original injection vector. New supervisor accounts get their names
+        # set; existing ones keep whatever the admin or the supervisor set.
+        sup, sup_created = User.objects.get_or_create(email=supervisor_email)
+        if sup_created:
+            sup.first_name = databody["SupervisorFirstName"]
+            sup.last_name = databody["SupervisorSurname"]
+            sup.save()
+        sup_role = get_object_or_404(Roles, pk=2)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
         if databody["SupervisorEmail"] == databody["GuardianEmail"]:
