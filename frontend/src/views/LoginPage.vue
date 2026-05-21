@@ -101,10 +101,10 @@
       <div class="auth-shell">
         <!-- Top bar with trust badges and language switcher. -->
         <div class="auth-topbar">
-<!--          <div class="top-badges">-->
-<!--            <span class="top-badge">{{ t('secureAccess') }}</span>-->
-<!--            <span class="top-badge">{{ t('enterpriseReady') }}</span>-->
-<!--          </div>-->
+          <!--          <div class="top-badges">-->
+          <!--            <span class="top-badge">{{ t('secureAccess') }}</span>-->
+          <!--            <span class="top-badge">{{ t('enterpriseReady') }}</span>-->
+          <!--          </div>-->
 
           <div class="language-switcher" role="tablist" aria-label="Language switcher">
             <button
@@ -156,9 +156,9 @@
                 <p class="auth-subtitle">{{ authSubtitle }}</p>
 
                 <!-- Meta chips for selected identity and auth method. -->
-<!--                <div class="meta-row">-->
-<!--                  <span class="meta-chip meta-chip&#45;&#45;neutral">{{ activeLoginModeLabel }}</span>-->
-<!--                </div>-->
+                <!--                <div class="meta-row">-->
+                <!--                  <span class="meta-chip meta-chip&#45;&#45;neutral">{{ activeLoginModeLabel }}</span>-->
+                <!--                </div>-->
               </header>
 
               <!-- Email submission form. -->
@@ -204,7 +204,7 @@
                     />
                   </div>
 
-<!--                  <small class="field-help">{{ emailStepHelper }}</small>-->
+                  <!--                  <small class="field-help">{{ emailStepHelper }}</small>-->
                 </div>
 
                 <div
@@ -214,12 +214,15 @@
                 >
                   <label class="field-label" for="login-password">{{ t('passwordLabel') }}</label>
 
-                  <div class="field-shell" :class="{ 'is-error': Boolean(error) }">
+                  <div
+                    class="field-shell field-shell--password"
+                    :class="{ 'is-error': Boolean(error) }"
+                  >
                     <input
                       id="login-password"
                       ref="passwordInputRef"
                       v-model="password"
-                      type="password"
+                      :type="showPassword ? 'text' : 'password'"
                       class="field-input"
                       :placeholder="t('passwordPlaceholder')"
                       :aria-invalid="Boolean(error)"
@@ -227,6 +230,32 @@
                       :disabled="loginMode !== 'password'"
                       :required="loginMode === 'password'"
                     />
+                    <button
+                      type="button"
+                      class="password-toggle"
+                      :aria-label="passwordVisibilityLabel"
+                      :aria-pressed="showPassword"
+                      :title="passwordVisibilityLabel"
+                      :disabled="loginMode !== 'password'"
+                      @click="togglePasswordVisibility"
+                    >
+                      <svg
+                        v-if="showPassword"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path
+                          d="M3 3l18 18M10.58 10.58a2 2 0 0 0 2.83 2.83M9.88 4.24A9.8 9.8 0 0 1 12 4c5.52 0 9.18 5.14 9.9 6.27a2.9 2.9 0 0 1 0 3.46 18.23 18.23 0 0 1-2.2 2.69M6.4 6.39a17.28 17.28 0 0 0-4.3 3.88 2.9 2.9 0 0 0 0 3.46C2.82 14.86 6.48 20 12 20a9.9 9.9 0 0 0 4.02-.84"
+                        />
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M2.1 10.27C2.82 9.14 6.48 4 12 4s9.18 5.14 9.9 6.27a2.9 2.9 0 0 1 0 3.46C21.18 14.86 17.52 20 12 20S2.82 14.86 2.1 13.73a2.9 2.9 0 0 1 0-3.46Z"
+                        />
+                        <path d="M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z" />
+                      </svg>
+                    </button>
                   </div>
 
                   <div class="forgot-password-row">
@@ -242,7 +271,7 @@
                   :disabled="sendingCode || loginOnCooldown"
                 >
                   <span v-if="sendingCode && isPasswordLoginMode">{{ t('loadingDashboard') }}</span>
-                  <span v-else-if="sendingCode" class="button-spinner" aria-hidden="true"></span>
+                  <span v-else-if="sendingCode">{{ t('sendingCode') }}</span>
                   <span v-else>{{ loginActionLabel }}</span>
                 </button>
               </form>
@@ -409,6 +438,7 @@ const messages = LOGIN_MESSAGES
 */
 const email = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const loginMode = ref('code')
 const currentStep = ref('email')
 const error = ref('')
@@ -467,6 +497,9 @@ const activeLoginModeLabel = computed(() =>
 )
 const credentialStepLabel = computed(() =>
   isPasswordLoginMode.value ? t('passwordStep') : t('otpStep'),
+)
+const passwordVisibilityLabel = computed(() =>
+  showPassword.value ? 'Conceal password' : 'Show password',
 )
 const loginOnCooldown = computed(() => loginCooldownSeconds.value > 0)
 const loginActionLabel = computed(() => {
@@ -531,7 +564,13 @@ const setLoginMode = async (mode) => {
     return
   }
 
+  showPassword.value = false
   emailInputRef.value?.focus()
+}
+
+const togglePasswordVisibility = () => {
+  showPassword.value = !showPassword.value
+  nextTick(() => passwordInputRef.value?.focus())
 }
 
 /*
@@ -829,7 +868,7 @@ const handleLogin = async () => {
 
   email.value = normalizedEmail
   sendingCode.value = true
-  statusMessage.value = isPasswordLoginMode.value ? '' : t('sendingCode')
+  statusMessage.value = ''
 
   try {
     if (isPasswordLoginMode.value) {
@@ -1079,7 +1118,7 @@ onBeforeUnmount(() => {
   --shadow-card: 0 26px 70px rgba(12, 41, 34, 0.14);
   --shadow-focus: 0 0 0 4px rgba(47, 164, 134, 0.14);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 540px);
+  grid-template-columns: 1fr 1fr;
   min-height: 100vh;
   min-height: 100dvh;
   font-family: var(--login-font-primary);
@@ -1281,7 +1320,9 @@ onBeforeUnmount(() => {
 .secondary-button:hover,
 .secondary-button:focus-visible,
 .text-link:hover,
-.text-link:focus-visible {
+.text-link:focus-visible,
+.password-toggle:hover,
+.password-toggle:focus-visible {
   transform: translateY(-1px);
 }
 
@@ -1290,7 +1331,8 @@ onBeforeUnmount(() => {
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
 .text-link:focus-visible,
-.otp-input:focus-visible {
+.otp-input:focus-visible,
+.password-toggle:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
 }
@@ -1302,7 +1344,8 @@ onBeforeUnmount(() => {
 .language-option,
 .primary-button,
 .secondary-button,
-.text-link {
+.text-link,
+.password-toggle {
   cursor: pointer;
   transition:
     transform 0.22s ease,
@@ -1321,20 +1364,20 @@ onBeforeUnmount(() => {
   justify-content: center;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: clamp(14px, 3vw, 28px);
+  padding: 3rem 2rem;
 }
 
 .auth-shell {
   position: relative;
   z-index: 1;
-  width: min(100%, 560px);
+  width: min(100%, 420px);
   display: grid;
   justify-items: center;
   gap: 10px;
 }
 
 .auth-topbar {
-  width: min(100%, 520px);
+  width: min(100%, 420px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1383,9 +1426,9 @@ onBeforeUnmount(() => {
 .auth-card {
   position: relative;
   overflow: hidden;
-  width: min(100%, 520px);
+  width: min(100%, 420px);
   border-radius: 26px;
-  padding: 20px;
+  padding: 2rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 248, 0.94));
   border: 1px solid rgba(255, 255, 255, 0.78);
   box-shadow: var(--shadow-card);
@@ -1660,11 +1703,48 @@ onBeforeUnmount(() => {
 }
 
 .field-input {
+  flex: 1;
+  min-width: 0;
   width: 100%;
   border: 0;
   background: transparent;
   font-size: 1rem;
   color: var(--stone-900);
+}
+
+.password-toggle {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: var(--stone-700);
+  background: rgba(39, 132, 109, 0.08);
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  color: var(--emerald-700);
+  background: rgba(39, 132, 109, 0.14);
+}
+
+.password-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.password-toggle svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .field-input::placeholder {
@@ -1879,7 +1959,7 @@ onBeforeUnmount(() => {
 /*
   Module 11: responsive behavior.
 */
-@media (max-width: 1200px) {
+@media (max-width: 900px) {
   .login-shell {
     grid-template-columns: 1fr;
   }
@@ -1899,7 +1979,7 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (min-width: 1201px) {
+@media (min-width: 901px) {
   .login-shell {
     height: 100vh;
     height: 100dvh;
