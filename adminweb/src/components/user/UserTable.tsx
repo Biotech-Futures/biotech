@@ -1,6 +1,11 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   Table,
   TableBody,
   TableCell,
@@ -9,6 +14,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
+import { useCallback } from "react";
+
+type UserSortKey = "name" | "email" | "role" | "track" | "status";
+
+const initialUserSort: SortState<UserSortKey> = {
+  key: "name",
+  direction: "asc",
+};
 
 interface UserTableProps {
   data: UserAccount[];
@@ -31,29 +44,84 @@ export function UserTable({
   onToggleActive,
   isPending,
 }: UserTableProps) {
+  const getSortValue = useCallback((user: UserAccount, key: UserSortKey) => {
+    switch (key) {
+      case "name":
+        return user.name;
+      case "email":
+        return user.email;
+      case "role":
+        return labelizeUserRole(user.role);
+      case "track":
+        return labelizeTrack(user.track);
+      case "status":
+        return user.active;
+    }
+  }, []);
+  const { sortState, setSortState, sortedRows } = useSortableRows(
+    data,
+    initialUserSort,
+    getSortValue,
+  );
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Track</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Name"
+                  sortKey="name"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Email"
+                  sortKey="email"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Role"
+                  sortKey="role"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Track"
+                  sortKey="track"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Status"
+                  sortKey="status"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={6} className="h-24 text-center">
                   Loading users...
                 </TableCell>
               </TableRow>
             ) : data.length ? (
-              data.map((user) => (
+              sortedRows.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">
                     <button
@@ -102,7 +170,7 @@ export function UserTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={6} className="h-24 text-center">
                   No users found.
                 </TableCell>
               </TableRow>

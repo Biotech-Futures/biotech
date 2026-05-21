@@ -33,6 +33,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   createEventSchema,
   updateEventSchema,
   type CreateEvent,
@@ -68,7 +73,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
@@ -81,6 +86,19 @@ const RSVP_STATUS_LABELS: Record<
   going: { label: "Going", variant: "default" },
   maybe: { label: "Maybe", variant: "secondary" },
   declined: { label: "Declined", variant: "outline" },
+};
+
+type EventSortKey = "id" | "name" | "host" | "location" | "start" | "end";
+type RsvpSortKey = "id" | "student" | "status" | "responded";
+
+const initialEventSort: SortState<EventSortKey> = {
+  key: "start",
+  direction: "asc",
+};
+
+const initialRsvpSort: SortState<RsvpSortKey> = {
+  key: "responded",
+  direction: "desc",
 };
 
 // ── Image upload sub-component ────────────────────────────────────────────────
@@ -629,6 +647,51 @@ function EventPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
+  const getEventSortValue = useCallback(
+    (event: Event, key: EventSortKey) => {
+      switch (key) {
+        case "id":
+          return event.id;
+        case "name":
+          return event.eventName;
+        case "host":
+          return formatEventHost(event, usersById);
+        case "location":
+          return event.location ?? event.locationLink ?? "";
+        case "start":
+          return event.startDatetime;
+        case "end":
+          return event.endsDatetime;
+      }
+    },
+    [usersById],
+  );
+  const getRsvpSortValue = useCallback(
+    (rsvp: EventRsvp, key: RsvpSortKey) => {
+      const student = usersById.get(rsvp.userId);
+      switch (key) {
+        case "id":
+          return rsvp.id;
+        case "student":
+          return student ? `${student.name} ${student.email}` : `User #${rsvp.userId}`;
+        case "status":
+          return RSVP_STATUS_LABELS[rsvp.rsvpStatus]?.label ?? rsvp.rsvpStatus;
+        case "responded":
+          return rsvp.respondedAt ?? "";
+      }
+    },
+    [usersById],
+  );
+  const {
+    sortState: eventSortState,
+    setSortState: setEventSortState,
+    sortedRows: sortedEvents,
+  } = useSortableRows(eventsList, initialEventSort, getEventSortValue);
+  const {
+    sortState: rsvpSortState,
+    setSortState: setRsvpSortState,
+    sortedRows: sortedRsvps,
+  } = useSortableRows(rsvps, initialRsvpSort, getRsvpSortValue);
 
   const toggleId = (
     ids: number[],
@@ -718,12 +781,54 @@ function EventPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Event Name</TableHead>
-              <TableHead>Host</TableHead>
-              <TableHead>Location / Link</TableHead>
-              <TableHead>Start</TableHead>
-              <TableHead>End</TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="ID"
+                  sortKey="id"
+                  sortState={eventSortState}
+                  onSortChange={setEventSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Event Name"
+                  sortKey="name"
+                  sortState={eventSortState}
+                  onSortChange={setEventSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Host"
+                  sortKey="host"
+                  sortState={eventSortState}
+                  onSortChange={setEventSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Location / Link"
+                  sortKey="location"
+                  sortState={eventSortState}
+                  onSortChange={setEventSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Start"
+                  sortKey="start"
+                  sortState={eventSortState}
+                  onSortChange={setEventSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="End"
+                  sortKey="end"
+                  sortState={eventSortState}
+                  onSortChange={setEventSortState}
+                />
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -735,7 +840,7 @@ function EventPage() {
                 </TableCell>
               </TableRow>
             ) : eventsList.length > 0 ? (
-              eventsList.map((event) => (
+              sortedEvents.map((event) => (
                 <TableRow key={event.id}>
                   <TableCell>{event.id}</TableCell>
                   <TableCell>{event.eventName}</TableCell>
@@ -1108,10 +1213,38 @@ function EventPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>RSVP ID</TableHead>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Responded At</TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="RSVP ID"
+                          sortKey="id"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="Student"
+                          sortKey="student"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="Status"
+                          sortKey="status"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableTableHead
+                          label="Responded At"
+                          sortKey="responded"
+                          sortState={rsvpSortState}
+                          onSortChange={setRsvpSortState}
+                        />
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1122,10 +1255,8 @@ function EventPage() {
                         </TableCell>
                       </TableRow>
                     ) : rsvps.length > 0 ? (
-                      rsvps.map((rsvp) => {
-                        const student = allUsers.find(
-                          (u) => Number(u.id) === rsvp.userId,
-                        );
+                      sortedRsvps.map((rsvp) => {
+                        const student = usersById.get(rsvp.userId);
                         const statusInfo = RSVP_STATUS_LABELS[
                           rsvp.rsvpStatus
                         ] ?? {

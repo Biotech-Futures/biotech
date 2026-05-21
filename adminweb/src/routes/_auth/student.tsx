@@ -52,6 +52,7 @@ function StudentPage() {
     const actionColumn: ColumnDef<StudentUser> = {
       id: "actions",
       header: "Action",
+      enableSorting: false,
       cell: ({ row }) => {
         if (row.original.groupId) return null;
         return (

@@ -9,10 +9,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import { useCallback } from "react";
 
 type IndividualStudentTableProps = {
   students: IndividualStudent[];
   isLoading?: boolean;
+};
+
+type IndividualStudentSortKey =
+  | "index"
+  | "name"
+  | "track"
+  | "trackId"
+  | "interest"
+  | "yearLevel";
+
+const initialIndividualStudentSort: SortState<IndividualStudentSortKey> = {
+  key: "name",
+  direction: "asc",
 };
 
 function StudentTableSkeleton() {
@@ -35,24 +54,91 @@ export function IndividualStudentTable({
   students,
   isLoading,
 }: IndividualStudentTableProps) {
+  const getSortValue = useCallback(
+    (student: IndividualStudent, key: IndividualStudentSortKey) => {
+      switch (key) {
+        case "index":
+          return students.findIndex((item) => item.userId === student.userId);
+        case "name":
+          return `${student.firstName} ${student.lastName}`;
+        case "track":
+          return student.trackCode;
+        case "trackId":
+          return student.trackId;
+        case "interest":
+          return student.interests.join(", ");
+        case "yearLevel":
+          return student.yearLevel ?? 0;
+      }
+    },
+    [students],
+  );
+  const { sortState, setSortState, sortedRows } = useSortableRows(
+    students,
+    initialIndividualStudentSort,
+    getSortValue,
+  );
+
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>#</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Track</TableHead>
-            <TableHead>Track ID</TableHead>
-            <TableHead>Interest</TableHead>
-            <TableHead>Year Level</TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="#"
+                sortKey="index"
+                sortState={sortState}
+                onSortChange={setSortState}
+              />
+            </TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="Name"
+                sortKey="name"
+                sortState={sortState}
+                onSortChange={setSortState}
+              />
+            </TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="Track"
+                sortKey="track"
+                sortState={sortState}
+                onSortChange={setSortState}
+              />
+            </TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="Track ID"
+                sortKey="trackId"
+                sortState={sortState}
+                onSortChange={setSortState}
+              />
+            </TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="Interest"
+                sortKey="interest"
+                sortState={sortState}
+                onSortChange={setSortState}
+              />
+            </TableHead>
+            <TableHead>
+              <SortableTableHead
+                label="Year Level"
+                sortKey="yearLevel"
+                sortState={sortState}
+                onSortChange={setSortState}
+              />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {isLoading ? (
             <StudentTableSkeleton />
           ) : students.length > 0 ? (
-            students.map((student, index) => (
+            sortedRows.map((student, index) => (
               <TableRow key={student.userId}>
                 <TableCell>{index + 1}</TableCell>
                 <TableCell className="font-medium">

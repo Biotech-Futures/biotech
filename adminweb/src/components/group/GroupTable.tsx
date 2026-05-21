@@ -1,6 +1,6 @@
 // Group table component with pagination
 
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
   flexRender,
   getCoreRowModel,
@@ -17,7 +17,14 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import type { Group } from "@/type/group";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from "lucide-react";
+import { useState } from "react";
 
 interface GroupTableProps {
   columns: ColumnDef<Group>[];
@@ -37,9 +44,12 @@ export function GroupTable({
   onPageChange,
   isPending,
 }: GroupTableProps) {
+  const [sorting, setSorting] = useState<SortingState>([]);
   const table = useReactTable({
     data,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
@@ -53,12 +63,32 @@ export function GroupTable({
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
+                    {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 px-2"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        {flexRender(
                           header.column.columnDef.header,
                           header.getContext()
                         )}
+                        {header.column.getIsSorted() === "asc" ? (
+                          <ArrowUpIcon className="ml-1.5 size-3.5" />
+                        ) : header.column.getIsSorted() === "desc" ? (
+                          <ArrowDownIcon className="ml-1.5 size-3.5" />
+                        ) : (
+                          <ArrowUpDownIcon className="ml-1.5 size-3.5" />
+                        )}
+                      </Button>
+                    ) : (
+                      flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )
+                    )}
                   </TableHead>
                 ))}
               </TableRow>

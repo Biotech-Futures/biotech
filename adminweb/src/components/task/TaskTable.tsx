@@ -10,6 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PencilIcon,
@@ -18,6 +23,7 @@ import {
 import type { Task } from "@/type/task";
 import { TASK_STATUS_LABELS } from "@/type/task";
 import type { UserAccount } from "@/type/user";
+import { useCallback, useMemo } from "react";
 
 interface GroupOption {
   id: number;
@@ -44,6 +50,13 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   blocked: "destructive",
 };
 
+type TaskSortKey = "completed" | "name" | "type" | "target" | "status" | "due";
+
+const initialTaskSort: SortState<TaskSortKey> = {
+  key: "due",
+  direction: "asc",
+};
+
 export function TaskTable({
   data,
   page,
@@ -56,20 +69,94 @@ export function TaskTable({
   groups = [],
   users = [],
 }: TaskTableProps) {
-  const groupMap = new Map(groups.map((g) => [g.id, g.name]));
-  const userMap = new Map(users.map((u) => [Number(u.id), u.name]));
+  const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups]);
+  const userMap = useMemo(() => new Map(users.map((u) => [Number(u.id), u.name])), [users]);
+  const getTargetLabel = useCallback(
+    (task: Task) =>
+      task.task_type === "group"
+        ? (task.group != null ? (groupMap.get(task.group) ?? `Group #${task.group}`) : "—")
+        : (task.assigned_user != null ? (userMap.get(task.assigned_user) ?? `User #${task.assigned_user}`) : "—"),
+    [groupMap, userMap],
+  );
+  const getSortValue = useCallback(
+    (task: Task, key: TaskSortKey) => {
+      switch (key) {
+        case "completed":
+          return task.completed;
+        case "name":
+          return task.name;
+        case "type":
+          return task.task_type;
+        case "target":
+          return getTargetLabel(task);
+        case "status":
+          return TASK_STATUS_LABELS[task.status] ?? task.status;
+        case "due":
+          return task.due_date ?? "";
+      }
+    },
+    [getTargetLabel],
+  );
+  const { sortState, setSortState, sortedRows } = useSortableRows(
+    data,
+    initialTaskSort,
+    getSortValue,
+  );
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10">Completed</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Target</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Due</TableHead>
+              <TableHead className="w-10">
+                <SortableTableHead
+                  label="Completed"
+                  sortKey="completed"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Name"
+                  sortKey="name"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Type"
+                  sortKey="type"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Target"
+                  sortKey="target"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Status"
+                  sortKey="status"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
+              <TableHead>
+                <SortableTableHead
+                  label="Due"
+                  sortKey="due"
+                  sortState={sortState}
+                  onSortChange={setSortState}
+                />
+              </TableHead>
               <TableHead className="w-24">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -87,7 +174,7 @@ export function TaskTable({
                 </TableCell>
               </TableRow>
             ) : (
-              data.map((task) => (
+              sortedRows.map((task) => (
                 <TableRow key={task.id} className={task.completed ? "opacity-60" : ""}>
                   <TableCell>
                     <Checkbox
@@ -104,9 +191,7 @@ export function TaskTable({
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {task.task_type === "group"
-                      ? (task.group != null ? (groupMap.get(task.group) ?? `Group #${task.group}`) : "—")
-                      : (task.assigned_user != null ? (userMap.get(task.assigned_user) ?? `User #${task.assigned_user}`) : "—")}
+                    {getTargetLabel(task)}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[task.status] ?? "outline"}>

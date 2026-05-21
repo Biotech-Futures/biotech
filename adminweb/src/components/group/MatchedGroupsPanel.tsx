@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   useQueryMatchedGroups,
   useQueryMentorList,
@@ -27,6 +27,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   AlertTriangleIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
@@ -35,6 +40,18 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+
+type MatchedGroupSortKey =
+  | "group"
+  | "track"
+  | "students"
+  | "mentor"
+  | "status";
+
+const initialMatchedGroupSort: SortState<MatchedGroupSortKey> = {
+  key: "group",
+  direction: "asc",
+};
 
 export function MatchedGroupsPanel() {
   const queryClient = useQueryClient();
@@ -54,6 +71,25 @@ export function MatchedGroupsPanel() {
   const mentors = mentorListData?.data ?? [];
   const inactiveGroups = matchedGroups.filter((g) => !g.mentor.isActive);
   const inactiveCount = inactiveGroups.length;
+  const getSortValue = useCallback(
+    (group: MatchedGroup, key: MatchedGroupSortKey) => {
+      switch (key) {
+        case "group":
+          return group.groupName;
+        case "track":
+          return group.trackCode;
+        case "students":
+          return group.studentCount;
+        case "mentor":
+          return `${group.mentor.name} ${group.mentor.institution ?? ""}`;
+        case "status":
+          return group.mentor.isActive ? "Active" : "Inactive";
+      }
+    },
+    [],
+  );
+  const { sortState, setSortState, sortedRows: sortedMatchedGroups } =
+    useSortableRows(matchedGroups, initialMatchedGroupSort, getSortValue);
 
   function toggleExpand(membershipId: number) {
     setExpandedIds((prev) => {
@@ -173,16 +209,51 @@ export function MatchedGroupsPanel() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8" />
-                <TableHead>Group</TableHead>
-                <TableHead>Track</TableHead>
-                <TableHead>Students</TableHead>
-                <TableHead>Mentor</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Group"
+                    sortKey="group"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Track"
+                    sortKey="track"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Students"
+                    sortKey="students"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Mentor"
+                    sortKey="mentor"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Status"
+                    sortKey="status"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
                 <TableHead className="w-64">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {matchedGroups.flatMap((group) => {
+              {sortedMatchedGroups.flatMap((group) => {
                 const isReplacing = replacingId === group.membershipId;
                 const isExpanded = expandedIds.has(group.membershipId);
 

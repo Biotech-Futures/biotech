@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import {
   useQueryMentorDetail,
   useMutationSetMentorActive,
@@ -24,6 +24,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  SortableTableHead,
+  useSortableRows,
+  type SortState,
+} from "@/components/ui/sortable-table";
+import {
   AlertTriangleIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
@@ -43,6 +48,19 @@ export const Route = createFileRoute("/_auth/mentor")({
 });
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+type MentorSortKey =
+  | "name"
+  | "track"
+  | "institution"
+  | "capacity"
+  | "lastMessage"
+  | "status";
+
+const initialMentorSort: SortState<MentorSortKey> = {
+  key: "name",
+  direction: "asc",
+};
 
 function daysSince(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -78,6 +96,30 @@ function MentorPage() {
   const mentors = mentorDetailData?.data ?? [];
   const matchedGroups = matchedData?.data ?? [];
   const mentorListItems = mentorListData?.data ?? [];
+  const getMentorSortValue = useCallback(
+    (mentor: MentorDetail, key: MentorSortKey) => {
+      switch (key) {
+        case "name":
+          return `${mentor.name} ${mentor.email}`;
+        case "track":
+          return mentor.trackCode;
+        case "institution":
+          return mentor.institution ?? "";
+        case "capacity":
+          return mentor.remainingCapacity;
+        case "lastMessage":
+          return mentor.lastMessageAt ?? "";
+        case "status":
+          return isEffectivelyInactive(mentor, inactiveDays) ? "Inactive" : "Active";
+      }
+    },
+    [inactiveDays],
+  );
+  const { sortState, setSortState, sortedRows: sortedMentors } = useSortableRows(
+    mentors,
+    initialMentorSort,
+    getMentorSortValue,
+  );
 
   // Groups assigned to an effectively-inactive mentor
   const inactiveGroups = useMemo(() => {
@@ -192,16 +234,58 @@ function MentorPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8" />
-                <TableHead>Name</TableHead>
-                <TableHead>Track</TableHead>
-                <TableHead>Institution</TableHead>
-                <TableHead>Capacity</TableHead>
-                <TableHead>Last Message</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Name"
+                    sortKey="name"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Track"
+                    sortKey="track"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Institution"
+                    sortKey="institution"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Capacity"
+                    sortKey="capacity"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Last Message"
+                    sortKey="lastMessage"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
+                <TableHead>
+                  <SortableTableHead
+                    label="Status"
+                    sortKey="status"
+                    sortState={sortState}
+                    onSortChange={setSortState}
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mentors.map((mentor) => {
+              {sortedMentors.map((mentor) => {
                 const inactive = isEffectivelyInactive(mentor, inactiveDays);
                 const days = daysSince(mentor.lastMessageAt);
                 const isExpanded = expandedIds.has(mentor.mentorId);
