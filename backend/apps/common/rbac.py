@@ -32,6 +32,35 @@ def active_role_names(user) -> set[str]:
     }
 
 
+def get_active_role_name(user):
+    """Return the most recent active role name for ``user`` (lower-cased) or None.
+
+    This is the single source of truth for the legacy ``_get_active_role``
+    helpers that used to live across ``events``, ``certificates``, etc.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return None
+
+    assignment = active_role_assignments(user).order_by("-valid_from", "-id").first()
+    if not assignment or not assignment.role:
+        return None
+
+    return str(assignment.role.role_name).strip().lower()
+
+
+def user_has_role(user, *role_names) -> bool:
+    """Return True if ``user`` has any of the given role names active.
+
+    Comparison is case-insensitive and tolerant of whitespace; this lets
+    callers use the canonical ``ROLE_*`` constants without worrying about
+    how the seeded data is cased.
+    """
+    if not role_names:
+        return False
+    normalized = {str(name).strip().lower() for name in role_names if name}
+    return bool(normalized & active_role_names(user))
+
+
 def group_participant_qs(user, group_id=None, *, include_deleted_groups=False):
     GroupMembership = apps.get_model("groups", "GroupMembership")
     queryset = GroupMembership.objects.filter(

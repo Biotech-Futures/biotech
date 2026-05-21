@@ -18,7 +18,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.services import log_audit_event
-from apps.resources.models import RoleAssignmentHistory
+from apps.common.rbac import get_active_role_name
+from apps.common.role_names import (
+    ROLE_MENTOR,
+    ROLE_SUPERVISOR,
+    ROLE_ADMIN,
+)
 from apps.users.models import User
 from apps.users.utils.admin_scope import (
     get_admin_track_ids,
@@ -363,20 +368,8 @@ class EventRsvpSetView(APIView):
 
 
 class IsNotStudent(permissions.BasePermission):
-    def _get_active_role(self, user):
-        if not user or not user.is_authenticated:
-            return None
-
-        now = timezone.now()
-        active_role = (
-            RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now)
-            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
-            .select_related("role")
-            .first()
-        )
-        if active_role and active_role.role:
-            return active_role.role.role_name
-        return None
+    # Role lookup is delegated to apps.common.rbac.get_active_role_name so
+    # this permission stays in sync with every other RBAC consumer.
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
@@ -385,10 +378,10 @@ class IsNotStudent(permissions.BasePermission):
         if is_operational_admin(request.user):
             return True
 
-        role_name = self._get_active_role(request.user)
+        role_name = get_active_role_name(request.user)
         if not role_name:
             return False
-        return role_name.lower() in {"mentor", "supervisor", "administrator"}
+        return role_name in {ROLE_MENTOR, ROLE_SUPERVISOR, ROLE_ADMIN, "administrator"}
 
 
 class EventInviteCreateView(APIView):

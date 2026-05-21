@@ -4,7 +4,7 @@ from django.db import transaction
 from rest_framework import viewsets, filters, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission, IsAuthenticated, AllowAny
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema
 from .models import Groups, Countries, GroupMembership, Tracks
@@ -37,8 +37,12 @@ class CountryViewSet(viewsets.ModelViewSet):
     serializer_class = CountrySerializer
 
     def get_permissions(self):
+        # ``list``/``retrieve`` were ``AllowAny`` historically; aligned with
+        # the sibling ``TrackViewSet`` and the global ``IsAuthenticated``
+        # default — see CONSOLIDATED issues list 1.2. There is no documented
+        # reason to expose the country catalogue pre-login.
         if self.action in ["list", "retrieve"]:
-            return [AllowAny()]
+            return [IsAuthenticated()]
         return [IsOperationalAdminPermission()]
 
 

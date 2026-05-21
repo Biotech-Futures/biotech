@@ -1,21 +1,13 @@
 from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 
+from apps.common.rbac import active_role_ids
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack, Events
 from apps.groups.models import Groups, GroupMembership
-from apps.resources.models import RoleAssignmentHistory
 from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
 
 
 MENTOR_MEMBERSHIPS_ATTR = "_mentor_memberships"
-
-def _get_active_role_ids(user):
-    now = timezone.now()
-    return set(
-        RoleAssignmentHistory.objects.filter(user=user, valid_from__lte=now)
-        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
-        .values_list("role_id", flat=True)
-    )
 
 
 def _get_active_memberships(user):
@@ -122,7 +114,7 @@ def get_personalized_next_event(user):
     if user.track_id is not None:
         user_track_ids.add(user.track_id)
 
-    user_role_ids = _get_active_role_ids(user)
+    user_role_ids = active_role_ids(user)
     admin_track_ids = get_admin_track_ids(user) if is_operational_admin(user) else []
 
     queryset = (

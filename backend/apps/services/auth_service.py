@@ -33,19 +33,19 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     login_token = LoginToken.create_for_user(user, expiry_minutes=10)
     token = login_token.token
 
-    # edbert: Use provided redirect_url from frontend, fallback to settings or default
     if redirect_url:
         base_redirect = redirect_url
     else:
-        # edbert: Fallback to settings configuration
-        base_redirect = getattr(settings, 'MAGIC_LINK_REDIRECT_URL', 'http://localhost:5173/auth/callback')
+        base_redirect = settings.MAGIC_LINK_REDIRECT_URL
 
-    # edbert: Build magic link that points to backend magic endpoint with email and code
-    backend_url = getattr(settings, 'BACKEND_URL', 'http://localhost:8000')
+    # Build magic link from the canonical BACKEND_URL. Sourced from settings
+    # (env-driven, fail-loud in prod via config/settings.py) so a misconfigured
+    # deploy can't silently email magic links pointing at http://localhost:8000.
+    backend_url = settings.BACKEND_URL.rstrip("/")
     query_params = {
         'email': email,
         'code': token,
-        'redirect_url': base_redirect
+        'redirect_url': base_redirect,
     }
     magic_link = f"{backend_url}/services/magic/?{urlencode(query_params)}"
 
@@ -143,19 +143,15 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     known-email request into a 500 — that would let an attacker enumerate users
     by comparing responses against the silent 200 returned for unknown emails.
     """
-    # Admins reset their password on the admin portal; everyone else on the user app.
-    if is_operational_admin(user):
-        base = getattr(
-            settings,
-            "ADMIN_PASSWORD_RESET_REDIRECT_URL",
-            "https://mentoringadmin.biotechfutures.org/auth/reset-password",
-        )
-    else:
-        base = getattr(
-            settings,
-            "PASSWORD_RESET_REDIRECT_URL",
-            "http://localhost:5173/auth/reset-password",
-        )
+    # Admins reset their password on the admin portal; everyone else on the
+    # user app. Both settings are defined unconditionally in config/settings.py
+    # (env-driven, fail-loud in prod via ImproperlyConfigured) so a misconfigured
+    # deploy can't silently email reset links pointing at http://localhost:5173.
+    base = (
+        settings.ADMIN_PASSWORD_RESET_REDIRECT_URL
+        if is_operational_admin(user)
+        else settings.PASSWORD_RESET_REDIRECT_URL
+    )
     reset_link = f"{base}?token={token}"
 
     ctx = {
