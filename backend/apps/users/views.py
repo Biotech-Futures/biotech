@@ -16,6 +16,11 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
+from apps.common.role_names import (
+    ROLE_STUDENT,
+    ROLE_SUPERVISOR,
+    get_role_by_name,
+)
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
 from apps.events.models import Events
 from apps.matching_runtime.models import MatchRecommendation
@@ -225,64 +230,64 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 #issue 40
-# Fields a user may set on themselves via PATCH /users/me/. Anything else
-# (role_id, account_status, track, is_staff, ...) is admin-only and must
-# go through UsersRetrieveUpdateView with its operational-admin + track-scope
-# checks. The previous implementation processed ``role_id`` and
-# ``account_status`` from the request body unconditionally, which let any
-# authenticated user — including a freshly registered student — assign
-# themselves the admin role (pk=1) or flip their own account_status. This
-# was a P0 privilege-escalation vector (CONSOLIDATED 1.x).
-SELF_PATCHABLE_FIELDS = frozenset({"timezone"})
-
-# Fields explicitly rejected with 400 rather than silently ignored, so the
-# frontend / API client sees a clear contract violation instead of thinking
-# the change went through.
-SELF_PATCH_REJECTED_FIELDS = frozenset({
-    "role_id",
-    "role",
-    "account_status",
-    "is_staff",
-    "is_superuser",
-    "is_active",
-    "track",
-    "track_id",
-})
-
-
 class MeRetrieveView(generics.RetrieveAPIView):
+    """Authenticated user's self-profile endpoint.
+
+    PATCH is intentionally restricted to fields a user is allowed to mutate
+    *for themselves* (currently just ``timezone``). The legacy implementation
+    accepted ``role_id`` and ``account_status`` from the body without any
+    auth-scope check, which let any authenticated user self-assign the admin
+    role (via ``RoleAssignmentHistory.objects.create``) or re-activate a
+    suspended account. Privileged role / status / track changes must go
+    through :class:`UsersRetrieveUpdateView`, which enforces
+    ``is_operational_admin`` + ``can_admin_track``. See CONSOLIDATED issues
+    list (privilege escalation via PATCH /me/).
+    """
+
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
 
+    # Fields a user MUST NOT be able to mutate via /me/. Detected up front so
+    # any forbidden field aborts the *whole* request — a body that sneaks
+    # ``role_id`` in alongside a legit ``timezone`` change must NOT apply the
+    # timezone half. The custom exception handler reshapes
+    # ``ValidationError({field: msg, ...})`` into ``response.data["fields"]``.
+    _FORBIDDEN_SELF_PATCH_FIELDS: dict[str, str] = {
+        "role_id": "Role assignment is not editable via /me/.",
+        "account_status": "Account status is not self-editable.",
+        "is_staff": "Staff flag is not self-editable.",
+        "is_superuser": "Superuser flag is not self-editable.",
+        "is_active": "is_active is not self-editable.",
+        "track_id": "Track is not self-editable via /me/.",
+        "track": "Track is not self-editable via /me/.",
+    }
+
     def get_object(self):
-        obj = self.request.user
-        return obj
+        return self.request.user
 
     def patch(self, request, *args, **kwargs):
         user = self.get_object()
         data = request.data
 
-        # Fail loud on admin-only fields. Silently ignoring would let an
-        # attacker think the escalation worked AND would hide frontend bugs
-        # that wire the wrong field to a self-edit form.
-        forbidden = SELF_PATCH_REJECTED_FIELDS.intersection(data.keys())
-        if forbidden:
+        violations = {
+            field: message
+            for field, message in self._FORBIDDEN_SELF_PATCH_FIELDS.items()
+            if field in data
+        }
+        if violations:
+            # Log every forbidden-field PATCH attempt so a credential-stuffed
+            # account or compromised client surface as 4xx spikes in metrics
+            # instead of silent no-ops.
             logger.warning(
-                "MeRetrieveView.patch: user=%s attempted to mutate admin-only fields=%s",
-                user.id, sorted(forbidden),
+                "MeRetrieveView.patch: rejected forbidden field(s) "
+                "user_id=%s ip=%s fields=%s",
+                user.id, _client_ip(request), sorted(violations),
             )
-            raise serializers.ValidationError({
-                field: "This field cannot be changed via /users/me/. Contact an admin."
-                for field in forbidden
-            })
+            raise serializers.ValidationError(violations)
 
-        # Route every accepted field through UserSerializer's validators so
-        # e.g. ``timezone`` gets the same IANA-zone check the rest of the
-        # codebase uses; no bespoke per-field branches needed here.
-        patch_data = {k: v for k, v in data.items() if k in SELF_PATCHABLE_FIELDS}
-        if patch_data:
-            serializer = UserSerializer(user, data=patch_data, partial=True)
+        if "timezone" in data:
+            serializer = UserSerializer(user, data={"timezone": data["timezone"]}, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
@@ -354,20 +359,18 @@ class UserRegisterView(APIView):
 
         user.save()
 
+        # roleassignmenthistory creation
+        # Look up roles by stable name (registration must work in any env, regardless of seed order).
         now = timezone.now()
-        role = get_object_or_404(Roles, pk=4)
+        role = get_role_by_name(ROLE_STUDENT)
         rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
-        # Look up the supervisor. If they already exist we MUST NOT overwrite
-        # their first/last name from anonymous request data — that was the
-        # original injection vector. New supervisor accounts get their names
-        # set; existing ones keep whatever the admin or the supervisor set.
-        sup, sup_created = User.objects.get_or_create(email=supervisor_email)
-        if sup_created:
-            sup.first_name = databody["SupervisorFirstName"]
-            sup.last_name = databody["SupervisorSurname"]
-            sup.save()
-        sup_role = get_object_or_404(Roles, pk=2)
+        #supervisorprofile check
+        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
+        sup.first_name = databody["SupervisorFirstName"]
+        sup.last_name = databody["SupervisorSurname"]
+        sup.save()
+        sup_role = get_role_by_name(ROLE_SUPERVISOR)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
         if databody["SupervisorEmail"] == databody["GuardianEmail"]:
