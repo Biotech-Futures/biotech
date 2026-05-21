@@ -143,19 +143,15 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     known-email request into a 500 — that would let an attacker enumerate users
     by comparing responses against the silent 200 returned for unknown emails.
     """
-    # Admins reset their password on the admin portal; everyone else on the user app.
-    if is_operational_admin(user):
-        base = getattr(
-            settings,
-            "ADMIN_PASSWORD_RESET_REDIRECT_URL",
-            "https://mentoringadmin.biotechfutures.org/auth/reset-password",
-        )
-    else:
-        base = getattr(
-            settings,
-            "PASSWORD_RESET_REDIRECT_URL",
-            "http://localhost:5173/auth/reset-password",
-        )
+    # Admins reset their password on the admin portal; everyone else on the
+    # user app. Both settings are defined unconditionally in config/settings.py
+    # (env-driven, fail-loud in prod via ImproperlyConfigured) so a misconfigured
+    # deploy can't silently email reset links pointing at http://localhost:5173.
+    base = (
+        settings.ADMIN_PASSWORD_RESET_REDIRECT_URL
+        if is_operational_admin(user)
+        else settings.PASSWORD_RESET_REDIRECT_URL
+    )
     reset_link = f"{base}?token={token}"
 
     ctx = {
