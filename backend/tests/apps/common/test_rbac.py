@@ -7,9 +7,17 @@ from django.utils import timezone
 from apps.common.rbac import (
     active_role_ids,
     active_role_names,
+    get_active_role_name,
     group_participant_qs,
     is_global_admin,
     track_admin_track_ids,
+    user_has_role,
+)
+from apps.common.role_names import (
+    ROLE_MENTOR,
+    ROLE_STUDENT,
+    get_role_by_name,
+    try_get_role_by_name,
 )
 from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
 from apps.resources.models import RoleAssignmentHistory, Roles
@@ -107,3 +115,27 @@ class CommonRBACTests(TestCase):
             user=user, role=admin_role, valid_from=now, valid_to=now + timedelta(days=365)
         )
         self.assertFalse(is_global_admin(user))
+
+    def test_get_active_role_name_returns_normalized_role(self):
+        self.assertEqual(get_active_role_name(self.mentor), ROLE_MENTOR)
+
+    def test_get_active_role_name_handles_anonymous_and_no_role(self):
+        no_role_user = User.objects.create_user(email="noroles@test.com", password="pw")
+        self.assertIsNone(get_active_role_name(no_role_user))
+        self.assertIsNone(get_active_role_name(None))
+
+    def test_user_has_role_matches_active_roles_case_insensitively(self):
+        self.assertTrue(user_has_role(self.mentor, "MENTOR"))
+        self.assertFalse(user_has_role(self.mentor, ROLE_STUDENT))
+        self.assertFalse(user_has_role(self.mentor))
+
+    def test_role_name_lookup_is_case_insensitive_and_pk_independent(self):
+        # Force a different PK ordering than the names imply to prove we
+        # do not rely on numeric IDs.
+        Roles.objects.create(role_name="filler-role-1")
+        Roles.objects.create(role_name="filler-role-2")
+        student = Roles.objects.create(role_name="Student")
+
+        self.assertEqual(get_role_by_name("student"), student)
+        self.assertEqual(get_role_by_name("STUDENT"), student)
+        self.assertIsNone(try_get_role_by_name("does-not-exist"))

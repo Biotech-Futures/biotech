@@ -16,6 +16,11 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from.models import User, StudentProfile, UserInterest, AreasOfInterest, SupervisorProfile, StudentSupervisor
 from apps.resources.models import Roles, RoleAssignmentHistory
+from apps.common.role_names import (
+    ROLE_STUDENT,
+    ROLE_SUPERVISOR,
+    get_role_by_name,
+)
 from apps.groups.models import Tracks, Countries, CountryStates, Groups
 from apps.events.models import Events
 from apps.matching_runtime.models import MatchRecommendation
@@ -215,7 +220,10 @@ class MeRetrieveView(generics.RetrieveAPIView):
         if "account_status" in data:
             user.apply_account_status(data["account_status"])
 
-        #for role_id, 3 is mentor, 4 is student, 1 is admin, 2 is supervisor
+        # `role_id` is the FK into the Roles table; the canonical mapping
+        # lives in the database and is referenced by name elsewhere (see
+        # apps.common.role_names). Do NOT rely on specific PKs here — they
+        # are not stable across environments.
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
             now = timezone.now()
@@ -297,20 +305,18 @@ class UserRegisterView(APIView):
 
         user.save()
 
+        # roleassignmenthistory creation
+        # Look up roles by stable name (registration must work in any env, regardless of seed order).
         now = timezone.now()
-        role = get_object_or_404(Roles, pk=4)
+        role = get_role_by_name(ROLE_STUDENT)
         rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
-        # Look up the supervisor. If they already exist we MUST NOT overwrite
-        # their first/last name from anonymous request data — that was the
-        # original injection vector. New supervisor accounts get their names
-        # set; existing ones keep whatever the admin or the supervisor set.
-        sup, sup_created = User.objects.get_or_create(email=supervisor_email)
-        if sup_created:
-            sup.first_name = databody["SupervisorFirstName"]
-            sup.last_name = databody["SupervisorSurname"]
-            sup.save()
-        sup_role = get_object_or_404(Roles, pk=2)
+        #supervisorprofile check
+        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
+        sup.first_name = databody["SupervisorFirstName"]
+        sup.last_name = databody["SupervisorSurname"]
+        sup.save()
+        sup_role = get_role_by_name(ROLE_SUPERVISOR)
         sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
 
         if databody["SupervisorEmail"] == databody["GuardianEmail"]:
