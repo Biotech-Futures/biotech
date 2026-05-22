@@ -12,6 +12,17 @@
         </div>
 
         <div class="header-nav">
+          <form class="program-search" role="search" @submit.prevent="handleProgramSearch">
+            <i class="fas fa-search" aria-hidden="true"></i>
+            <input
+              v-model="programSearchQuery"
+              type="search"
+              class="search-bar"
+              placeholder="Search Program"
+              aria-label="Search Program"
+            />
+          </form>
+
           <button
             type="button"
             class="theme-toggle"
@@ -297,6 +308,16 @@ const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
 const isSidebarCollapsed = ref(false)
+const programSearchQuery = ref('')
+
+const programSearchTargets = [
+  { path: '/dashboard', terms: ['home', 'dashboard', 'overview', 'program'] },
+  { path: '/groups', terms: ['group', 'groups', 'team', 'teams', 'mentor', 'mentoring'] },
+  { path: '/events', terms: ['event', 'events', 'calendar', 'session', 'sessions', 'workshop'] },
+  { path: '/announcements', terms: ['announcement', 'announcements', 'news', 'updates', 'notice'] },
+  { path: '/resources', terms: ['resource', 'resources', 'library', 'guide', 'material'] },
+  { path: '/profile', terms: ['profile', 'account', 'me', 'settings'] },
+]
 
 const toggleSidebarCollapsed = () => {
   isSidebarCollapsed.value = !isSidebarCollapsed.value
@@ -310,6 +331,21 @@ const toggleUserMenu = () => {
 const go = (path: string) => {
   showUserMenu.value = false
   router.push(path)
+}
+
+const handleProgramSearch = () => {
+  const query = programSearchQuery.value.trim().toLowerCase()
+  if (!query) return
+
+  const target =
+    programSearchTargets.find((item) => item.terms.some((term) => term.includes(query))) ??
+    programSearchTargets.find((item) => item.terms.some((term) => query.includes(term)))
+
+  if (target) {
+    showUserMenu.value = false
+    programSearchQuery.value = ''
+    router.push(target.path)
+  }
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -667,6 +703,47 @@ select {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.program-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: min(320px, 34vw);
+}
+
+.program-search i {
+  position: absolute;
+  left: 0.9rem;
+  color: rgba(23, 66, 67, 0.58);
+  font-size: 0.86rem;
+  pointer-events: none;
+}
+
+.search-bar {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 8px;
+  padding: 0.58rem 0.9rem 0.58rem 2.35rem;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--charcoal);
+  outline: none;
+  box-shadow: 0 1px 2px rgba(7, 17, 15, 0.08);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.search-bar::placeholder {
+  color: #6c757d;
+}
+
+.search-bar:focus {
+  border-color: var(--white);
+  background: var(--white);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.24);
 }
 
 .theme-toggle {
@@ -1188,6 +1265,13 @@ select {
   .header-nav {
     margin-left: 0;
     justify-content: flex-end;
+    flex: 1;
+  }
+
+  .program-search {
+    order: 3;
+    width: 100%;
+    flex-basis: 100%;
   }
 
   .main-layout {

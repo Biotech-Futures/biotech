@@ -124,12 +124,14 @@
       </div>
 
       <template v-else>
+        <section class="dashboard-welcome-header">
+          <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
+        </section>
+
         <section class="dashboard-hero-shell">
           <div class="dashboard-hero-card interactive-surface">
             <div class="dashboard-hero-main">
               <div class="dashboard-hero-copy">
-                <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
-
                 <p class="dashboard-hero-message">
                   Welcome to BIOTech Connect — your central hub for the BIOTech Futures Challenge.
                   Connect with your team, collaborate and share ideas, access program-wide
@@ -1496,6 +1498,14 @@ onMounted(async () => {
    ────────────────────────────────────────────────────────────── */
 .dashboard-hero-shell {
   margin-bottom: 1.5rem;
+}
+
+.dashboard-welcome-header {
+  margin-bottom: 2rem;
+}
+
+.dashboard-welcome-header .hero-title {
+  margin: 0;
 }
 
 .dashboard-hero-card {
