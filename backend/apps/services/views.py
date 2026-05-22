@@ -183,10 +183,26 @@ class VerifyLoginCodeView(APIView):
         )
     
 class MagicLoginView(APIView):
-    """Handle magic link authentication. Errors flow through custom_exception_handler;
-    success returns a 302 redirect to the frontend callback."""
+    """Handle magic link authentication. Both success and error return a 302
+    redirect to the frontend callback so users always see a proper UI."""
     permission_classes = [AllowAny]
     authentication_classes = []
+
+    _ALLOWED_REDIRECT_DOMAINS = [
+        'localhost',
+        '127.0.0.1',
+        'biotechfutures.org',
+        'mentoring.biotechfutures.org',
+        'mentoringadmin.biotechfutures.org',
+    ]
+
+    def _safe_callback_base(self, redirect_url_param):
+        """Return the frontend callback base URL, stripped of any query string."""
+        if redirect_url_param:
+            parsed = urlparse(redirect_url_param)
+            if parsed.hostname in self._ALLOWED_REDIRECT_DOMAINS:
+                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        return settings.ADMIN_MAGIC_LINK_REDIRECT_URL
 
     @extend_schema(
         responses={
@@ -198,9 +214,11 @@ class MagicLoginView(APIView):
     def get(self, request):
         email = request.GET.get("email")
         code = request.GET.get("code")
+        redirect_url_param = request.GET.get("redirect_url")
+        callback_base = self._safe_callback_base(redirect_url_param)
 
         if not email or not code:
-            raise EmailAndCodeRequired()
+            return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         ip = _client_ip(request)
         cache_key = f"otp_attempts:{email}"
@@ -214,7 +232,7 @@ class MagicLoginView(APIView):
                 "magic_login: rate limit hit email=%s ip=%s attempts=%s ip_attempts=%s",
                 email, ip, attempts, ip_attempts,
             )
-            raise TooManyFailedAttempts()
+            return redirect(f"{callback_base}?error=too_many_attempts")
 
         if not auth_service.verify_login_code(email, code):
             cache.set(cache_key, attempts + 1, OTP_ATTEMPT_WINDOW_SECONDS)
@@ -223,15 +241,15 @@ class MagicLoginView(APIView):
                 "magic_login: invalid code email=%s ip=%s attempt=%s",
                 email, ip, attempts + 1,
             )
-            raise InvalidOrExpiredCode()
+            return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            raise InvalidOrExpiredCode()
+            return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         if user.account_status in ['suspended', 'deactivated']:
-            raise AccountInactive()
+            return redirect(f"{callback_base}?error=account_inactive")
 
         login(request, user)
         cache.delete(cache_key)
@@ -243,17 +261,9 @@ class MagicLoginView(APIView):
         else:
             frontend_callback = settings.MAGIC_LINK_REDIRECT_URL
 
-        redirect_url_param = request.GET.get("redirect_url")
         if redirect_url_param:
             parsed_url = urlparse(redirect_url_param)
-            allowed_domains = [
-                'localhost',
-                '127.0.0.1',
-                'biotechfutures.org',
-                'mentoring.biotechfutures.org',
-                'mentoringadmin.biotechfutures.org',
-            ]
-            if parsed_url.hostname in allowed_domains:
+            if parsed_url.hostname in self._ALLOWED_REDIRECT_DOMAINS:
                 frontend_callback = redirect_url_param
 
         return redirect(f"{frontend_callback}?success=true&email={user.email}")

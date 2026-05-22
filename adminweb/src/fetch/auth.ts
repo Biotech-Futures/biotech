@@ -30,8 +30,10 @@ export function useMagicLinkSignIn() {
   return useMutation({
     mutationFn: async (email: string) => {
       try {
+        const redirectUrl = `${window.location.origin}/auth/callback`;
         const { data } = await authFetch.post("/services/send-login-code/", {
           email: email,
+          redirect_url: redirectUrl,
         });
         toast.success("Login code sent to email!");
         return data;

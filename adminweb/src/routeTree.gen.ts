@@ -14,6 +14,7 @@ import { Route as SetupPasswordRouteImport } from './routes/setup-password'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthUserRouteImport } from './routes/_auth/user'
 import { Route as AuthTaskRouteImport } from './routes/_auth/task'
 import { Route as AuthStudentRouteImport } from './routes/_auth/student'
@@ -49,6 +50,11 @@ const AuthIndexRoute = AuthIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthUserRoute = AuthUserRouteImport.update({
   id: '/user',
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   '/student': typeof AuthStudentRoute
   '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
@@ -138,6 +145,7 @@ export interface FileRoutesByTo {
   '/student': typeof AuthStudentRoute
   '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthIndexRoute
 }
 export interface FileRoutesById {
@@ -157,6 +165,7 @@ export interface FileRoutesById {
   '/_auth/student': typeof AuthStudentRoute
   '/_auth/task': typeof AuthTaskRoute
   '/_auth/user': typeof AuthUserRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/_auth/': typeof AuthIndexRoute
 }
 export interface FileRouteTypes {
@@ -177,6 +186,7 @@ export interface FileRouteTypes {
     | '/student'
     | '/task'
     | '/user'
+    | '/auth/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/reset-password'
@@ -193,6 +203,7 @@ export interface FileRouteTypes {
     | '/student'
     | '/task'
     | '/user'
+    | '/auth/callback'
     | '/'
   id:
     | '__root__'
@@ -211,6 +222,7 @@ export interface FileRouteTypes {
     | '/_auth/student'
     | '/_auth/task'
     | '/_auth/user'
+    | '/auth/callback'
     | '/_auth/'
   fileRoutesById: FileRoutesById
 }
@@ -219,6 +231,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SetupPasswordRoute: typeof SetupPasswordRoute
   SigninRoute: typeof SigninRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -257,6 +270,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof AuthIndexRouteImport
       parentRoute: typeof AuthRouteRoute
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_auth/user': {
       id: '/_auth/user'
@@ -377,6 +397,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SetupPasswordRoute: SetupPasswordRoute,
   SigninRoute: SigninRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
