@@ -15,7 +15,7 @@ export const LOGIN_ROLE_PREVIEW_ITEMS = [
 export const LOGIN_MESSAGES = {
   en: {
     brandTitle: 'BIOTech Futures Hub',
-    signIn: 'Sign in',
+    signIn: 'Sign In',
     welcomeSubtitle: 'Access your mentoring portal securely and continue where you left off.',
     emailLabel: 'Email Address',
     emailPlaceholder: 'Enter your email',
@@ -63,8 +63,8 @@ export const LOGIN_MESSAGES = {
     errorResendFail: 'Failed to resend the code. Please try again.',
     resendSuccess: 'If an account exists for that email, a new code has been sent.',
     sendingSuccess: 'If an account exists for that email, a verification code has been sent.',
-    signingIn: 'loading dashboard',
-    loadingDashboard: 'loading dashboard',
+    signingIn: 'Loading dashboard',
+    loadingDashboard: 'Loading dashboard',
     accessMode: 'Access mode',
     chooseRoleTitle: 'Choose your workspace role',
     selectedAccess: 'Selected access',
