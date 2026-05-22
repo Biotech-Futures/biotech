@@ -120,9 +120,7 @@
 
               <ul class="password-rules" aria-label="Password requirements">
                 <li :class="{ passed: newPassword.length >= 8 }">At least 8 characters</li>
-                <li :class="{ passed: passwordsMatch && confirmPassword.length > 0 }">
-                  Passwords match
-                </li>
+                <li :class="{ passed: passwordsMatch && confirmPassword.length > 0 }">Passwords match</li>
               </ul>
 
               <p v-if="passwordError" class="error-message" role="alert">{{ passwordError }}</p>
