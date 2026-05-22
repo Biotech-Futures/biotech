@@ -15,7 +15,7 @@ export const LOGIN_ROLE_PREVIEW_ITEMS = [
 export const LOGIN_MESSAGES = {
   en: {
     brandTitle: 'BIOTech Futures Hub',
-    signIn: 'Sign In',
+    signIn: 'Sign in',
     welcomeSubtitle: 'Access your mentoring portal securely and continue where you left off.',
     emailLabel: 'Email Address',
     emailPlaceholder: 'Enter your email',
@@ -24,11 +24,11 @@ export const LOGIN_MESSAGES = {
     passwordPlaceholder: 'Enter your password',
     passwordHelper: 'Use your account email and password to sign in.',
     passwordStep: 'Password',
-    passwordSignIn: 'Password sign-in',
+    passwordSignIn: 'Password Sign-in',
     loginMethod: 'Login method',
     emailCodeSignIn: 'Magic Link',
     sendingCode: 'Sending code...',
-    sendVerificationCode: 'Send Verification Code',
+    sendVerificationCode: 'Send verification code',
     verifyCode: 'Verify Code',
     resendCode: 'Resend Code',
     resendIn: 'Resend in',
