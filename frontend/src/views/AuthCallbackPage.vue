@@ -23,6 +23,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
+import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,6 +41,13 @@ onMounted(async () => {
       error.value = 'Invalid authentication link. Please try logging in again.'
       setTimeout(redirectToLogin, 3000)
       return
+    }
+
+    const csrfToken = Array.isArray(route.query.csrfToken)
+      ? route.query.csrfToken[0]
+      : route.query.csrfToken
+    if (!setCsrfToken(csrfToken)) {
+      resetCsrfToken()
     }
 
     const userData = await auth.fetchUserData()

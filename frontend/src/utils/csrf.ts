@@ -47,6 +47,16 @@ export function getCSRFToken(): string | null {
   return cachedCsrfToken
 }
 
+export function setCsrfToken(token: unknown): boolean {
+  if (typeof token !== 'string') return false
+
+  const trimmedToken = token.trim()
+  if (!trimmedToken) return false
+
+  cachedCsrfToken = trimmedToken
+  return true
+}
+
 export async function ensureCsrfCookie(apiBaseUrl: string): Promise<boolean> {
   if (cachedCsrfToken) return true
 

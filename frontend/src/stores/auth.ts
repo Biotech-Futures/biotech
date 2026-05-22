@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
 import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
 import { normalizeTimeZone } from '@/utils/date'
@@ -223,10 +223,11 @@ export const useAuthStore = defineStore('auth', {
         )
       }
 
-      // Django rotates the CSRF token on login; refresh the cached value before
-      // any immediate unsafe request can build headers from an empty cache.
-      resetCsrfToken()
-      await ensureCsrfCookie(API_BASE_URL)
+      // Django rotates the CSRF token on login; cache the fresh value returned
+      // by the backend so subsequent unsafe requests do not reuse the old one.
+      if (!setCsrfToken(data?.csrfToken)) {
+        resetCsrfToken()
+      }
 
       const user = await this.fetchUserData()
       if (!user) {

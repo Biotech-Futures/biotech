@@ -405,7 +405,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'
+import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import { isValidEmail, maskEmail } from '@/utils/string'
@@ -754,6 +754,14 @@ const parseApiError = async (response, fallbackText) => {
   return apiError
 }
 
+const parseResponseJson = async (response) => {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
 /*
   Shared JSON POST request helper.
 */
@@ -950,8 +958,10 @@ const verifyOTP = async () => {
       return
     }
 
-    resetCsrfToken()
-    await ensureCsrfCookie(API_BASE_URL)
+    const data = await parseResponseJson(response)
+    if (!setCsrfToken(data?.csrfToken)) {
+      resetCsrfToken()
+    }
 
     await auth.fetchUserData()
 
