@@ -178,10 +178,13 @@ class VerifyLoginCodeView(APIView):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                 },
+                # login() rotates the CSRF token; surface the new one so the SPA
+                # doesn't keep using the pre-login value on subsequent writes.
+                "csrfToken": get_token(request),
             },
             status=status.HTTP_200_OK,
         )
-    
+
 class MagicLoginView(APIView):
     """Handle magic link authentication. Both success and error return a 302
     redirect to the frontend callback so users always see a proper UI."""
