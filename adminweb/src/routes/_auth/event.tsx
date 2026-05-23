@@ -58,7 +58,8 @@ import {
   useQueryEventTargets,
 } from "@/query/event";
 import { useQueryUsers } from "@/query/user";
-import type { Event, EventRsvp } from "@/type/event";
+import type { Event, EventFormat, EventRsvp } from "@/type/event";
+import { EVENT_FORMAT_LABELS } from "@/type/event";
 import { useAuthContext } from "@/provider/AuthProvider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
@@ -193,7 +194,7 @@ interface EventFormProps {
   control: any;
   register: any;
   errors: any;
-  isVirtual: boolean;
+  eventFormat: EventFormat;
   currentHostName: string;
   groups: { id: number; groupName: string; trackId: number | null; trackName: string | null }[];
   roles: { id: number; roleName: string }[];
@@ -255,7 +256,7 @@ function EventForm({
   control,
   register,
   errors,
-  isVirtual,
+  eventFormat,
   currentHostName,
   groups,
   roles,
@@ -307,26 +308,27 @@ function EventForm({
 
       <Controller
         control={control}
-        name="isVirtual"
+        name="eventFormat"
         render={({ field }) => (
           <EventFormRow label="Event Type">
             <Select
-              value={field.value ? "true" : "false"}
-              onValueChange={(val) => field.onChange(val === "true")}
+              value={field.value ?? "in_person"}
+              onValueChange={(val) => field.onChange(val as EventFormat)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="false">In-person</SelectItem>
-                <SelectItem value="true">Virtual</SelectItem>
+                <SelectItem value="in_person">{EVENT_FORMAT_LABELS.in_person}</SelectItem>
+                <SelectItem value="virtual">{EVENT_FORMAT_LABELS.virtual}</SelectItem>
+                <SelectItem value="hybrid">{EVENT_FORMAT_LABELS.hybrid}</SelectItem>
               </SelectContent>
             </Select>
           </EventFormRow>
         )}
       />
 
-      {!isVirtual && (
+      {eventFormat !== "virtual" && (
         <EventFormRow label="Location">
           <Input
             placeholder="Venue address or room"
@@ -335,10 +337,14 @@ function EventForm({
         </EventFormRow>
       )}
 
-      <EventFormRow label={isVirtual ? "Meeting Link" : "Google Map Link"}>
+      <EventFormRow
+        label={eventFormat === "in_person" ? "Google Map Link" : "Meeting Link"}
+      >
         <Input
           placeholder={
-            isVirtual ? "https://zoom.us/..." : "https://maps.google.com/..."
+            eventFormat === "in_person"
+              ? "https://maps.google.com/..."
+              : "https://zoom.us/..."
           }
           {...register("locationLink")}
         />
@@ -632,7 +638,7 @@ function EventPage() {
       eventImage: null,
       location: null,
       locationLink: null,
-      isVirtual: false,
+      eventFormat: "in_person",
       startAt: "",
       endsAt: "",
       targetGroupIds: [],
@@ -642,7 +648,7 @@ function EventPage() {
     resolver: zodResolver(createEventSchema),
   });
 
-  const createIsVirtual = watch("isVirtual");
+  const createEventFormat = (watch("eventFormat") ?? "in_person") as EventFormat;
   const createGroupIds = watch("targetGroupIds") ?? [];
   const createRoleIds = watch("targetRoleIds") ?? [];
   const createTrackIds = watch("targetTrackIds") ?? [];
@@ -665,7 +671,7 @@ function EventPage() {
     resolver: zodResolver(updateEventSchema),
   });
 
-  const editIsVirtual = watchEdit("isVirtual");
+  const editEventFormat = (watchEdit("eventFormat") ?? "in_person") as EventFormat;
   const editGroupIds = watchEdit("targetGroupIds") ?? [];
   const editRoleIds = watchEdit("targetRoleIds") ?? [];
   const editTrackIds = watchEdit("targetTrackIds") ?? [];
@@ -684,7 +690,7 @@ function EventPage() {
         eventImage: editingEvent.eventImage ?? null,
         location: editingEvent.location,
         locationLink: editingEvent.locationLink,
-        isVirtual: editingEvent.isVirtual,
+        eventFormat: editingEvent.eventFormat,
         startAt: toDatetimeLocal(editingEvent.startDatetime),
         endsAt: toDatetimeLocal(editingEvent.endsDatetime),
         targetGroupIds: targets?.groupIds ?? [],
@@ -781,7 +787,7 @@ function EventPage() {
             eventImage: null,
             location: null,
             locationLink: null,
-            isVirtual: false,
+            eventFormat: "in_person",
             startAt: "",
             endsAt: "",
             targetGroupIds: [],
@@ -1085,17 +1091,23 @@ function EventPage() {
               </EventDetailRow>
             )}
             <EventDetailRow label="Event Type">
-              <p>{viewingEvent?.isVirtual ? "Virtual" : "In-person"}</p>
+              <p>
+                {viewingEvent
+                  ? EVENT_FORMAT_LABELS[viewingEvent.eventFormat] ?? viewingEvent.eventFormat
+                  : "---"}
+              </p>
             </EventDetailRow>
-            {!viewingEvent?.isVirtual && (
+            {viewingEvent && viewingEvent.eventFormat !== "virtual" && (
               <EventDetailRow label="Location">
-                <p>{viewingEvent?.location || "---"}</p>
+                <p>{viewingEvent.location || "---"}</p>
               </EventDetailRow>
             )}
             {viewingEvent?.locationLink && (
               <EventDetailRow
                 label={
-                  viewingEvent.isVirtual ? "Meeting Link" : "Google Map Link"
+                  viewingEvent.eventFormat === "in_person"
+                    ? "Google Map Link"
+                    : "Meeting Link"
                 }
               >
                 <p>
@@ -1214,7 +1226,7 @@ function EventPage() {
               description: null,
               location: null,
               locationLink: null,
-              isVirtual: false,
+              eventFormat: "in_person",
               startAt: "",
               endsAt: "",
               targetGroupIds: [],
@@ -1236,7 +1248,7 @@ function EventPage() {
             control={control}
             register={register}
             errors={errors}
-            isVirtual={!!createIsVirtual}
+            eventFormat={createEventFormat}
             currentHostName={currentHostName}
             groups={groups}
             roles={roles}
@@ -1424,7 +1436,7 @@ function EventPage() {
             control={editControl}
             register={registerEdit}
             errors={editErrors}
-            isVirtual={!!editIsVirtual}
+            eventFormat={editEventFormat}
             currentHostName={
               editingEvent
                 ? formatEventHost(editingEvent, usersById)

@@ -40,7 +40,7 @@ class CreateEventInput(TypedDict, total=False):
     description: Optional[str]
     location: Optional[str]
     humanitix_link: Optional[str]
-    is_virtual: bool
+    event_format: str
     host_user_id: int
     start_at: str
     ends_at: str
@@ -54,13 +54,16 @@ class UpdateEventInput(TypedDict, total=False):
     description: Optional[str]
     location: Optional[str]
     humanitix_link: Optional[str]
-    is_virtual: bool
+    event_format: str
     host_user_id: Optional[int]
     start_at: Optional[str]
     ends_at: Optional[str]
     target_group_ids: Optional[List[int]]
     target_role_ids: Optional[List[int]]
     target_track_ids: Optional[List[int]]
+
+
+_EVENT_FORMAT_VALUES = {"in_person", "virtual", "hybrid"}
 
 
 class CreateEventRsvpInput(TypedDict):
@@ -100,7 +103,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "deletedFlag": event.get("deleted_at") is not None,
         "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
         "eventImage": event.get("event_image"),
-        "isVirtual": event.get("is_virtual", False),
+        "eventFormat": event.get("event_format", "in_person"),
         "hostUserId": event.get("host_user_id"),
         "hostName": host_name,
         "hostEmail": host_email,
@@ -170,7 +173,7 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
             "location",
             "deleted_at",
             "event_image",
-            "is_virtual",
+            "event_format",
             "host_user_id",
             "host_user__first_name",
             "host_user__last_name",
@@ -209,7 +212,7 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "deletedFlag": event.deleted_at is not None,
         "deletedDatetime": event.deleted_at.isoformat() if event.deleted_at else None,
         "eventImage": event.event_image,
-        "isVirtual": event.is_virtual,
+        "eventFormat": event.event_format,
         "hostUserId": event.host_user_id,
         "hostName": host_name,
         "hostEmail": host_email,
@@ -342,15 +345,22 @@ def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDic
         return {"msg": "eventName is required", "data": None}
 
     location = data.get("location", "").strip() if data.get("location") else None
-    is_virtual = data.get("isVirtual") or data.get("is_virtual") or False
-    if is_virtual:
+    event_format = data.get("eventFormat") or data.get("event_format")
+    if not event_format or event_format not in _EVENT_FORMAT_VALUES:
+        return {
+            "msg": "eventFormat is required (in_person, virtual, or hybrid)",
+            "data": None,
+        }
+    # Virtual events have no physical venue — keep the column clean so the FE
+    # doesn't show a stale venue string after a format switch.
+    if event_format == "virtual":
         location = None
 
     event = Events.objects.create(
         event_name=event_name,
         description=data.get("description"),
         location=location,
-        is_virtual=is_virtual,
+        event_format=event_format,
         host_user_id=host_user_id,
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,
@@ -409,11 +419,18 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         updates["event_image"] = data["eventImage"] or None
     elif "event_image" in data:
         updates["event_image"] = data["event_image"] or None
-    is_virtual = data.get("isVirtual") if "isVirtual" in data else data.get("is_virtual")
-    if is_virtual is not None:
-        updates["is_virtual"] = is_virtual
-    if is_virtual:
-        updates["location"] = None
+    event_format = (
+        data.get("eventFormat") if "eventFormat" in data else data.get("event_format")
+    )
+    if event_format is not None:
+        if event_format not in _EVENT_FORMAT_VALUES:
+            return {
+                "msg": "eventFormat must be in_person, virtual, or hybrid",
+                "data": None,
+            }
+        updates["event_format"] = event_format
+        if event_format == "virtual":
+            updates["location"] = None
     start_at = data.get("startAt") or data.get("start_at")
     if start_at is not None:
         updates["start_datetime"] = datetime.fromisoformat(
