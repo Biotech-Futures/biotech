@@ -470,36 +470,75 @@ function DateTimeLocalInput({
     ref: (instance: HTMLInputElement | null) => void;
   };
 }) {
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dateId = useId();
+  const timeId = useId();
 
-  const openPicker = () => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    try {
-      input.showPicker?.();
-    } catch {
-      // ignore
+  const [datePart, setDatePart] = useState(field.value ? field.value.slice(0, 10) : "");
+  const [hourPart, setHourPart] = useState(field.value ? field.value.slice(11, 13) : "");
+  const [minutePart, setMinutePart] = useState(field.value ? field.value.slice(14, 16) : "");
+
+  useEffect(() => {
+    if (field.value) {
+      setDatePart(field.value.slice(0, 10));
+      setHourPart(field.value.slice(11, 13));
+      setMinutePart(field.value.slice(14, 16));
+    }
+  }, [field.value]);
+
+  const emit = (date: string, hour: string, minute: string) => {
+    if (date && hour !== "" && minute !== "") {
+      const combined = `${date}T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+      field.onChange({ target: { value: combined } } as React.ChangeEvent<HTMLInputElement>);
     }
   };
 
   return (
-    <div className="flex h-10 w-full overflow-hidden rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+    <div className="flex items-center gap-2">
       <input
-        id={inputId}
-        type="datetime-local"
-        className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none"
-        name={field.name}
+        id={dateId}
+        type="date"
+        className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        value={datePart}
         onBlur={field.onBlur}
-        onChange={field.onChange}
-        onClick={openPicker}
-        ref={(element) => {
-          field.ref(element);
-          inputRef.current = element;
+        ref={field.ref}
+        onChange={(e) => {
+          setDatePart(e.target.value);
+          emit(e.target.value, hourPart, minutePart);
         }}
-        value={field.value ?? ""}
       />
+      <div className="flex items-center gap-1">
+        <input
+          id={timeId}
+          type="number"
+          min={0}
+          max={23}
+          placeholder="HH"
+          className="flex h-10 w-14 rounded-md border border-input bg-background px-2 py-2 text-sm text-center ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          value={hourPart}
+          onBlur={field.onBlur}
+          onChange={(e) => {
+            const v = String(Math.min(23, Math.max(0, Number(e.target.value))));
+            setHourPart(v);
+            emit(datePart, v, minutePart);
+          }}
+        />
+        <span className="text-sm font-medium">:</span>
+        <input
+          type="number"
+          min={0}
+          max={59}
+          placeholder="MM"
+          className="flex h-10 w-14 rounded-md border border-input bg-background px-2 py-2 text-sm text-center ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          value={minutePart}
+          onBlur={field.onBlur}
+          onChange={(e) => {
+            const v = String(Math.min(59, Math.max(0, Number(e.target.value))));
+            setMinutePart(v);
+            emit(datePart, hourPart, v);
+          }}
+        />
+        <span className="text-xs text-muted-foreground">24h</span>
+      </div>
     </div>
   );
 }
