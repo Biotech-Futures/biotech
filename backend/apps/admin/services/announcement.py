@@ -129,9 +129,19 @@ def _resolve_recipient_emails(
     announcement_id: int,
     visibility_scope: str,
 ) -> List[str]:
-    """Resolve recipient emails based on visibility scope."""
+    """Resolve recipient emails based on visibility scope.
+
+    Users whose only track is archived are excluded from every branch — an
+    archived track should not produce email traffic. The global branch also
+    filters here so that a freeze on a track effectively quiets that cohort
+    even for org-wide announcements.
+    """
     if visibility_scope == "global":
-        users = User.objects.filter(is_active=True).values_list("email", flat=True)
+        users = (
+            User.objects.filter(is_active=True)
+            .exclude(track__is_archived=True)
+            .values_list("email", flat=True)
+        )
         return list(users)
 
     audience_rows = AnnouncementAudience.objects.filter(
@@ -148,25 +158,33 @@ def _resolve_recipient_emails(
     now = timezone.now()
 
     if track_ids:
-        track_emails = User.objects.filter(
-            is_active=True,
-            track_id__in=track_ids,
-        ).values_list("email", flat=True)
+        track_emails = (
+            User.objects.filter(
+                is_active=True,
+                track_id__in=track_ids,
+            )
+            .exclude(track__is_archived=True)
+            .values_list("email", flat=True)
+        )
         emails.update(track_emails)
 
     if role_ids:
-        role_emails = User.objects.filter(
-            is_active=True,
-        ).filter(
-            Exists(
-                RoleAssignmentHistory.objects.filter(
-                    user_id=OuterRef("id"),
-                    role_id__in=role_ids,
-                ).filter(
-                    Q(valid_to__isnull=True) | Q(valid_to__gt=now)
+        role_emails = (
+            User.objects.filter(is_active=True)
+            .exclude(track__is_archived=True)
+            .filter(
+                Exists(
+                    RoleAssignmentHistory.objects.filter(
+                        user_id=OuterRef("id"),
+                        role_id__in=role_ids,
+                    ).filter(
+                        Q(valid_to__isnull=True) | Q(valid_to__gt=now)
+                    )
                 )
             )
-        ).values_list("email", flat=True).distinct()
+            .values_list("email", flat=True)
+            .distinct()
+        )
         emails.update(role_emails)
 
     return list(emails)
@@ -823,8 +841,8 @@ def send_announcement_email(
 
 
 def list_announcement_tracks(requesting_user=None) -> Dict[str, Any]:
-    """Get all tracks for announcement reference data."""
-    qs = Tracks.objects.all()
+    """Get all tracks for announcement reference data. Archived tracks excluded."""
+    qs = Tracks.objects.filter(is_archived=False)
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         qs = qs.filter(id__in=track_ids)

@@ -626,8 +626,8 @@ def query_roles() -> Dict[str, Any]:
 
 
 def query_tracks(requesting_user=None) -> Dict[str, Any]:
-    """Get all tracks for reference data."""
-    qs = Tracks.objects.all()
+    """Get all tracks for reference data. Archived tracks are excluded."""
+    qs = Tracks.objects.filter(is_archived=False)
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         qs = qs.filter(id__in=track_ids)
