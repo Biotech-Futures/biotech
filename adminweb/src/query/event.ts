@@ -191,8 +191,8 @@ export function useUpdateEventRsvp() {
 export function useQueryGroups() {
   return useQuery({
     queryKey: ["event-meta-groups"],
-    queryFn: async (): Promise<ApiResponse<{ id: number; groupName: string }[]>> => {
-      const res = await myFetch.get<ApiResponse<{ id: number; groupName: string }[]>>(
+    queryFn: async (): Promise<ApiResponse<{ id: number; groupName: string; trackId: number | null; trackName: string | null }[]>> => {
+      const res = await myFetch.get<ApiResponse<{ id: number; groupName: string; trackId: number | null; trackName: string | null }[]>>(
         "/event/meta/groups",
       );
       return res.data;

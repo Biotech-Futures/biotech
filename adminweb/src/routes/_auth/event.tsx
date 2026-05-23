@@ -195,7 +195,7 @@ interface EventFormProps {
   errors: any;
   isVirtual: boolean;
   currentHostName: string;
-  groups: { id: number; groupName: string }[];
+  groups: { id: number; groupName: string; trackId: number | null; trackName: string | null }[];
   roles: { id: number; roleName: string }[];
   tracks: { id: number; trackName: string }[];
   watchedGroupIds: number[];
@@ -384,19 +384,33 @@ function EventForm({
 
       {groups.length > 0 && (
         <EventFormRow label="Target Groups">
-          <div className="grid grid-cols-2 gap-2">
-            {groups.map((g) => (
-              <label
-                key={g.id}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={watchedGroupIds.includes(g.id)}
-                  onChange={() => onToggleGroup(g.id)}
-                />
-                {g.groupName}
-              </label>
+          <div className="space-y-3">
+            {Object.entries(
+              groups.reduce<Record<string, typeof groups>>((acc, g) => {
+                const key = g.trackName ?? "No Track";
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(g);
+                return acc;
+              }, {})
+            ).map(([trackName, trackGroups]) => (
+              <div key={trackName}>
+                <p className="text-xs font-medium text-muted-foreground mb-1">{trackName}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {trackGroups.map((g) => (
+                    <label
+                      key={g.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={watchedGroupIds.includes(g.id)}
+                        onChange={() => onToggleGroup(g.id)}
+                      />
+                      {g.groupName}
+                    </label>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </EventFormRow>

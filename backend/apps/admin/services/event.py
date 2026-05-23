@@ -594,10 +594,20 @@ def query_groups(requesting_user=None) -> Dict[str, Any]:
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         qs = qs.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
-    groups = list(qs.order_by("id").values("id", "group_name"))
+    groups = list(qs.order_by("track__track_name", "group_name").values(
+        "id", "group_name", "track_id", "track__track_name"
+    ))
     return {
         "msg": "Groups retrieved successfully",
-        "data": [{"id": g["id"], "groupName": g["group_name"]} for g in groups],
+        "data": [
+            {
+                "id": g["id"],
+                "groupName": g["group_name"],
+                "trackId": g["track_id"],
+                "trackName": g["track__track_name"],
+            }
+            for g in groups
+        ],
     }
 
 
