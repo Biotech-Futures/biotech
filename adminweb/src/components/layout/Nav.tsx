@@ -15,9 +15,15 @@ import {
   FileTextIcon,
   MegaphoneIcon,
   CheckSquareIcon,
+  LayoutDashboardIcon,
 } from "lucide-react";
 
 const NAV_ITEMS = [
+  {
+    title: "Dashboard",
+    url: "/",
+    icon: <LayoutDashboardIcon />,
+  },
   {
     title: "User",
     url: "/user",
