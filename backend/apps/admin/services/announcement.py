@@ -115,11 +115,13 @@ def _render_announcement_email_html(
     detail_url: str,
 ) -> str:
     """Render announcement email HTML template."""
+    frontend_url = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
     return render_to_string("emails/announcement.html", {
         "title": title,
         "excerpt": excerpt,
         "detail_url": detail_url,
         "contact_email": settings.DEFAULT_FROM_EMAIL,
+        "logo_url": f"{frontend_url}/btf-logo.png",
     })
 
 
