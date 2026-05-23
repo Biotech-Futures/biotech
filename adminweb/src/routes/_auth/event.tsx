@@ -829,13 +829,24 @@ function EventPage() {
   return (
     <div className="min-w-0 space-y-4 p-4">
       <div className="flex flex-wrap gap-3 p-4 items-end justify-between">
-        <Button
-          type="button"
-          variant={upcoming ? "default" : "outline"}
-          onClick={() => setUpcoming((v) => !v)}
-        >
-          {upcoming ? "Upcoming Only" : "All Events"}
-        </Button>
+        <div className="inline-flex rounded-md border p-0.5">
+          <Button
+            type="button"
+            variant={upcoming ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setUpcoming(true)}
+          >
+            Upcoming
+          </Button>
+          <Button
+            type="button"
+            variant={!upcoming ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setUpcoming(false)}
+          >
+            All Events
+          </Button>
+        </div>
         <Button type="button" onClick={() => setCreateEventOpen(true)}>
           <CalendarIcon className="size-4" />
           Create Event
@@ -912,9 +923,18 @@ function EventPage() {
                 </TableCell>
               </TableRow>
             ) : eventsList.length > 0 ? (
-              eventsList.map((event) => (
-                <TableRow key={event.id}>
-                  <TableCell>{event.eventName}</TableCell>
+              eventsList.map((event) => {
+                const isPast = new Date(event.endsDatetime) < new Date();
+                return (
+                <TableRow
+                  key={event.id}
+                  className={isPast ? "text-muted-foreground bg-muted/30" : ""}
+                >
+                  <TableCell
+                    className={`border-l-4 ${isPast ? "border-l-gray-400" : "border-l-green-500"}`}
+                  >
+                    {event.eventName}
+                  </TableCell>
                   <TableCell>{formatEventHost(event, usersById)}</TableCell>
                   <TableCell>
                     {event.location ? (
@@ -990,7 +1010,8 @@ function EventPage() {
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             ) : (
               <TableRow>
                 <TableCell colSpan={7} className="h-24 text-center">
