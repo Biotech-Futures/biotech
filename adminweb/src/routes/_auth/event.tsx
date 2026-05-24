@@ -1,6 +1,18 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Command,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandEmpty,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -72,6 +84,7 @@ import {
   MoreHorizontalIcon,
   ImageIcon,
   XIcon,
+  ChevronsUpDownIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import {
@@ -349,6 +362,22 @@ function EventForm({
           {...register("locationLink")}
         />
       </EventFormRow>
+
+      <Controller
+        control={control}
+        name="eventTimezone"
+        render={({ field }) => (
+          <EventFormRow label="Timezone">
+            <TimezoneCombobox
+              value={field.value ?? BROWSER_TZ}
+              onChange={field.onChange}
+            />
+            <p className="text-xs text-muted-foreground">
+              Start and end times will be saved in this timezone.
+            </p>
+          </EventFormRow>
+        )}
+      />
 
       <Controller
         control={control}
@@ -639,6 +668,7 @@ function EventPage() {
       location: null,
       locationLink: null,
       eventFormat: "in_person",
+      eventTimezone: BROWSER_TZ,
       startAt: "",
       endsAt: "",
       targetGroupIds: [],
@@ -683,6 +713,7 @@ function EventPage() {
   useEffect(() => {
     if (editingEvent) {
       const targets = eventTargetsData?.data;
+      const tz = editingEvent.eventTimezone || BROWSER_TZ;
       resetEdit({
         hostUserId: editingEvent.hostUserId,
         eventName: editingEvent.eventName,
@@ -691,8 +722,9 @@ function EventPage() {
         location: editingEvent.location,
         locationLink: editingEvent.locationLink,
         eventFormat: editingEvent.eventFormat,
-        startAt: toDatetimeLocal(editingEvent.startDatetime),
-        endsAt: toDatetimeLocal(editingEvent.endsDatetime),
+        eventTimezone: tz,
+        startAt: toDatetimeLocalInTz(editingEvent.startDatetime, tz),
+        endsAt: toDatetimeLocalInTz(editingEvent.endsDatetime, tz),
         targetGroupIds: targets?.groupIds ?? [],
         targetRoleIds: targets?.roleIds ?? [],
         targetTrackIds: targets?.trackIds ?? [],
@@ -788,6 +820,7 @@ function EventPage() {
             location: null,
             locationLink: null,
             eventFormat: "in_person",
+            eventTimezone: BROWSER_TZ,
             startAt: "",
             endsAt: "",
             targetGroupIds: [],
@@ -1125,16 +1158,19 @@ function EventPage() {
             <EventDetailRow label="Start">
               <p>
                 {viewingEvent
-                  ? formatDateTime(viewingEvent.startDatetime)
+                  ? formatDateTimeInTz(viewingEvent.startDatetime, viewingEvent.eventTimezone || BROWSER_TZ)
                   : "---"}
               </p>
             </EventDetailRow>
             <EventDetailRow label="End">
               <p>
                 {viewingEvent
-                  ? formatDateTime(viewingEvent.endsDatetime)
+                  ? formatDateTimeInTz(viewingEvent.endsDatetime, viewingEvent.eventTimezone || BROWSER_TZ)
                   : "---"}
               </p>
+            </EventDetailRow>
+            <EventDetailRow label="Timezone">
+              <p>{viewingEvent?.eventTimezone || "UTC"}</p>
             </EventDetailRow>
 
             {/* Event Image — thumbnail + click to open full size */}
@@ -1227,6 +1263,7 @@ function EventPage() {
               location: null,
               locationLink: null,
               eventFormat: "in_person",
+              eventTimezone: BROWSER_TZ,
               startAt: "",
               endsAt: "",
               targetGroupIds: [],
@@ -1532,18 +1569,107 @@ function getAuthUserName(user: any) {
   return fullName || user.name || user.email || "";
 }
 
-function toDatetimeLocal(value: string) {
-  const date = new Date(value);
-  const pad = (n: number) => String(n).padStart(2, "0");
+/** Convert a UTC ISO string to a datetime-local value displayed in the given IANA timezone. */
+function toDatetimeLocalInTz(utcIso: string, timeZone: string): string {
+  if (!utcIso) return "";
+  const date = new Date(utcIso);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const h = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${h}:${get("minute")}`;
+}
+
+/** Format a UTC ISO datetime for display in the given IANA timezone, with TZ abbreviation. */
+function formatDateTimeInTz(utcIso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(new Date(utcIso));
+}
+
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const ALL_TIMEZONES: string[] = (() => {
+  try {
+    return (Intl as any).supportedValuesOf("timeZone") as string[];
+  } catch {
+    return [BROWSER_TZ];
+  }
+})();
+
+function tzOffsetLabel(tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "shortOffset",
+  }).formatToParts(new Date());
+  return parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+}
+
+function TimezoneCombobox({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return ALL_TIMEZONES.slice(0, 100);
+    const q = search.toLowerCase();
+    return ALL_TIMEZONES.filter((tz) => tz.toLowerCase().includes(q)).slice(0, 100);
+  }, [search]);
+
+  const displayLabel = value
+    ? `${value} (${tzOffsetLabel(value)})`
+    : "Select timezone";
+
   return (
-    date.getFullYear() +
-    "-" +
-    pad(date.getMonth() + 1) +
-    "-" +
-    pad(date.getDate()) +
-    "T" +
-    pad(date.getHours()) +
-    ":" +
-    pad(date.getMinutes())
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          <span className="truncate">{displayLabel}</span>
+          <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <Command>
+          <CommandInput
+            placeholder="Search timezone..."
+            value={search}
+            onValueChange={setSearch}
+          />
+          <CommandList className="max-h-60">
+            <CommandEmpty>No timezone found.</CommandEmpty>
+            {filtered.map((tz) => (
+              <CommandItem
+                key={tz}
+                value={tz}
+                onSelect={() => {
+                  onChange(tz);
+                  setSearch("");
+                  setOpen(false);
+                }}
+              >
+                {tz} <span className="ml-auto text-xs text-muted-foreground">{tzOffsetLabel(tz)}</span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }

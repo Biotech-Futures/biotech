@@ -19,6 +19,7 @@ export type Event = {
   deletedDatetime: string | null;
   eventImage: string | null;
   eventFormat: EventFormat;
+  eventTimezone: string;
   hostUserId: number | null;
   hostName: string | null;
   hostEmail: string | null;
