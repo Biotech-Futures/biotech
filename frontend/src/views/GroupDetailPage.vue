@@ -3349,7 +3349,11 @@ const openAttachmentAction = async (attachment, mode) => {
     // Content-Disposition and the browser definitely saves regardless of the
     // file type (PDFs would otherwise open inline in some browsers even with
     // Content-Disposition: attachment when navigated to directly).
-    const response = await fetch(baseUrl, { method: 'GET', credentials: 'include' })
+    // ``proxy=1`` forces the backend to stream the file directly instead of
+    // issuing a redirect to external storage (e.g. Azure Blob). A cross-origin
+    // redirect from fetch() is blocked by CORS and produces "Load failed".
+    const sep = baseUrl.includes('?') ? '&' : '?'
+    const response = await fetch(`${baseUrl}${sep}proxy=1`, { method: 'GET', credentials: 'include' })
     if (!response.ok) {
       throw await apiErrorFromResponse(response, 'Attachment could not be downloaded.')
     }
