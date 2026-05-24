@@ -11,18 +11,12 @@ class Events(models.Model):
         SOCIAL = "social", "Social"
         OTHER = "other", "Other"
 
-    class EventFormat(models.TextChoices):
-        IN_PERSON = "in_person", "In-person"
-        VIRTUAL = "virtual", "Virtual"
-        HYBRID = "hybrid", "Hybrid"
-
     event_name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
     event_type = models.CharField(max_length=100, choices=EventTypeChoices.choices, blank=True, null=True)
     start_datetime = models.DateTimeField()
     ends_datetime = models.DateTimeField()
-    event_timezone = models.CharField(max_length=50, default='UTC')
     location = models.CharField(max_length=255, blank=True, null=True)
     host_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     deleted_at = models.DateTimeField(default=None, blank=True, null=True)
@@ -31,13 +25,9 @@ class Events(models.Model):
         max_length=255,
         blank=True,
         null=True,
-        help_text="Zoom URL for virtual/hybrid events, Google Maps URL for in-person events.",
+        help_text="Zoom URL when is_virtual=True, Google Maps URL otherwise.",
     )
-    event_format = models.CharField(
-        max_length=20,
-        choices=EventFormat.choices,
-        default=EventFormat.IN_PERSON,
-    )
+    is_virtual = models.BooleanField(default=False)
     # Optional cap. Counts ACCEPTED rows only. When set and met, new
     # user-side ACCEPTED RSVPs are coerced to WAITLISTED; freed slots
     # auto-promote the oldest waitlisted user.
@@ -66,6 +56,10 @@ class Events(models.Model):
             models.CheckConstraint(
                 condition=models.Q(ends_datetime__gt=models.F("start_datetime")),
                 name="check_event_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(is_virtual=False) | models.Q(location__isnull=True),
+                name="check_virtual_location_null",
             ),
         ]
 
