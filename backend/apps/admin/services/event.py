@@ -147,6 +147,14 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     if track_ids is not None:
         queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
 
+    # Hide events where every target track is archived
+    # (events with no target tracks, or at least one non-archived target track, remain visible)
+    has_any_target_track = Exists(EventTargetTrack.objects.filter(event_id=OuterRef("id")))
+    has_active_target_track = Exists(
+        EventTargetTrack.objects.filter(event_id=OuterRef("id"), track__is_archived=False)
+    )
+    queryset = queryset.exclude(has_any_target_track & ~has_active_target_track)
+
     # Get total count
     total = queryset.count()
 

@@ -351,11 +351,11 @@ function EventForm({
       )}
 
       <EventFormRow
-        label={eventFormat === "in_person" ? "Google Map Link" : "Meeting Link"}
+        label={eventFormat !== "virtual" ? "Google Map Link" : "Meeting Link"}
       >
         <Input
           placeholder={
-            eventFormat === "in_person"
+            eventFormat !== "virtual"
               ? "https://maps.google.com/..."
               : "https://zoom.us/..."
           }
@@ -1138,7 +1138,7 @@ function EventPage() {
             {viewingEvent?.locationLink && (
               <EventDetailRow
                 label={
-                  viewingEvent.eventFormat === "in_person"
+                  viewingEvent.eventFormat !== "virtual"
                     ? "Google Map Link"
                     : "Meeting Link"
                 }
@@ -1652,7 +1652,7 @@ function TimezoneCombobox({
             value={search}
             onValueChange={setSearch}
           />
-          <CommandList className="max-h-60">
+          <CommandList className="max-h-60 overflow-y-auto" onWheel={(e) => e.stopPropagation()}>
             <CommandEmpty>No timezone found.</CommandEmpty>
             {filtered.map((tz) => (
               <CommandItem

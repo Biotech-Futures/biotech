@@ -291,6 +291,21 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
     else:  # archived is False or None
         queryset = queryset.filter(archived_at__isnull=True)
 
+    # Hide only if every audience track is archived (same logic as events).
+    # Announcements with no track audiences (global/role-based) are always visible.
+    has_any_track_audience = Exists(
+        AnnouncementAudience.objects.filter(
+            announcement_id=OuterRef("id"), track__isnull=False
+        )
+    )
+    has_active_track_audience = Exists(
+        AnnouncementAudience.objects.filter(
+            announcement_id=OuterRef("id"),
+            track__isnull=False,
+            track__is_archived=False,
+        )
+    )
+    queryset = queryset.filter(~has_any_track_audience | has_active_track_audience)
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))

@@ -45,6 +45,27 @@ export function useCreateTrack() {
   });
 }
 
+const TRACK_STATE_DEPENDENT_KEYS = [
+  ["tracks"],
+  ["event-meta-tracks"],
+  ["event-meta-groups"],
+  ["users"],
+  ["students"],
+  ["groups"],
+  ["events"],
+  ["announcements"],
+  ["mentorList"],
+  ["matchedGroups"],
+  ["unmatchedGroups"],
+  ["matchInfo"],
+] as const;
+
+function invalidateTrackDependents(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of TRACK_STATE_DEPENDENT_KEYS) {
+    qc.invalidateQueries({ queryKey: key });
+  }
+}
+
 export function useArchiveTrack() {
   const qc = useQueryClient();
   return useMutation({
@@ -55,7 +76,7 @@ export function useArchiveTrack() {
       );
       return res.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tracks"] }),
+    onSuccess: () => invalidateTrackDependents(qc),
   });
 }
 
@@ -69,7 +90,7 @@ export function useRestoreTrack() {
       );
       return res.data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tracks"] }),
+    onSuccess: () => invalidateTrackDependents(qc),
   });
 }
 

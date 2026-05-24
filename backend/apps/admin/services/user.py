@@ -423,6 +423,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     if active is not None:
         filters &= Q(is_active=active)
 
+    filters &= (Q(track__isnull=True) | Q(track__is_archived=False))
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         filters &= (Q(track_id__in=track_ids) | Q(track__isnull=True))

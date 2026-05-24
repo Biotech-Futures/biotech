@@ -16,7 +16,22 @@ def _admin_visible_tasks(requesting_user):
 
     Track admins additionally see TRACK-typed tasks for their tracks.
     """
-    base = Task.objects.active()
+    base = (
+        Task.objects.active()
+        .filter(
+            ~Q(task_type=TaskType.TRACK) | Q(track__is_archived=False)
+        )
+        .filter(
+            ~Q(task_type=TaskType.GROUP)
+            | Q(group__track__isnull=True)
+            | Q(group__track__is_archived=False)
+        )
+        .filter(
+            ~Q(task_type=TaskType.INDIVIDUAL)
+            | Q(assigned_user__track__isnull=True)
+            | Q(assigned_user__track__is_archived=False)
+        )
+    )
 
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is None:

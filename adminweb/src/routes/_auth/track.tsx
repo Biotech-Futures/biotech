@@ -80,6 +80,10 @@ function TrackPage() {
       const result = await archive(trackId);
       if (result.data) {
         toast.success(`Archived "${name}"`);
+        toast("Please refresh the page to see updated data across all pages.", {
+          action: { label: "Refresh Now", onClick: () => window.location.reload() },
+          duration: 8000,
+        });
       } else {
         toast.error(result.msg || "Failed to archive");
       }
@@ -93,6 +97,10 @@ function TrackPage() {
       const result = await restore(trackId);
       if (result.data) {
         toast.success(`Restored "${name}"`);
+        toast("Please refresh the page to see updated data across all pages.", {
+          action: { label: "Refresh Now", onClick: () => window.location.reload() },
+          duration: 8000,
+        });
       } else {
         toast.error(result.msg || "Failed to restore");
       }
@@ -119,7 +127,7 @@ function TrackPage() {
             size="sm"
             onClick={() => setShowArchived(true)}
           >
-            All (incl. archived)
+            All
           </Button>
         </div>
         <Button type="button" onClick={() => setCreateOpen(true)}>
@@ -149,7 +157,7 @@ function TrackPage() {
               items.map((track) => (
                 <TableRow
                   key={track.id}
-                  className={track.isArchived ? "text-muted-foreground bg-muted/30" : ""}
+                  className={track.isArchived ? "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-300" : ""}
                 >
                   <TableCell>{track.trackName}</TableCell>
                   <TableCell>{track.stateName ?? "—"}</TableCell>

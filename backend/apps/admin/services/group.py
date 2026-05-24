@@ -253,6 +253,7 @@ def query_groups(
     offset = (page - 1) * limit
     where = _build_group_where(search_name, search_group, track, mentor_status)
 
+    where = where & (Q(track__isnull=True) | Q(track__is_archived=False))
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
