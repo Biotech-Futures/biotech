@@ -426,6 +426,8 @@ const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const RESEND_SECONDS = 30
 const REQUEST_TIMEOUT_MS = 15000
+const TRACK_ARCHIVED_MESSAGE =
+  'Your track has been archived. Please contact an administrator if you think this is a mistake.'
 
 /*
   Shared page data.
@@ -754,6 +756,11 @@ const parseApiError = async (response, fallbackText) => {
   return apiError
 }
 
+const loginErrorMessage = (apiError) => {
+  if (apiError?.code === 'track_archived') return TRACK_ARCHIVED_MESSAGE
+  return apiError?.message || t('errorNetworkLogin')
+}
+
 const parseResponseJson = async (response) => {
   try {
     return await response.json()
@@ -901,7 +908,7 @@ const handleLogin = async () => {
       statusMessage.value = ''
       const apiError = await parseApiError(response, t('errorSendLink'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
-      error.value = apiError.message
+      error.value = loginErrorMessage(apiError)
       return
     }
 
@@ -914,7 +921,7 @@ const handleLogin = async () => {
     statusMessage.value = ''
     const apiError = apiErrorFromUnknown(requestError, t('errorNetworkLogin'))
     if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
-    error.value = apiError.message
+    error.value = loginErrorMessage(apiError)
   } finally {
     sendingCode.value = false
   }
@@ -953,7 +960,7 @@ const verifyOTP = async () => {
       statusMessage.value = ''
       const apiError = await parseApiError(response, t('errorInvalidCode'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
-      error.value = apiError.message
+      error.value = loginErrorMessage(apiError)
       await triggerOtpErrorFeedback()
       return
     }
@@ -975,7 +982,7 @@ const verifyOTP = async () => {
   } catch (requestError) {
     logApiError('verify-login-code', requestError)
     statusMessage.value = ''
-    error.value = apiErrorFromUnknown(requestError, t('errorNetworkOtp')).message
+    error.value = loginErrorMessage(apiErrorFromUnknown(requestError, t('errorNetworkOtp')))
   } finally {
     verifyingCode.value = false
   }
@@ -1007,7 +1014,7 @@ const resendCode = async () => {
     if (!response.ok) {
       const apiError = await parseApiError(response, t('errorResendFail'))
       if (apiError.code === 'too_many_failed_attempts') startLoginCooldown()
-      error.value = apiError.message
+      error.value = loginErrorMessage(apiError)
       return
     }
 
@@ -1016,7 +1023,7 @@ const resendCode = async () => {
     startResendCountdown()
   } catch (requestError) {
     logApiError('resend-login-code', requestError)
-    error.value = apiErrorFromUnknown(requestError, t('errorNetworkOtp')).message
+    error.value = loginErrorMessage(apiErrorFromUnknown(requestError, t('errorNetworkOtp')))
   } finally {
     resendingCode.value = false
   }

@@ -31,14 +31,21 @@ const auth = useAuthStore()
 
 const loading = ref(true)
 const error = ref('')
+const TRACK_ARCHIVED_MESSAGE =
+  'Your track has been archived. Please contact an administrator if you think this is a mistake.'
 
 onMounted(async () => {
   try {
     const success = route.query.success
     const email = route.query.email
+    const callbackError = Array.isArray(route.query.error)
+      ? route.query.error[0]
+      : route.query.error
 
     if (success !== 'true') {
-      error.value = 'Invalid authentication link. Please try logging in again.'
+      error.value = callbackError === 'track_archived'
+        ? TRACK_ARCHIVED_MESSAGE
+        : 'Invalid authentication link. Please try logging in again.'
       setTimeout(redirectToLogin, 3000)
       return
     }

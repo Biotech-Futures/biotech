@@ -487,7 +487,10 @@ const progressSnapshot = ref({
 const selectedProgressGroupId = ref('')
 
 const nextEventDateParts = computed(() => {
-  const formatted = formatEventDate(nextEvent.value?.date || '', timeZone.value) || 'TBC'
+  const formatted = formatEventDate(
+    nextEvent.value?.date || '',
+    nextEvent.value?.eventTimezone || timeZone.value,
+  ) || 'TBC'
   const parts = formatted.split(' ')
   return {
     day: parts[0] || 'TBC',
@@ -904,6 +907,18 @@ function formatEventTime(startValue, endValue) {
   return formatEventTimeRange(startValue, endValue, timeZone.value)
 }
 
+function normalizeEventFormat(event) {
+  const format = event?.event_format || event?.eventFormat
+  if (format === 'virtual' || format === 'hybrid') return format
+  return 'in_person'
+}
+
+function getEventModeLabel(format) {
+  if (format === 'virtual') return 'Virtual event'
+  if (format === 'hybrid') return 'Hybrid event'
+  return 'In-person event'
+}
+
 function resolveResourceIconType(value) {
   const text = String(value || '').toLowerCase()
 
@@ -1027,17 +1042,21 @@ function normalizeAnnouncement(announcement) {
 function normalizeEvent(event) {
   const start = event?.start_datetime || event?.date || ''
   const end = event?.ends_datetime || event?.end_datetime || event?.end || ''
-  const isVirtual = event?.is_virtual === true
+  const format = normalizeEventFormat(event)
+  const eventTimezone = event?.event_timezone || event?.eventTimezone || timeZone.value
+  const hasPhysicalPlace = format !== 'virtual' && Boolean(event?.location)
 
   return {
     ...event,
     id: event?.id,
     title: event?.event_name || event?.title || event?.name || 'Untitled event',
     date: start,
-    time: formatEventTime(start, end) || event?.time || '',
-    location: isVirtual ? 'Online' : event?.location || 'Location TBC',
-    mode: isVirtual ? 'Virtual event' : event?.mode || 'In-person event',
-    link: event?.location_link || event?.link,
+    time: formatEventTimeRange(start, end, eventTimezone) || event?.time || '',
+    location: hasPhysicalPlace ? event.location : format === 'virtual' ? 'Online' : 'Location TBC',
+    mode: getEventModeLabel(format),
+    link: format === 'virtual' || format === 'hybrid' ? event?.location_link || event?.link : '',
+    eventFormat: format,
+    eventTimezone,
   }
 }
 

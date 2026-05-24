@@ -7,6 +7,7 @@ const EVENTS_API_BASE = `${API_BASE_URL}/events/v1`
 
 export type EventWhen = 'upcoming' | 'past' | 'all'
 export type EventRsvpStatus = 'pending' | 'accepted' | 'tentative' | 'declined' | 'waitlisted'
+export type EventFormat = 'in_person' | 'virtual' | 'hybrid'
 
 export interface BackendEvent {
   id: number
@@ -19,7 +20,8 @@ export interface BackendEvent {
   location_link?: string | null
   event_type?: string | null
   event_image?: string | null
-  is_virtual?: boolean | null
+  event_format?: EventFormat | null
+  event_timezone?: string | null
   max_attendees?: number | null
   accepted_count?: number
   waitlist_count?: number

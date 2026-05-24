@@ -198,7 +198,7 @@
         <div class="event-content">
           <div class="event-card-topline">
             <span class="event-date">
-              {{ formatDate(ev.start_datetime) }}
+              {{ formatDate(ev.start_datetime, ev) }}
             </span>
 
             <span
@@ -218,10 +218,10 @@
             <span class="event-tag">{{ prettyType(ev.event_type) }}</span>
             <span class="event-tag event-tag-mode">
               <i
-                :class="ev.is_virtual ? 'fas fa-video' : 'fas fa-map-marker-alt'"
+                :class="eventModeIcon(ev)"
                 aria-hidden="true"
               ></i>
-              {{ ev.is_virtual ? 'Virtual' : 'In-person' }}
+              {{ eventModeLabel(ev) }}
             </span>
           </div>
 
@@ -232,13 +232,17 @@
           <div class="event-meta">
             <div class="event-meta-item">
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(ev.start_datetime, ev.ends_datetime) }}
+              {{ formatTime(ev.start_datetime, ev.ends_datetime, ev) }}
             </div>
 
-            <div class="event-meta-item">
+            <div v-if="eventHasPhysicalPlace(ev)" class="event-meta-item">
               <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
+              <span>{{ eventPhysicalLocation(ev) }}</span>
+            </div>
+
+            <div v-if="eventLink(ev)" class="event-meta-item">
+              <i class="fas fa-video" aria-hidden="true"></i>
               <a
-                v-if="eventLink(ev)"
                 class="event-link"
                 :href="eventLink(ev)"
                 target="_blank"
@@ -246,9 +250,14 @@
               >
                 {{ eventLinkLabel(ev) }}
               </a>
-              <span v-else>
-                {{ eventLocationText(ev) }}
-              </span>
+            </div>
+
+            <div
+              v-if="!eventHasPhysicalPlace(ev) && !eventLink(ev)"
+              class="event-meta-item"
+            >
+              <i :class="eventModeIcon(ev)" aria-hidden="true"></i>
+              <span>{{ eventLocationText(ev) }}</span>
             </div>
 
             <div
@@ -400,11 +409,11 @@
           <div class="detail-meta">
             <span>
               <i class="fas fa-calendar-day" aria-hidden="true"></i>
-              {{ formatDate(selected?.start_datetime) }}
+              {{ formatDate(selected?.start_datetime, selected) }}
             </span>
             <span>
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(selected?.start_datetime, selected?.ends_datetime) }}
+              {{ formatTime(selected?.start_datetime, selected?.ends_datetime, selected) }}
             </span>
             <span>
               <i class="fas fa-users" aria-hidden="true"></i>
@@ -412,10 +421,14 @@
             </span>
           </div>
 
-          <div class="detail-location">
+          <div v-if="eventHasPhysicalPlace(selected)" class="detail-location">
             <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
+            <span>{{ eventPhysicalLocation(selected) }}</span>
+          </div>
+
+          <div v-if="eventLink(selected)" class="detail-location">
+            <i class="fas fa-video" aria-hidden="true"></i>
             <a
-              v-if="eventLink(selected)"
               class="event-link"
               :href="eventLink(selected)"
               target="_blank"
@@ -423,9 +436,14 @@
             >
               {{ eventLinkLabel(selected) }}
             </a>
-            <span v-else>
-              {{ eventLocationText(selected) }}
-            </span>
+          </div>
+
+          <div
+            v-if="!eventHasPhysicalPlace(selected) && !eventLink(selected)"
+            class="detail-location"
+          >
+            <i :class="eventModeIcon(selected)" aria-hidden="true"></i>
+            <span>{{ eventLocationText(selected) }}</span>
           </div>
 
           <div
@@ -576,6 +594,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import {
   type BackendEvent,
+  type EventFormat,
   type EventListParams,
   type EventRsvpStatus,
   downloadEventIcal,
@@ -630,6 +649,11 @@ const filters = ref({
 const defaultShort = 'Join us for this BIOTech Futures session.'
 const defaultLong =
   'This session is part of the BIOTech Futures program. Learn, collaborate, and build your project with mentors and peers.'
+const EVENT_FORMAT_LABELS: Record<EventFormat, string> = {
+  in_person: 'In-person',
+  virtual: 'Virtual',
+  hybrid: 'Hybrid'
+}
 
 const viewTabs: Array<{ value: ViewMode; label: string }> = [
   { value: 'upcoming', label: 'Upcoming' },
@@ -961,10 +985,28 @@ const resetFilters = () => {
   }
 }
 
-const formatDate = (dateStr?: string | null) => formatEventDate(dateStr, auth.timeZone)
+const eventDisplayTimeZone = (ev?: BackendEvent | null) => ev?.event_timezone || auth.timeZone
 
-const formatTime = (start?: string | null, end?: string | null) =>
-  formatEventTimeRange(start, end, auth.timeZone)
+const eventFormat = (ev?: BackendEvent | null): EventFormat => {
+  if (ev?.event_format === 'virtual' || ev?.event_format === 'hybrid') return ev.event_format
+  return 'in_person'
+}
+
+const eventHasOnlineComponent = (ev?: BackendEvent | null) => {
+  const format = eventFormat(ev)
+  return format === 'virtual' || format === 'hybrid'
+}
+
+const eventHasPhysicalPlace = (ev?: BackendEvent | null) => {
+  const format = eventFormat(ev)
+  return format !== 'virtual' && Boolean(ev?.location)
+}
+
+const formatDate = (dateStr?: string | null, ev?: BackendEvent | null) =>
+  formatEventDate(dateStr, eventDisplayTimeZone(ev))
+
+const formatTime = (start?: string | null, end?: string | null, ev?: BackendEvent | null) =>
+  formatEventTimeRange(start, end, eventDisplayTimeZone(ev))
 
 const prettyType = (type?: string | null) => {
   if (!type) return 'General'
@@ -973,24 +1015,34 @@ const prettyType = (type?: string | null) => {
 
 const eventCover = (ev?: BackendEvent | null) => resolveEventUrl(ev?.event_image)
 
-const eventLink = (ev?: BackendEvent | null) => resolveEventUrl(ev?.location_link)
+const eventModeLabel = (ev?: BackendEvent | null) => EVENT_FORMAT_LABELS[eventFormat(ev)]
+
+const eventModeIcon = (ev?: BackendEvent | null) => {
+  const format = eventFormat(ev)
+  if (format === 'virtual') return 'fas fa-video'
+  if (format === 'hybrid') return 'fas fa-layer-group'
+  return 'fas fa-map-marker-alt'
+}
+
+const eventLink = (ev?: BackendEvent | null) =>
+  eventHasOnlineComponent(ev) ? resolveEventUrl(ev?.location_link) : ''
 
 const eventLinkLabel = (ev?: BackendEvent | null) => {
   if (!ev) return ''
-  if (ev.is_virtual) return 'Join Online'
-  return ev.location || 'Open Map'
+  return eventFormat(ev) === 'hybrid' ? 'Join online' : 'Join Online'
 }
 
 const eventCtaLabel = (ev?: BackendEvent | null) => {
   if (!ev) return ''
-  if (ev.is_virtual) return 'Join Online'
-  return 'Open Map'
+  return 'Join Online'
 }
+
+const eventPhysicalLocation = (ev?: BackendEvent | null) => ev?.location || 'Location TBC'
 
 const eventLocationText = (ev?: BackendEvent | null) => {
   if (!ev) return 'TBA'
-  if (ev.is_virtual) return 'Virtual Event'
-  return ev.location || 'TBA'
+  if (eventHasOnlineComponent(ev)) return 'Virtual Event'
+  return eventPhysicalLocation(ev)
 }
 
 const eventStatus = (ev?: BackendEvent | null): EventRsvpStatus | null => {

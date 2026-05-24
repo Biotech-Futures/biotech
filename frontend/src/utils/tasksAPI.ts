@@ -4,7 +4,7 @@ import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'blocked'
-export type TaskType = 'group' | 'individual'
+export type TaskType = 'group' | 'individual' | 'track'
 export type TaskOrdering = 'due_date' | '-due_date' | 'created_at' | '-created_at' | 'updated_at' | '-updated_at' | 'status' | '-status'
 
 export interface TaskUserMini {
@@ -22,6 +22,7 @@ export interface TaskRow {
   parent: number | null
   task_type: TaskType
   group: number | null
+  track: number | null
   assigned_user: number | null
   created_by: TaskUserMini | null
   creator_role: string
@@ -45,6 +46,7 @@ export interface ListTasksParams {
   status?: TaskStatus | ''
   completed?: boolean | ''
   group_id?: number | string | ''
+  track?: number | string | ''
   assigned_user?: number | string | ''
   // Comma-separated assignee ids — backend treats as IN list.
   assigned_user__in?: string
@@ -63,6 +65,7 @@ export interface CreateTaskPayload {
   parent?: number | null
   task_type: TaskType
   group?: number | null
+  track?: number | null
   assigned_user?: number | null
 }
 
