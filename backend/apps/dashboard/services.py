@@ -58,7 +58,6 @@ def _build_payload(event, user_rsvp=None):
         "location_link": event.location_link,
         "event_image": getattr(event, 'event_image', None),
         "event_format": event.event_format,
-        "is_virtual": event.is_virtual,
         "rsvp_status": user_rsvp.rsvp_status if user_rsvp else "pending",
     }
 

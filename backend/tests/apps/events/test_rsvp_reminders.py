@@ -286,7 +286,7 @@ class ReminderBodyTests(TestCase):
         self.assertNotIn("None", body)
 
     def test_in_person_event_with_null_location_omits_location_line(self):
-        # The Events model allows location=NULL even when is_virtual=False;
+        # The Events model allows location=NULL on in-person events;
         # the email must not render "Location: None".
         event = _make_event(location=None)
         _rsvp(event, self.user)

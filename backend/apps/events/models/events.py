@@ -82,8 +82,3 @@ class Events(models.Model):
 
     def __str__(self):
         return self.event_name
-
-    @property
-    def is_virtual(self) -> bool:
-        # Soft-cut compat after the is_virtual → event_format rename.
-        return self.event_format in (self.EventFormat.VIRTUAL, self.EventFormat.HYBRID)

@@ -83,7 +83,6 @@ class DashboardNextEventApiTests(TestCase):
                 "event_type",
                 "groups",
                 "id",
-                "is_virtual",
                 "location",
                 "location_link",
                 "rsvp_status",

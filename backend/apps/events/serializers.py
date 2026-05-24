@@ -73,9 +73,6 @@ class EventSerializer(serializers.ModelSerializer):
         allow_null=True,
         max_length=255,
     )
-    # Back-compat alias: writes coerce to event_format, reads come from the
-    # @property on the model. Remove once FE migrates to event_format.
-    is_virtual = serializers.BooleanField(required=False)
 
     class Meta:
         model = Events
@@ -95,7 +92,6 @@ class EventSerializer(serializers.ModelSerializer):
             "event_image",
             "event_format",
             "event_timezone",
-            "is_virtual",
             "max_attendees",
             "accepted_count",
             "waitlist_count",
@@ -165,14 +161,6 @@ class EventSerializer(serializers.ModelSerializer):
 
         if start and end and end <= start:
             raise serializers.ValidationError({"ends_datetime": "End time must be after start time."})
-
-        # Translate legacy is_virtual writes into event_format. is_virtual is
-        # not a model field, so we drop it after coercion.
-        legacy = attrs.pop("is_virtual", None)
-        if legacy is not None and "event_format" not in attrs:
-            attrs["event_format"] = (
-                Events.EventFormat.VIRTUAL if legacy else Events.EventFormat.IN_PERSON
-            )
 
         event_format = (
             attrs.get("event_format")

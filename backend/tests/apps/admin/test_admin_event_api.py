@@ -31,7 +31,7 @@ class AdminEventApiTests(APITestCase):
                 "description": "Created from admin API",
                 "startAt": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
                 "endsAt": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
-                "isVirtual": True,
+                "eventFormat": "virtual",
                 "locationLink": "https://example.com/meeting",
             },
             format="json",

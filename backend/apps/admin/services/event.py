@@ -41,7 +41,6 @@ class CreateEventInput(TypedDict, total=False):
     location: Optional[str]
     humanitix_link: Optional[str]
     event_format: str
-    is_virtual: bool
     host_user_id: int
     start_at: str
     ends_at: str
@@ -56,7 +55,6 @@ class UpdateEventInput(TypedDict, total=False):
     location: Optional[str]
     humanitix_link: Optional[str]
     event_format: str
-    is_virtual: bool
     host_user_id: Optional[int]
     start_at: Optional[str]
     ends_at: Optional[str]
@@ -66,14 +64,7 @@ class UpdateEventInput(TypedDict, total=False):
 
 
 def _resolve_event_format(data: Dict[str, Any]) -> Optional[str]:
-    """Accept eventFormat/event_format directly or derive from legacy isVirtual."""
-    explicit = data.get("eventFormat") or data.get("event_format")
-    if explicit:
-        return explicit
-    if "isVirtual" in data or "is_virtual" in data:
-        is_virtual = data.get("isVirtual") if "isVirtual" in data else data.get("is_virtual")
-        return Events.EventFormat.VIRTUAL if is_virtual else Events.EventFormat.IN_PERSON
-    return None
+    return data.get("eventFormat") or data.get("event_format")
 
 
 class CreateEventRsvpInput(TypedDict):
@@ -103,7 +94,6 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
     host_email = event.get("host_user__email")
     host_name = f"{host_first_name} {host_last_name}".strip() or host_email
 
-    event_format = event.get("event_format") or Events.EventFormat.IN_PERSON
     return {
         "id": event["id"],
         "eventName": event.get("event_name"),
@@ -114,8 +104,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "deletedFlag": event.get("deleted_at") is not None,
         "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
         "eventImage": event.get("event_image"),
-        "eventFormat": event_format,
-        "isVirtual": event_format in (Events.EventFormat.VIRTUAL, Events.EventFormat.HYBRID),
+        "eventFormat": event.get("event_format") or Events.EventFormat.IN_PERSON,
         "hostUserId": event.get("host_user_id"),
         "hostName": host_name,
         "hostEmail": host_email,
@@ -225,7 +214,6 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "deletedDatetime": event.deleted_at.isoformat() if event.deleted_at else None,
         "eventImage": event.event_image,
         "eventFormat": event.event_format,
-        "isVirtual": event.is_virtual,
         "hostUserId": event.host_user_id,
         "hostName": host_name,
         "hostEmail": host_email,
