@@ -35,6 +35,7 @@ class DashboardNextEventSerializer(serializers.Serializer):
     location = serializers.CharField(allow_null=True, allow_blank=True)
     location_link = serializers.URLField(allow_null=True, allow_blank=True)
     event_image = serializers.URLField(allow_null=True)
+    event_format = serializers.CharField()
     is_virtual = serializers.BooleanField()
     rsvp_status = serializers.CharField(allow_null=True)
 

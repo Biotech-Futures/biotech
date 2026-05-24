@@ -39,14 +39,14 @@ class DashboardNextEventApiTests(TestCase):
             valid_to=now + timedelta(days=30),
         )
 
-    def _create_event(self, name, *, start_in_days, track=None, is_virtual=True):
+    def _create_event(self, name, *, start_in_days, track=None, event_format="virtual"):
         start = timezone.now() + timedelta(days=start_in_days)
         return Events.objects.create(
             event_name=name,
             track=track,
             start_datetime=start,
             ends_datetime=start + timedelta(hours=1),
-            is_virtual=is_virtual,
+            event_format=event_format,
         )
 
     def test_student_skips_mentor_only_event_and_returns_group_event(self):
@@ -77,6 +77,7 @@ class DashboardNextEventApiTests(TestCase):
             [
                 "description",
                 "ends_datetime",
+                "event_format",
                 "event_image",
                 "event_name",
                 "event_type",

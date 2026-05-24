@@ -73,6 +73,9 @@ class EventSerializer(serializers.ModelSerializer):
         allow_null=True,
         max_length=255,
     )
+    # Back-compat alias: writes coerce to event_format, reads come from the
+    # @property on the model. Remove once FE migrates to event_format.
+    is_virtual = serializers.BooleanField(required=False)
 
     class Meta:
         model = Events
@@ -90,6 +93,8 @@ class EventSerializer(serializers.ModelSerializer):
             "host_user",
             "deleted_at",
             "event_image",
+            "event_format",
+            "event_timezone",
             "is_virtual",
             "max_attendees",
             "accepted_count",
@@ -157,13 +162,25 @@ class EventSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         start = attrs.get("start_datetime") or getattr(self.instance, "start_datetime", None)
         end = attrs.get("ends_datetime") or getattr(self.instance, "ends_datetime", None)
-        is_virtual = attrs.get("is_virtual") if "is_virtual" in attrs else getattr(self.instance, "is_virtual", False)
-        location = attrs.get("location") if "location" in attrs else getattr(self.instance, "location", None)
 
         if start and end and end <= start:
             raise serializers.ValidationError({"ends_datetime": "End time must be after start time."})
 
-        if is_virtual and location:
+        # Translate legacy is_virtual writes into event_format. is_virtual is
+        # not a model field, so we drop it after coercion.
+        legacy = attrs.pop("is_virtual", None)
+        if legacy is not None and "event_format" not in attrs:
+            attrs["event_format"] = (
+                Events.EventFormat.VIRTUAL if legacy else Events.EventFormat.IN_PERSON
+            )
+
+        event_format = (
+            attrs.get("event_format")
+            or getattr(self.instance, "event_format", Events.EventFormat.IN_PERSON)
+        )
+        location = attrs.get("location") if "location" in attrs else getattr(self.instance, "location", None)
+
+        if event_format == Events.EventFormat.VIRTUAL and location:
             raise serializers.ValidationError({"location": "Virtual events must not have a physical location."})
 
         return attrs

@@ -267,7 +267,16 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
+# Pinned in code so it can't drift via env; fall back to legacy DEFAULT_FROM_EMAIL during transition.
+BRAND_NAME = "BIOTech Futures"
+_email_from_raw = config(
+    "EMAIL_FROM_ADDRESS",
+    default=config("DEFAULT_FROM_EMAIL", default=""),
+).strip()
+if _email_from_raw and "<" not in _email_from_raw:
+    DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{_email_from_raw}>"
+else:
+    DEFAULT_FROM_EMAIL = _email_from_raw
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 REDIS_URL = config("REDIS_URL", default="")

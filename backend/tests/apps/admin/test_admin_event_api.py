@@ -64,7 +64,7 @@ class AdminEventApiTests(APITestCase):
             event_name="Upcoming Event",
             start_datetime=timezone.now() + timezone.timedelta(days=1),
             ends_datetime=timezone.now() + timezone.timedelta(days=1, hours=2),
-            is_virtual=True,
+            event_format="virtual",
         )
 
         response = self.client.get(self.url, {"page": 1, "limit": 10, "upcoming": "true"})
@@ -80,7 +80,7 @@ class AdminEventApiTests(APITestCase):
             host_user=self.admin,
             start_datetime=timezone.now() + timezone.timedelta(days=1),
             ends_datetime=timezone.now() + timezone.timedelta(days=1, hours=2),
-            is_virtual=True,
+            event_format="virtual",
         )
 
         response = self.client.get(self.url, {"page": 1, "limit": 10, "upcoming": "true"})

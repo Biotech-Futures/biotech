@@ -67,7 +67,23 @@ class Events(models.Model):
                 condition=models.Q(ends_datetime__gt=models.F("start_datetime")),
                 name="check_event_end_after_start",
             ),
+            # In-person can't carry a join link; virtual can't carry a physical location.
+            # Hybrid is unrestricted (legitimately has both). Mirrors the spirit of the
+            # dropped check_virtual_location_null without breaking legacy nullable rows.
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(event_format="in_person") & models.Q(location_link__isnull=True))
+                    | (models.Q(event_format="virtual") & models.Q(location__isnull=True))
+                    | models.Q(event_format="hybrid")
+                ),
+                name="check_event_format_location_consistency",
+            ),
         ]
 
     def __str__(self):
         return self.event_name
+
+    @property
+    def is_virtual(self) -> bool:
+        # Soft-cut compat after the is_virtual → event_format rename.
+        return self.event_format in (self.EventFormat.VIRTUAL, self.EventFormat.HYBRID)
