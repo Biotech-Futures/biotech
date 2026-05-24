@@ -105,6 +105,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
         "eventImage": event.get("event_image"),
         "eventFormat": event.get("event_format") or Events.EventFormat.IN_PERSON,
+        "eventTimezone": event.get("event_timezone") or "UTC",
         "hostUserId": event.get("host_user_id"),
         "hostName": host_name,
         "hostEmail": host_email,
@@ -146,6 +147,14 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     if track_ids is not None:
         queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
 
+    # Hide events where every target track is archived
+    # (events with no target tracks, or at least one non-archived target track, remain visible)
+    has_any_target_track = Exists(EventTargetTrack.objects.filter(event_id=OuterRef("id")))
+    has_active_target_track = Exists(
+        EventTargetTrack.objects.filter(event_id=OuterRef("id"), track__is_archived=False)
+    )
+    queryset = queryset.exclude(has_any_target_track & ~has_active_target_track)
+
     # Get total count
     total = queryset.count()
 
@@ -175,6 +184,7 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
             "deleted_at",
             "event_image",
             "event_format",
+            "event_timezone",
             "host_user_id",
             "host_user__first_name",
             "host_user__last_name",
@@ -214,6 +224,7 @@ def _event_model_to_camel(event: Events) -> Dict[str, Any]:
         "deletedDatetime": event.deleted_at.isoformat() if event.deleted_at else None,
         "eventImage": event.event_image,
         "eventFormat": event.event_format,
+        "eventTimezone": event.event_timezone or "UTC",
         "hostUserId": event.host_user_id,
         "hostName": host_name,
         "hostEmail": host_email,
@@ -350,11 +361,14 @@ def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDic
     if event_format == Events.EventFormat.VIRTUAL:
         location = None
 
+    event_timezone = data.get("eventTimezone") or data.get("event_timezone") or "UTC"
+
     event = Events.objects.create(
         event_name=event_name,
         description=data.get("description"),
         location=location,
         event_format=event_format,
+        event_timezone=event_timezone,
         host_user_id=host_user_id,
         start_datetime=start_datetime,
         ends_datetime=ends_datetime,
@@ -418,6 +432,9 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         updates["event_format"] = event_format
         if event_format == Events.EventFormat.VIRTUAL:
             updates["location"] = None
+    event_timezone = data.get("eventTimezone") or data.get("event_timezone")
+    if event_timezone:
+        updates["event_timezone"] = event_timezone
     start_at = data.get("startAt") or data.get("start_at")
     if start_at is not None:
         updates["start_datetime"] = datetime.fromisoformat(
@@ -630,8 +647,8 @@ def query_roles() -> Dict[str, Any]:
 
 
 def query_tracks(requesting_user=None) -> Dict[str, Any]:
-    """Get all tracks for reference data."""
-    qs = Tracks.objects.all()
+    """Get all tracks for reference data. Archived tracks are excluded."""
+    qs = Tracks.objects.filter(is_archived=False)
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         qs = qs.filter(id__in=track_ids)

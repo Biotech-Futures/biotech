@@ -32,8 +32,12 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
         for row in assigned_count_rows
     }
     
-    # 2. Fetch all mentor base info
-    mentor_qs = MentorProfile.objects.select_related('user', 'user__track')
+    # 2. Fetch all mentor base info (exclude mentors in archived tracks)
+    mentor_qs = (
+        MentorProfile.objects
+        .select_related('user', 'user__track')
+        .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
+    )
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         mentor_qs = mentor_qs.filter(Q(user__track_id__in=track_ids) | Q(user__track__isnull=True))

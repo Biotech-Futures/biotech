@@ -47,9 +47,9 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
     groups_without_mentor = (
         Groups.objects
         .filter(
-            
             ~Exists(mentor_subquery), deleted_at__isnull=True
         )
+        .filter(Q(track__isnull=True) | Q(track__is_archived=False))
         .select_related('track')
         .values(
             'group_name',
@@ -126,6 +126,7 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
     mentor_rows = (
         MentorProfile.objects
         .filter(user__is_active=True)
+        .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
         .select_related('user', 'user__track')
         .values(
             'institution',
@@ -203,6 +204,7 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     )
 
     groups_qs = Groups.objects.filter(~Exists(mentor_subquery), deleted_at__isnull=True)
+    groups_qs = groups_qs.filter(Q(track__isnull=True) | Q(track__is_archived=False))
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         groups_qs = groups_qs.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
@@ -308,6 +310,9 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
         left_at__isnull=True,
         group__deleted_at__isnull=True,
         user__mentorprofile__isnull=False
+    )
+    membership_qs = membership_qs.filter(
+        Q(group__track__isnull=True) | Q(group__track__is_archived=False)
     )
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:

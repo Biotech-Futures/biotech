@@ -423,6 +423,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     if active is not None:
         filters &= Q(is_active=active)
 
+    filters &= (Q(track__isnull=True) | Q(track__is_archived=False))
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         filters &= (Q(track_id__in=track_ids) | Q(track__isnull=True))
@@ -621,9 +622,10 @@ def query_user_by_id(user_id: int) -> Dict[str, Any]:
 
 def query_tracks(requesting_user=None) -> Dict[str, Any]:
     """
-    Get all available tracks for filtering and assignment.
+    Get all available tracks for filtering and assignment. Archived tracks
+    are excluded — they should not be selectable when assigning users.
     """
-    qs = Tracks.objects.all()
+    qs = Tracks.objects.filter(is_archived=False)
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         qs = qs.filter(id__in=track_ids)

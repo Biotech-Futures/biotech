@@ -275,6 +275,7 @@ def match_student(uid: str) -> MatchStudentResult:
     standalone_students = (
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
+        .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
         .select_related('user', 'user__track', 'user__track__state')
         .annotate(
             country_state_id=F('user__track__state_id'),
@@ -290,13 +291,14 @@ def match_student(uid: str) -> MatchStudentResult:
         )
     )
 
-    # Query students in groups
+    # Query students in groups (exclude archived-track groups)
     group_members_rows = (
         GroupMembership.objects
         .filter(
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
+        .filter(Q(group__track__isnull=True) | Q(group__track__is_archived=False))
         .select_related('group', 'user', 'user__track')
         .values(
             'group_id',
@@ -312,10 +314,11 @@ def match_student(uid: str) -> MatchStudentResult:
     
     group_ids = list(set(row['group_id'] for row in group_members_rows))
     
-    # Get group metadata
+    # Get group metadata (exclude archived-track groups)
     group_meta_rows = (
         Groups.objects
         .filter(id__in=group_ids, deleted_at__isnull=True)
+        .filter(Q(track__isnull=True) | Q(track__is_archived=False))
         .select_related('track')
         .values(
             'group_name',

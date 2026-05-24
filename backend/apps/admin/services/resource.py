@@ -1129,8 +1129,8 @@ def list_resource_types() -> Dict[str, Any]:
 
 
 def list_resource_tracks(requesting_user=None) -> Dict[str, Any]:
-    """List all resource tracks."""
-    qs = Tracks.objects.all()
+    """List all resource tracks. Archived tracks are excluded."""
+    qs = Tracks.objects.filter(is_archived=False)
     track_ids = get_admin_track_ids(requesting_user)
     if track_ids is not None:
         qs = qs.filter(id__in=track_ids)

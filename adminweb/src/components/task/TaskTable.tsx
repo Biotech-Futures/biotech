@@ -29,6 +29,11 @@ interface GroupOption {
   name: string;
 }
 
+interface TrackOption {
+  id: number;
+  trackName: string;
+}
+
 interface TaskTableProps {
   data: Task[];
   page: number;
@@ -40,6 +45,7 @@ interface TaskTableProps {
   isPending?: boolean;
   groups?: GroupOption[];
   users?: UserAccount[];
+  tracks?: TrackOption[];
   sortState: SortState<TaskSortKey>;
   onSortChange: (sortState: SortState<TaskSortKey>) => void;
 }
@@ -64,17 +70,30 @@ export function TaskTable({
   isPending,
   groups = [],
   users = [],
+  tracks = [],
   sortState,
   onSortChange,
 }: TaskTableProps) {
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups]);
   const userMap = useMemo(() => new Map(users.map((u) => [Number(u.id), u.name])), [users]);
+  const trackMap = useMemo(() => new Map(tracks.map((t) => [t.id, t.trackName])), [tracks]);
   const getTargetLabel = useCallback(
-    (task: Task) =>
-      task.task_type === "group"
-        ? (task.group != null ? (groupMap.get(task.group) ?? `Group #${task.group}`) : "—")
-        : (task.assigned_user != null ? (userMap.get(task.assigned_user) ?? `User #${task.assigned_user}`) : "—"),
-    [groupMap, userMap],
+    (task: Task) => {
+      if (task.task_type === "group") {
+        return task.group != null
+          ? (groupMap.get(task.group) ?? `Group #${task.group}`)
+          : "—";
+      }
+      if (task.task_type === "track") {
+        return task.track != null
+          ? (trackMap.get(task.track) ?? `Track #${task.track}`)
+          : "—";
+      }
+      return task.assigned_user != null
+        ? (userMap.get(task.assigned_user) ?? `User #${task.assigned_user}`)
+        : "—";
+    },
+    [groupMap, userMap, trackMap],
   );
 
   return (

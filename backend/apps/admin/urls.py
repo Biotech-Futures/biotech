@@ -99,4 +99,17 @@ urlpatterns = [
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
     path('mentor-match/bulk-replace-inactive/', views.MentorMatchBulkReplaceInactiveView.as_view(), name='mentor-match-bulk-replace-inactive'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
+
+    # ========================================================================
+    # TRACK ROUTES
+    # ========================================================================
+    path('track/', views.TrackListCreateView.as_view(), name='track-list-create'),
+    path('track/states/', views.TrackStatesListView.as_view(), name='track-states-list'),
+    path('track/<int:track_id>/archive/', views.TrackArchiveView.as_view(), name='track-archive'),
+    path('track/<int:track_id>/restore/', views.TrackRestoreView.as_view(), name='track-restore'),
+
+    # ========================================================================
+    # ADMIN SCOPE
+    # ========================================================================
+    path('auth/scope/', views.AdminAuthScopeView.as_view(), name='admin-auth-scope'),
 ]

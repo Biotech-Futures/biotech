@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const dateTimeInput = z.string().min(1, "Date and time are required");
+const eventFormatEnum = z.enum(["in_person", "virtual", "hybrid"]);
 
 export const createEventSchema = z
   .object({
@@ -13,7 +14,8 @@ export const createEventSchema = z
     ),
     location: z.string().trim().max(255).optional().nullable(),
     locationLink: z.string().trim().max(500).optional().nullable(),
-    isVirtual: z.boolean().optional().default(false),
+    eventFormat: eventFormatEnum.default("in_person"),
+    eventTimezone: z.string().optional(),
     startAt: dateTimeInput,
     endsAt: dateTimeInput,
     targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
@@ -36,7 +38,8 @@ export const updateEventSchema = z
     ),
     location: z.string().trim().max(255).optional().nullable(),
     locationLink: z.string().trim().max(500).optional().nullable(),
-    isVirtual: z.boolean().optional(),
+    eventFormat: eventFormatEnum.optional(),
+    eventTimezone: z.string().optional(),
     startAt: dateTimeInput.optional(),
     endsAt: dateTimeInput.optional(),
     targetGroupIds: z.array(z.number().int().positive()).optional(),

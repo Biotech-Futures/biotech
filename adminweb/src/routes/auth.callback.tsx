@@ -24,6 +24,11 @@ const ERROR_MESSAGES: Record<string, { title: string; description: string }> = {
     description:
       "Your account has been suspended or deactivated. Please contact an administrator.",
   },
+  track_archived: {
+    title: "Track archived",
+    description:
+      "Your track has been archived. Please contact an administrator if you think this is a mistake.",
+  },
 };
 
 function RouteComponent() {

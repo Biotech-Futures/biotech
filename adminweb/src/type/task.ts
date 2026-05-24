@@ -1,4 +1,4 @@
-export const TASK_TYPES = ["group", "individual"] as const;
+export const TASK_TYPES = ["group", "individual", "track"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
 export const TASK_STATUSES = ["todo", "in_progress", "done", "blocked"] as const;
@@ -22,6 +22,7 @@ export type Task = {
   task_type: TaskType;
   group: number | null;
   assigned_user: number | null;
+  track: number | null;
   created_by: { id: number; name: string | null } | null;
   creator_role: string;
   deleted_at: string | null;
@@ -44,6 +45,7 @@ export type TaskCreateValues = {
   task_type: TaskType;
   group: number | null;
   assigned_user: number | null;
+  track: number | null;
   name: string;
   description: string;
   due_date: string | null;

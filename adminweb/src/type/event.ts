@@ -1,3 +1,12 @@
+export const EVENT_FORMATS = ["in_person", "virtual", "hybrid"] as const;
+export type EventFormat = (typeof EVENT_FORMATS)[number];
+
+export const EVENT_FORMAT_LABELS: Record<EventFormat, string> = {
+  in_person: "In-person",
+  virtual: "Virtual",
+  hybrid: "Hybrid",
+};
+
 export type Event = {
   id: number;
   eventName: string;
@@ -9,7 +18,8 @@ export type Event = {
   deletedFlag: boolean;
   deletedDatetime: string | null;
   eventImage: string | null;
-  isVirtual: boolean;
+  eventFormat: EventFormat;
+  eventTimezone: string;
   hostUserId: number | null;
   hostName: string | null;
   hostEmail: string | null;

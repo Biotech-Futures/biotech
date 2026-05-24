@@ -240,18 +240,36 @@ export function useQueryEventTargets(eventId: number | null) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toApiEventPayload(data: CreateEvent | UpdateEvent) {
+  const tz = data.eventTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   return {
     ...data,
     hostUserId: data.hostUserId ?? null,
-    startAt: toIsoFromDatetimeLocal(data.startAt),
-    endsAt: toIsoFromDatetimeLocal(data.endsAt),
+    startAt: localInTzToUtcIso(data.startAt, tz),
+    endsAt: localInTzToUtcIso(data.endsAt, tz),
     location_link: data.locationLink ?? null,
     locationLink: undefined,
     eventImage: data.eventImage ?? null,
   };
 }
 
-function toIsoFromDatetimeLocal(value: string | undefined) {
+/**
+ * Converts a datetime-local string (e.g. "2024-01-15T14:30") interpreted in
+ * the given IANA timezone to a UTC ISO string.
+ *
+ * Algorithm: treat input as naive UTC, find what it shows as in the target TZ,
+ * then apply the inverse offset: T_utc = 2*naive - shown.
+ */
+function localInTzToUtcIso(value: string | undefined, timeZone: string): string | undefined {
   if (!value) return undefined;
-  return new Date(value).toISOString();
+  const naive = new Date(value + ":00Z");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).formatToParts(naive);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const h = get("hour") === "24" ? "00" : get("hour");
+  const shown = new Date(`${get("year")}-${get("month")}-${get("day")}T${h}:${get("minute")}:${get("second")}Z`);
+  return new Date(2 * naive.getTime() - shown.getTime()).toISOString();
 }

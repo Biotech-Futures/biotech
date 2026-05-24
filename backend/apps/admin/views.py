@@ -49,6 +49,13 @@ from apps.admin.services.mentor_match import (
     confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
     unassign_mentors,
 )
+from apps.admin.services.track import (
+    list_tracks as admin_list_tracks,
+    create_track as admin_create_track,
+    archive_track as admin_archive_track,
+    restore_track as admin_restore_track,
+    list_states as admin_list_states,
+)
 
 
 # ============================================================================
@@ -1014,3 +1021,95 @@ class AdminSetPasswordView(APIView):
         request.user.save(update_fields=["password"])
         update_session_auth_hash(request, request.user)
         return Response({"msg": "Password set successfully", "data": True})
+
+
+# ============================================================================
+# TRACK ADMIN ENDPOINTS
+# ============================================================================
+class TrackListCreateView(APIView):
+    """GET /api/v1/admin/track/ — list tracks; POST — create track (global only)."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        include_archived = request.query_params.get("includeArchived", "").lower() == "true"
+        result = admin_list_tracks(
+            requesting_user=request.user,
+            include_archived=include_archived,
+        )
+        return Response(result)
+
+    def post(self, request):
+        result = admin_create_track(request.data, requesting_user=request.user)
+        if result.get("data"):
+            code = status.HTTP_201_CREATED
+        else:
+            msg = result.get("msg", "")
+            code = (
+                status.HTTP_403_FORBIDDEN
+                if "global admins" in msg
+                else status.HTTP_400_BAD_REQUEST
+            )
+        return Response(result, status=code)
+
+
+class TrackArchiveView(APIView):
+    """POST /api/v1/admin/track/<id>/archive/ — global admin only."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, track_id):
+        result = admin_archive_track(int(track_id), requesting_user=request.user)
+        if result.get("data"):
+            code = status.HTTP_200_OK
+        else:
+            msg = result.get("msg", "")
+            code = (
+                status.HTTP_403_FORBIDDEN
+                if "global admins" in msg
+                else status.HTTP_404_NOT_FOUND
+            )
+        return Response(result, status=code)
+
+
+class TrackRestoreView(APIView):
+    """POST /api/v1/admin/track/<id>/restore/ — global admin only."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, track_id):
+        result = admin_restore_track(int(track_id), requesting_user=request.user)
+        if result.get("data"):
+            code = status.HTTP_200_OK
+        else:
+            msg = result.get("msg", "")
+            code = (
+                status.HTTP_403_FORBIDDEN
+                if "global admins" in msg
+                else status.HTTP_404_NOT_FOUND
+            )
+        return Response(result, status=code)
+
+
+class TrackStatesListView(APIView):
+    """GET /api/v1/admin/track/states/ — states/countries for the create form."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(admin_list_states())
+
+
+class AdminAuthScopeView(APIView):
+    """GET /api/v1/admin/auth/scope/ — return the requesting admin's scope.
+
+    Used by the FE to gate global-admin-only pages (e.g. Tracks management).
+    """
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.scope_utils import get_admin_track_ids
+        track_ids = get_admin_track_ids(request.user)
+        return Response({
+            "msg": "Admin scope retrieved successfully",
+            "data": {
+                "isGlobal": track_ids is None,
+                "trackIds": track_ids,
+            },
+        })
