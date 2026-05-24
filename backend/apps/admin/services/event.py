@@ -63,7 +63,8 @@ class UpdateEventInput(TypedDict, total=False):
     target_track_ids: Optional[List[int]]
 
 
-_EVENT_FORMAT_VALUES = {"in_person", "virtual", "hybrid"}
+def _resolve_event_format(data: Dict[str, Any]) -> Optional[str]:
+    return data.get("eventFormat") or data.get("event_format")
 
 
 class CreateEventRsvpInput(TypedDict):
@@ -103,7 +104,7 @@ def _event_to_camel(event: Dict[str, Any]) -> Dict[str, Any]:
         "deletedFlag": event.get("deleted_at") is not None,
         "deletedDatetime": event.get("deleted_at").isoformat() if event.get("deleted_at") else None,
         "eventImage": event.get("event_image"),
-        "eventFormat": event.get("event_format", "in_person"),
+        "eventFormat": event.get("event_format") or Events.EventFormat.IN_PERSON,
         "hostUserId": event.get("host_user_id"),
         "hostName": host_name,
         "hostEmail": host_email,
@@ -345,15 +346,8 @@ def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDic
         return {"msg": "eventName is required", "data": None}
 
     location = data.get("location", "").strip() if data.get("location") else None
-    event_format = data.get("eventFormat") or data.get("event_format")
-    if not event_format or event_format not in _EVENT_FORMAT_VALUES:
-        return {
-            "msg": "eventFormat is required (in_person, virtual, or hybrid)",
-            "data": None,
-        }
-    # Virtual events have no physical venue — keep the column clean so the FE
-    # doesn't show a stale venue string after a format switch.
-    if event_format == "virtual":
+    event_format = _resolve_event_format(data) or Events.EventFormat.IN_PERSON
+    if event_format == Events.EventFormat.VIRTUAL:
         location = None
 
     event = Events.objects.create(
@@ -419,17 +413,10 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         updates["event_image"] = data["eventImage"] or None
     elif "event_image" in data:
         updates["event_image"] = data["event_image"] or None
-    event_format = (
-        data.get("eventFormat") if "eventFormat" in data else data.get("event_format")
-    )
+    event_format = _resolve_event_format(data)
     if event_format is not None:
-        if event_format not in _EVENT_FORMAT_VALUES:
-            return {
-                "msg": "eventFormat must be in_person, virtual, or hybrid",
-                "data": None,
-            }
         updates["event_format"] = event_format
-        if event_format == "virtual":
+        if event_format == Events.EventFormat.VIRTUAL:
             updates["location"] = None
     start_at = data.get("startAt") or data.get("start_at")
     if start_at is not None:

@@ -78,9 +78,10 @@ class Task(models.Model):
         null=True,
         blank=True,
     )
+    # PROTECT mirrors User.track; soft-retire via Tracks.is_archived.
     track = models.ForeignKey(
         "groups.Tracks",
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="track_tasks",
         null=True,
         blank=True,

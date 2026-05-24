@@ -659,8 +659,10 @@ class EventIcalExportView(APIView):
         # calendar entry instead of creating duplicates.
         uid = f"event-{event.id}@biotechfutures"
 
+        # Hybrid keeps the physical address in LOCATION; URL field below
+        # carries the join link separately.
         location = ""
-        if event.is_virtual:
+        if event.event_format == Events.EventFormat.VIRTUAL:
             location = event.location_link or "Virtual event"
         elif event.location:
             location = event.location

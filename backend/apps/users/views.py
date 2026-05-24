@@ -43,7 +43,9 @@ from config.errors import (
     MissingUsers,
     OperationalAdminRequired,
     TooManyFailedAttempts,
+    ArchivedTrackError,
 )
+from apps.users.utils.track_gate import is_track_archived
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +114,7 @@ class PasswordLoginView(APIView):
 
         # Single bcrypt check (was being done twice — once here, once inside
         # authenticate() — adding ~300ms per login).
-        user_obj = User.objects.filter(email=email).first()
+        user_obj = User.objects.select_related("track").filter(email=email).first()
         if user_obj is None or not user_obj.check_password(password):
             cache.set(email_key, email_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
@@ -120,6 +122,13 @@ class PasswordLoginView(APIView):
 
         if user_obj.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
+
+        if is_track_archived(user_obj) and not is_operational_admin(user_obj):
+            logger.warning(
+                "password_login: blocked archived-track login email=%s track_id=%s",
+                email, user_obj.track_id,
+            )
+            raise ArchivedTrackError()
 
         # Bypass authenticate()'s second bcrypt by setting the backend manually;
         # login() only needs to know which auth backend to associate with the session.

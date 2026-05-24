@@ -787,13 +787,18 @@ def _build_plain_reminder_body(ctx):
 
 
 def _event_location_lines(event):
-    # Virtual events flatten the join URL into the text line; in-person
-    # splits into (location, map). Empty pair ⇒ omit the row entirely.
-    if event.is_virtual:
+    # virtual → flatten join URL into text line; in-person → (location, map);
+    # hybrid → physical location + join URL as the map cell.
+    from apps.events.models.events import Events as _Events
+
+    fmt = event.event_format
+    if fmt == _Events.EventFormat.VIRTUAL:
         if event.location_link:
             return (f"Join online: {event.location_link}", "")
         return (
             "This is a virtual event. Check your calendar invite for the link.",
             "",
         )
+    if fmt == _Events.EventFormat.HYBRID:
+        return (event.location or "", event.location_link or "")
     return (event.location or "", event.location_link or "")

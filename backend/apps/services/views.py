@@ -18,6 +18,7 @@ from django.conf import settings
 from . import auth_service
 from apps.users.models import User
 from apps.users.utils.admin_scope import is_operational_admin
+from apps.users.utils.track_gate import is_track_archived
 from apps.user_sessions.models import UserSession
 from config.errors import (
     AccountInactive,
@@ -28,7 +29,7 @@ from config.errors import (
     LoginSendRateLimited,
     PasswordResetRateLimited,
     TooManyFailedAttempts,
-    TrackArchived,
+    ArchivedTrackError,
     UserNotFound,
     WeakPassword,
 )
@@ -166,12 +167,13 @@ class VerifyLoginCodeView(APIView):
         if user.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
 
-        if user.track and user.track.is_archived:
+        # Admins are exempt so a track admin who archives their own track can still log in.
+        if is_track_archived(user) and not is_operational_admin(user):
             logger.warning(
                 "verify_login_code: blocked archived-track login email=%s track_id=%s",
                 email, user.track_id,
             )
-            raise TrackArchived()
+            raise ArchivedTrackError()
 
         login(request, user)
         cache.delete(cache_key)
@@ -262,7 +264,7 @@ class MagicLoginView(APIView):
         if user.account_status in ['suspended', 'deactivated']:
             return redirect(f"{callback_base}?error=account_inactive")
 
-        if user.track and user.track.is_archived:
+        if is_track_archived(user) and not is_operational_admin(user):
             logger.warning(
                 "magic_login: blocked archived-track login email=%s track_id=%s",
                 email, user.track_id,
