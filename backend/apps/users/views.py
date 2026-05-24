@@ -43,9 +43,9 @@ from config.errors import (
     MissingUsers,
     OperationalAdminRequired,
     TooManyFailedAttempts,
-    TrackArchived,
+    ArchivedTrackError,
 )
-from apps.users.utils.track_gate import is_login_blocked_by_archived_track
+from apps.users.utils.track_gate import is_track_archived
 
 logger = logging.getLogger(__name__)
 
@@ -123,12 +123,12 @@ class PasswordLoginView(APIView):
         if user_obj.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
 
-        if is_login_blocked_by_archived_track(user_obj):
+        if is_track_archived(user_obj) and not is_operational_admin(user_obj):
             logger.warning(
                 "password_login: blocked archived-track login email=%s track_id=%s",
                 email, user_obj.track_id,
             )
-            raise TrackArchived()
+            raise ArchivedTrackError()
 
         # Bypass authenticate()'s second bcrypt by setting the backend manually;
         # login() only needs to know which auth backend to associate with the session.
