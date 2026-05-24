@@ -38,7 +38,7 @@ def _make_event(name, *, days=2, dur_hours=2, **kwargs):
         description="",
         start_datetime=now + timedelta(days=days),
         ends_datetime=now + timedelta(days=days, hours=dur_hours),
-        is_virtual=True,
+        event_format="virtual",
     )
     defaults.update(kwargs)
     return Events.objects.create(event_name=name, **defaults)
@@ -218,7 +218,7 @@ class IcalExportTests(APITestCase):
         self.event = _make_event(
             "ICS Test Event",
             location="University of Sydney",
-            is_virtual=False,
+            event_format="in_person",
             description="One; two, three\\nlines",
         )
         self.client.force_authenticate(user=self.user)
@@ -256,7 +256,7 @@ class IcalExportTests(APITestCase):
             description="",
             start_datetime=start_local,
             ends_datetime=end_local,
-            is_virtual=True,
+            event_format="virtual",
         )
         response = self.client.get(f"/events/v1/{tz_event.id}/ical/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

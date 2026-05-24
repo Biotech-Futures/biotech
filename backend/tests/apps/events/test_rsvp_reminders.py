@@ -28,7 +28,7 @@ def _make_event(**overrides):
         "start_datetime": timezone.now() + timedelta(hours=24, minutes=30),
         "ends_datetime": timezone.now() + timedelta(hours=26),
         "location": "Sydney",
-        "is_virtual": False,
+        "event_format": "in_person",
     }
     defaults.update(overrides)
     return Events.objects.create(**defaults)
@@ -286,7 +286,7 @@ class ReminderBodyTests(TestCase):
         self.assertNotIn("None", body)
 
     def test_in_person_event_with_null_location_omits_location_line(self):
-        # The Events model allows location=NULL even when is_virtual=False;
+        # The Events model allows location=NULL on in-person events;
         # the email must not render "Location: None".
         event = _make_event(location=None)
         _rsvp(event, self.user)
@@ -299,7 +299,7 @@ class ReminderBodyTests(TestCase):
 
     def test_virtual_event_uses_join_link(self):
         event = _make_event(
-            is_virtual=True,
+            event_format="virtual",
             location=None,
             location_link="https://zoom.example/abc",
         )
@@ -311,7 +311,7 @@ class ReminderBodyTests(TestCase):
         self.assertIn("Join online: https://zoom.example/abc", body)
 
     def test_virtual_event_without_link_has_fallback_copy(self):
-        event = _make_event(is_virtual=True, location=None, location_link=None)
+        event = _make_event(event_format="virtual", location=None, location_link=None)
         _rsvp(event, self.user)
 
         send_due_rsvp_reminders()

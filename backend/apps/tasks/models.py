@@ -7,6 +7,7 @@ from django.utils import timezone
 class TaskType(models.TextChoices):
     GROUP = "group", "Group"
     INDIVIDUAL = "individual", "Individual"
+    TRACK = "track", "Track"
 
 
 class TaskStatus(models.TextChoices):
@@ -77,6 +78,14 @@ class Task(models.Model):
         null=True,
         blank=True,
     )
+    # PROTECT mirrors User.track; soft-retire via Tracks.is_archived.
+    track = models.ForeignKey(
+        "groups.Tracks",
+        on_delete=models.PROTECT,
+        related_name="track_tasks",
+        null=True,
+        blank=True,
+    )
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -105,8 +114,9 @@ class Task(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    (Q(task_type="group") & Q(group__isnull=False) & Q(assigned_user__isnull=True))
-                    | (Q(task_type="individual") & Q(assigned_user__isnull=False) & Q(group__isnull=True))
+                    (Q(task_type="group") & Q(group__isnull=False) & Q(assigned_user__isnull=True) & Q(track__isnull=True))
+                    | (Q(task_type="individual") & Q(assigned_user__isnull=False) & Q(group__isnull=True) & Q(track__isnull=True))
+                    | (Q(task_type="track") & Q(track__isnull=False) & Q(group__isnull=True) & Q(assigned_user__isnull=True))
                 ),
                 name="task_type_target_consistency",
             ),

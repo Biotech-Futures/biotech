@@ -18,6 +18,7 @@ from django.conf import settings
 from . import auth_service
 from apps.users.models import User
 from apps.users.utils.admin_scope import is_operational_admin
+from apps.users.utils.track_gate import is_login_blocked_by_archived_track
 from apps.user_sessions.models import UserSession
 from config.errors import (
     AccountInactive,
@@ -28,6 +29,7 @@ from config.errors import (
     LoginSendRateLimited,
     PasswordResetRateLimited,
     TooManyFailedAttempts,
+    TrackArchived,
     UserNotFound,
     WeakPassword,
 )
@@ -160,10 +162,17 @@ class VerifyLoginCodeView(APIView):
             )
             raise InvalidOrExpiredCode()
 
-        user = User.objects.get(email=email)
+        user = User.objects.select_related("track").get(email=email)
 
         if user.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
+
+        if is_login_blocked_by_archived_track(user):
+            logger.warning(
+                "verify_login_code: blocked archived-track login email=%s track_id=%s",
+                email, user.track_id,
+            )
+            raise TrackArchived()
 
         login(request, user)
         cache.delete(cache_key)
@@ -247,12 +256,19 @@ class MagicLoginView(APIView):
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.select_related("track").get(email=email)
         except User.DoesNotExist:
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         if user.account_status in ['suspended', 'deactivated']:
             return redirect(f"{callback_base}?error=account_inactive")
+
+        if is_login_blocked_by_archived_track(user):
+            logger.warning(
+                "magic_login: blocked archived-track login email=%s track_id=%s",
+                email, user.track_id,
+            )
+            return redirect(f"{callback_base}?error=track_archived")
 
         login(request, user)
         cache.delete(cache_key)

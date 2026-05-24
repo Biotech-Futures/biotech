@@ -130,7 +130,7 @@ class AdminWorkflowApiTests(TestCase):
             event_name="Upcoming Event",
             start_datetime=timezone.now() + timedelta(days=5),
             ends_datetime=timezone.now() + timedelta(days=5, hours=1),
-            is_virtual=True,
+            event_format="virtual",
         )
 
     def test_bulk_status_updates_users(self):

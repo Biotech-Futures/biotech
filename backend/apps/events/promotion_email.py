@@ -61,7 +61,14 @@ def notify_waitlist_promoted(*, event_id, user_id):
         f"Event:  {event.event_name}",
         f"When:   {when_full}",
     ]
-    if event.is_virtual and event.location_link:
+    # Hybrid: show both join URL and physical location. Virtual/in-person: one or the other.
+    fmt = event.event_format
+    if fmt == Events.EventFormat.HYBRID:
+        if event.location_link:
+            lines.append(f"Join:   {event.location_link}")
+        if event.location:
+            lines.append(f"Where:  {event.location}")
+    elif fmt == Events.EventFormat.VIRTUAL and event.location_link:
         lines.append(f"Join:   {event.location_link}")
     elif event.location:
         lines.append(f"Where:  {event.location}")

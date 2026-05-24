@@ -79,7 +79,7 @@ class EventAPITests(APITestCase):
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
-            "is_virtual": False,
+            "event_format": "in_person",
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -94,7 +94,7 @@ class EventAPITests(APITestCase):
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
-            "is_virtual": False,
+            "event_format": "in_person",
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -109,7 +109,7 @@ class EventAPITests(APITestCase):
             "start_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "location": "Sydney",
-            "is_virtual": False,
+            "event_format": "in_person",
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -124,7 +124,7 @@ class EventAPITests(APITestCase):
             "start_datetime": (timezone.now() - timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() - timezone.timedelta(hours=22)).isoformat(),
             "location": "Sydney",
-            "is_virtual": False,
+            "event_format": "in_person",
         }
         response = self.client.post(self.url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -730,16 +730,13 @@ class EventCreatePermissionTests(APITestCase):
         )
 
     def _payload(self, *, name="Created Event", track_id=None):
-        # ``is_virtual=False`` + a physical ``location`` mirrors the
-        # passing fixture in ``EventAPITests`` — the serializer
-        # rejects ``is_virtual=True`` *with* a location.
         body = {
             "event_name": name,
             "description": "fixture",
             "start_datetime": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
             "location": "Sydney",
-            "is_virtual": False,
+            "event_format": "in_person",
         }
         if track_id is not None:
             body["track"] = track_id
@@ -1520,7 +1517,7 @@ class EventTargetingTests(APITestCase):
             "event_name": "Targeted",
             "start_datetime": (now + timezone.timedelta(days=1)).isoformat(),
             "ends_datetime": (now + timezone.timedelta(days=1, hours=1)).isoformat(),
-            "is_virtual": True,
+            "event_format": "virtual",
         }
         body.update(overrides)
         return body
