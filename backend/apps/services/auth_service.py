@@ -112,9 +112,25 @@ def confirm_password_reset(*, token: str, new_password: str) -> User:
     user.save(update_fields=['password'])
 
     _invalidate_outstanding_tokens(user)
-    _terminate_all_sessions(user)
+    terminate_user_sessions(user)
     _send_password_changed_notification(user, ip=reset_row.requested_ip)
     return user
+
+
+def terminate_user_sessions(user) -> int:
+    """Log a single user out of every active session (Django + UserSession).
+
+    Public helper so other policies (track archival, account suspension, etc.)
+    can boot a user out mid-session, not just password reset. Returns the
+    number of django_session rows deleted — UserSession rows are bulk-updated
+    and counted by the queryset, not returned, since the middleware uses
+    ``revoked_at`` to flush on the next write request as a safety net.
+    """
+    now = timezone.now()
+    UserSession.objects.filter(
+        user=user, ended_at__isnull=True, revoked_at__isnull=True,
+    ).update(revoked_at=now, ended_at=now)
+    return _flush_django_sessions_for_user(user)
 
 
 # --- helpers ---------------------------------------------------------------
@@ -193,15 +209,6 @@ def _invalidate_outstanding_tokens(user) -> None:
     now = timezone.now()
     PasswordResetToken.objects.filter(user=user, used=False).update(used=True, used_at=now)
     LoginToken.objects.filter(user=user, used=False).update(used=True)
-
-
-def _terminate_all_sessions(user) -> None:
-    """Log the user out everywhere — assume reset implies the account may be compromised."""
-    now = timezone.now()
-    UserSession.objects.filter(
-        user=user, ended_at__isnull=True, revoked_at__isnull=True,
-    ).update(revoked_at=now, ended_at=now)
-    _flush_django_sessions_for_user(user)
 
 
 def _flush_django_sessions_for_user(user) -> int:

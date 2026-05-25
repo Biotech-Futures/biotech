@@ -10,12 +10,19 @@ feature branch is not merged until the field exists upstream.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, TypedDict
 
 from django.db import transaction
+from django.db.models import Q
 
 from apps.admin.scope_utils import get_admin_track_ids
-from apps.groups.models import CountryStates, Tracks
+from apps.groups.models import CountryStates, GroupMembership, Tracks
+from apps.services.auth_service import terminate_user_sessions
+from apps.users.models import User
+from apps.users.utils.admin_scope import is_operational_admin
+
+logger = logging.getLogger(__name__)
 
 
 class CreateTrackInput(TypedDict, total=False):
@@ -97,7 +104,59 @@ def archive_track(track_id: int, requesting_user=None) -> Dict[str, Any]:
 
     track.is_archived = True
     track.save(update_fields=["is_archived"])
+
+    _terminate_sessions_for_archived_track(track)
+
     return {"msg": "Track archived successfully", "data": _serialize(track)}
+
+
+def _terminate_sessions_for_archived_track(track: Tracks) -> None:
+    """Force-logout every user affected by this track being archived.
+
+    Mirrors the login-time ``is_track_archived`` gate: a user who can no
+    longer log in shouldn't be allowed to keep using an existing session
+    either. Operational admins are exempt because the login gate exempts
+    them too (otherwise an admin archiving their own track would log
+    themselves out).
+
+    "Affected" = assigned directly via ``User.track`` OR participating in
+    any group that belongs to this track via an active membership
+    (``GroupMembership.left_at IS NULL``). Both paths are unioned so we
+    catch students/mentors who don't have ``User.track`` set but are
+    actively in a track-bound group.
+    """
+    affected_user_ids = set(
+        User.objects.filter(
+            Q(track_id=track.id)
+            | Q(
+                id__in=GroupMembership.objects.filter(
+                    group__track_id=track.id,
+                    left_at__isnull=True,
+                ).values("user_id")
+            )
+        ).values_list("id", flat=True)
+    )
+
+    if not affected_user_ids:
+        return
+
+    terminated_count = 0
+    skipped_admin_count = 0
+    for user in User.objects.filter(id__in=affected_user_ids).iterator():
+        if is_operational_admin(user):
+            skipped_admin_count += 1
+            continue
+        terminate_user_sessions(user)
+        terminated_count += 1
+
+    logger.info(
+        "track.archive.sessions_terminated",
+        extra={
+            "track_id": track.id,
+            "terminated_user_count": terminated_count,
+            "skipped_admin_count": skipped_admin_count,
+        },
+    )
 
 
 @transaction.atomic
