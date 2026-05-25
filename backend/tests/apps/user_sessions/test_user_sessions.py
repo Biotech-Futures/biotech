@@ -74,9 +74,9 @@ class SessionTrackingMiddlewareTests(TestCase):
         self.assertGreater(tracked_session.expires_at, tracked_session.last_activity_at)
 
     def test_does_not_resurrect_revoked_session_and_flushes_django_session(self):
-        # Mirror auth_service._terminate_all_sessions: revoked + ended set.
-        # A surviving authenticated request landing on this row must NOT
-        # clear those flags (otherwise the security signal vanishes), and
+        # Mirror apps.users.utils.sessions.terminate_user_sessions: revoked
+        # + ended set. A surviving authenticated request landing on this row
+        # must NOT clear those flags (otherwise the security signal vanishes), and
         # the Django session should be flushed so subsequent requests from
         # this client cannot proceed.
         request = self._build_request()
