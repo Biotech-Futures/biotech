@@ -90,8 +90,9 @@ class SessionTrackingMiddleware:
             return
 
         # SECURITY: never resurrect a row that was intentionally terminated.
-        # auth_service._terminate_all_sessions sets revoked_at/ended_at on
-        # password reset and other "the account may be compromised" flows.
+        # apps.users.utils.sessions.terminate_user_sessions sets
+        # revoked_at/ended_at on password reset, archived-track lockout, and
+        # other "the account may be compromised / no longer permitted" flows.
         # Receiving a further authenticated write on the same sid means
         # either a race against the django_session flush or a leaked cookie
         # that survived the flush (e.g. _safe_decode silently dropped it).

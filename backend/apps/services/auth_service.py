@@ -4,15 +4,14 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from apps.user_sessions.models import UserSession
 from apps.users.models import User
 from apps.users.utils.admin_scope import is_operational_admin
+from apps.users.utils.sessions import terminate_user_sessions
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
 from .models import LoginToken, PasswordResetToken
 
@@ -112,7 +111,7 @@ def confirm_password_reset(*, token: str, new_password: str) -> User:
     user.save(update_fields=['password'])
 
     _invalidate_outstanding_tokens(user)
-    _terminate_all_sessions(user)
+    terminate_user_sessions(user)
     _send_password_changed_notification(user, ip=reset_row.requested_ip)
     return user
 
@@ -193,39 +192,6 @@ def _invalidate_outstanding_tokens(user) -> None:
     now = timezone.now()
     PasswordResetToken.objects.filter(user=user, used=False).update(used=True, used_at=now)
     LoginToken.objects.filter(user=user, used=False).update(used=True)
-
-
-def _terminate_all_sessions(user) -> None:
-    """Log the user out everywhere — assume reset implies the account may be compromised."""
-    now = timezone.now()
-    UserSession.objects.filter(
-        user=user, ended_at__isnull=True, revoked_at__isnull=True,
-    ).update(revoked_at=now, ended_at=now)
-    _flush_django_sessions_for_user(user)
-
-
-def _flush_django_sessions_for_user(user) -> int:
-    """Delete django_session rows whose decoded data names this user.
-
-    Django's DB session store has no user_id index, so we scan active rows.
-    Cost is O(active sessions); fine at our scale.
-    """
-    user_id_str = str(user.pk)
-    to_delete = [
-        s.session_key
-        for s in Session.objects.filter(expire_date__gt=timezone.now()).iterator()
-        if str(_safe_decode(s).get("_auth_user_id")) == user_id_str
-    ]
-    if to_delete:
-        Session.objects.filter(session_key__in=to_delete).delete()
-    return len(to_delete)
-
-
-def _safe_decode(session) -> dict:
-    try:
-        return session.get_decoded()
-    except Exception:
-        return {}
 
 
 def _send_password_changed_notification(user, *, ip: str = None) -> None:
