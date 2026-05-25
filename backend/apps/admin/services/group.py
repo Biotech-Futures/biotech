@@ -397,7 +397,7 @@ def query_group_messages(
             deleted_at__isnull=True
         )
         .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
-        .prefetch_related("attachments", "gif")
+        .prefetch_related("attachments")
         .order_by("sent_at", "id")[offset:offset + limit]
     )
 
@@ -420,15 +420,13 @@ def query_group_messages(
             })
 
         gif = None
-        try:
+        if hasattr(msg, "gif"):
             g = msg.gif
             gif = {
                 "gif_url": g.gif_url,
                 "preview_url": g.preview_url,
                 "title": g.title,
             }
-        except Exception:
-            pass
 
         items.append({
             "id": str(msg.id),

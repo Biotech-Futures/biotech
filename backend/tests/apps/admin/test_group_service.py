@@ -3,7 +3,8 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.admin.services.group import query_groups
+from apps.admin.services.group import query_group_messages, query_groups
+from apps.chat.models import Messages
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
 from apps.users.models import MentorProfile, User
 
@@ -56,3 +57,17 @@ class AdminGroupServiceTests(TestCase):
             [group["id"] for group in result["data"]["items"]],
             [str(newer.id), str(older.id)],
         )
+
+    def test_query_group_messages_handles_removed_gif_relation(self):
+        message = Messages.objects.create(
+            group=self.group,
+            sender_user=self.mentor,
+            message_text="Hello from the admin history endpoint",
+        )
+
+        result = query_group_messages(str(self.group.id))
+
+        self.assertEqual(result["msg"], "Group messages retrieved successfully")
+        self.assertEqual(result["data"]["total"], 1)
+        self.assertEqual(result["data"]["items"][0]["id"], str(message.id))
+        self.assertIsNone(result["data"]["items"][0]["gif"])
