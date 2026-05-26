@@ -121,7 +121,7 @@ def _render_announcement_email_html(
         "excerpt": excerpt,
         "detail_url": detail_url,
         "contact_email": settings.DEFAULT_FROM_EMAIL,
-        "logo_url": f"{frontend_url}/btf-logo.png",
+        "logo_url": f"{frontend_url}/btf-logo-white.png",
     })
 
 
