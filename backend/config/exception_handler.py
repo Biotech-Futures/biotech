@@ -66,6 +66,12 @@ def _reshape_drf_response(response: Response, exc: Exception, request_id: str) -
         payload.update(extra)
     response.data = payload
     response[REQUEST_ID_HEADER] = request_id
+    logger.info(
+        "Handled %s -> %d [request_id=%s]",
+        type(exc).__name__,
+        response.status_code,
+        request_id,
+    )
     return response
 
 
