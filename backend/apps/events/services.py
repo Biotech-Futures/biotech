@@ -28,6 +28,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
+from apps.services.email_branding import attach_inline_logo, brand_context
 from apps.users.utils.admin_scope import (
     get_admin_track_ids,
     is_operational_admin,
@@ -720,6 +721,7 @@ def _send_audience_reminders(event, audience):
         )
 
         ctx = {
+            **brand_context(),
             "First_Name": first_name,
             "HEADLINE": audience["headline"],
             "INTRO": audience["intro"],
@@ -764,6 +766,7 @@ def _send_one_reminder(*, subject, recipient, from_email, ctx):
         to=[recipient],
     )
     msg.attach_alternative(html_body, "text/html")
+    attach_inline_logo(msg)
     msg.send(fail_silently=False)
 
 
