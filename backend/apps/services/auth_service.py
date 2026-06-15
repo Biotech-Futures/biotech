@@ -13,6 +13,7 @@ from apps.users.models import User
 from apps.users.utils.admin_scope import is_operational_admin
 from apps.users.utils.sessions import terminate_user_sessions
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
+from .email_branding import attach_inline_logo, brand_context
 from .models import LoginToken, PasswordResetToken
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
 
     # Render HTML email
     html_content = render_to_string("emails/login.html", {
+        **brand_context(),
         "MAGIC_LINK": magic_link,
         "OTP_CODE": token,
         "EXPIRY_MINUTES": 10,
@@ -67,6 +69,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
         to=[email],
     )
     msg.attach_alternative(html_content, "text/html")
+    attach_inline_logo(msg)
     msg.send()
     return True
 
@@ -154,6 +157,7 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     reset_link = f"{base}?token={token}"
 
     ctx = {
+        **brand_context(),
         "RESET_PASSWORD_LINK": reset_link,
         "EXPIRY_MINUTES": expiry_minutes,
         "First_Name": user.first_name,
@@ -174,6 +178,7 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
             to=[user.email],
         )
         msg.attach_alternative(html_content, "text/html")
+        attach_inline_logo(msg)
         msg.send()
     except Exception:
         logger.exception("password_reset.send_failed", extra={"user_id": user.id})
@@ -197,6 +202,7 @@ def _invalidate_outstanding_tokens(user) -> None:
 def _send_password_changed_notification(user, *, ip: str = None) -> None:
     """Best-effort 'your password was changed' email. Never raises — password is already updated."""
     ctx = {
+        **brand_context(),
         "First_Name": user.first_name,
         "CHANGED_AT": timezone.now(),
         "REQUEST_IP": ip or "unknown",
@@ -216,6 +222,7 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
             to=[user.email],
         )
         msg.attach_alternative(html_content, "text/html")
+        attach_inline_logo(msg)
         msg.send()
     except Exception:
         logger.exception("password_reset.notification_failed", extra={"user_id": user.id})

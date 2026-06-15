@@ -615,7 +615,7 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
         html_body, mime_type = message.alternatives[0]
         self.assertEqual(mime_type, "text/html")
         self.assertTrue(html_body.lstrip().startswith("<!doctype html>"))
-        self.assertIn("<html>", html_body)
+        self.assertIn("<html", html_body)
         self.assertIn("</html>", html_body)
 
     def test_html_body_contains_title_and_excerpt(self):
@@ -647,7 +647,7 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
         # in the URL and that the link is wrapped in an anchor.
         self.assertIn(f"/{announcement.id}", html_body)
         self.assertIn("<a href=", html_body)
-        self.assertIn("View full announcement", html_body)
+        self.assertIn("Read full announcement", html_body)
 
     def test_html_and_plain_text_share_subject(self):
         outbox, _ = self._send(title="Subject sanity")

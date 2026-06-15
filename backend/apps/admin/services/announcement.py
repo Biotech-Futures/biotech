@@ -19,6 +19,7 @@ from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks
 from apps.users.models import User
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.services.email_branding import attach_inline_logo, brand_context
 
 if TYPE_CHECKING:
     # Imported only for typing — avoids a circular import at runtime and lets
@@ -115,13 +116,12 @@ def _render_announcement_email_html(
     detail_url: str,
 ) -> str:
     """Render announcement email HTML template."""
-    frontend_url = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
     return render_to_string("emails/announcement.html", {
+        **brand_context(),
         "title": title,
         "excerpt": excerpt,
         "detail_url": detail_url,
         "contact_email": settings.DEFAULT_FROM_EMAIL,
-        "logo_url": f"{frontend_url}/btf-logo-white.png",
     })
 
 
@@ -643,6 +643,7 @@ def _deliver_announcement_to_recipients(
                 connection=connection,
             )
             message.attach_alternative(html_body, "text/html")
+            attach_inline_logo(message)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it

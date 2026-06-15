@@ -1,58 +1,17 @@
-<!doctype html>
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="x-apple-disable-message-reformatting">
-  <meta name="color-scheme" content="light only">
-  <meta name="supported-color-schemes" content="light only">
-  <title>BIOTech Futures: {{ HEADLINE }}</title>
-  <!--[if mso]>
-  <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
-  <![endif]-->
-  <style>
-    body, table, td, a { -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
-    table, td { mso-table-lspace:0pt; mso-table-rspace:0pt; }
-    img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }
-    body { margin:0 !important; padding:0 !important; width:100% !important; }
-    a { color:inherit; text-decoration:none; }
+{% extends "emails/base.html" %}
 
-    @media only screen and (max-width: 600px) {
-      .email-shell { padding: 16px 8px !important; }
-      .email-card  { width: 100% !important; }
-      .card-pad    { padding: 28px 22px !important; }
-      .brand       { font-size: 22px !important; }
-      .headline    { font-size: 24px !important; line-height: 1.22 !important; }
-      .info-label  { display: block !important; padding-bottom: 2px !important; }
-      .info-value  { display: block !important; padding-bottom: 10px !important; }
-      .footer-pad  { padding: 18px 16px 0 16px !important; }
-    }
-  </style>
-</head>
-<body style="margin:0; padding:0; background:#eef0ee; color:#1a2e23; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+{% block title %}{{ BRAND_NAME }}: {{ HEADLINE }}{% endblock %}
 
-  <div style="display:none; overflow:hidden; line-height:1px; opacity:0; max-height:0; max-width:0; color:transparent; mso-hide:all;">
-    {{ PREHEADER }}
-  </div>
+{% block extra_styles %}
+      .info-label { display: block !important; padding-bottom: 2px !important; }
+      .info-value { display: block !important; padding-bottom: 10px !important; }
+{% endblock %}
 
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#eef0ee; border-collapse:collapse;">
-    <tr>
-      <td class="email-shell" align="center" style="padding:32px 16px;">
-        <table role="presentation" class="email-card" width="600" cellspacing="0" cellpadding="0" border="0" style="width:600px; max-width:600px; background:#ffffff; border:1px solid #e0e4e1; border-radius:12px; border-collapse:separate;">
+{% block preheader %}{{ PREHEADER }}{% endblock %}
 
-          <!-- Brand strip -->
-          <tr>
-            <td style="background:#307054; border-top-left-radius:12px; border-top-right-radius:12px; padding:20px 28px;">
-              <p class="brand" style="margin:0; color:#ffffff; font-size:22px; line-height:1.2; font-weight:700; letter-spacing:0.2px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-                BIOTech Futures
-              </p>
-            </td>
-          </tr>
+{% block footer_reason %}event reminders{% endblock %}
 
-          <!-- Body -->
-          <tr>
-            <td class="card-pad" style="padding:32px 36px 28px 36px;">
+{% block content %}
               <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
                 Hi {{ First_Name|default:"there" }},
               </p>
@@ -125,26 +84,6 @@
               </p>
 
               <p style="margin:18px 0 0 0; color:#6d7a72; font-size:13px; line-height:1.55;">
-                The BIOTech Futures Team
+                The {{ BRAND_NAME }} Team
               </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td class="footer-pad" style="padding:0 36px 28px 36px;">
-              <hr style="border:0; height:1px; background:#e0e4e1; margin:0 0 16px 0;">
-              <p style="margin:0; color:#6d7a72; font-size:11px; line-height:1.6;">
-                &copy; {% now "Y" %} BIOTech Futures, NSW 2006 Australia.<br>
-                Add <a href="mailto:{{ CONTACT_EMAIL }}" style="color:#307054; text-decoration:underline;">{{ CONTACT_EMAIL }}</a> to your address book to keep receiving event reminders.
-                <a href="https://www.biotechfutures.org/" style="color:#307054; text-decoration:underline;">biotechfutures.org</a>
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
+{% endblock %}
