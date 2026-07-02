@@ -5,9 +5,9 @@
         <div class="logo-section">
           <RouterLink to="/dashboard" class="logo">
             <div class="logo-icon">
-              <img :src="logo" alt="BIOTech Futures" />
+              <img :src="logo" :alt="BRAND_NAME" />
             </div>
-            <span class="logo-text">BIOTech Futures Hub</span>
+            <span class="logo-text">{{ BRAND_HUB }}</span>
           </RouterLink>
         </div>
 
@@ -247,6 +247,7 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
+import { BRAND_NAME, BRAND_HUB } from '@/constants/brand'
 
 const route = useRoute()
 const router = useRouter()

@@ -1,6 +1,9 @@
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { BRAND_NAME } from "./lib/brand";
+
+document.title = BRAND_NAME;
 
 // Render the app
 const rootElement = document.getElementById("app")!;

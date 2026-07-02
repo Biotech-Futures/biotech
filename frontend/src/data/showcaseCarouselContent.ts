@@ -9,8 +9,8 @@ export interface ShowcaseCarouselItem {
 export const showcaseCarouselContent: ShowcaseCarouselItem[] = [
   {
     id: 'local-1',
-    title: 'Biotech innovation in modern research spaces',
-    summary: 'Explore how research environments, instrumentation, and data systems support scalable biotech work.',
+    title: 'BIOTech innovation in modern research spaces',
+    summary: 'Explore how research environments, instrumentation, and data systems support scalable BIOTech work.',
     image: 'https://images.unsplash.com/photo-1576086213369-97a306d36557?auto=format&fit=crop&w=1600&q=80',
     link: '/resources'
   },
@@ -24,7 +24,7 @@ export const showcaseCarouselContent: ShowcaseCarouselItem[] = [
   {
     id: 'local-3',
     title: 'Life science collaboration and platform operations',
-    summary: 'Biotech systems often combine research tools, data pipelines, and operational platforms in one ecosystem.',
+    summary: 'BIOTech systems often combine research tools, data pipelines, and operational platforms in one ecosystem.',
     image: 'https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=1600&q=80',
     link: '/groups'
   }

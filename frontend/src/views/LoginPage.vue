@@ -64,15 +64,15 @@
       <div class="legacy-left-inner">
         <div class="legacy-brand">
           <div class="legacy-logo-icon">
-            <img :src="logo" alt="BIOTech Futures" />
+            <img :src="logo" :alt="BRAND_NAME" />
           </div>
-          <h1 class="legacy-brand-title">BIOTech Connect</h1>
+          <h1 class="legacy-brand-title">{{ BRAND_CONNECT }}</h1>
         </div>
 
         <div class="legacy-custom-content">
-          <h2 class="legacy-info-title">About the BIOTech Futures Challenge</h2>
+          <h2 class="legacy-info-title">About the {{ BRAND_NAME }} Challenge</h2>
           <p>
-            The BIOTech Futures Challenge empowers students to tackle real-world problems through
+            The {{ BRAND_NAME }} Challenge empowers students to tackle real-world problems through
             innovation, mentorship, and interdisciplinary collaboration.
           </p>
           <ul class="legacy-info-list">
@@ -145,7 +145,7 @@
               <header class="auth-header">
                 <div class="auth-logo-wrap">
                   <div class="auth-logo">
-                    <img :src="logo" alt="BIOTech Futures" />
+                    <img :src="logo" :alt="BRAND_NAME" />
                   </div>
 
                   <div class="auth-logo-copy">
@@ -295,7 +295,7 @@
               <header class="auth-header auth-header--compact">
                 <div class="auth-logo-wrap">
                   <div class="auth-logo auth-logo--small">
-                    <img :src="logo" alt="BIOTech Futures" />
+                    <img :src="logo" :alt="BRAND_NAME" />
                   </div>
 
                   <div class="auth-logo-copy">
@@ -412,6 +412,7 @@ import { isValidEmail, maskEmail } from '@/utils/string'
 import { LOGIN_LANGUAGE_KEY, safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
 
 import logo from '@/assets/btf-logo.png'
+import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
 
 /*

@@ -119,7 +119,7 @@ def _fetch_html(url: str) -> tuple[str, str] | None:
         "User-Agent": getattr(
             settings,
             "LINK_PREVIEW_USER_AGENT",
-            "BiotechFuturesBot/1.0",
+            "BIOTechFuturesBot/1.0",
         ),
         "Accept": "text/html,application/xhtml+xml",
     }

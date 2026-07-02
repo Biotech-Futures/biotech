@@ -4,6 +4,9 @@ import App from './App.vue'
 import router from './router'
 import './assets/main.css'
 import { useAuthStore } from './stores/auth'
+import { BRAND_HUB } from './constants/brand'
+
+document.title = BRAND_HUB
 
 const bootstrap = async () => {
   const app = createApp(App)

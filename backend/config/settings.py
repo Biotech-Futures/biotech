@@ -544,7 +544,7 @@ LINK_PREVIEW_MAX_BYTES = config(
 )
 LINK_PREVIEW_USER_AGENT = config(
     "LINK_PREVIEW_USER_AGENT",
-    default="BiotechFuturesBot/1.0 (+https://biotechfutures.org)",
+    default="BIOTechFuturesBot/1.0 (+https://biotechfutures.org)",
 )
 # Synchronous dispatch (used by tests) runs the unfurl inline instead of on a
 # thread, so assertions can observe the DB row and broadcast immediately.

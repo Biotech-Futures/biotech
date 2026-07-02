@@ -4,13 +4,13 @@
       <div class="legacy-left-inner">
         <div class="legacy-brand">
           <div class="legacy-logo-icon">
-            <img :src="logo" alt="BIOTech Futures" />
+            <img :src="logo" :alt="BRAND_NAME" />
           </div>
-          <h1 class="legacy-brand-title">BIOTech Connect</h1>
+          <h1 class="legacy-brand-title">{{ BRAND_CONNECT }}</h1>
         </div>
 
         <div class="legacy-custom-content">
-          <h2 class="legacy-info-title">About the BIOTech Futures Challenge</h2>
+          <h2 class="legacy-info-title">About the {{ BRAND_NAME }} Challenge</h2>
           <p>
             A national innovation and mentorship program connecting high school students with
             leading researchers to solve real-world biotechnology challenges.
@@ -29,7 +29,7 @@
             target="_blank"
             rel="noopener noreferrer"
           >
-            Visit BIOTech Futures
+            Visit {{ BRAND_NAME }}
           </a>
         </div>
       </div>
@@ -44,9 +44,9 @@
           <div class="reset-panel">
             <header class="reset-header">
               <div class="auth-logo auth-logo--small">
-                <img :src="logo" alt="BIOTech Futures" />
+                <img :src="logo" :alt="BRAND_NAME" />
               </div>
-              <p class="brand-kicker">BIOTech Futures Hub</p>
+              <p class="brand-kicker">{{ BRAND_HUB }}</p>
               <h1>{{ hasToken ? 'Set a new password' : 'Reset your password' }}</h1>
               <p class="reset-copy">
                 {{
@@ -193,6 +193,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import logo from '@/assets/btf-logo.png'
+import { BRAND_NAME, BRAND_CONNECT, BRAND_HUB } from '@/constants/brand'
 import { clearAuthTokens } from '@/utils/authTokens'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'

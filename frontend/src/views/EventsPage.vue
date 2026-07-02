@@ -592,6 +592,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { BRAND_NAME } from '@/constants/brand'
 import {
   type BackendEvent,
   type EventFormat,
@@ -646,9 +647,9 @@ const filters = ref({
   rsvpStatus: '' as '' | EventRsvpStatus
 })
 
-const defaultShort = 'Join us for this BIOTech Futures session.'
+const defaultShort = `Join us for this ${BRAND_NAME} session.`
 const defaultLong =
-  'This session is part of the BIOTech Futures program. Learn, collaborate, and build your project with mentors and peers.'
+  `This session is part of the ${BRAND_NAME} program. Learn, collaborate, and build your project with mentors and peers.`
 const EVENT_FORMAT_LABELS: Record<EventFormat, string> = {
   in_person: 'In-person',
   virtual: 'Virtual',
@@ -703,7 +704,7 @@ const emptyMessage = computed(() => {
     return 'Events you respond to will appear here.'
   }
 
-  return 'Check back later for new BIOTech Futures sessions.'
+  return `Check back later for new ${BRAND_NAME} sessions.`
 })
 
 const requestParams = (): EventListParams => {

@@ -72,7 +72,7 @@ def notify_waitlist_promoted(*, event_id, user_id):
         lines.append(f"Join:   {event.location_link}")
     elif event.location:
         lines.append(f"Where:  {event.location}")
-    lines += ["", "See you there!", "", "The BIOTech Futures Team"]
+    lines += ["", "See you there!", "", f"The {settings.BRAND_NAME} Team"]
     plain_body = "\n".join(lines)
 
     try:
