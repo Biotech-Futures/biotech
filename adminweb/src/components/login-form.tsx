@@ -13,6 +13,7 @@ import z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useMagicLinkSignIn, usePasswordSignIn } from "@/fetch/auth";
+import { BRAND_NAME } from "@/lib/brand";
 
 type LoginMode = "password" | "magic";
 
@@ -67,15 +68,15 @@ export function LoginForm({
               <div className="flex items-center justify-center rounded-md">
                 <img
                   src="/logo.png"
-                  alt="BIOTech Logo"
+                  alt={`${BRAND_NAME} Logo`}
                   width={40}
                   height={40}
                 />
                 {/* <GalleryVerticalEndIcon className="size-6" /> */}
               </div>
-              <span className="sr-only">BIOTech</span>
+              <span className="sr-only">{BRAND_NAME}</span>
             </a>
-            <h1 className="text-xl font-bold">Welcome to BIOTech</h1>
+            <h1 className="text-xl font-bold">Welcome to {BRAND_NAME}</h1>
           </div>
 
           <div className="grid grid-cols-2 gap-2 rounded-md bg-muted p-1">

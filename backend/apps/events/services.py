@@ -532,7 +532,7 @@ REMINDER_KINDS = {
                 "headline": "Your event is tomorrow",
                 "intro": (
                     "This is a friendly reminder that you have an upcoming "
-                    "event with BIOTech Futures tomorrow."
+                    f"event with {settings.BRAND_NAME} tomorrow."
                 ),
                 "closing": "We look forward to seeing you there!",
                 "preheader_phrase": "starts in about 24 hours",
@@ -561,7 +561,7 @@ REMINDER_KINDS = {
                 "subject": "Starting soon: {event_name}",
                 "headline": "Starting soon",
                 "intro": (
-                    "Just a quick reminder — your BIOTech Futures event "
+                    f"Just a quick reminder — your {settings.BRAND_NAME} event "
                     "starts in about an hour."
                 ),
                 "closing": "See you very soon!",
@@ -785,7 +785,7 @@ def _build_plain_reminder_body(ctx):
         lines.append(f"Map: {ctx['EVENT_LOCATION_MAP_URL']}")
     if ctx["EVENT_DESCRIPTION"]:
         lines += ["", f"Details: {ctx['EVENT_DESCRIPTION']}"]
-    lines += ["", ctx["CLOSING"], "", "The BIOTech Futures Team"]
+    lines += ["", ctx["CLOSING"], "", f"The {settings.BRAND_NAME} Team"]
     return "\n".join(lines)
 
 

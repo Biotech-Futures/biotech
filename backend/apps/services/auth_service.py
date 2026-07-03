@@ -63,7 +63,7 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
     text_content = f"Use this link to log in: {magic_link}\nOr enter code: {token} (expires in 10 mins)."
 
     msg = EmailMultiAlternatives(
-        subject="BIOTech Futures: Log in securely",
+        subject=f"{settings.BRAND_NAME}: Log in securely",
         body=text_content,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email],
@@ -166,13 +166,13 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     try:
         html_content = render_to_string("emails/password_reset.html", ctx)
         text_content = (
-            f"Update your BIOTech Futures password: {reset_link}\n"
+            f"Update your {settings.BRAND_NAME} password: {reset_link}\n"
             f"This link expires in {expiry_minutes} minutes.\n"
             f"If you didn't request this, ignore this email."
         )
 
         msg = EmailMultiAlternatives(
-            subject="BIOTech Futures: Update your password",
+            subject=f"{settings.BRAND_NAME}: Update your password",
             body=text_content,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],
@@ -212,11 +212,11 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
         html_content = render_to_string("emails/password_changed.html", ctx)
         text_content = (
             f"Hi {user.first_name or 'there'},\n\n"
-            f"Your BIOTech Futures password was just changed.\n"
+            f"Your {settings.BRAND_NAME} password was just changed.\n"
             f"If this wasn't you, contact {settings.DEFAULT_FROM_EMAIL} immediately."
         )
         msg = EmailMultiAlternatives(
-            subject="BIOTech Futures: Your password was changed",
+            subject=f"{settings.BRAND_NAME}: Your password was changed",
             body=text_content,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[user.email],

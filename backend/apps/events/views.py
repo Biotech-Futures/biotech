@@ -678,7 +678,7 @@ class EventIcalExportView(APIView):
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//BIOTech Futures//Events//EN",
+            f"PRODID:-//{settings.BRAND_NAME}//Events//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
             "BEGIN:VEVENT",

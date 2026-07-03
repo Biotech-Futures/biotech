@@ -4,6 +4,7 @@ import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } f
 import { clearAuthTokens } from '@/utils/authTokens'
 import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
 import { normalizeTimeZone } from '@/utils/date'
+import { BRAND_NAME } from '@/constants/brand'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -147,7 +148,7 @@ export const useAuthStore = defineStore('auth', {
 
     displayTrack: (state) => String(state.user?.track ?? state.user?.state ?? 'General'),
 
-    organizationLabel: (state) => state.user?.ment_inst || state.user?.school_name || 'BIOTech Futures',
+    organizationLabel: (state) => state.user?.ment_inst || state.user?.school_name || BRAND_NAME,
 
     roleLabel: (state) => {
       const role = resolveNormalizedRole(state.user)
