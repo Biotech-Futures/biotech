@@ -211,10 +211,6 @@ export function UserEditorSheet({
         return;
       }
     }
-    if (values.role === "supervisor" && !values.supervisorSchoolName.trim()) {
-      toast.error("School is required for supervisor users.");
-      return;
-    }
     if (values.role === "mentor") {
       if (!values.mentorInstitution.trim()) {
         toast.error("Institution is required for mentor users.");
@@ -473,7 +469,7 @@ export function UserEditorSheet({
           ) : null}
 
           {values.role === "supervisor" ? (
-            <UserFormRow label="School" htmlFor="user-supervisor-school-name" required>
+            <UserFormRow label="School (optional)" htmlFor="user-supervisor-school-name">
               <Input
                 id="user-supervisor-school-name"
                 value={values.supervisorSchoolName}

@@ -138,13 +138,13 @@ def upsert_student_profile(
     )
 
 
-def upsert_supervisor_profile(user_id: int, school_name: str) -> None:
+def upsert_supervisor_profile(user_id: int, school_name: Optional[str] = None) -> None:
     """
-    Create or update supervisor profile.
+    Create or update supervisor profile. School is optional.
     """
     SupervisorProfile.objects.update_or_create(
         user_id=user_id,
-        defaults={"school_name": school_name}
+        defaults={"school_name": (school_name or "").strip() or None}
     )
 
 

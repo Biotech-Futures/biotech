@@ -566,6 +566,21 @@ def archive_announcement(announcement_id: int) -> AnnouncementResponseDict:
     return {"msg": "Announcement archived successfully", "data": row}
 
 
+def delete_announcement(announcement_id: int) -> AnnouncementResponseDict:
+    """
+    Permanently delete an announcement (hard delete).
+
+    Unlike ``archive_announcement`` (which just stamps ``archived_at``), this
+    removes the row. Related ``AnnouncementAudience`` and ``AnnouncementDelivery``
+    rows cascade (both FKs are ``on_delete=CASCADE``). Irreversible.
+    """
+    existing = _fetch_announcement(announcement_id)
+    if not existing:
+        return {"msg": "Announcement not found", "data": None}
+    Announcement.objects.filter(id=announcement_id).delete()
+    return {"msg": "Announcement deleted successfully", "data": existing}
+
+
 def _skipped_send_result(msg: str) -> Dict[str, Any]:
     """Build the ``skipped`` response shape — used both for unknown
     announcements and for empty audiences. ``skipped`` is a wire-only
