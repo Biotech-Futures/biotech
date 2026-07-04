@@ -22,6 +22,7 @@ def brand_context() -> dict:
     return {
         "LOGO_URL": f"cid:{LOGO_CID}",
         "BRAND_NAME": getattr(settings, "BRAND_NAME", "BIOTech Futures"),
+        "BRAND_CONNECT": getattr(settings, "BRAND_CONNECT", "BIOTech Connect"),
     }
 
 

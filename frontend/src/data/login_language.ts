@@ -1,3 +1,5 @@
+import { BRAND_CONNECT } from '@/constants/brand'
+
 export const LOGIN_LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
   { value: 'zh-CN', label: '简体中文' },
@@ -14,7 +16,7 @@ export const LOGIN_ROLE_PREVIEW_ITEMS = [
 
 export const LOGIN_MESSAGES = {
   en: {
-    brandTitle: 'BIOTech Futures Hub',
+    brandTitle: BRAND_CONNECT,
     signIn: 'Sign in',
     welcomeSubtitle: 'Access your mentoring portal securely and continue where you left off.',
     emailLabel: 'Email Address',
@@ -118,7 +120,7 @@ export const LOGIN_MESSAGES = {
   },
 
   'zh-CN': {
-    brandTitle: 'BIOTech Futures 平台',
+    brandTitle: BRAND_CONNECT,
     signIn: '登录',
     welcomeSubtitle: '安全进入你的导师项目平台，并继续之前的进度。',
     emailLabel: '邮箱地址',
@@ -210,7 +212,7 @@ export const LOGIN_MESSAGES = {
   },
 
   ja: {
-    brandTitle: 'BIOTech Futures ハブ',
+    brandTitle: BRAND_CONNECT,
     signIn: 'サインイン',
     welcomeSubtitle: '安全にメンタリングポータルへアクセスし、続きから再開できます。',
     emailLabel: 'メールアドレス',
@@ -302,7 +304,7 @@ export const LOGIN_MESSAGES = {
   },
 
   ko: {
-    brandTitle: 'BIOTech Futures 허브',
+    brandTitle: BRAND_CONNECT,
     signIn: '로그인',
     welcomeSubtitle: '안전하게 멘토링 포털에 접속하고 이어서 진행하세요.',
     emailLabel: '이메일 주소',
@@ -394,7 +396,7 @@ export const LOGIN_MESSAGES = {
   },
 
   ar: {
-    brandTitle: 'مركز BIOTech Futures',
+    brandTitle: BRAND_CONNECT,
     signIn: 'تسجيل الدخول',
     welcomeSubtitle: 'ادخل إلى بوابة الإرشاد بأمان وتابع من حيث توقفت.',
     emailLabel: 'البريد الإلكتروني',
