@@ -46,7 +46,7 @@
               <div class="auth-logo auth-logo--small">
                 <img :src="logo" :alt="BRAND_NAME" />
               </div>
-              <p class="brand-kicker">{{ BRAND_HUB }}</p>
+              <p class="brand-kicker">{{ BRAND_CONNECT }}</p>
               <h1>{{ hasToken ? 'Set a new password' : 'Reset your password' }}</h1>
               <p class="reset-copy">
                 {{
@@ -193,7 +193,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME, BRAND_CONNECT, BRAND_HUB } from '@/constants/brand'
+import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 import { clearAuthTokens } from '@/utils/authTokens'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken } from '@/utils/csrf'

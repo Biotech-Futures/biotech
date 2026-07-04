@@ -6,7 +6,7 @@
           <img :src="logo" :alt="BRAND_NAME" />
         </div>
         <div>
-          <p class="brand-kicker">{{ BRAND_HUB }}</p>
+          <p class="brand-kicker">{{ BRAND_CONNECT }}</p>
           <h1>Set your password</h1>
         </div>
       </div>
@@ -83,7 +83,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME, BRAND_HUB } from '@/constants/brand'
+import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 

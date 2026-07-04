@@ -269,6 +269,9 @@ EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 # Pinned in code so it can't drift via env; fall back to legacy DEFAULT_FROM_EMAIL during transition.
 BRAND_NAME = "BIOTech Futures"
+# Platform/product label, distinct from the org name above (mirrors frontend brand.ts).
+# Used in account/auth email copy ("Log in to …", "your … account/password").
+BRAND_CONNECT = "BIOTech Connect"
 _email_from_raw = config(
     "EMAIL_FROM_ADDRESS",
     default=config("DEFAULT_FROM_EMAIL", default=""),
