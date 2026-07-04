@@ -36,7 +36,7 @@ from apps.resources.services.upload import upload_resource_file
 from apps.resources.models import Resources
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
-    update_announcement, archive_announcement, send_announcement_email,
+    update_announcement, archive_announcement, delete_announcement, send_announcement_email,
     list_announcement_tracks, list_announcement_roles,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
@@ -746,6 +746,14 @@ class AnnouncementDetailView(APIView):
         )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+    """DELETE /api/v1/announcement/{id} - Permanently delete announcement"""
+
+    def delete(self, request, announcement_id):
+        result = delete_announcement(announcement_id)
+        code = status.HTTP_200_OK if result.get(
+            "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 

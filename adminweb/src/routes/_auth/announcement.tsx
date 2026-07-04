@@ -25,12 +25,23 @@ import { MoreHorizontal, Plus } from "lucide-react";
 import {
   useListAnnouncements,
   useArchiveAnnouncement,
+  useDeleteAnnouncement,
   useGetAnnouncement,
 } from "@/query/announcement";
 import { AnnouncementFormSheet } from "@/components/announcement/AnnouncementFormSheet";
 import { AnnouncementDetailSheet } from "@/components/announcement/AnnouncementDetailSheet";
 import type { Announcement, AnnouncementListItem } from "@/type/announcement";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_auth/announcement")({
   component: AnnouncementPage,
@@ -72,6 +83,8 @@ function AnnouncementPage() {
   );
   const { data: editingAnn } = useGetAnnouncement(editingId);
   const { mutateAsync: archive } = useArchiveAnnouncement();
+  const { mutateAsync: deleteAnnouncement } = useDeleteAnnouncement();
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -98,6 +111,18 @@ function AnnouncementPage() {
       toast.success("Archived");
     } catch {
       toast.error("Failed to archive");
+    }
+  }
+
+  async function handleDelete() {
+    if (deleteId === null) return;
+    try {
+      await deleteAnnouncement(deleteId);
+      toast.success("Announcement deleted");
+    } catch {
+      toast.error("Failed to delete");
+    } finally {
+      setDeleteId(null);
     }
   }
 
@@ -259,12 +284,17 @@ function AnnouncementPage() {
                         </DropdownMenuItem>
                         {!item.archivedAt && (
                           <DropdownMenuItem
-                            className="text-destructive"
                             onClick={() => handleArchive(item.id)}
                           >
                             Archive
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => setDeleteId(item.id)}
+                        >
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -310,6 +340,27 @@ function AnnouncementPage() {
         onOpenChange={setFormOpen}
         editing={editingId && editingAnn ? (editingAnn as Announcement) : null}
       />
+
+      <AlertDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this announcement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the announcement and its delivery
+              history. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

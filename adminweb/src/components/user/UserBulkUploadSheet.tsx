@@ -160,9 +160,7 @@ export function UserBulkUploadSheet({
       return;
     }
     const rowMissingSchool = rows.find(
-      (row) =>
-        (row.role === "student" && !row.schoolName.trim()) ||
-        (row.role === "supervisor" && !row.supervisorSchoolName.trim()),
+      (row) => row.role === "student" && !row.schoolName.trim(),
     );
     if (rowMissingSchool) {
       toast.error(

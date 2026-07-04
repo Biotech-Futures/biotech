@@ -137,6 +137,19 @@ export function useArchiveAnnouncement() {
   });
 }
 
+export function useDeleteAnnouncement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await myFetch.delete<{ msg: string; data: Announcement }>(
+        `${BASE}/${id}`,
+      );
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
+  });
+}
+
 export function useSendAnnouncementEmail() {
   return useMutation({
     mutationFn: async (id: number) => {
