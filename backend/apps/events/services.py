@@ -706,7 +706,7 @@ def _send_audience_reminders(event, audience):
     subject = audience["subject"].format(event_name=event.event_name)
     location_text, location_map_url = _event_location_lines(event)
 
-    from_email = settings.DEFAULT_FROM_EMAIL or "noreply@biotechfutures.com"
+    from_email = settings.DEFAULT_FROM_EMAIL
 
     sent = 0
     failed = 0
@@ -734,7 +734,6 @@ def _send_audience_reminders(event, audience):
             "EVENT_LOCATION_TEXT": location_text,
             "EVENT_LOCATION_MAP_URL": location_map_url,
             "EVENT_DESCRIPTION": event.description or "",
-            "CONTACT_EMAIL": from_email,
         }
 
         try:

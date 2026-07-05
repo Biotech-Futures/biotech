@@ -3,3 +3,4 @@
 export const BRAND_NAME = 'BIOTech Futures'
 export const BRAND_CONNECT = 'BIOTech Connect' // platform/product name shown to users
 export const BRAND_LOGO = '/btf-logo.png'
+export const SUPPORT_EMAIL = 'support@biotechfutures.org' // where users write to us (automated mail sends from info@)

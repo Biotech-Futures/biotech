@@ -56,9 +56,10 @@
 
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
+import { SUPPORT_EMAIL } from '@/constants/brand';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
-  'Please contact the administrator via info@biotechfutures.org';
+  `Please contact the administrator via ${SUPPORT_EMAIL}`;
 
 // /groups has no id of its own — resolve the user's first group from the
 // store and forward there. Falls back to /dashboard when the user has no

@@ -396,7 +396,7 @@
           <i class="fas fa-users-slash"></i>
         </div>
         <h3 id="no-membership-title">No group membership</h3>
-        <p>Please contact the administrator via info@biotechfutures.org</p>
+        <p>Please contact the administrator via {{ SUPPORT_EMAIL }}</p>
         <button type="button" class="btn btn-primary" @click="closeNoMembershipPopup">
           Got it
         </button>
@@ -415,7 +415,7 @@ import { RouterLink } from 'vue-router'
 import { storeToRefs } from 'pinia'
 
 import { useAuthStore } from '@/stores/auth'
-import { BRAND_CONNECT, BRAND_NAME } from '@/constants/brand'
+import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 
 import {
   formatAnnouncementDateAU,
@@ -710,7 +710,7 @@ const summaryWidgets = computed(() => {
       title: 'Tasks Completed',
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
       subtext: hasNoAssignedMembership.value
-        ? 'Please contact the administrator via info@biotechfutures.org'
+        ? `Please contact the administrator via ${SUPPORT_EMAIL}`
         : 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
       accent: 'teal',

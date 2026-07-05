@@ -274,13 +274,17 @@ BRAND_NAME = "BIOTech Futures"
 BRAND_CONNECT = "BIOTech Connect"
 _email_from_raw = config(
     "EMAIL_FROM_ADDRESS",
-    default=config("DEFAULT_FROM_EMAIL", default=""),
+    default=config("DEFAULT_FROM_EMAIL", default="info@biotechfutures.org"),
 ).strip()
+# Bare sender mailbox (no display name) for template copy like "add X to your address book".
+EMAIL_FROM_ADDRESS = _email_from_raw
 if _email_from_raw and "<" not in _email_from_raw:
     DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{_email_from_raw}>"
 else:
     DEFAULT_FROM_EMAIL = _email_from_raw
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
+SUPPORT_EMAIL = "support@biotechfutures.org"
 
 REDIS_URL = config("REDIS_URL", default="")
 
