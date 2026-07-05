@@ -388,7 +388,7 @@
               <!-- Support link row. -->
               <div class="support-row">
                 <span>{{ t('needHelp') }}</span>
-                <a href="mailto:support@biotechfutures.org">{{ t('contactSupport') }}</a>
+                <a :href="`mailto:${SUPPORT_EMAIL}`">{{ t('contactSupport') }}</a>
               </div>
             </div>
           </transition>
@@ -412,7 +412,7 @@ import { isValidEmail, maskEmail } from '@/utils/string'
 import { LOGIN_LANGUAGE_KEY, safeLocalStorageGet, safeLocalStorageSet } from '@/utils/storage'
 
 import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
+import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
 
 /*

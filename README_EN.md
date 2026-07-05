@@ -248,7 +248,7 @@ export EMAIL_PORT="587"
 export EMAIL_HOST_USER="your-email@gmail.com"
 export EMAIL_HOST_PASSWORD="your-app-password"
 export EMAIL_USE_TLS="true"
-export DEFAULT_FROM_EMAIL="your-email@gmail.com"
+export EMAIL_FROM_ADDRESS="info@biotechfutures.org"
 ```
 
 ## Data Model Description

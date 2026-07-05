@@ -121,7 +121,6 @@ def _render_announcement_email_html(
         "title": title,
         "excerpt": excerpt,
         "detail_url": detail_url,
-        "contact_email": settings.DEFAULT_FROM_EMAIL,
     })
 
 

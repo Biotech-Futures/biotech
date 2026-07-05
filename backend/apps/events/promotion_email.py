@@ -46,7 +46,7 @@ def notify_waitlist_promoted(*, event_id, user_id):
         f"%A, %d %B %Y at %I:%M %p {local_start.tzname() or user_tz_name}"
     )
 
-    from_email = settings.DEFAULT_FROM_EMAIL or "noreply@biotechfutures.com"
+    from_email = settings.DEFAULT_FROM_EMAIL
     subject = f"You're in: {event.event_name}"
     intro = (
         "A spot just opened up and you've been moved from the waitlist "

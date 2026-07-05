@@ -495,10 +495,11 @@ class PasswordResetAdminRedirectTest(TestCase):
 
 
 class ContactEmailTemplateContextTest(TestCase):
-    """Every transactional email passes a single CONTACT_EMAIL var (= DEFAULT_FROM_EMAIL).
+    """Every transactional email passes a single CONTACT_EMAIL var (= SUPPORT_EMAIL).
 
-    This pins the consolidation: footers and contact mailtos must come from one
-    settings-driven source, not hardcoded in templates or auth_service.
+    This pins the consolidation: contact mailtos must come from one
+    settings-driven source (support@, via brand_context), not hardcoded in
+    templates or auth_service. The sending mailbox (info@) is separate.
     """
 
     def setUp(self):
@@ -522,7 +523,7 @@ class ContactEmailTemplateContextTest(TestCase):
         self.assertTrue(send_login_code(self.user.email))
 
         ctx = mock_render.call_args[0][1]
-        self.assertEqual(ctx["CONTACT_EMAIL"], settings.DEFAULT_FROM_EMAIL)
+        self.assertEqual(ctx["CONTACT_EMAIL"], settings.SUPPORT_EMAIL)
 
     @patch("apps.services.auth_service.render_to_string")
     @patch("apps.services.auth_service.EmailMultiAlternatives")
@@ -536,7 +537,7 @@ class ContactEmailTemplateContextTest(TestCase):
         send_password_reset(self.user.email, ip="127.0.0.1", user_agent="pytest")
 
         ctx = mock_render.call_args[0][1]
-        self.assertEqual(ctx["CONTACT_EMAIL"], settings.DEFAULT_FROM_EMAIL)
+        self.assertEqual(ctx["CONTACT_EMAIL"], settings.SUPPORT_EMAIL)
 
     @patch("apps.services.auth_service.render_to_string")
     @patch("apps.services.auth_service.EmailMultiAlternatives")
@@ -550,7 +551,7 @@ class ContactEmailTemplateContextTest(TestCase):
         _send_password_changed_notification(self.user, ip="127.0.0.1")
 
         ctx = mock_render.call_args[0][1]
-        self.assertEqual(ctx["CONTACT_EMAIL"], settings.DEFAULT_FROM_EMAIL)
+        self.assertEqual(ctx["CONTACT_EMAIL"], settings.SUPPORT_EMAIL)
 
     def test_no_hardcoded_biotech_email_in_email_templates(self):
         """Templates must not hardcode biotech.futures@sydney.edu.au — use {{ CONTACT_EMAIL }}."""

@@ -23,6 +23,10 @@ def brand_context() -> dict:
         "LOGO_URL": f"cid:{LOGO_CID}",
         "BRAND_NAME": getattr(settings, "BRAND_NAME", "BIOTech Futures"),
         "BRAND_CONNECT": getattr(settings, "BRAND_CONNECT", "BIOTech Connect"),
+        # CONTACT_EMAIL: mailbox users write to; SENDER_EMAIL: mailbox we send
+        # from ("add to your address book" copy). Deliberately different.
+        "CONTACT_EMAIL": getattr(settings, "SUPPORT_EMAIL", "support@biotechfutures.org"),
+        "SENDER_EMAIL": getattr(settings, "EMAIL_FROM_ADDRESS", "info@biotechfutures.org"),
     }
 
 

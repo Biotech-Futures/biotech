@@ -56,7 +56,6 @@ def send_login_code(email: str, redirect_url: str = None) -> bool:
         "OTP_CODE": token,
         "EXPIRY_MINUTES": 10,
         "First_Name": user.first_name,
-        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
     })
 
     # Plaintext fallback
@@ -161,7 +160,6 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
         "RESET_PASSWORD_LINK": reset_link,
         "EXPIRY_MINUTES": expiry_minutes,
         "First_Name": user.first_name,
-        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
     }
     try:
         html_content = render_to_string("emails/password_reset.html", ctx)
@@ -206,14 +204,13 @@ def _send_password_changed_notification(user, *, ip: str = None) -> None:
         "First_Name": user.first_name,
         "CHANGED_AT": timezone.now(),
         "REQUEST_IP": ip or "unknown",
-        "CONTACT_EMAIL": settings.DEFAULT_FROM_EMAIL,
     }
     try:
         html_content = render_to_string("emails/password_changed.html", ctx)
         text_content = (
             f"Hi {user.first_name or 'there'},\n\n"
             f"Your {settings.BRAND_NAME} password was just changed.\n"
-            f"If this wasn't you, contact {settings.DEFAULT_FROM_EMAIL} immediately."
+            f"If this wasn't you, contact {settings.SUPPORT_EMAIL} immediately."
         )
         msg = EmailMultiAlternatives(
             subject=f"{settings.BRAND_NAME}: Your password was changed",
