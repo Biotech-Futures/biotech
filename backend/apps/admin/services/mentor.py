@@ -9,6 +9,8 @@ from apps.users.models import User, MentorProfile
 from apps.chat.models import Messages
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.admin.services.user import STATUS_ACTIVE, STATUS_DEACTIVATED
+from apps.audit.services import log_audit_event
 
 
 def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
@@ -157,16 +159,33 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
     return result
 
 
-def set_mentor_active(mentor_id: int, is_active: bool) -> Dict[str, Any]:
+def set_mentor_active(mentor_id: int, is_active: bool, initiated_by=None) -> Optional[Dict[str, Any]]:
     """
     Set a mentor's active status.
-    
+
     Args:
         mentor_id: The user ID of the mentor
         is_active: Whether to activate or deactivate
-        
+
     Returns:
-        Dictionary with mentor_id and is_active status
+        Dictionary with mentor_id and is_active status, or None if the id
+        does not belong to a mentor.
     """
-    User.objects.filter(id=mentor_id).update(is_active=is_active)
+    try:
+        user = User.objects.get(id=mentor_id, mentorprofile__isnull=False)
+    except User.DoesNotExist:
+        return None
+
+    before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
+    user.is_active = is_active
+    user.account_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
+    user.save(update_fields=["is_active", "account_status"])
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="user",
+        entity_id=mentor_id,
+        action="status_change",
+        before_state=before_state,
+        after_state={"isActive": user.is_active, "accountStatus": user.account_status},
+    )
     return {'mentorId': mentor_id, 'isActive': is_active}

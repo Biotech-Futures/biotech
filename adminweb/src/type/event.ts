@@ -25,11 +25,21 @@ export type Event = {
   hostEmail: string | null;
 };
 
+// Mirrors backend EventRsvp.RsvpStatus (meeting-standard PARTSTAT wording).
+export const RSVP_STATUSES = [
+  "pending",
+  "accepted",
+  "tentative",
+  "declined",
+  "waitlisted",
+] as const;
+export type RsvpStatus = (typeof RSVP_STATUSES)[number];
+
 export type EventRsvp = {
   id: number;
   eventId: number;
   userId: number;
-  rsvpStatus: "going" | "maybe" | "declined";
+  rsvpStatus: RsvpStatus;
   respondedAt: string | null;
 };
 
@@ -45,7 +55,8 @@ export type PaginatedResponse<T> = {
     total: number;
     page: number;
     limit: number;
-    hasMore: boolean;
+    // Backend event list emits snake_case here (unlike user/resource/announcement).
+    has_more: boolean;
   };
 };
 

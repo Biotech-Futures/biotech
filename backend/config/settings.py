@@ -173,9 +173,15 @@ REST_FRAMEWORK = {
     },
 }
 
+# Brand naming: BRAND_NAME is the org, BRAND_CONNECT the platform. Pinned in
+# code so they can't drift via env (mirrors adminweb/src/lib/brand.ts and
+# frontend/src/constants/brand.ts).
+BRAND_NAME = "BIOTech Futures"
+BRAND_CONNECT = "BIOTech Connect"
+
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'BIOTech Futures Mentoring Platform API',
-    'DESCRIPTION': 'API Documentation for the New BIOTech Futures Mentoring Platform',
+    'TITLE': f'{BRAND_NAME} Mentoring Platform API',
+    'DESCRIPTION': f'API Documentation for the New {BRAND_NAME} Mentoring Platform',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     # Restrict the generated schema to canonical ``/api/v1/...`` paths. Legacy
@@ -267,11 +273,7 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-# Pinned in code so it can't drift via env; fall back to legacy DEFAULT_FROM_EMAIL during transition.
-BRAND_NAME = "BIOTech Futures"
-# Platform/product label, distinct from the org name above (mirrors frontend brand.ts).
-# Used in account/auth email copy ("Log in to …", "your … account/password").
-BRAND_CONNECT = "BIOTech Connect"
+# Fall back to legacy DEFAULT_FROM_EMAIL during transition.
 _email_from_raw = config(
     "EMAIL_FROM_ADDRESS",
     default=config("DEFAULT_FROM_EMAIL", default="info@biotechfutures.org"),

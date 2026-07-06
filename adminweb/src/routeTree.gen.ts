@@ -25,7 +25,6 @@ import { Route as AuthMentorRouteImport } from './routes/_auth/mentor'
 import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
-import { Route as AuthDemoRouteImport } from './routes/_auth/demo'
 import { Route as AuthAnnouncementRouteImport } from './routes/_auth/announcement'
 
 const SigninRoute = SigninRouteImport.update({
@@ -107,11 +106,6 @@ const AuthEventRoute = AuthEventRouteImport.update({
   path: '/event',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthDemoRoute = AuthDemoRouteImport.update({
-  id: '/demo',
-  path: '/demo',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
 const AuthAnnouncementRoute = AuthAnnouncementRouteImport.update({
   id: '/announcement',
   path: '/announcement',
@@ -124,7 +118,6 @@ export interface FileRoutesByFullPath {
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
   '/announcement': typeof AuthAnnouncementRoute
-  '/demo': typeof AuthDemoRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
@@ -142,7 +135,6 @@ export interface FileRoutesByTo {
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
   '/announcement': typeof AuthAnnouncementRoute
-  '/demo': typeof AuthDemoRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
   '/matching': typeof AuthMatchingRoute
@@ -163,7 +155,6 @@ export interface FileRoutesById {
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
   '/_auth/announcement': typeof AuthAnnouncementRoute
-  '/_auth/demo': typeof AuthDemoRoute
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
   '/_auth/matching': typeof AuthMatchingRoute
@@ -185,7 +176,6 @@ export interface FileRouteTypes {
     | '/setup-password'
     | '/signin'
     | '/announcement'
-    | '/demo'
     | '/event'
     | '/group'
     | '/matching'
@@ -203,7 +193,6 @@ export interface FileRouteTypes {
     | '/setup-password'
     | '/signin'
     | '/announcement'
-    | '/demo'
     | '/event'
     | '/group'
     | '/matching'
@@ -223,7 +212,6 @@ export interface FileRouteTypes {
     | '/setup-password'
     | '/signin'
     | '/_auth/announcement'
-    | '/_auth/demo'
     | '/_auth/event'
     | '/_auth/group'
     | '/_auth/matching'
@@ -360,13 +348,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthEventRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/demo': {
-      id: '/_auth/demo'
-      path: '/demo'
-      fullPath: '/demo'
-      preLoaderRoute: typeof AuthDemoRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
     '/_auth/announcement': {
       id: '/_auth/announcement'
       path: '/announcement'
@@ -379,7 +360,6 @@ declare module '@tanstack/react-router' {
 
 interface AuthRouteRouteChildren {
   AuthAnnouncementRoute: typeof AuthAnnouncementRoute
-  AuthDemoRoute: typeof AuthDemoRoute
   AuthEventRoute: typeof AuthEventRoute
   AuthGroupRoute: typeof AuthGroupRoute
   AuthMatchingRoute: typeof AuthMatchingRoute
@@ -395,7 +375,6 @@ interface AuthRouteRouteChildren {
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthAnnouncementRoute: AuthAnnouncementRoute,
-  AuthDemoRoute: AuthDemoRoute,
   AuthEventRoute: AuthEventRoute,
   AuthGroupRoute: AuthGroupRoute,
   AuthMatchingRoute: AuthMatchingRoute,

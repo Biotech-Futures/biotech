@@ -57,9 +57,10 @@ export const updateEventSchema = z
     },
   );
 
+// Admin-settable statuses; "pending"/"waitlisted" are system-managed.
 export const createEventRsvpSchema = z.object({
   userId: z.number().int().positive(),
-  rsvpStatus: z.enum(["going", "maybe", "declined"]),
+  rsvpStatus: z.enum(["accepted", "tentative", "declined"]),
 });
 
 export type CreateEventInput = z.input<typeof createEventSchema>;
