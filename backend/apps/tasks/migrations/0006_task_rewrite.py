@@ -15,6 +15,35 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Constraints/indexes referencing the fields below must go first: on
+        # SQLite, RemoveField rebuilds the table and re-renders them, crashing
+        # on the missing field (Postgres DROP COLUMN cascades them silently,
+        # which is why this originally applied). The models are deleted a few
+        # ops later, so end state is unchanged for already-migrated databases.
+        migrations.RemoveConstraint(
+            model_name='taskassignees',
+            name='unique_task_user',
+        ),
+        migrations.RemoveIndex(
+            model_name='taskassignees',
+            name='task_assign_task_id_39473c_idx',
+        ),
+        migrations.RemoveIndex(
+            model_name='taskassignees',
+            name='task_assign_user_id_504562_idx',
+        ),
+        migrations.RemoveIndex(
+            model_name='taskassignees',
+            name='ta_active_by_task',
+        ),
+        migrations.RemoveIndex(
+            model_name='taskassignees',
+            name='ta_active_by_user',
+        ),
+        migrations.RemoveIndex(
+            model_name='tasks',
+            name='tasks_milesto_5735eb_idx',
+        ),
         migrations.RemoveField(
             model_name='tasks',
             name='milestone',
