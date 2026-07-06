@@ -48,6 +48,7 @@ staticfiles/
 /media/
 test_coverage_report.html
 backend/config/settings_local.py
+backend/config/settings_uitest.py
 backend/.venv/
 backend/media/
 /.claude

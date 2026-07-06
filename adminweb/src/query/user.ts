@@ -57,6 +57,13 @@ type UpdateStatusPayload = {
   isActive: boolean;
 };
 
+type BulkStatusResult = {
+  updatedIds: number[];
+  unchangedIds: number[];
+  notFoundIds: number[];
+  skippedSelf: boolean;
+};
+
 type MutationResponse<T> = {
   msg: string;
   data: T;
@@ -215,6 +222,26 @@ export function useUpdateUserStatus() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["user", id] });
+    },
+  });
+}
+
+export function useBulkUpdateUserStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: { ids: string[]; isActive: boolean }) => {
+      const res = await myFetch.patch<MutationResponse<BulkStatusResult | null>>(
+        "/user/bulk-status",
+        { userIds: payload.ids.map(Number), isActive: payload.isActive },
+      );
+      return res.data;
+    },
+    onSuccess: (_, { ids }) => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      for (const id of ids) {
+        queryClient.invalidateQueries({ queryKey: ["user", id] });
+      }
     },
   });
 }

@@ -1377,6 +1377,69 @@ def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str,
     }
 
 
+def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) -> Dict[str, Any]:
+    """
+    Activate or deactivate multiple user accounts in one call.
+    """
+    try:
+        ids = list(dict.fromkeys(int(uid) for uid in user_ids))
+    except (TypeError, ValueError):
+        return {"msg": "userIds must be a list of integer ids", "data": None}
+    if not ids:
+        return {"msg": "userIds must be a non-empty list", "data": None}
+
+    # Guard against an admin sweeping their own account into a bulk deactivate
+    skipped_self = False
+    if not is_active and initiated_by is not None and initiated_by.id in ids:
+        ids.remove(initiated_by.id)
+        skipped_self = True
+
+    users = User.objects.filter(id__in=ids)
+    found_ids = {user.id for user in users}
+    not_found_ids = [uid for uid in ids if uid not in found_ids]
+
+    next_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
+    updated_ids: List[int] = []
+    unchanged_ids: List[int] = []
+    with transaction.atomic():
+        for user in users:
+            if user.is_active == is_active and user.account_status == next_status:
+                unchanged_ids.append(user.id)
+                continue
+            before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
+            user.is_active = is_active
+            user.account_status = next_status
+            user.save()
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="user",
+                entity_id=user.id,
+                action="status_change",
+                before_state=before_state,
+                after_state={"isActive": user.is_active, "accountStatus": user.account_status},
+            )
+            updated_ids.append(user.id)
+
+    status_text = "activated" if is_active else "deactivated"
+    msg_parts = [f"{len(updated_ids)} user(s) {status_text}"]
+    if unchanged_ids:
+        msg_parts.append(f"{len(unchanged_ids)} already {status_text}")
+    if skipped_self:
+        msg_parts.append("your own account was skipped")
+    if not_found_ids:
+        msg_parts.append(f"{len(not_found_ids)} not found")
+
+    return {
+        "msg": "; ".join(msg_parts),
+        "data": {
+            "updatedIds": updated_ids,
+            "unchangedIds": unchanged_ids,
+            "notFoundIds": not_found_ids,
+            "skippedSelf": skipped_self,
+        },
+    }
+
+
 def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
     """
     Delete a user and all related data.

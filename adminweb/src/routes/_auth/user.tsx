@@ -5,12 +5,23 @@ import { PlusIcon, UploadIcon } from "lucide-react";
 import {
   useQueryTracks,
   useBulkCreateUsers,
+  useBulkUpdateUserStatus,
   useCreateUser,
   useDeleteUser,
   useQueryUsers,
   useUpdateUser,
   useUpdateUserStatus,
 } from "@/query/user";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   USER_ROLES,
   type CsvUserRow,
@@ -20,6 +31,7 @@ import {
   type UserTrack,
 } from "@/type/user";
 import { UserFilters } from "@/components/user/UserFilters";
+import { UserBulkActionsBar } from "@/components/user/UserBulkActionsBar";
 import { UserTable, type UserSortKey } from "@/components/user/UserTable";
 import { UserEditorSheet } from "@/components/user/UserEditorSheet";
 import { UserBulkUploadSheet } from "@/components/user/UserBulkUploadSheet";
@@ -128,6 +140,13 @@ function UserManagementPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Snapshot the count when the dialog opens so its copy stays stable while
+  // the selection is cleared and the dialog animates out.
+  const [bulkAction, setBulkAction] = useState<{
+    action: "activate" | "deactivate";
+    count: number;
+  } | null>(null);
 
   const { data, isPending } = useQueryUsers({
     page,
@@ -148,6 +167,7 @@ function UserManagementPage() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const updateUserStatus = useUpdateUserStatus();
+  const bulkUpdateUserStatus = useBulkUpdateUserStatus();
   const deleteUser = useDeleteUser();
   const bulkCreateUsers = useBulkCreateUsers();
 
@@ -160,6 +180,7 @@ function UserManagementPage() {
       sort: SortOption;
     }>,
   ) => {
+    setSelectedIds(new Set());
     void navigate({
       to: "/user",
       search: () =>
@@ -341,6 +362,29 @@ function UserManagementPage() {
     }
   };
 
+  const handleBulkStatusConfirm = async () => {
+    if (!bulkAction || selectedIds.size === 0) return;
+
+    try {
+      const response = await bulkUpdateUserStatus.mutateAsync({
+        ids: [...selectedIds],
+        isActive: bulkAction.action === "activate",
+      });
+
+      if (!response.data) {
+        toast.error(response.msg || "Unable to update account statuses.");
+        return;
+      }
+
+      toast.success(response.msg);
+      setSelectedIds(new Set());
+    } catch {
+      toast.error("Unable to update account statuses right now.");
+    } finally {
+      setBulkAction(null);
+    }
+  };
+
   const handleDeleteUser = async (user: UserAccount) => {
     const confirmed = window.confirm(
       `Delete user "${user.name}"? This cannot be undone.`,
@@ -443,6 +487,20 @@ function UserManagementPage() {
         />
       </div>
 
+      {selectedIds.size > 0 && (
+        <UserBulkActionsBar
+          count={selectedIds.size}
+          onActivate={() =>
+            setBulkAction({ action: "activate", count: selectedIds.size })
+          }
+          onDeactivate={() =>
+            setBulkAction({ action: "deactivate", count: selectedIds.size })
+          }
+          onClear={() => setSelectedIds(new Set())}
+          isPending={bulkUpdateUserStatus.isPending}
+        />
+      )}
+
       <UserTable
         data={pageItems}
         page={page}
@@ -457,15 +515,56 @@ function UserManagementPage() {
         onView={openDetail}
         onEdit={openEdit}
         onToggleActive={handleToggleActive}
+        selectedIds={selectedIds}
+        onSelectionChange={setSelectedIds}
         isPending={
           isPending ||
           createUser.isPending ||
           updateUser.isPending ||
           updateUserStatus.isPending ||
+          bulkUpdateUserStatus.isPending ||
           deleteUser.isPending ||
           bulkCreateUsers.isPending
         }
       />
+
+      <AlertDialog
+        open={bulkAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setBulkAction(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkAction?.action === "activate" ? "Activate" : "Deactivate"}{" "}
+              {bulkAction?.count} {bulkAction?.count === 1 ? "user" : "users"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkAction?.action === "activate"
+                ? "The selected users will be able to sign in again."
+                : "The selected users will no longer be able to sign in. You can reactivate them at any time."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkUpdateUserStatus.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant={
+                bulkAction?.action === "activate" ? "default" : "destructive"
+              }
+              disabled={bulkUpdateUserStatus.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkStatusConfirm();
+              }}
+            >
+              {bulkAction?.action === "activate" ? "Activate" : "Deactivate"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <UserEditorSheet
         open={editorOpen}
