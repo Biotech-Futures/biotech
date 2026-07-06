@@ -10,6 +10,7 @@ from apps.groups.models import Groups, Tracks
 from apps.resources.models import Roles
 from apps.users.models import User
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.audit.services import log_audit_event
 
 
 # Type definitions
@@ -471,32 +472,45 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
 
 
 @transaction.atomic
-def delete_event(id_str: str) -> EventResponseDict:
+def delete_event(id_str: str, initiated_by=None) -> EventResponseDict:
     """
     Soft delete an event by setting deleted_at timestamp.
-    
+
     Args:
         id_str: Event ID as string
-        
+
     Returns:
         Dictionary with deleted event or error message
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
+
     try:
         event = Events.objects.get(id=event_id)
     except Events.DoesNotExist:
         return {"msg": "Event not found", "data": None}
-    
+
+    # RSVPs are hard-deleted below, so record how many went with the event.
+    before_state = {
+        **_event_model_to_camel(event),
+        "rsvpCount": EventRsvp.objects.filter(event_id=event_id).count(),
+    }
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="event",
+        entity_id=event_id,
+        action="delete",
+        before_state=before_state,
+    )
+
     # Delete associated RSVPs
     EventRsvp.objects.filter(event_id=event_id).delete()
-    
+
     # Soft delete the event
     event.deleted_at = timezone.now()
     event.save()
-    
+
     return {"msg": "Event deleted successfully", "data": _event_model_to_camel(event)}
 
 
@@ -552,12 +566,16 @@ def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
 
+    rsvp_status = data.get("rsvpStatus") or data.get("rsvp_status")
+    if rsvp_status not in EventRsvp.RsvpStatus.values:
+        return {"msg": f"Invalid RSVP status: {rsvp_status}", "data": None}
+
     responded_at = timezone.now()
 
     rsvp = EventRsvp.objects.create(
         event_id=event_id,
         user_id=data.get("userId") or data.get("user_id"),
-        rsvp_status=data.get("rsvpStatus") or data.get("rsvp_status"),
+        rsvp_status=rsvp_status,
         responded_at=responded_at,
     )
 
@@ -589,9 +607,13 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
     if not rsvp_id:
         return {"msg": "Invalid RSVP id", "data": None}
 
+    rsvp_status = data.get("rsvpStatus") or data.get("rsvp_status")
+    if rsvp_status not in EventRsvp.RsvpStatus.values:
+        return {"msg": f"Invalid RSVP status: {rsvp_status}", "data": None}
+
     try:
         rsvp = EventRsvp.objects.get(id=rsvp_id)
-        rsvp.rsvp_status = data.get("rsvpStatus") or data.get("rsvp_status")
+        rsvp.rsvp_status = rsvp_status
         rsvp.save()
         return {
             "msg": "Event RSVP updated successfully",

@@ -55,7 +55,13 @@ class AnnouncementViewSet(
             Q(valid_to__isnull=True) | Q(valid_to__gte=now)
         ).values_list("role_id", flat=True)
 
-        audience_filter = Q(author_user=user) | Q(visibility_scope=Announcement.VisibilityScope.PUBLIC)
+        # The admin API writes "global" for org-wide announcements; treat it as public.
+        audience_filter = Q(author_user=user) | Q(
+            visibility_scope__in=[
+                Announcement.VisibilityScope.PUBLIC,
+                Announcement.VisibilityScope.GLOBAL,
+            ]
+        )
         if role_ids:
             audience_filter |= Q(audiences__role_id__in=role_ids)
         if user.track_id:

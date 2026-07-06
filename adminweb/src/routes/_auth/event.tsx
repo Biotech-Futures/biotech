@@ -72,6 +72,7 @@ import {
 import { useQueryUsers } from "@/query/user";
 import type { Event, EventFormat, EventRsvp } from "@/type/event";
 import { EVENT_FORMAT_LABELS } from "@/type/event";
+import { BRAND_NAME } from "@/lib/brand";
 import { useAuthContext } from "@/provider/AuthProvider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute } from "@tanstack/react-router";
@@ -104,9 +105,11 @@ const RSVP_STATUS_LABELS: Record<
   string,
   { label: string; variant: "default" | "outline" | "secondary" }
 > = {
-  going: { label: "Going", variant: "default" },
-  maybe: { label: "Maybe", variant: "secondary" },
+  pending: { label: "Pending", variant: "secondary" },
+  accepted: { label: "Accepted", variant: "default" },
+  tentative: { label: "Tentative", variant: "secondary" },
   declined: { label: "Declined", variant: "outline" },
+  waitlisted: { label: "Waitlisted", variant: "outline" },
 };
 
 type EventSortKey = "id" | "name" | "host" | "location" | "start" | "end";
@@ -1277,7 +1280,7 @@ function EventPage() {
           <DialogHeader>
             <DialogTitle>Create Event</DialogTitle>
             <DialogDescription>
-              Add an event to the BIOTech Futures program calendar.
+              Add an event to the {BRAND_NAME} program calendar.
             </DialogDescription>
           </DialogHeader>
           <EventForm

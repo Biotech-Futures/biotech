@@ -19,6 +19,7 @@ from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks
 from apps.users.models import User
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.audit.services import log_audit_event
 from apps.services.email_branding import attach_inline_logo, brand_context
 
 if TYPE_CHECKING:
@@ -565,7 +566,8 @@ def archive_announcement(announcement_id: int) -> AnnouncementResponseDict:
     return {"msg": "Announcement archived successfully", "data": row}
 
 
-def delete_announcement(announcement_id: int) -> AnnouncementResponseDict:
+@transaction.atomic
+def delete_announcement(announcement_id: int, initiated_by=None) -> AnnouncementResponseDict:
     """
     Permanently delete an announcement (hard delete).
 
@@ -576,6 +578,17 @@ def delete_announcement(announcement_id: int) -> AnnouncementResponseDict:
     existing = _fetch_announcement(announcement_id)
     if not existing:
         return {"msg": "Announcement not found", "data": None}
+    # The cascade erases the delivery history, so snapshot it into the audit log.
+    delivery_count = AnnouncementDelivery.objects.filter(
+        announcement_id=announcement_id
+    ).count()
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="announcement",
+        entity_id=announcement_id,
+        action="delete",
+        before_state={**existing, "deliveryCount": delivery_count},
+    )
     Announcement.objects.filter(id=announcement_id).delete()
     return {"msg": "Announcement deleted successfully", "data": existing}
 
@@ -768,7 +781,7 @@ def send_announcement_email(
     excerpt = _build_excerpt(row.get("body", ""))
     platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
     detail_url = f"{platform_url}/#/announcements/{announcement_id}"
-    subject = f"[BIOTech] {row.get('title')}"
+    subject = f"[{settings.BRAND_NAME}] {row.get('title')}"
     text_body = (
         f"{row.get('title')}\n\n{excerpt}\n\n"
         f"View on the platform: {detail_url}"

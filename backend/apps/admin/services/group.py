@@ -11,6 +11,7 @@ from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.audit.services import log_audit_event
 
 
 # Type definitions
@@ -512,7 +513,7 @@ def update_group(group_id: str, name: Optional[str] = None, track: Optional[str]
 
 
 @transaction.atomic
-def remove_group_member(group_id: str, user_id: int) -> dict:
+def remove_group_member(group_id: str, user_id: int, initiated_by=None) -> dict:
     """
     Remove a student member from a group.
     
@@ -546,6 +547,13 @@ def remove_group_member(group_id: str, user_id: int) -> dict:
     except GroupMembership.DoesNotExist:
         return {"msg": "Group member not found", "data": None}
     
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="group",
+        entity_id=gid,
+        action="remove_members",
+        before_state={"userIds": [user_id]},
+    )
     # Delete the membership
     membership.delete()
     
@@ -562,7 +570,7 @@ def remove_group_member(group_id: str, user_id: int) -> dict:
 
 
 @transaction.atomic
-def remove_group_message(group_id: str, message_id: int) -> dict:
+def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> dict:
     """
     Soft-delete a message from a group.
     
@@ -590,10 +598,27 @@ def remove_group_message(group_id: str, message_id: int) -> dict:
     except Messages.DoesNotExist:
         return {"msg": "Group message not found", "data": None}
     
+    before_state = {
+        "id": message.id,
+        "groupId": message.group_id,
+        "senderUserId": message.sender_user_id,
+        "messageText": message.message_text,
+        "sentAt": message.sent_at.isoformat() if message.sent_at else None,
+    }
+
     # Soft delete
     message.deleted_at = timezone.now()
-    message.save(update_fields=["deleted_at"])
-    
+    message.deleted_by = initiated_by
+    message.save(update_fields=["deleted_at", "deleted_by"])
+
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="message",
+        entity_id=message.id,
+        action="delete",
+        before_state=before_state,
+    )
+
     return {
         "msg": "Group message removed successfully",
         "data": {

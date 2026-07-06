@@ -10,6 +10,11 @@ class Announcement(models.Model):
         ROLE = "role", "Role"
         TRACK = "track", "Track"
         SCOPED = "scoped", "Scoped"
+        # Tokens written by the admin API (apps.admin.services.announcement).
+        GLOBAL = "global", "Global"
+        TRACK_BASED = "track_based", "Track based"
+        ROLE_BASED = "role_based", "Role based"
+        TRACK_ROLE_BASED = "track_role_based", "Track and role based"
 
     author_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)

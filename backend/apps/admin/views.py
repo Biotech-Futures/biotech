@@ -107,13 +107,13 @@ class UserDetailView(APIView):
         return Response(result, status=code)
 
     def put(self, request, user_id):
-        result = update_user(int(user_id), request.data)
+        result = update_user(int(user_id), request.data, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
     def delete(self, request, user_id):
-        result = delete_user(int(user_id))
+        result = delete_user(int(user_id), initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "msg") == "User deleted successfully" else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -129,7 +129,7 @@ class UserStatusUpdateView(APIView):
                 {"msg": "isActive field is required", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = update_status(int(user_id), is_active)
+        result = update_status(int(user_id), is_active, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -242,7 +242,7 @@ class GroupMessageDetailView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def delete(self, request, group_id, message_id):
-        result = remove_group_message(group_id, int(message_id))
+        result = remove_group_message(group_id, int(message_id), initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -253,7 +253,7 @@ class GroupMemberRemoveView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def delete(self, request, group_id, user_id):
-        result = remove_group_member(group_id, int(user_id))
+        result = remove_group_member(group_id, int(user_id), initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -389,7 +389,7 @@ class EventDetailView(APIView):
     """DELETE /api/v1/event/{id} - Delete event"""
 
     def delete(self, request, event_id):
-        result = delete_event(event_id)
+        result = delete_event(event_id, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -538,7 +538,7 @@ class ResourceDetailView(APIView):
     """DELETE /api/v1/resource/{id} - Delete resource"""
 
     def delete(self, request, resource_id):
-        result = delete_resource(resource_id)
+        result = delete_resource(resource_id, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "msg") == "Resource deleted successfully" else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -751,7 +751,7 @@ class AnnouncementDetailView(APIView):
     """DELETE /api/v1/announcement/{id} - Permanently delete announcement"""
 
     def delete(self, request, announcement_id):
-        result = delete_announcement(announcement_id)
+        result = delete_announcement(announcement_id, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -841,7 +841,12 @@ class MentorActiveStatusUpdateView(APIView):
                 {"msg": "isActive field is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = set_mentor_active(mentor_id, is_active)
+        result = set_mentor_active(mentor_id, is_active, initiated_by=request.user)
+        if result is None:
+            return Response(
+                {"msg": "Mentor not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         return Response({"msg": "Mentor status updated successfully", "data": result})
 
 
@@ -1000,7 +1005,7 @@ class AdminTaskToggleView(APIView):
 # ============================================================================
 class AdminPasswordStatusView(APIView):
     """GET /api/v1/admin/auth/password-status/ — check if user has a usable password."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
         return Response({
@@ -1011,7 +1016,7 @@ class AdminPasswordStatusView(APIView):
 
 class AdminSetPasswordView(APIView):
     """POST /api/v1/admin/auth/set-password/ — set password for first-time admin."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
         if request.user.has_usable_password():

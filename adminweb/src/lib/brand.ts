@@ -1,4 +1,6 @@
-// Single source of truth for the product brand name. Reference these instead of
-// hardcoding so a rename is a one-line change.
-export const BRAND_NAME = "BIOTech Connect";
+// Single source of truth for brand naming. BRAND_NAME is the org, BRAND_CONNECT
+// the platform — same convention as the backend (config/settings.py) and the
+// Vue app (src/constants/brand.ts). Reference these instead of hardcoding.
+export const BRAND_NAME = "BIOTech Futures";
+export const BRAND_CONNECT = "BIOTech Connect";
 export const BRAND_TAGLINE = "Mentoring Portal";

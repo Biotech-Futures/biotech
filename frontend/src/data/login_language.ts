@@ -1,4 +1,4 @@
-import { BRAND_CONNECT } from '@/constants/brand'
+import { BRAND_CONNECT, BRAND_NAME } from '@/constants/brand'
 
 export const LOGIN_LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
@@ -45,7 +45,7 @@ export const LOGIN_MESSAGES = {
     codeExpiryHint: 'Codes are single-use and expire after a short time.',
     needHelp: 'Need help?',
     contactSupport: 'Contact support',
-    aboutTitle: 'Welcome to the BIOTech Futures Mentoring Portal',
+    aboutTitle: `Welcome to the ${BRAND_NAME} Mentoring Portal`,
     aboutP1: 'This platform helps students, mentors, supervisors, and administrators stay connected throughout the mentoring program.',
     aboutLi1: 'Access group communication and shared resources',
     aboutLi2: 'Track tasks, updates, and mentoring progress',
@@ -141,7 +141,7 @@ export const LOGIN_MESSAGES = {
     codeExpiryHint: '验证码仅可使用一次，并会在短时间后失效。',
     needHelp: '需要帮助？',
     contactSupport: '联系支持',
-    aboutTitle: '欢迎来到 BIOTech Futures 导师平台',
+    aboutTitle: `欢迎来到 ${BRAND_NAME} 导师平台`,
     aboutP1: '该平台帮助学生、导师、监督老师和管理员在整个导师项目中保持连接。',
     aboutLi1: '访问小组沟通与共享资源',
     aboutLi2: '追踪里程碑、更新与辅导进展',
@@ -233,7 +233,7 @@ export const LOGIN_MESSAGES = {
     codeExpiryHint: 'コードは一度だけ使用でき、短時間で失効します。',
     needHelp: 'お困りですか？',
     contactSupport: 'サポートに連絡',
-    aboutTitle: 'BIOTech Futures メンタリングポータルへようこそ',
+    aboutTitle: `${BRAND_NAME} メンタリングポータルへようこそ`,
     aboutP1: 'このプラットフォームは、学生、メンター、スーパーバイザー、管理者がプログラム全体を通してつながることを支援します。',
     aboutLi1: 'グループ連絡と共有リソースにアクセス',
     aboutLi2: 'マイルストーン、更新、進捗を追跡',
@@ -325,7 +325,7 @@ export const LOGIN_MESSAGES = {
     codeExpiryHint: '코드는 1회용이며 짧은 시간 후 만료됩니다.',
     needHelp: '도움이 필요하신가요?',
     contactSupport: '지원 문의',
-    aboutTitle: 'BIOTech Futures 멘토링 포털에 오신 것을 환영합니다',
+    aboutTitle: `${BRAND_NAME} 멘토링 포털에 오신 것을 환영합니다`,
     aboutP1: '이 플랫폼은 학생, 멘토, 슈퍼바이저, 관리자가 멘토링 프로그램 전반에서 연결되도록 돕습니다.',
     aboutLi1: '그룹 소통 및 공유 자료 접근',
     aboutLi2: '마일스톤, 업데이트, 멘토링 진행 추적',
@@ -417,7 +417,7 @@ export const LOGIN_MESSAGES = {
     codeExpiryHint: 'الرموز للاستخدام مرة واحدة وتنتهي صلاحيتها بعد وقت قصير.',
     needHelp: 'هل تحتاج إلى مساعدة؟',
     contactSupport: 'التواصل مع الدعم',
-    aboutTitle: 'مرحبًا بك في بوابة BIOTech Futures للإرشاد',
+    aboutTitle: `مرحبًا بك في بوابة ${BRAND_NAME} للإرشاد`,
     aboutP1: 'تساعد هذه المنصة الطلاب والمرشدين والمشرفين والمسؤولين على البقاء متصلين طوال برنامج الإرشاد.',
     aboutLi1: 'الوصول إلى تواصل المجموعات والموارد المشتركة',
     aboutLi2: 'متابعة المراحل والتحديثات وتقدم الإرشاد',

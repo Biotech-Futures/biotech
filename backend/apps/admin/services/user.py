@@ -16,6 +16,7 @@ from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Groups, GroupMembership
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.audit.services import log_audit_event
 
 
 # ============================================================================
@@ -1105,7 +1106,7 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
     }
 
 
-def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
+def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> Dict[str, Any]:
     """
     Update user information and role.
     """
@@ -1206,6 +1207,13 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
                 "data": None,
             }
     
+    role_changed = "role" in input_data and input_data["role"] != current_role
+    scope_changed = (
+        ("adminTracks" in input_data or "adminIsGlobal" in input_data)
+        and next_role == "admin"
+    )
+    before_user = fetch_user_by_id(user_id) if (role_changed or scope_changed) else None
+
     # Handle track update
     if "track" in input_data:
         if next_role == "admin":
@@ -1326,10 +1334,19 @@ def update_user(user_id: int, input_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Fetch updated user
     updated_user = fetch_user_by_id(user_id)
+    if role_changed or scope_changed:
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="user",
+            entity_id=user_id,
+            action="role_change",
+            before_state=before_user,
+            after_state=updated_user,
+        )
     return {"msg": "User updated successfully", "data": updated_user}
 
 
-def update_status(user_id: int, is_active: bool) -> Dict[str, Any]:
+def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str, Any]:
     """
     Activate or deactivate a user account.
     """
@@ -1337,21 +1354,30 @@ def update_status(user_id: int, is_active: bool) -> Dict[str, Any]:
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return {"msg": "User not found", "data": None}
-    
+
+    before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
     user.is_active = is_active
     user.account_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
     user.save()
-    
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="user",
+        entity_id=user_id,
+        action="status_change",
+        before_state=before_state,
+        after_state={"isActive": user.is_active, "accountStatus": user.account_status},
+    )
+
     updated_user = fetch_user_by_id(user_id)
     status_text = "activated" if is_active else "deactivated"
-    
+
     return {
         "msg": f"User {status_text} successfully",
         "data": updated_user
     }
 
 
-def delete_user(user_id: int) -> Dict[str, Any]:
+def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
     """
     Delete a user and all related data.
     """
@@ -1360,7 +1386,15 @@ def delete_user(user_id: int) -> Dict[str, Any]:
     except User.DoesNotExist:
         return {"msg": "User not found", "data": None}
 
+    before_user = fetch_user_by_id(user_id)
     with transaction.atomic():
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="user",
+            entity_id=user_id,
+            action="delete",
+            before_state=before_user,
+        )
         RoleAssignmentHistory.objects.filter(user_id=user_id).delete()
         UserInterest.objects.filter(user_id=user_id).delete()
         MentorProfile.objects.filter(user_id=user_id).delete()

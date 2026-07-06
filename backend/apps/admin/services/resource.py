@@ -23,6 +23,7 @@ from azure_blob_utils import (
 )
 from azure.storage.blob import BlobServiceClient
 from apps.admin.scope_utils import get_admin_track_ids
+from apps.audit.services import log_audit_event
 
 
 # Constants
@@ -1027,16 +1028,23 @@ def update_resource(
 
 
 @transaction.atomic
-def delete_resource(resource_id: int) -> Dict[str, Any]:
+def delete_resource(resource_id: int, initiated_by=None) -> Dict[str, Any]:
     """Soft delete resource."""
     existing = query_resource_by_id(resource_id)
     if not existing.get('data'):
         return {'msg': 'Resource not found', 'data': None}
-    
+
     resource = Resources.objects.get(id=resource_id)
     resource.deleted_at = timezone.now()
     resource.save()
-    
+    log_audit_event(
+        actor=initiated_by,
+        entity_type="resource",
+        entity_id=resource_id,
+        action="soft_delete",
+        before_state=existing.get('data'),
+    )
+
     return {
         'msg': 'Resource deleted successfully',
         'data': None,
