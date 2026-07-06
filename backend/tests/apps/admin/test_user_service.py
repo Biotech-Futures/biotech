@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_tracks,
-    create_user, update_user, update_status, delete_user,
+    create_user, update_user, update_status, bulk_update_status, delete_user,
     has_ungrouped_students,
 )
 from apps.admin.scope_utils import get_admin_track_ids
@@ -387,6 +387,102 @@ class AdminUserServiceStatusTests(TestCase):
     def test_delete_nonexistent_user(self):
         result = delete_user(9999)
         self.assertEqual(result["msg"], "User not found")
+
+
+class AdminUserServiceBulkStatusTests(TestCase):
+    def setUp(self):
+        country = Countries.objects.create(country_name="Australia")
+        state = CountryStates.objects.create(country=country, state_name="NSW")
+        track = Tracks.objects.create(track_name="AUS-NSW", state=state)
+        self.users = [
+            User.objects.create_user(
+                email=f"bulk{i}@example.com", first_name=f"Bulk{i}", last_name="User",
+                track=track, password="testpass", is_active=True,
+            )
+            for i in range(3)
+        ]
+        self.admin_user = User.objects.create_user(
+            email="bulkadmin@example.com", first_name="Ada", last_name="Admin",
+            password="testpass",
+        )
+        AdminScope.objects.create(user=self.admin_user, is_global=True)
+
+    def test_bulk_deactivate_updates_all(self):
+        ids = [u.id for u in self.users]
+        result = bulk_update_status(ids, False, initiated_by=self.admin_user)
+
+        self.assertEqual(sorted(result["data"]["updatedIds"]), sorted(ids))
+        self.assertIn("3 user(s) deactivated", result["msg"])
+        for user in self.users:
+            user.refresh_from_db()
+            self.assertFalse(user.is_active)
+            self.assertEqual(user.account_status, "deactivated")
+
+    def test_bulk_activate_reports_unchanged(self):
+        self.users[0].is_active = False
+        self.users[0].account_status = "deactivated"
+        self.users[0].save()
+        ids = [u.id for u in self.users]
+
+        result = bulk_update_status(ids, True, initiated_by=self.admin_user)
+
+        self.assertEqual(result["data"]["updatedIds"], [self.users[0].id])
+        self.assertEqual(
+            sorted(result["data"]["unchangedIds"]),
+            sorted([self.users[1].id, self.users[2].id]),
+        )
+        self.users[0].refresh_from_db()
+        self.assertTrue(self.users[0].is_active)
+
+    def test_bulk_deactivate_skips_initiator(self):
+        ids = [self.users[0].id, self.admin_user.id]
+        result = bulk_update_status(ids, False, initiated_by=self.admin_user)
+
+        self.assertTrue(result["data"]["skippedSelf"])
+        self.assertEqual(result["data"]["updatedIds"], [self.users[0].id])
+        self.admin_user.refresh_from_db()
+        self.assertTrue(self.admin_user.is_active)
+
+    def test_bulk_status_reports_missing_ids(self):
+        result = bulk_update_status([self.users[0].id, 99999], False)
+
+        self.assertEqual(result["data"]["updatedIds"], [self.users[0].id])
+        self.assertEqual(result["data"]["notFoundIds"], [99999])
+        self.assertIn("1 not found", result["msg"])
+
+    def test_bulk_status_rejects_empty_list(self):
+        result = bulk_update_status([], False)
+        self.assertIsNone(result["data"])
+
+    def test_bulk_status_rejects_non_integer_ids(self):
+        result = bulk_update_status(["abc"], False)
+        self.assertIsNone(result["data"])
+
+    def test_bulk_status_endpoint(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+        ids = [u.id for u in self.users]
+
+        response = client.patch(
+            "/api/v1/admin/user/bulk-status/",
+            {"userIds": ids, "isActive": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(response.data["data"]["updatedIds"]), sorted(ids))
+
+    def test_bulk_status_endpoint_requires_user_ids(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+
+        response = client.patch(
+            "/api/v1/admin/user/bulk-status/",
+            {"isActive": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class AdminUserServiceQueryTests(TestCase):

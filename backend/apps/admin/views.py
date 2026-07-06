@@ -10,8 +10,8 @@ from apps.admin.permissions import IsAdminScoped
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_tracks,
-    create_user, bulk_create_users, update_user, update_status, delete_user,
-    has_ungrouped_students,
+    create_user, bulk_create_users, update_user, update_status,
+    bulk_update_status, delete_user, has_ungrouped_students,
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages,
@@ -132,6 +132,29 @@ class UserStatusUpdateView(APIView):
         result = update_status(int(user_id), is_active, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class UserBulkStatusUpdateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def patch(self, request):
+        user_ids = request.data.get("userIds")
+        is_active = request.data.get("isActive")
+        if not isinstance(user_ids, list) or not user_ids:
+            return Response(
+                {"msg": "userIds must be a non-empty array", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if is_active is None:
+            return Response(
+                {"msg": "isActive field is required", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = bulk_update_status(
+            user_ids, bool(is_active), initiated_by=request.user)
+        code = status.HTTP_200_OK if result.get(
+            "data") is not None else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 

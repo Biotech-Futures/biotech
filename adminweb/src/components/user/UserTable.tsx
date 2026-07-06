@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   SortableTableHead,
   type SortState,
@@ -24,6 +25,8 @@ interface UserTableProps {
   onView: (user: UserAccount) => void;
   onEdit: (user: UserAccount) => void;
   onToggleActive: (user: UserAccount) => void;
+  selectedIds: Set<string>;
+  onSelectionChange: (ids: Set<string>) => void;
   sortState: SortState<UserSortKey>;
   onSortChange: (sortState: SortState<UserSortKey>) => void;
   isPending?: boolean;
@@ -37,16 +40,55 @@ export function UserTable({
   onView,
   onEdit,
   onToggleActive,
+  selectedIds,
+  onSelectionChange,
   sortState,
   onSortChange,
   isPending,
 }: UserTableProps) {
+  const pageIds = data.map((user) => user.id);
+  const selectedOnPage = pageIds.filter((id) => selectedIds.has(id));
+  const headerChecked: boolean | "indeterminate" =
+    selectedOnPage.length === 0
+      ? false
+      : selectedOnPage.length === pageIds.length
+        ? true
+        : "indeterminate";
+
+  const toggleAllOnPage = () => {
+    const next = new Set(selectedIds);
+    if (selectedOnPage.length === pageIds.length) {
+      pageIds.forEach((id) => next.delete(id));
+    } else {
+      pageIds.forEach((id) => next.add(id));
+    }
+    onSelectionChange(next);
+  };
+
+  const toggleOne = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    onSelectionChange(next);
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={headerChecked}
+                  onCheckedChange={toggleAllOnPage}
+                  disabled={isPending || pageIds.length === 0}
+                  aria-label="Select all users on this page"
+                />
+              </TableHead>
               <TableHead>
                 <SortableTableHead
                   label="Name"
@@ -72,13 +114,23 @@ export function UserTable({
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
+                <TableCell colSpan={7} className="h-24 text-center">
                   Loading users...
                 </TableCell>
               </TableRow>
             ) : data.length ? (
               data.map((user) => (
-                <TableRow key={user.id}>
+                <TableRow
+                  key={user.id}
+                  data-state={selectedIds.has(user.id) ? "selected" : undefined}
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedIds.has(user.id)}
+                      onCheckedChange={() => toggleOne(user.id)}
+                      aria-label={`Select ${user.name}`}
+                    />
+                  </TableCell>
                   <TableCell className="font-medium">
                     <button
                       type="button"
@@ -109,6 +161,7 @@ export function UserTable({
                       <Button
                         variant="outline"
                         size="sm"
+                        aria-label={`Edit ${user.name}`}
                         onClick={() => onEdit(user)}
                       >
                         Edit
@@ -116,6 +169,7 @@ export function UserTable({
                       <Button
                         variant={user.active ? "secondary" : "default"}
                         size="sm"
+                        aria-label={`${user.active ? "Deactivate" : "Activate"} ${user.name}`}
                         onClick={() => onToggleActive(user)}
                       >
                         {user.active ? "Deactivate" : "Activate"}
@@ -126,7 +180,7 @@ export function UserTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
+                <TableCell colSpan={7} className="h-24 text-center">
                   No users found.
                 </TableCell>
               </TableRow>
