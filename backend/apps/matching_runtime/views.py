@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema
 
 from apps.audit.services import log_audit_event
 from apps.groups.services import assign_mentor_to_group
-from apps.users.utils.admin_scope import can_admin_track, is_operational_admin
+from apps.common.rbac import is_admin
 
 from .models import MatchRecommendation, MatchRun
 from .serializers import BulkRecommendationAcceptSerializer, MatchRecommendationSerializer, MatchRunSerializer
@@ -61,15 +61,15 @@ class MatchRecommendationViewSet(
     @action(detail=False, methods=["post"], url_path="bulk-accept")
     @transaction.atomic
     def bulk_accept(self, request):
-        if not is_operational_admin(request.user):
-            raise PermissionDenied("Operational admin access is required.")
+        if not is_admin(request.user):
+            raise PermissionDenied("Admin access is required.")
 
         serializer = BulkRecommendationAcceptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         recommendation_ids = serializer.validated_data["recommendation_ids"]
         recommendations = list(
-            MatchRecommendation.objects.select_related("group__track", "mentor_user")
+            MatchRecommendation.objects.select_related("group", "mentor_user")
             .filter(id__in=recommendation_ids)
             .order_by("id")
         )
@@ -79,8 +79,6 @@ class MatchRecommendationViewSet(
             raise ValidationError({"missing_recommendation_ids": missing_ids})
 
         for recommendation in recommendations:
-            if not can_admin_track(request.user, recommendation.group.track_id):
-                raise PermissionDenied("You do not have admin scope for one or more recommendation tracks.")
             try:
                 assign_mentor_to_group(
                     group=recommendation.group,

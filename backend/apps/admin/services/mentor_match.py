@@ -12,7 +12,6 @@ from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
 from apps.admin.algorithms.mentor import match_mentors
 from apps.admin.services.mentor import get_mentor_list
-from apps.admin.scope_utils import get_admin_track_ids
 
 
 def _group_interests_by_key(rows: List[Dict], key_field: str, interest_field: str) -> Dict[Any, List[str]]:
@@ -205,9 +204,6 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
 
     groups_qs = Groups.objects.filter(~Exists(mentor_subquery), deleted_at__isnull=True)
     groups_qs = groups_qs.filter(Q(track__isnull=True) | Q(track__is_archived=False))
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        groups_qs = groups_qs.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     unmatched_groups_base = (
         groups_qs
@@ -314,11 +310,6 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     membership_qs = membership_qs.filter(
         Q(group__track__isnull=True) | Q(group__track__is_archived=False)
     )
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        membership_qs = membership_qs.filter(
-            Q(group__track_id__in=track_ids) | Q(group__track__isnull=True)
-        )
 
     rows = (
         membership_qs

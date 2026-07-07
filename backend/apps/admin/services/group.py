@@ -10,7 +10,6 @@ from django.db import transaction
 from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 
 
@@ -255,9 +254,6 @@ def query_groups(
     where = _build_group_where(search_name, search_group, track, mentor_status)
 
     where = where & (Q(track__isnull=True) | Q(track__is_archived=False))
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     # Get total count
     total = Groups.objects.filter(where).count()

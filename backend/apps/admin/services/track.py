@@ -14,7 +14,7 @@ from typing import Any, Dict, TypedDict
 
 from django.db import transaction
 
-from apps.admin.scope_utils import get_admin_track_ids
+from apps.common.rbac import is_admin
 from apps.groups.models import CountryStates, Tracks
 
 
@@ -33,27 +33,14 @@ def _serialize(track: Tracks) -> Dict[str, Any]:
     }
 
 
-def _is_global_admin(user) -> bool:
-    return get_admin_track_ids(user) is None
-
-
 def list_tracks(
     requesting_user=None,
     include_archived: bool = False,
 ) -> Dict[str, Any]:
-    """List tracks visible to the requesting admin.
-
-    - Track admins: only their assigned tracks, archived hidden unconditionally.
-    - Global admins: all tracks; archived only if include_archived=True.
-    """
+    """List all tracks; archived only if include_archived=True."""
     qs = Tracks.objects.select_related("state").all()
 
-    track_ids = get_admin_track_ids(requesting_user)
-    is_global = track_ids is None
-
-    if not is_global:
-        qs = qs.filter(id__in=track_ids).filter(is_archived=False)
-    elif not include_archived:
+    if not include_archived:
         qs = qs.filter(is_archived=False)
 
     tracks = list(qs.order_by("track_name"))
@@ -64,8 +51,8 @@ def list_tracks(
 
 
 def create_track(input_data: CreateTrackInput, requesting_user=None) -> Dict[str, Any]:
-    if not _is_global_admin(requesting_user):
-        return {"msg": "Only global admins can create tracks", "data": None}
+    if not is_admin(requesting_user):
+        return {"msg": "Only admins can create tracks", "data": None}
 
     name = (input_data.get("track_name") or "").strip()
     if not name:
@@ -87,8 +74,8 @@ def create_track(input_data: CreateTrackInput, requesting_user=None) -> Dict[str
 
 @transaction.atomic
 def archive_track(track_id: int, requesting_user=None) -> Dict[str, Any]:
-    if not _is_global_admin(requesting_user):
-        return {"msg": "Only global admins can archive tracks", "data": None}
+    if not is_admin(requesting_user):
+        return {"msg": "Only admins can archive tracks", "data": None}
 
     try:
         track = Tracks.objects.get(id=track_id)
@@ -102,8 +89,8 @@ def archive_track(track_id: int, requesting_user=None) -> Dict[str, Any]:
 
 @transaction.atomic
 def restore_track(track_id: int, requesting_user=None) -> Dict[str, Any]:
-    if not _is_global_admin(requesting_user):
-        return {"msg": "Only global admins can restore tracks", "data": None}
+    if not is_admin(requesting_user):
+        return {"msg": "Only admins can restore tracks", "data": None}
 
     try:
         track = Tracks.objects.get(id=track_id)

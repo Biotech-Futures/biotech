@@ -2,13 +2,9 @@ from __future__ import annotations
 
 from rest_framework import permissions
 
-from apps.groups.models import GroupMembership, Groups
+from apps.common.rbac import is_admin
+from apps.groups.models import GroupMembership
 from apps.users.models import StudentProfile
-from apps.users.utils.admin_scope import (
-    can_admin_track,
-    get_admin_track_ids,
-    is_operational_admin,
-)
 
 from .models import CreatorRole, Task, TaskType
 
@@ -130,42 +126,9 @@ def _user_is_student(user_id):
     return StudentProfile.objects.filter(user_id=user_id).exists()
 
 
-def _resolve_track_id(task_type, group, assigned_user):
-    if task_type == TaskType.GROUP and group is not None:
-        gid = group.id if hasattr(group, "id") else group
-        return Groups.objects.filter(
-            pk=gid,
-            deleted_at__isnull=True,
-        ).values_list("track_id", flat=True).first()
-    if task_type == TaskType.INDIVIDUAL and assigned_user is not None:
-        uid = assigned_user.id if hasattr(assigned_user, "id") else assigned_user
-        group_id = _user_active_group_id(uid)
-        if group_id:
-            return Groups.objects.filter(pk=group_id).values_list("track_id", flat=True).first()
-    return None
-
-
-def _task_track_id(task):
-    if task.task_type == TaskType.GROUP and task.group_id:
-        return Groups.objects.filter(
-            pk=task.group_id,
-            deleted_at__isnull=True,
-        ).values_list("track_id", flat=True).first()
-    if task.task_type == TaskType.INDIVIDUAL and task.assigned_user_id:
-        group_id = _user_active_group_id(task.assigned_user_id)
-        if group_id:
-            return Groups.objects.filter(pk=group_id).values_list("track_id", flat=True).first()
-    return None
-
-
 def resolve_creator_role(user, task_type, group=None, assigned_user=None):
-    if is_operational_admin(user):
-        track_ids = get_admin_track_ids(user)
-        if track_ids is None:
-            return CreatorRole.GLOBAL_ADMIN
-        target_track_id = _resolve_track_id(task_type, group, assigned_user)
-        if target_track_id is not None and target_track_id in track_ids:
-            return CreatorRole.TRACK_ADMIN
+    if is_admin(user):
+        return CreatorRole.GLOBAL_ADMIN
 
     if task_type == TaskType.GROUP and group is not None:
         gid = group.id if hasattr(group, "id") else group
@@ -195,8 +158,7 @@ def visible_tasks(user, *, include_deleted=False):
     if not user or not user.is_authenticated:
         return base.none()
 
-    track_ids = get_admin_track_ids(user) if is_operational_admin(user) else []
-    if is_operational_admin(user) and track_ids is None:
+    if is_admin(user):
         return base
 
     mentor_group_ids = _mentor_group_ids(user)
@@ -205,26 +167,6 @@ def visible_tasks(user, *, include_deleted=False):
     student_group_ids = _student_group_ids(user)
 
     visibility = Q(pk__in=[])
-
-    if track_ids:
-        admin_group_ids = list(
-            Groups.objects.filter(
-                track_id__in=track_ids,
-                deleted_at__isnull=True,
-            ).values_list("id", flat=True)
-        )
-        user_ids_in_admin_tracks = list(
-            GroupMembership.objects.filter(
-                group_id__in=admin_group_ids,
-                left_at__isnull=True,
-                group__deleted_at__isnull=True,
-            ).values_list("user_id", flat=True)
-        )
-        visibility |= Q(task_type=TaskType.GROUP, group_id__in=admin_group_ids)
-        visibility |= Q(
-            task_type=TaskType.INDIVIDUAL,
-            assigned_user_id__in=user_ids_in_admin_tracks,
-        )
 
     if mentor_group_ids:
         student_ids_in_mentor_groups = list(
@@ -267,25 +209,7 @@ def _can_create_task(user, payload):
     if task_type == TaskType.INDIVIDUAL and not assigned_user_id:
         return False
 
-    target_track_id = None
-    if task_type == TaskType.GROUP:
-        target_track_id = (
-            Groups.objects.filter(
-                pk=group_id,
-                deleted_at__isnull=True,
-            ).values_list("track_id", flat=True).first()
-        )
-    elif task_type == TaskType.INDIVIDUAL:
-        assignee_group_id = _user_active_group_id(assigned_user_id)
-        if assignee_group_id:
-            target_track_id = (
-                Groups.objects.filter(pk=assignee_group_id)
-                .filter(deleted_at__isnull=True)
-                .values_list("track_id", flat=True)
-                .first()
-            )
-
-    if target_track_id is not None and can_admin_track(user, target_track_id):
+    if is_admin(user):
         return True
 
     if task_type == TaskType.GROUP:
@@ -302,8 +226,7 @@ def _can_create_task(user, payload):
 
 
 def _can_modify_task(user, task: Task) -> bool:
-    track_id = _task_track_id(task)
-    if track_id is not None and can_admin_track(user, track_id):
+    if is_admin(user):
         return True
 
     if task.task_type == TaskType.GROUP:
@@ -341,8 +264,7 @@ class IsTaskManager(permissions.BasePermission):
 
 
 def can_restore_task(user, task: Task) -> bool:
-    track_id = _task_track_id(task)
-    if track_id is not None and can_admin_track(user, track_id):
+    if is_admin(user):
         return True
 
     if task.task_type == TaskType.GROUP:
@@ -355,8 +277,7 @@ def can_restore_task(user, task: Task) -> bool:
 
 
 def _can_toggle(user, task: Task) -> bool:
-    track_id = _task_track_id(task)
-    if track_id is not None and can_admin_track(user, track_id):
+    if is_admin(user):
         return True
 
     if task.task_type == TaskType.GROUP:

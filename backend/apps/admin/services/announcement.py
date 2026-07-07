@@ -18,7 +18,6 @@ from apps.announcements.models import (
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks
 from apps.users.models import User
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 from apps.services.email_branding import attach_inline_logo, brand_context
 
@@ -306,9 +305,6 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
         )
     )
     queryset = queryset.filter(~has_any_track_audience | has_active_track_audience)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     # Get total count
     total = queryset.count()
@@ -886,9 +882,6 @@ def send_announcement_email(
 def list_announcement_tracks(requesting_user=None) -> Dict[str, Any]:
     """Get all tracks for announcement reference data. Archived tracks excluded."""
     qs = Tracks.objects.filter(is_archived=False)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(id__in=track_ids)
     tracks = list(qs.order_by("track_name").values("id", name=F("track_name")))
     return {"msg": "Tracks retrieved successfully", "data": tracks}
 

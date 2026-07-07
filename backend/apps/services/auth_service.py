@@ -10,7 +10,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.users.models import User
-from apps.users.utils.admin_scope import is_operational_admin
+from apps.common.rbac import is_admin
 from apps.users.utils.sessions import terminate_user_sessions
 from config.errors import InvalidOrExpiredResetToken, WeakPassword
 from .email_branding import attach_inline_logo, brand_context
@@ -150,7 +150,7 @@ def _send_reset_email(user, token: str, expiry_minutes: int) -> None:
     # deploy can't silently email reset links pointing at http://localhost:5173.
     base = (
         settings.ADMIN_PASSWORD_RESET_REDIRECT_URL
-        if is_operational_admin(user)
+        if is_admin(user)
         else settings.PASSWORD_RESET_REDIRECT_URL
     )
     reset_link = f"{base}?token={token}"

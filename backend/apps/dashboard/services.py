@@ -4,7 +4,7 @@ from django.utils import timezone
 from apps.common.rbac import active_role_ids
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack, Events
 from apps.groups.models import Groups, GroupMembership
-from apps.users.utils.admin_scope import get_admin_track_ids, is_operational_admin
+from apps.common.rbac import is_admin
 
 
 MENTOR_MEMBERSHIPS_ATTR = "_mentor_memberships"
@@ -62,21 +62,7 @@ def _build_payload(event, user_rsvp=None):
     }
 
 
-def _match_for_admin(event, admin_track_ids):
-    if admin_track_ids is None:
-        return _build_payload(event)
-
-    allowed_track_ids = set(admin_track_ids)
-    track_ids = _event_track_ids(event)
-    matching_group_targets = [
-        target for target in _event_group_targets(event) if target.group.track_id in allowed_track_ids
-    ]
-    matching_track_ids = [track_id for track_id in track_ids if track_id in allowed_track_ids]
-    is_platform_wide = not track_ids and not _event_group_targets(event)
-
-    if not is_platform_wide and not matching_group_targets and not matching_track_ids:
-        return None
-
+def _match_for_admin(event):
     user_rsvp = _prefetched_user_rsvp(event)
     return _build_payload(event, user_rsvp=user_rsvp)
 
@@ -115,7 +101,7 @@ def get_personalized_next_event(user):
         user_track_ids.add(user.track_id)
 
     user_role_ids = active_role_ids(user)
-    admin_track_ids = get_admin_track_ids(user) if is_operational_admin(user) else []
+    caller_is_admin = is_admin(user)
 
     queryset = (
         Events.objects.filter(deleted_at__isnull=True, ends_datetime__gte=now)
@@ -146,8 +132,8 @@ def get_personalized_next_event(user):
     )
 
     for event in queryset:
-        if is_operational_admin(user):
-            payload = _match_for_admin(event, admin_track_ids)
+        if caller_is_admin:
+            payload = _match_for_admin(event)
         else:
             payload = _match_for_member(
                 event,

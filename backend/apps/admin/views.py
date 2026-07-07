@@ -1132,20 +1132,3 @@ class TrackStatesListView(APIView):
         return Response(admin_list_states())
 
 
-class AdminAuthScopeView(APIView):
-    """GET /api/v1/admin/auth/scope/ — return the requesting admin's scope.
-
-    Used by the FE to gate global-admin-only pages (e.g. Tracks management).
-    """
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        from apps.admin.scope_utils import get_admin_track_ids
-        track_ids = get_admin_track_ids(request.user)
-        return Response({
-            "msg": "Admin scope retrieved successfully",
-            "data": {
-                "isGlobal": track_ids is None,
-                "trackIds": track_ids,
-            },
-        })

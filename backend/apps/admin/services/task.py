@@ -3,20 +3,17 @@ from typing import TypedDict, Optional, List, Dict, Any
 from django.db import transaction
 from django.db.models import Q
 
+from apps.common.rbac import is_admin
 from apps.tasks.models import Task, TaskStatus, TaskType, CreatorRole
 from apps.tasks.permissions import resolve_creator_role
 from apps.groups.models import Groups, GroupMembership
-from apps.admin.scope_utils import get_admin_track_ids
 
 
 def _admin_visible_tasks(requesting_user):
-    """
-    Tasks visible to an admin based on AdminScope — ignores is_staff/is_superuser
-    so Track Admins are correctly scoped to their assigned tracks only (§2).
-
-    Track admins additionally see TRACK-typed tasks for their tracks.
-    """
-    base = (
+    """Tasks visible to an admin — gated on AdminScope, not is_staff/is_superuser."""
+    if not is_admin(requesting_user):
+        return Task.objects.none()
+    return (
         Task.objects.active()
         .filter(
             ~Q(task_type=TaskType.TRACK) | Q(track__is_archived=False)
@@ -32,34 +29,6 @@ def _admin_visible_tasks(requesting_user):
             | Q(assigned_user__track__is_archived=False)
         )
     )
-
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is None:
-        # Global Admin: sees everything
-        return base
-
-    if not track_ids:
-        return base.none()
-
-    # Track Admin: only tasks belonging to groups in their tracks,
-    # individual tasks assigned to users in those groups, or TRACK-level
-    # tasks targeted at their tracks.
-    admin_group_ids = list(
-        Groups.objects.filter(track_id__in=track_ids).values_list("id", flat=True)
-    )
-    user_ids_in_tracks = list(
-        GroupMembership.objects
-        .filter(group_id__in=admin_group_ids, left_at__isnull=True)
-        .values_list("user_id", flat=True)
-    )
-    visibility = (
-        Q(task_type=TaskType.GROUP, group_id__in=admin_group_ids)
-        | Q(task_type=TaskType.INDIVIDUAL, assigned_user_id__in=user_ids_in_tracks)
-        | Q(task_type=TaskType.INDIVIDUAL, assigned_user__track_id__in=track_ids)
-        | Q(task_type=TaskType.INDIVIDUAL, assigned_user=requesting_user)
-        | Q(task_type="track", track_id__in=track_ids)
-    )
-    return base.filter(visibility).distinct()
 
 
 # Type definitions
@@ -225,21 +194,15 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     if task_type == "track" and not track_id:
         return {"msg": "Track task requires a track", "data": None}
 
-    # Track-level tasks have their own permission path because resolve_creator_role
-    # does not know about TaskType.TRACK (it lives in apps/tasks and is owned by
-    # the tasks team). We enforce that the admin has scope over the target track
-    # before falling back to the existing helper for group/individual paths.
+    # Track-level tasks bypass resolve_creator_role (it does not know about
+    # TaskType.TRACK, which lives in apps/tasks and is owned by the tasks team).
     if task_type == "track":
-        admin_track_ids = get_admin_track_ids(requesting_user)
-        if admin_track_ids is None:
-            creator_role = CreatorRole.GLOBAL_ADMIN
-        elif track_id in admin_track_ids:
-            creator_role = CreatorRole.TRACK_ADMIN
-        else:
+        if not is_admin(requesting_user):
             return {
                 "msg": "You do not have authority to create tasks for this track",
                 "data": None,
             }
+        creator_role = CreatorRole.GLOBAL_ADMIN
     else:
         creator_role = resolve_creator_role(
             requesting_user,
@@ -248,8 +211,8 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
             assigned_user=assigned_user_id,
         )
 
-        # §3: only admins with authority over the target track may create via this endpoint
-        if creator_role not in (CreatorRole.GLOBAL_ADMIN, CreatorRole.TRACK_ADMIN):
+        # §3: only admins may create via this endpoint
+        if creator_role != CreatorRole.GLOBAL_ADMIN:
             return {"msg": "You do not have authority to create tasks for this target", "data": None}
 
     task = Task.objects.create(

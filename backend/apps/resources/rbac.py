@@ -5,27 +5,13 @@ from django.db.models import Q
 from apps.common.rbac import (
     active_role_ids,
     group_participant_qs,
-    is_global_admin,
-    track_admin_track_ids,
+    is_admin,
 )
 
 
 RESOURCE_PUBLIC_SCOPE = "public"
 RESOURCE_TRACK_SCOPE = "track"
 RESOURCE_GROUP_SCOPE = "group"
-
-
-def _track_id_from_value(track) -> int | None:
-    if track is None:
-        return None
-
-    if hasattr(track, "track_id") and getattr(track, "track_id", None):
-        return int(track.track_id)
-
-    value = getattr(track, "id", track)
-    if value in (None, ""):
-        return None
-    return int(value)
 
 
 def _is_group_participant(user, group) -> bool:
@@ -107,30 +93,8 @@ def _resource_list_access_q(user):
     return access_q
 
 
-def is_track_admin_for_track(user, track) -> bool:
-    track_id = _track_id_from_value(track)
-    if track_id is None:
-        return False
-    return track_id in track_admin_track_ids(user)
-
-
 def can_manage_resource_file(user, resource=None, track=None) -> bool:
-    if not user or not user.is_authenticated:
-        return False
-    if is_global_admin(user):
-        return True
-
-    candidate_track_ids = set()
-    track_id = _track_id_from_value(track)
-    if track_id is not None:
-        candidate_track_ids.add(track_id)
-    candidate_track_ids.update(_resource_track_ids(resource))
-
-    if not candidate_track_ids:
-        return False
-
-    allowed_track_ids = track_admin_track_ids(user)
-    return bool(allowed_track_ids) and candidate_track_ids.issubset(allowed_track_ids)
+    return is_admin(user)
 
 
 def can_access_resource_file(user, resource) -> bool:
@@ -138,12 +102,8 @@ def can_access_resource_file(user, resource) -> bool:
         return False
     if getattr(resource, "deleted_at", None) is not None:
         return False
-    if is_global_admin(user):
+    if is_admin(user):
         return True
-
-    admin_track_ids = track_admin_track_ids(user)
-    if admin_track_ids:
-        return bool(_resource_track_ids(resource) & admin_track_ids)
 
     if resource.visibility_scope == RESOURCE_PUBLIC_SCOPE:
         return True
@@ -177,19 +137,8 @@ def can_access_resource_file(user, resource) -> bool:
 def filter_resources_for_user(queryset, user, *, for_management: bool = False):
     if not user or not user.is_authenticated:
         return queryset.none()
-    if is_global_admin(user):
+    if is_admin(user):
         return queryset
-
-    # Developer note: resource RBAC stays intentionally small and file-focused here
-    # instead of introducing a generic policy engine for unrelated modules.
-    admin_track_ids = track_admin_track_ids(user)
-    if admin_track_ids:
-        admin_q = (
-            Q(track_id__in=admin_track_ids)
-            | Q(group__track_id__in=admin_track_ids)
-            | Q(audiences__track_id__in=admin_track_ids)
-        )
-        return queryset.filter(admin_q).distinct()
 
     if for_management:
         return queryset.none()

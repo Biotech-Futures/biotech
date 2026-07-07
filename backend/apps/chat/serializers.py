@@ -7,7 +7,7 @@ from apps.common.upload_validation import validate_uploaded_file
 from apps.groups.models import GroupMembership
 from apps.resources.models import Resources
 from apps.resources.rbac import can_access_resource_file
-from apps.users.utils.admin_scope import is_operational_admin
+from apps.common.rbac import is_admin
 
 from .models import (
     MessageAttachment,
@@ -23,7 +23,7 @@ from .utils import sanitize_text
 
 
 def is_admin_actor(user) -> bool:
-    return bool(user is not None and is_operational_admin(user))
+    return bool(user is not None and is_admin(user))
 
 
 def _group_members_blocked_from_resource(group_id, resource) -> bool:

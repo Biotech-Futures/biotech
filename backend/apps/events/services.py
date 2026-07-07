@@ -2,9 +2,8 @@
 
 Permission model in one paragraph:
 
-* Events are *pushed* — only admins create them. Global admins
-  (AdminScope.is_global) can CRUD any event. Track admins
-  can CRUD only events whose track FK is in their AdminScope.
+* Events are *pushed* — only admins create them, and any admin can
+  CRUD any event (single global admin tier).
 * Users RSVP. The user-side state machine is accepted / tentative /
   declined. PENDING is reserved for admin-issued invites awaiting a
   response and is rejected on the user-submit path.
@@ -29,10 +28,7 @@ from django.utils import timezone
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from apps.services.email_branding import attach_inline_logo, brand_context
-from apps.users.utils.admin_scope import (
-    get_admin_track_ids,
-    is_operational_admin,
-)
+from apps.common.rbac import is_admin
 
 from .models import (
     EventRsvp,
@@ -119,19 +115,8 @@ def can_user_rsvp_to_event(user, event) -> bool:
         not target_track_ids and not target_group_ids and not target_role_ids
     )
 
-    if is_operational_admin(user):
-        admin_track_ids = get_admin_track_ids(user)
-        if admin_track_ids is None:
-            return True
-        if is_untargeted:
-            return True
-        admin_track_ids_set = set(admin_track_ids)
-        # Tracks the event reaches — direct + via group's parent track.
-        event_admin_relevant_tracks = set(target_track_ids) | {
-            target.group.track_id
-            for target in EventTargetGroup.objects.filter(event=event).select_related("group")
-        }
-        return bool(admin_track_ids_set & event_admin_relevant_tracks)
+    if is_admin(user):
+        return True
 
     # Pre-existing invite (any status, including DECLINED) keeps the
     # user in the loop.
@@ -182,30 +167,8 @@ def visible_events_queryset(user, base_qs):
     if not user or not user.is_authenticated:
         return base_qs.filter(untargeted_q)
 
-    if is_operational_admin(user):
-        admin_track_ids = get_admin_track_ids(user)
-        if admin_track_ids is None:
-            return base_qs
-
-        admin_track_ids = list(admin_track_ids)
-        in_admin_scope = (
-            Q(track_id__in=admin_track_ids)
-            | Exists(
-                EventTargetTrack.objects.filter(
-                    event_id=OuterRef("id"),
-                    track_id__in=admin_track_ids,
-                )
-            )
-            | Exists(
-                EventTargetGroup.objects.filter(
-                    event_id=OuterRef("id"),
-                    group__track_id__in=admin_track_ids,
-                    # Deleted groups should not expand an admin's visible event scope.
-                    group__deleted_at__isnull=True,
-                )
-            )
-        )
-        return base_qs.filter(in_admin_scope | untargeted_q)
+    if is_admin(user):
+        return base_qs
 
     user_group_ids, user_track_ids, user_role_ids = _user_scope(user)
     invited_event_ids = EventRsvp.objects.filter(user=user).values("event_id")

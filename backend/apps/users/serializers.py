@@ -324,11 +324,6 @@ class BulkUserTrackSerializer(serializers.Serializer):
 
 
 class AdminOperationsSummarySerializer(serializers.Serializer):
-    track_scope = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
-        allow_empty=True,
-        required=False,
-    )
     active_users = serializers.IntegerField()
     invited_or_pending_users = serializers.IntegerField()
     suspended_or_deactivated_users = serializers.IntegerField()

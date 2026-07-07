@@ -34,11 +34,9 @@ from .serializers import (
     UserSerializer,
     UserStatusPatchSerializer,
 )
-from .utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
+from apps.common.rbac import is_admin
 from config.errors import (
     AccountInactive,
-    AdminScopeForTrackRequired,
-    AdminScopeForUserRequired,
     InvalidCredentials,
     MissingUsers,
     OperationalAdminRequired,
@@ -123,7 +121,7 @@ class PasswordLoginView(APIView):
         if user_obj.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
 
-        if is_track_archived(user_obj) and not is_operational_admin(user_obj):
+        if is_track_archived(user_obj) and not is_admin(user_obj):
             logger.warning(
                 "password_login: blocked archived-track login email=%s track_id=%s",
                 email, user_obj.track_id,
@@ -153,11 +151,9 @@ class UserPagePagination(PageNumberPagination):
 
 #Issue 42
 class UserListHTMLView(generics.ListAPIView):
-    """Operational-admin user search rendered as HTML.
+    """Admin user search rendered as HTML.
 
-    Auth-gated to operational admins and scoped to the caller's admin
-    track(s). A global admin sees all users; a track-scoped admin only sees
-    users in their tracks. The legacy ``AllowAny`` override exposed the full
+    Auth-gated to admins. The legacy ``AllowAny`` override exposed the full
     user table (PII + account_status oracle) to anonymous callers — see
     CONSOLIDATED issues list 1.2.
     """
@@ -169,14 +165,10 @@ class UserListHTMLView(generics.ListAPIView):
     template_name = "users/list.html"
 
     def get_queryset(self):
-        if not is_operational_admin(self.request.user):
+        if not is_admin(self.request.user):
             raise OperationalAdminRequired()
 
         queryset = User.objects.select_related("track", "track__state").order_by("id")
-
-        track_scope = get_admin_track_ids(self.request.user)
-        if track_scope is not None:
-            queryset = queryset.filter(track_id__in=track_scope)
 
         account_status_param = self.request.query_params.get("account_status")
         if account_status_param is not None:
@@ -189,13 +181,11 @@ class UserListHTMLView(generics.ListAPIView):
 
 #issue 43
 class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
-    """Operational-admin user detail + mutation view rendered as HTML.
+    """Admin user detail + mutation view rendered as HTML.
 
-    Auth-gated to operational admins; PATCH is further restricted to admins
-    whose scope covers the target user's track. The legacy ``AllowAny``
-    override let any anonymous caller flip ``account_status`` or assign an
-    arbitrary ``role_id`` (including admin) for any user — see CONSOLIDATED
-    issues list 1.2.
+    Auth-gated to admins. The legacy ``AllowAny`` override let any anonymous
+    caller flip ``account_status`` or assign an arbitrary ``role_id``
+    (including admin) for any user — see CONSOLIDATED issues list 1.2.
     """
     queryset = User.objects.select_related("track", "track__state")
     permission_classes = [permissions.IsAuthenticated]
@@ -206,10 +196,8 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         return UserSerializer
 
     def _ensure_admin_scope_for_user(self, target_user):
-        if not is_operational_admin(self.request.user):
+        if not is_admin(self.request.user):
             raise OperationalAdminRequired()
-        if target_user.track_id and not can_admin_track(self.request.user, target_user.track_id):
-            raise AdminScopeForUserRequired(target_user.id)
 
     def retrieve(self, request, *args, **kwargs):
         user = self.get_object()
@@ -283,7 +271,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
     entire request with HTTP 400 and a field-keyed error message — see the
     module-level comment above for the security rationale. The legitimate
     admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
-    and is gated on ``is_operational_admin`` + ``can_admin_track``.
+    and is gated on ``is_admin``.
     """
 
     serializer_class = UserSerializer
@@ -497,20 +485,13 @@ class AdminOperationalSummaryView(APIView):
 
     @extend_schema(request=None, responses={200: AdminOperationsSummarySerializer})
     def get(self, request):
-        if not is_operational_admin(request.user):
+        if not is_admin(request.user):
             raise OperationalAdminRequired()
 
-        track_scope = get_admin_track_ids(request.user)
         user_queryset = User.objects.all()
         group_queryset = Groups.objects.filter(deleted_at__isnull=True)
         recommendation_queryset = MatchRecommendation.objects.filter(accepted=False)
         event_queryset = Events.objects.filter(deleted_at__isnull=True, start_datetime__gte=timezone.now())
-
-        if track_scope is not None:
-            user_queryset = user_queryset.filter(track_id__in=track_scope)
-            group_queryset = group_queryset.filter(track_id__in=track_scope)
-            recommendation_queryset = recommendation_queryset.filter(group__track_id__in=track_scope)
-            event_queryset = event_queryset.filter(Q(track_id__in=track_scope) | Q(track__isnull=True))
 
         groups_without_mentor = group_queryset.annotate(
             active_mentor_count=Count(
@@ -523,7 +504,6 @@ class AdminOperationalSummaryView(APIView):
         ).filter(active_mentor_count=0).count()
 
         payload = {
-            "track_scope": [] if track_scope is None else list(track_scope),
             "active_users": user_queryset.filter(account_status=User.AccountStatus.ACTIVE).count(),
             "invited_or_pending_users": user_queryset.filter(
                 account_status__in=[User.AccountStatus.INVITED, User.AccountStatus.PENDING]
@@ -546,7 +526,7 @@ class BulkUserStatusView(APIView):
     @extend_schema(request=BulkUserStatusSerializer, responses={200: UserSerializer(many=True)})
     @transaction.atomic
     def post(self, request):
-        if not is_operational_admin(request.user):
+        if not is_admin(request.user):
             raise OperationalAdminRequired()
 
         serializer = BulkUserStatusSerializer(data=request.data)
@@ -560,8 +540,6 @@ class BulkUserStatusView(APIView):
 
         target_status = serializer.validated_data["account_status"]
         for user in users:
-            if user.track_id and not can_admin_track(request.user, user.track_id):
-                raise AdminScopeForUserRequired(user.id)
             user.apply_account_status(target_status)
 
         return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)
@@ -574,14 +552,12 @@ class BulkUserTrackAssignmentView(APIView):
     @extend_schema(request=BulkUserTrackSerializer, responses={200: UserSerializer(many=True)})
     @transaction.atomic
     def post(self, request):
-        if not is_operational_admin(request.user):
+        if not is_admin(request.user):
             raise OperationalAdminRequired()
 
         serializer = BulkUserTrackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         target_track = serializer.validated_data["track"]
-        if not can_admin_track(request.user, target_track):
-            raise AdminScopeForTrackRequired()
 
         user_ids = serializer.validated_data["user_ids"]
         users = list(User.objects.filter(id__in=user_ids).order_by("id"))
@@ -591,8 +567,6 @@ class BulkUserTrackAssignmentView(APIView):
             raise MissingUsers(missing_ids)
 
         for user in users:
-            if user.track_id and not can_admin_track(request.user, user.track_id):
-                raise AdminScopeForUserRequired(user.id)
             user.track = target_track
             user.save(update_fields=["track"])
 

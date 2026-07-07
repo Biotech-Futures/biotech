@@ -24,12 +24,12 @@ from .services import (
     sync_supervisor_memberships_for_student,
 )
 from apps.audit.services import log_audit_event
-from apps.users.utils.admin_scope import can_admin_track, get_admin_track_ids, is_operational_admin
+from apps.common.rbac import is_admin
 
 
 class IsOperationalAdminPermission(BasePermission):
     def has_permission(self, request, view):
-        return is_operational_admin(getattr(request, "user", None))
+        return is_admin(getattr(request, "user", None))
 
 
 class CountryViewSet(viewsets.ModelViewSet):
@@ -52,10 +52,7 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = GroupMembership.objects.select_related("group", "user").order_by("id")
         raw = (self.request.query_params.get("include_inactive") or "").lower().strip()
-        if raw == "true" and is_operational_admin(self.request.user):
-            track_ids = get_admin_track_ids(self.request.user)
-            if track_ids is not None:
-                queryset = queryset.filter(group__track_id__in=track_ids)
+        if raw == "true" and is_admin(self.request.user):
             return queryset
         return queryset.filter(left_at__isnull=True)
 
@@ -65,10 +62,8 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
         return [IsOperationalAdminPermission()]
 
     def _ensure_admin_track_access(self, request, group):
-        if not is_operational_admin(request.user):
-            raise PermissionDenied("Operational admin access is required.")
-        if not can_admin_track(request.user, group.track):
-            raise PermissionDenied("You do not have admin scope for this track.")
+        if not is_admin(request.user):
+            raise PermissionDenied("Admin access is required.")
 
     @action(detail=False, methods=['get'], url_path='by-group/(?P<group_id>[^/.]+)')
     def by_group(self, request, group_id=None):
@@ -125,11 +120,8 @@ class GroupViewSet(viewsets.ModelViewSet):
         include_deleted = (self.request.query_params.get('include_deleted') or '').lower().strip() == 'true'
         if self.action == "restore":
             queryset = Groups.objects.all()
-        elif include_deleted and is_operational_admin(self.request.user):
+        elif include_deleted and is_admin(self.request.user):
             queryset = Groups.objects.all()
-            track_ids = get_admin_track_ids(self.request.user)
-            if track_ids is not None:
-                queryset = queryset.filter(track_id__in=track_ids)
         else:
             queryset = Groups.objects.filter(deleted_at__isnull=True)
 
@@ -216,11 +208,8 @@ class GroupViewSet(viewsets.ModelViewSet):
         return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
 
     def _ensure_admin_track_access(self, request, track_or_group):
-        if not is_operational_admin(request.user):
-            raise PermissionDenied("Operational admin access is required.")
-        track = getattr(track_or_group, "track", track_or_group)
-        if not can_admin_track(request.user, track):
-            raise PermissionDenied("You do not have admin scope for this track.")
+        if not is_admin(request.user):
+            raise PermissionDenied("Admin access is required.")
 
     @extend_schema(request=BulkGroupCreateSerializer, responses={201: GroupSerializer(many=True)})
     @action(detail=False, methods=['post'], url_path='bulk-create', permission_classes=[IsAuthenticated])

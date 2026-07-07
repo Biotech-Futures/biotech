@@ -3,10 +3,7 @@
 import django_filters
 from django.db.models import Exists, OuterRef, Q
 
-from apps.users.utils.admin_scope import (
-    get_admin_track_ids,
-    is_operational_admin,
-)
+from apps.common.rbac import is_admin
 
 from .models import (
     EventRsvp,
@@ -181,22 +178,15 @@ def _supervisor_visible_user_ids(caller):
 
 
 def _can_caller_query_user(caller, user_id) -> bool:
-    if is_operational_admin(caller):
+    if is_admin(caller):
         return True
     return user_id in _supervisor_visible_user_ids(caller)
 
 
 def _can_caller_query_group(caller, group_id) -> bool:
-    """Global admin, track admin in scope, active member, or supervisor
-    of any member of the group."""
-    if is_operational_admin(caller):
-        admin_track_ids = get_admin_track_ids(caller)
-        if admin_track_ids is None:
-            return True
-        from apps.groups.models import Groups
-        return Groups.objects.filter(
-            id=group_id, track_id__in=admin_track_ids
-        ).exists()
+    """Admin, active member, or supervisor of any member of the group."""
+    if is_admin(caller):
+        return True
 
     from apps.groups.models import GroupMembership
 
@@ -215,14 +205,10 @@ def _can_caller_query_group(caller, group_id) -> bool:
 
 
 def _can_caller_query_track(caller, track_id) -> bool:
-    """Global admin, track admin in scope, member of any group on the
-    track (or user.track_id matches), or supervisor of any member on
-    the track."""
-    if is_operational_admin(caller):
-        admin_track_ids = get_admin_track_ids(caller)
-        if admin_track_ids is None:
-            return True
-        return track_id in admin_track_ids
+    """Admin, member of any group on the track (or user.track_id
+    matches), or supervisor of any member on the track."""
+    if is_admin(caller):
+        return True
 
     if getattr(caller, "track_id", None) == track_id:
         return True

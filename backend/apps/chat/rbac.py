@@ -3,15 +3,14 @@ from __future__ import annotations
 from django.apps import apps
 from apps.common.rbac import (
     group_participant_qs,
-    is_global_admin,
-    track_admin_track_ids,
+    is_admin,
 )
 
 
 def _group_from_value(group):
     if group is None:
         return None
-    if hasattr(group, "id") and hasattr(group, "track_id"):
+    if hasattr(group, "id"):
         # Deleted groups must not authorize chat access from cached model instances.
         if getattr(group, "deleted_at", None) is not None:
             return None
@@ -19,17 +18,10 @@ def _group_from_value(group):
 
     Groups = apps.get_model("groups", "Groups")
     group_id = getattr(group, "id", group)
-    return Groups.objects.only("id", "track_id").filter(
+    return Groups.objects.only("id").filter(
         pk=group_id,
         deleted_at__isnull=True,
     ).first()
-
-
-def is_track_admin_for_group(user, group) -> bool:
-    target_group = _group_from_value(group)
-    if target_group is None or getattr(target_group, "track_id", None) is None:
-        return False
-    return int(target_group.track_id) in track_admin_track_ids(user)
 
 
 def can_access_chat_group(user, group) -> bool:
@@ -40,7 +32,7 @@ def can_access_chat_group(user, group) -> bool:
     if target_group is None:
         return False
 
-    if is_global_admin(user) or is_track_admin_for_group(user, target_group):
+    if is_admin(user):
         return True
 
     return group_participant_qs(user, target_group.id).exists()
@@ -49,9 +41,8 @@ def can_access_chat_group(user, group) -> bool:
 def can_manage_chat_message(user, message) -> bool:
     """Authorize edit or delete of an existing chat message.
 
-    Allowed iff the caller has admin scope for the message's group's
-    track (global or track-scoped ``AdminScope``), or is the original
-    sender within the self-action window — delegated to
+    Allowed iff the caller is an admin, or is the original sender within
+    the self-action window — delegated to
     ``Messages.can_be_self_actioned_by`` so the window definition lives
     in one place. Mentor/supervisor roles do not by themselves grant
     moderation rights.
@@ -63,7 +54,7 @@ def can_manage_chat_message(user, message) -> bool:
     if target_group is None:
         return False
 
-    if is_global_admin(user) or is_track_admin_for_group(user, target_group):
+    if is_admin(user):
         return True
 
     self_action = getattr(message, "can_be_self_actioned_by", None)

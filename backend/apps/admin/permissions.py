@@ -4,7 +4,7 @@ from apps.users.models import AdminScope
 
 
 class IsAdminScoped(BasePermission):
-    """Allow access only to users with a Global or Track AdminScope entry."""
+    """Allow access only to users with an AdminScope entry (i.e. admins)."""
 
     message = "You do not have admin privileges."
 

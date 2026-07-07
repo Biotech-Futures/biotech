@@ -25,10 +25,7 @@ from apps.common.role_names import (
     ROLE_ADMIN,
 )
 from apps.users.models import User
-from apps.users.utils.admin_scope import (
-    get_admin_track_ids,
-    is_operational_admin,
-)
+from apps.common.rbac import is_admin
 
 from .filters import EventFilter
 from .models import EventRsvp, EventTargetGroup, Events
@@ -73,7 +70,7 @@ class EventManagePermission(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-        return is_operational_admin(request.user)
+        return is_admin(request.user)
 
 
 class EventCursorPagination(CursorPagination):
@@ -126,7 +123,7 @@ class EventViewSet(viewsets.ModelViewSet):
         include_deleted = (
             action == "restore"
             or (
-                is_operational_admin(self.request.user)
+                is_admin(self.request.user)
                 and (
                     (self.request.query_params.get("include_deleted") or "").lower().strip() == "true"
                     or (self.request.query_params.get("deleted") or "").lower().strip() == "true"
@@ -183,49 +180,7 @@ class EventViewSet(viewsets.ModelViewSet):
         context["accepted_event_ids"] = get_request_accepted_event_ids(self.request)
         return context
 
-    def _enforce_track_scope(self, event_or_track_id, *, target_group_ids=None, target_track_ids=None):
-        """Track admins can only touch events whose track + targets stay in scope.
-
-        Untargeted (track=None) events remain global-admin only — they reach
-        everyone, which would escalate past a track admin's scope.
-        """
-        admin_track_ids = get_admin_track_ids(self.request.user)
-        if admin_track_ids is None:
-            return
-
-        track_id = (
-            event_or_track_id.id if hasattr(event_or_track_id, "id") else event_or_track_id
-        )
-        if track_id is None:
-            raise PermissionDenied(
-                "Untargeted events are global-admin only; track admins "
-                "must specify a track within their scope."
-            )
-        if track_id not in admin_track_ids:
-            raise PermissionDenied(
-                "You may only manage events for tracks within your scope."
-            )
-        if target_track_ids:
-            for tid in target_track_ids:
-                if tid not in admin_track_ids:
-                    raise PermissionDenied("Target track is outside your admin scope.")
-        if target_group_ids:
-            from apps.groups.models import Groups
-
-            out_of_scope = Groups.objects.filter(
-                id__in=target_group_ids
-            ).exclude(track_id__in=admin_track_ids).exists()
-            if out_of_scope:
-                raise PermissionDenied(
-                    "Target group's parent track is outside your admin scope."
-                )
-
     def perform_create(self, serializer):
-        track = serializer.validated_data.get("track")
-        groups = [g.id for g in serializer.validated_data.get("event_target_groups", []) or []]
-        tracks = [t.id for t in serializer.validated_data.get("event_target_tracks", []) or []]
-        self._enforce_track_scope(track, target_group_ids=groups, target_track_ids=tracks)
-
         event = serializer.save(
             host_user=self.request.user if self.request.user.is_authenticated else None
         )
@@ -241,17 +196,6 @@ class EventViewSet(viewsets.ModelViewSet):
         instance = serializer.instance
         before_state = EventSerializer(instance).data
 
-        # Scope check runs against the *post-patch* state, so a track
-        # admin can't move an event out of their scope mid-edit.
-        new_track = serializer.validated_data.get("track", instance.track)
-        groups = serializer.validated_data.get("event_target_groups")
-        tracks = serializer.validated_data.get("event_target_tracks")
-        group_ids = [g.id for g in groups] if groups is not None else None
-        track_ids = [t.id for t in tracks] if tracks is not None else None
-        self._enforce_track_scope(
-            new_track, target_group_ids=group_ids, target_track_ids=track_ids
-        )
-
         event = serializer.save()
         log_audit_event(
             actor=self.request.user,
@@ -264,7 +208,6 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        self._enforce_track_scope(instance.track)
         before_state = EventSerializer(instance).data
         instance.deleted_at = timezone.now()
         instance.save(update_fields=["deleted_at"])
@@ -282,7 +225,6 @@ class EventViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def restore(self, request, *args, **kwargs):
         instance = self.get_object()
-        self._enforce_track_scope(instance.track)
         if instance.deleted_at is None:
             return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
 
@@ -375,7 +317,7 @@ class IsNotStudent(permissions.BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
 
-        if is_operational_admin(request.user):
+        if is_admin(request.user):
             return True
 
         role_name = get_active_role_name(request.user)

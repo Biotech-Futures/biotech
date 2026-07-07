@@ -15,7 +15,6 @@ from apps.users.models import (
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Tracks, Groups, GroupMembership
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 
 
@@ -211,8 +210,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
                    student_profile: Optional[StudentProfile] = None,
                    supervisor_profile: Optional[SupervisorProfile] = None,
                    mentor_profile: Optional[MentorProfile] = None,
-                   admin_tracks: Optional[List[str]] = None,
-                   admin_is_global: bool = False,
+                   is_admin: bool = False,
                    supervisor_name: Optional[str] = None,
                    supervisor_email_val: Optional[str] = None,
                    supervisees: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -267,8 +265,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
         "joinPermissionReceived": True if student_profile else False,
         "interests": interests,
-        "adminTracks": admin_tracks,
-        "adminIsGlobal": admin_is_global,
+        "isAdmin": is_admin,
         "isActive": user.is_active,
         "accountStatus": "active" if user.is_active else "deactivated",
         "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
@@ -291,7 +288,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     student_profile = StudentProfile.objects.filter(user_id=user_id).first()
     supervisor_profile = SupervisorProfile.objects.filter(user_id=user_id).first()
     mentor_profile = MentorProfile.objects.filter(user_id=user_id).first()
-    admin_scope = get_admin_scope_summary(user_id)
+    user_is_admin = is_admin_user(user_id)
 
     track_name = user.track.track_name if user.track else None
 
@@ -335,54 +332,23 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
         student_profile=student_profile,
         supervisor_profile=supervisor_profile,
         mentor_profile=mentor_profile,
-        admin_tracks=admin_scope["tracks"],
-        admin_is_global=admin_scope["is_global"],
+        is_admin=user_is_admin,
         supervisor_name=supervisor_name,
         supervisor_email_val=supervisor_email_val,
         supervisees=supervisees,
     )
 
 
-def get_admin_scope_summary(user_id: int) -> Dict[str, Any]:
-    return get_admin_scope_summaries_by_user_ids([user_id]).get(
-        user_id,
-        {"tracks": None, "is_global": False},
-    )
+def is_admin_user(user_id: int) -> bool:
+    return AdminScope.objects.filter(user_id=user_id).exists()
 
 
-def get_admin_scope_summaries_by_user_ids(user_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+def get_admin_user_ids(user_ids: List[int]) -> set:
     if not user_ids:
-        return {}
-
-    admin_scope_by_user: Dict[int, Dict[str, Any]] = {}
-    global_user_ids = set()
-
-    for scope in (
-        AdminScope.objects.filter(user_id__in=user_ids)
-        .select_related("track")
-        .order_by("track__track_name")
-    ):
-        if scope.is_global:
-            global_user_ids.add(scope.user_id)
-            continue
-        if scope.track:
-            admin_scope = admin_scope_by_user.setdefault(
-                scope.user_id,
-                {"tracks": [], "is_global": False},
-            )
-            admin_scope["tracks"].append(scope.track.track_name)
-
-    if global_user_ids:
-        all_track_names = list(
-            Tracks.objects.order_by("track_name").values_list("track_name", flat=True)
-        )
-        for user_id in global_user_ids:
-            admin_scope_by_user[user_id] = {
-                "tracks": all_track_names,
-                "is_global": True,
-            }
-
-    return admin_scope_by_user
+        return set()
+    return set(
+        AdminScope.objects.filter(user_id__in=user_ids).values_list("user_id", flat=True)
+    )
 
 
 # ============================================================================
@@ -425,9 +391,6 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         filters &= Q(is_active=active)
 
     filters &= (Q(track__isnull=True) | Q(track__is_archived=False))
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        filters &= (Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     queryset = _filter_by_active_group_membership(
         User.objects.filter(filters),
@@ -488,7 +451,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     mentor_profiles = {
         mp.user_id: mp for mp in MentorProfile.objects.filter(user_id__in=user_ids)
     }
-    admin_scope_map = get_admin_scope_summaries_by_user_ids(user_ids)
+    admin_user_ids = get_admin_user_ids(user_ids)
 
     # Active role assignments
     now = timezone.now()
@@ -552,7 +515,6 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         sp = student_profiles.get(uid)
         supervisor = supervisor_profiles.get(uid)
         mp = mentor_profiles.get(uid)
-        admin_scope = admin_scope_map.get(uid, {"tracks": None, "is_global": False})
         school_name = None
         if sp and sp.school_name:
             school_name = sp.school_name
@@ -588,8 +550,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
             "joinPermissionReceived": True if sp else False,
             "interests": interests_map.get(uid, []),
-            "adminTracks": admin_scope["tracks"],
-            "adminIsGlobal": admin_scope["is_global"],
+            "isAdmin": uid in admin_user_ids,
             "isActive": user.is_active,
             "accountStatus": "active" if user.is_active else "deactivated",
             "invitedAt": user.invited_at.isoformat() if user.invited_at else None,
@@ -627,9 +588,6 @@ def query_tracks(requesting_user=None) -> Dict[str, Any]:
     are excluded — they should not be selectable when assigning users.
     """
     qs = Tracks.objects.filter(is_archived=False)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(id__in=track_ids)
     tracks_list = qs.values('id', 'track_name').order_by('track_name')
     items = [
         {"id": track["id"], "trackName": track["track_name"]}
@@ -819,21 +777,6 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Validate admin tracks
-        if role == "admin":
-            admin_is_global = bool(input_data.get("adminIsGlobal"))
-            admin_tracks = [
-                t.strip() for t in (input_data.get("adminTracks") or [])
-                if t.strip()
-            ]
-            if not admin_is_global and not admin_tracks:
-                results.append({
-                    "input": input_data,
-                    "msg": "Select global admin or at least one admin track for admin users",
-                    "data": None
-                })
-                continue
-        
         # Validate student-specific fields
         if role == "student":
             school_name = (input_data.get("schoolName") or "").strip()
@@ -1011,30 +954,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Create AdminScope rows for admin users
+        # Mark admin users
         if role == "admin":
             try:
-                admin_is_global = bool(input_data.get("adminIsGlobal"))
-                normalized_tracks = [
-                    t.strip() for t in (input_data.get("adminTracks") or []) if t.strip()
-                ]
-                if admin_is_global:
-                    AdminScope.objects.get_or_create(
-                        user_id=new_user_id,
-                        is_global=True,
-                        defaults={"track": None},
-                    )
-                else:
-                    for track_name in normalized_tracks:
-                        try:
-                            track_obj = Tracks.objects.get(track_name=track_name)
-                            AdminScope.objects.get_or_create(
-                                user_id=new_user_id,
-                                track=track_obj,
-                                defaults={"is_global": False},
-                            )
-                        except Tracks.DoesNotExist:
-                            pass
+                AdminScope.objects.get_or_create(user_id=new_user_id)
             except Exception as e:
                 rollback_created_user(new_user_id)
                 results.append({
@@ -1191,28 +1114,8 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
         if next_max_count is None:
             return {"msg": "Max group count is required for mentor users", "data": None}
 
-    if next_role == "admin":
-        current_admin_scope = get_admin_scope_summary(user_id)
-        next_admin_is_global = bool(
-            input_data.get("adminIsGlobal", current_admin_scope["is_global"])
-        )
-        next_admin_tracks = input_data.get("adminTracks")
-        if next_admin_tracks is None:
-            next_admin_tracks = current_admin_scope["tracks"] or []
-        next_admin_tracks = [track.strip() for track in next_admin_tracks if track.strip()]
-
-        if not next_admin_is_global and not next_admin_tracks:
-            return {
-                "msg": "Select global admin or at least one admin track for admin users",
-                "data": None,
-            }
-    
     role_changed = "role" in input_data and input_data["role"] != current_role
-    scope_changed = (
-        ("adminTracks" in input_data or "adminIsGlobal" in input_data)
-        and next_role == "admin"
-    )
-    before_user = fetch_user_by_id(user_id) if (role_changed or scope_changed) else None
+    before_user = fetch_user_by_id(user_id) if role_changed else None
 
     # Handle track update
     if "track" in input_data:
@@ -1305,36 +1208,15 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             "data": None
         }
     
-    # Update admin scopes if needed
-    if ("adminTracks" in input_data or "adminIsGlobal" in input_data) and next_role == "admin":
-        admin_is_global = bool(input_data.get("adminIsGlobal", False))
-        normalized_tracks = [
-            t.strip() for t in (input_data.get("adminTracks") or []) if t.strip()
-        ]
-        AdminScope.objects.filter(user_id=user_id).delete()
-        if admin_is_global:
-            AdminScope.objects.get_or_create(
-                user_id=user_id,
-                is_global=True,
-                defaults={"track": None},
-            )
-        else:
-            for track_name in normalized_tracks:
-                try:
-                    track_obj = Tracks.objects.get(track_name=track_name)
-                    AdminScope.objects.get_or_create(
-                        user_id=user_id,
-                        track=track_obj,
-                        defaults={"is_global": False},
-                    )
-                except Tracks.DoesNotExist:
-                    pass
-    elif next_role != "admin":
+    # Sync admin marker to the (possibly changed) role.
+    if next_role == "admin":
+        AdminScope.objects.get_or_create(user_id=user_id)
+    else:
         AdminScope.objects.filter(user_id=user_id).delete()
     
     # Fetch updated user
     updated_user = fetch_user_by_id(user_id)
-    if role_changed or scope_changed:
+    if role_changed:
         log_audit_event(
             actor=initiated_by,
             entity_type="user",

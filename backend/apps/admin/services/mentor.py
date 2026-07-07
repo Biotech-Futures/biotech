@@ -8,7 +8,6 @@ from apps.groups.models import Groups, GroupMembership, Tracks
 from apps.users.models import User, MentorProfile
 from apps.chat.models import Messages
 from apps.users.models import UserInterest, AreasOfInterest
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.admin.services.user import STATUS_ACTIVE, STATUS_DEACTIVATED
 from apps.audit.services import log_audit_event
 
@@ -40,9 +39,6 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
         .select_related('user', 'user__track')
         .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
     )
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        mentor_qs = mentor_qs.filter(Q(user__track_id__in=track_ids) | Q(user__track__isnull=True))
     mentor_rows = (
         mentor_qs
         .values(

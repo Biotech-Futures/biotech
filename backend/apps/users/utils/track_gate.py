@@ -31,9 +31,9 @@ def revoke_sessions_for_archived_track(track) -> int:
     """
     from django.db.models import Q
 
+    from apps.common.rbac import is_admin
     from apps.groups.models import GroupMembership
     from apps.users.models import User
-    from apps.users.utils.admin_scope import is_operational_admin
     from apps.users.utils.sessions import terminate_user_sessions
 
     affected_users = (
@@ -52,7 +52,7 @@ def revoke_sessions_for_archived_track(track) -> int:
     terminated_count = 0
     skipped_admin_count = 0
     for user in affected_users.iterator():
-        if is_operational_admin(user):
+        if is_admin(user):
             skipped_admin_count += 1
             continue
         terminate_user_sessions(user)

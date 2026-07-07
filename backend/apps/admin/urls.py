@@ -108,9 +108,4 @@ urlpatterns = [
     path('track/states/', views.TrackStatesListView.as_view(), name='track-states-list'),
     path('track/<int:track_id>/archive/', views.TrackArchiveView.as_view(), name='track-archive'),
     path('track/<int:track_id>/restore/', views.TrackRestoreView.as_view(), name='track-restore'),
-
-    # ========================================================================
-    # ADMIN SCOPE
-    # ========================================================================
-    path('auth/scope/', views.AdminAuthScopeView.as_view(), name='admin-auth-scope'),
 ]

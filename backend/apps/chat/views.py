@@ -40,7 +40,7 @@ from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
 from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
-from apps.users.utils.admin_scope import can_admin_track, is_operational_admin
+from apps.common.rbac import is_admin
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -653,7 +653,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="deleted")
     def deleted(self, request, *args, **kwargs):
         # Recovery queue for moderators; participants should never browse deleted content.
-        if not is_operational_admin(request.user):
+        if not is_admin(request.user):
             return Response({"detail": "Admin access is required."}, status=status.HTTP_403_FORBIDDEN)
 
         gid = self.kwargs.get("group_pk")
@@ -767,9 +767,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def restore(self, request, *args, **kwargs):
         instance = self.get_object()
-        if not is_operational_admin(request.user) or not can_admin_track(
-            request.user, instance.group.track_id
-        ):
+        if not is_admin(request.user):
             return Response(
                 {"detail": "Admin access is required to restore messages."},
                 status=status.HTTP_403_FORBIDDEN,

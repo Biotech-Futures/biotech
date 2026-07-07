@@ -9,7 +9,6 @@ from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetR
 from apps.groups.models import Groups, Tracks
 from apps.resources.models import Roles
 from apps.users.models import User
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 
 
@@ -143,10 +142,6 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     if upcoming:
         now = timezone.now()
         queryset = queryset.filter(start_datetime__gte=now)
-
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
 
     # Hide events where every target track is archived
     # (events with no target tracks, or at least one non-archived target track, remain visible)
@@ -634,9 +629,6 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
 def query_groups(requesting_user=None) -> Dict[str, Any]:
     """Get all groups for reference data."""
     qs = Groups.objects.filter(deleted_at__isnull=True)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
     groups = list(qs.order_by("track__track_name", "group_name").values(
         "id", "group_name", "track_id", "track__track_name"
     ))
@@ -671,9 +663,6 @@ def query_roles() -> Dict[str, Any]:
 def query_tracks(requesting_user=None) -> Dict[str, Any]:
     """Get all tracks for reference data. Archived tracks are excluded."""
     qs = Tracks.objects.filter(is_archived=False)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(id__in=track_ids)
     tracks = list(qs.order_by("id").values("id", "track_name"))
     return {
         "msg": "Tracks retrieved successfully",

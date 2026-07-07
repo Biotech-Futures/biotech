@@ -22,7 +22,6 @@ from azure_blob_utils import (
     download_file_bytes,
 )
 from azure.storage.blob import BlobServiceClient
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 
 
@@ -366,13 +365,6 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
         'type', 'track', 'group', 'uploaded_by'
     ).filter(deleted_at__isnull=True)
 
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        queryset = queryset.filter(
-            Q(track_id__in=track_ids) | Q(track__isnull=True, group__track_id__in=track_ids) |
-            Q(track__isnull=True, group__isnull=True)
-        )
-    
     # Apply filters
     if params.get('uploader_user_id'):
         queryset = queryset.filter(uploaded_by_id=params['uploader_user_id'])
@@ -1139,9 +1131,6 @@ def list_resource_types() -> Dict[str, Any]:
 def list_resource_tracks(requesting_user=None) -> Dict[str, Any]:
     """List all resource tracks. Archived tracks are excluded."""
     qs = Tracks.objects.filter(is_archived=False)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(id__in=track_ids)
     tracks = qs.order_by('track_name')
 
     return {
