@@ -1,3 +1,4 @@
+import uuid
 from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
@@ -687,10 +688,13 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
                 if isinstance(gid, str) and gid.startswith('new-'):
                     synthetic_ids.setdefault(gid, True)
 
-            # Create one new group per synthetic ID.
+            # Create one new group per synthetic ID. Seed with a unique
+            # placeholder so the create never collides with an existing active
+            # group literally named "Auto Group" (group names are globally
+            # unique now), then rename to the stable pk-based name.
             created_group_by_synthetic = {}
             for synthetic_id in synthetic_ids:
-                group = Groups.objects.create(group_name='Auto Group')
+                group = Groups.objects.create(group_name=f'Auto Group {uuid.uuid4()}')
                 group.group_name = f'Auto Group {group.id}'
                 group.save()
                 created_group_by_synthetic[synthetic_id] = group.id

@@ -614,11 +614,19 @@ def compute_interest_cohesion(group: List[StudentInput]) -> float:
     return round2(shared_interest_pair_count / get_pair_count(len(group)))
 
 
-def combinations(items: List[Any], choose: int) -> List[List[Any]]:
-    """Generate all combinations of items choosing 'choose' elements."""
+# Exhaustive C(n, 2..5) enumeration is only tractable for small pools. When a
+# single country bucket is larger than this, generate_scored_candidates
+# considers just a sorted window of this many students per pass — the greedy
+# loop still slides the window forward so every student is eventually grouped,
+# but peak work stays at C(cap, 5) instead of C(n, 5) (which OOMs/hangs at n~100).
+CANDIDATE_POOL_CAP = 24
+
+
+def combinations(items: List[Any], choose: int):
+    """Yield all combinations of items choosing 'choose' elements."""
     if choose <= 0 or choose > len(items):
-        return []
-    return [list(combo) for combo in itertools_combinations(items, choose)]
+        return
+    yield from (list(combo) for combo in itertools_combinations(items, choose))
 
 
 class ScoredCandidate(TypedDict):
@@ -633,10 +641,15 @@ class ScoredCandidate(TypedDict):
 
 def generate_scored_candidates(students: List[StudentInput]) -> List[ScoredCandidate]:
     candidates: List[ScoredCandidate] = []
-    max_size = min(5, len(students))
+    # Bound the exhaustive enumeration: a huge single-country bucket would
+    # otherwise build C(n, 5) combinations and hang/OOM. The caller's greedy
+    # loop re-invokes this after removing each chosen group, so windowing the
+    # (deterministically sorted) pool still lets every student be grouped.
+    pool = students if len(students) <= CANDIDATE_POOL_CAP else students[:CANDIDATE_POOL_CAP]
+    max_size = min(5, len(pool))
 
     for size in range(2, max_size + 1):
-        combos = combinations(students, size)
+        combos = combinations(pool, size)
         for combo in combos:
             scored = score_group(combo)
             if not scored:

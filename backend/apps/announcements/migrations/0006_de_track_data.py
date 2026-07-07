@@ -20,6 +20,26 @@ def de_track_announcements(apps, schema_editor):
         role__isnull=True, group__isnull=True
     ).delete()
 
+    # Dedupe surviving role audiences (group NULL): the same role could
+    # previously repeat across tracks, so once the track column drops (0007)
+    # those rows collapse to duplicates that would violate the new
+    # unique_announcement_role_audience constraint. Keep the lowest id.
+    seen = set()
+    dupe_ids = []
+    for aud in (
+        AnnouncementAudience.objects.filter(role__isnull=False, group__isnull=True)
+        .order_by("id")
+        .values("id", "announcement_id", "role_id")
+    ):
+        key = (aud["announcement_id"], aud["role_id"])
+        if key in seen:
+            dupe_ids.append(aud["id"])
+        else:
+            seen.add(key)
+    deduped = 0
+    if dupe_ids:
+        deduped, _ = AnnouncementAudience.objects.filter(id__in=dupe_ids).delete()
+
     to_global = Announcement.objects.filter(
         visibility_scope__in=["track", "track_based"]
     ).update(visibility_scope="global")
@@ -36,11 +56,12 @@ def de_track_announcements(apps, schema_editor):
             ann.save(update_fields=["visibility_scope"])
             stranded += 1
 
-    if deleted or to_global or to_role or stranded:
+    if deleted or deduped or to_global or to_role or stranded:
         logger.info(
-            "de_track_announcements: deleted %s track audiences; "
-            "remapped %s→global, %s→role_based, %s stranded→global",
-            deleted, to_global, to_role, stranded,
+            "de_track_announcements: deleted %s track audiences; deduped %s "
+            "cross-track role audiences; remapped %s→global, %s→role_based, "
+            "%s stranded→global",
+            deleted, deduped, to_global, to_role, stranded,
         )
 
 

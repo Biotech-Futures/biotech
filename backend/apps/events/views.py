@@ -49,8 +49,8 @@ def _get_event_for_user_or_404(user, event_pk):
     """Resolve an event through ``visible_events_queryset`` or raise 404.
 
     Routes lookups through the same scoping logic the viewset uses so a
-    Track-A caller hitting a Track-B event id gets a 404 instead of
-    seeing roster data they shouldn't.
+    caller hitting an event targeted outside their groups/roles gets a 404
+    instead of seeing roster data they shouldn't.
     """
     event_qs = visible_events_queryset(
         user, Events.objects.filter(deleted_at__isnull=True)
@@ -62,9 +62,7 @@ class EventManagePermission(permissions.BasePermission):
     """Events are admin-pushed, not user-created.
 
     * Read    → open. Per-user scoping happens in `visible_events_queryset`.
-    * Write   → operational admins only. Track-scope on POST is enforced
-                in `EventViewSet.perform_create` because it needs the
-                request body, not just the user.
+    * Write   → admins only.
     """
 
     def has_permission(self, request, view):
@@ -369,8 +367,8 @@ class EventInviteListHTMLView(generics.ListAPIView):
     def get_queryset(self):
         # Scope the event lookup through visible_events_queryset so a
         # mentor/supervisor can't pull the roster for an event outside
-        # their track/scope. Returns 404 (not 403) on cross-track ids
-        # to match the existing visibility semantics.
+        # their group/role scope. Returns 404 (not 403) on out-of-scope
+        # ids to match the existing visibility semantics.
         event = _get_event_for_user_or_404(self.request.user, self.kwargs.get("id"))
         return EventRsvp.objects.select_related("event", "user").filter(event=event).order_by("id")
 
