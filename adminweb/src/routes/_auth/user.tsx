@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PlusIcon, UploadIcon } from "lucide-react";
 import {
-  useQueryTracks,
+  useQueryStates,
   useBulkCreateUsers,
   useBulkUpdateUserStatus,
   useCreateUser,
@@ -28,7 +28,6 @@ import {
   type UserAccount,
   type UserFormValues,
   type UserRole,
-  type UserTrack,
 } from "@/type/user";
 import { UserFilters } from "@/components/user/UserFilters";
 import { UserBulkActionsBar } from "@/components/user/UserBulkActionsBar";
@@ -50,24 +49,24 @@ type SortOption =
   | "email_desc"
   | "role_asc"
   | "role_desc"
-  | "track_asc"
-  | "track_desc"
+  | "state_asc"
+  | "state_desc"
   | "status_asc"
   | "status_desc";
 type UserSearchParams = {
   page: number;
   search?: string;
   role?: UserRole;
-  track?: UserTrack;
+  state?: string;
   status?: UserStatusFilter;
   sort?: SortOption;
 };
 type EditableUserSearchParams = Omit<
   Partial<UserSearchParams>,
-  "role" | "track"
+  "role" | "state"
 > & {
   role?: UserRole | "all";
-  track?: UserTrack | "all";
+  state?: string | "all";
 };
 
 export const Route = createFileRoute("/_auth/user")({
@@ -92,8 +91,8 @@ export const Route = createFileRoute("/_auth/user")({
       params.role = search.role as UserRole;
     }
 
-    if (typeof search.track === "string" && search.track.trim()) {
-      params.track = search.track;
+    if (typeof search.state === "string" && search.state.trim()) {
+      params.state = search.state;
     }
 
     if (
@@ -123,12 +122,12 @@ function UserManagementPage() {
   const searchParams = Route.useSearch();
   const search = searchParams.search ?? "";
   const role = searchParams.role ?? "all";
-  const track = searchParams.track ?? "all";
+  const stateFilter = searchParams.state ?? "all";
   const status = searchParams.status ?? "all";
   const sort = searchParams.sort ?? "createdAt_desc";
   const page = searchParams.page;
   const [sortBy, sortOrder] = sort.split("_") as [
-    "name" | "email" | "role" | "track" | "status" | "createdAt",
+    "name" | "email" | "role" | "state" | "status" | "createdAt",
     "asc" | "desc",
   ];
   const tableSortState: SortState<UserSortKey> = {
@@ -153,12 +152,12 @@ function UserManagementPage() {
     limit: PAGE_SIZE,
     search: search.trim() || undefined,
     role: role === "all" ? undefined : role,
-    track: track === "all" ? undefined : track,
+    state: stateFilter === "all" ? undefined : stateFilter,
     active: status === "all" ? undefined : status === "active",
     sortBy,
     sortOrder,
   });
-  const { data: tracksData } = useQueryTracks();
+  const { data: statesData } = useQueryStates();
   const { data: supervisorsData } = useQueryUsers({
     page: 1,
     limit: 200,
@@ -175,7 +174,7 @@ function UserManagementPage() {
     filters: Partial<{
       search: string;
       role: UserRole | "all";
-      track: UserTrack | "all";
+      state: string | "all";
       status: UserStatusFilter;
       sort: SortOption;
     }>,
@@ -202,6 +201,15 @@ function UserManagementPage() {
   };
 
   const pageItems = useMemo(() => data?.data?.items ?? [], [data?.data?.items]);
+
+  // Create sends the state by name; map the selected stateId back to its name.
+  const stateNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const item of statesData?.data ?? []) {
+      map.set(item.id, item.stateName);
+    }
+    return map;
+  }, [statesData]);
 
   const supervisorOptions = useMemo(
     () =>
@@ -241,10 +249,12 @@ function UserManagementPage() {
           lastName: values.lastName,
           email: values.email,
           role: values.role,
-          track: values.track ?? undefined,
-          adminTracks: values.role === "admin" ? values.adminTracks : undefined,
-          adminIsGlobal:
-            values.role === "admin" ? values.adminIsGlobal : undefined,
+          state:
+            values.role === "admin"
+              ? undefined
+              : values.stateId != null
+                ? stateNameById.get(values.stateId)
+                : undefined,
           schoolName: values.role === "student" ? values.schoolName : undefined,
           supervisorSchoolName:
             values.role === "supervisor"
@@ -298,10 +308,7 @@ function UserManagementPage() {
           firstName: values.firstName,
           lastName: values.lastName,
           role: values.role,
-          track: values.role === "admin" ? null : values.track,
-          adminTracks: values.role === "admin" ? values.adminTracks : undefined,
-          adminIsGlobal:
-            values.role === "admin" ? values.adminIsGlobal : undefined,
+          stateId: values.role === "admin" ? null : values.stateId,
           schoolName: values.role === "student" ? values.schoolName : null,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : null,
@@ -416,9 +423,7 @@ function UserManagementPage() {
           lastName: row.lastName,
           email: row.email,
           role: row.role,
-          track: row.track ?? undefined,
-          adminTracks: row.role === "admin" ? row.adminTracks : undefined,
-          adminIsGlobal: row.role === "admin" ? row.adminIsGlobal : undefined,
+          state: row.state ?? undefined,
           schoolName: row.role === "student" ? row.schoolName : undefined,
           supervisorSchoolName:
             row.role === "supervisor" ? row.supervisorSchoolName : undefined,
@@ -479,9 +484,9 @@ function UserManagementPage() {
           onSearchChange={(value) => updateFilters({ search: value })}
           role={role}
           onRoleChange={(value) => updateFilters({ role: value })}
-          track={track}
-          onTrackChange={(value) => updateFilters({ track: value })}
-          tracks={tracksData?.data ?? []}
+          state={stateFilter}
+          onStateChange={(value) => updateFilters({ state: value })}
+          states={statesData?.data ?? []}
           status={status}
           onStatusChange={(value) => updateFilters({ status: value })}
         />
@@ -571,7 +576,7 @@ function UserManagementPage() {
         onOpenChange={setEditorOpen}
         mode={editorMode}
         user={selectedUser}
-        tracks={tracksData?.data ?? []}
+        states={statesData?.data ?? []}
         supervisors={supervisorOptions}
         onSubmit={handleSaveUser}
         onDelete={handleDeleteUser}
@@ -608,7 +613,7 @@ function cleanSearchParams(params: EditableUserSearchParams): UserSearchParams {
 
   if (search) next.search = search;
   if (params.role && params.role !== "all") next.role = params.role;
-  if (params.track && params.track !== "all") next.track = params.track;
+  if (params.state && params.state !== "all") next.state = params.state;
   if (params.status && params.status !== "all") next.status = params.status;
   if (params.sort && params.sort !== "createdAt_desc") next.sort = params.sort;
 

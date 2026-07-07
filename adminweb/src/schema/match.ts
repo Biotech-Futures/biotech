@@ -43,8 +43,6 @@ export const individualStudentSchema = z.preprocess(
       user_id: "userId",
       first_name: "firstName",
       last_name: "lastName",
-      track_id: "trackId",
-      track_code: "trackCode",
       year_level: "yearLevel",
       country_name: "countryName",
     }),
@@ -52,8 +50,6 @@ export const individualStudentSchema = z.preprocess(
     userId: z.number(),
     firstName: z.string(),
     lastName: z.string(),
-    trackId: z.number(),
-    trackCode: z.string(),
     yearLevel: z.number().int().nullable(),
     countryName: z.string(),
     interests: z.array(z.string()).default([]),
@@ -67,13 +63,12 @@ export const individualStudentsResponseSchema = z.object({
 const recommendationStudentSchema = z.preprocess(
   (value) =>
     withAliases(value, {
-      track_id: "trackId",
+      country_name: "country",
       year_level: "yearLevel",
     }),
   z.object({
     id: z.union([z.string(), z.number()]),
     name: z.string().optional(),
-    trackId: z.union([z.string(), z.number()]).optional(),
     country: z.string().optional(),
     yearLevel: z.number().int().optional(),
     yearlevel: z.number().int().optional(),
@@ -86,7 +81,6 @@ const recommendationGroupStudentSchema = recommendationStudentSchema;
 const recommendationGroupSchema = z.object({
   id: z.union([z.string(), z.number()]),
   groupName: z.string(),
-  trackId: z.union([z.string(), z.number()]),
   maxSize: z.number().int().optional(),
   tutor: tutorSchema,
   groupStudent: z.array(recommendationGroupStudentSchema),
@@ -120,7 +114,6 @@ const recommendedStudentSchema = z.object({
 const groupedRecommendationSchema = z.object({
   id: z.union([z.string(), z.number()]),
   groupName: z.string(),
-  trackId: z.union([z.string(), z.number()]),
   maxSize: z.number().int().optional(),
   tutor: tutorSchema,
   existingStudents: z.array(recommendationGroupStudentSchema).default([]),
@@ -169,7 +162,6 @@ function groupFlatRecommendations(
     groupsById.set(groupId, {
       id: group.id,
       groupName: group.groupName,
-      trackId: group.trackId,
       maxSize: group.maxSize,
       tutor: group.tutor,
       existingStudents: group.groupStudent,

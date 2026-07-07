@@ -49,7 +49,7 @@ type MatchingBoardProps = {
 type MovableStudent = {
   id: string;
   name: string;
-  track: string;
+  country: string;
   yearLevel: string;
   interests: string[];
   score: number;
@@ -76,7 +76,6 @@ type GroupMember = {
 type MatchingGroup = {
   id: string;
   name: string;
-  track: string;
   tutor: string;
   maxSize: number;
   existingStudents: GroupMember[];
@@ -187,7 +186,6 @@ function toMatchingGroup(
   return {
     id: toStringId(group.id),
     name: group.groupName,
-    track: toStringId(group.trackId),
     tutor: group.tutor?.name || "Unassigned",
     maxSize: group.maxSize ?? DEFAULT_GROUP_MAX_SIZE,
     existingStudents: groupStudents.map((groupStudent) => ({
@@ -249,7 +247,7 @@ function buildBoardData(
       studentsById[studentId] = {
         id: studentId,
         name: buildDisplayName(recommendation.student),
-        track: toStringId(recommendation.student.trackId),
+        country: recommendation.student.country ?? "",
         yearLevel: formatYearLevel(
           recommendation.student.yearLevel ?? recommendation.student.yearlevel,
         ),
@@ -271,7 +269,7 @@ function buildBoardData(
     studentsById[studentId] = {
       id: studentId,
       name: buildDisplayName(recommendation.student),
-      track: toStringId(recommendation.student.trackId),
+      country: recommendation.student.country ?? "",
       yearLevel: formatYearLevel(
         recommendation.student.yearLevel ?? recommendation.student.yearlevel,
       ),
@@ -395,8 +393,8 @@ function StudentCard({
           </p>
           <div className="mt-1 grid grid-cols-2 gap-2">
             <div>
-              <span className="text-muted-foreground">Track ID</span>
-              <p className="font-medium">{student.track || "N/A"}</p>
+              <span className="text-muted-foreground">Country</span>
+              <p className="font-medium">{student.country || "N/A"}</p>
             </div>
             <div>
               <span className="text-muted-foreground">Year level</span>
@@ -648,7 +646,6 @@ export function MatchingBoard({
   const [containers, setContainers] = useState<Record<string, string[]>>({});
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
   const [groupSearch, setGroupSearch] = useState("");
-  const [trackFilter, setTrackFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
 
   const sensors = useSensors(
@@ -699,29 +696,10 @@ export function MatchingBoard({
     effectiveContainers,
   ]);
 
-  const availableTracks = useMemo(() => {
-    const studentTracks = Object.values(boardData.studentsById)
-      .map((student) => student.track)
-      .filter(Boolean);
-
-    return [
-      "all",
-      ...new Set(
-        [
-          ...groupSummaries.map((item) => item.group.track).filter(Boolean),
-          ...studentTracks,
-        ].sort((a, b) => a.localeCompare(b)),
-      ),
-    ];
-  }, [boardData.studentsById, groupSummaries]);
-
   const filteredGroupSummaries = useMemo(() => {
     const query = groupSearch.trim().toLowerCase();
 
     return groupSummaries
-      .filter((item) =>
-        trackFilter === "all" ? true : item.group.track === trackFilter,
-      )
       .filter((item) => {
         if (groupFilter === "needs_action") {
           return item.recommendedCount > 0;
@@ -741,23 +719,13 @@ export function MatchingBoard({
 
         return (
           item.group.name.toLowerCase().includes(query) ||
-          item.group.tutor.toLowerCase().includes(query) ||
-          item.group.track.toLowerCase().includes(query)
+          item.group.tutor.toLowerCase().includes(query)
         );
       })
       .sort((a, b) => a.group.name.localeCompare(b.group.name));
-  }, [groupFilter, groupSearch, groupSummaries, trackFilter]);
+  }, [groupFilter, groupSearch, groupSummaries]);
 
   const waitingStudentIds = effectiveContainers[WAITING_CONTAINER_ID] ?? [];
-  const visibleWaitingStudentIds = useMemo(() => {
-    if (trackFilter === "all") {
-      return waitingStudentIds;
-    }
-
-    return waitingStudentIds.filter(
-      (studentId) => boardData.studentsById[studentId]?.track === trackFilter,
-    );
-  }, [boardData.studentsById, trackFilter, waitingStudentIds]);
 
   useEffect(() => {
     setContainers(boardData.containers);
@@ -808,13 +776,6 @@ export function MatchingBoard({
       const targetGroup = boardData.groupsByContainerId[targetContainerId];
       const draggedStudent = boardData.studentsById[activeId];
       if (targetGroup) {
-        if (draggedStudent?.track !== targetGroup.track) {
-          toast.error(
-            `${draggedStudent?.name ?? "Student"} cannot be assigned to ${targetGroup.name}: track ${draggedStudent?.track || "N/A"} does not match ${targetGroup.track || "N/A"}.`,
-          );
-          return;
-        }
-
         if (
           !draggedStudent ||
           !hasSharedInterest(
@@ -994,20 +955,9 @@ export function MatchingBoard({
               <input
                 value={groupSearch}
                 onChange={(event) => setGroupSearch(event.target.value)}
-                placeholder="Search by group, tutor, or track"
+                placeholder="Search by group or tutor"
                 className="h-9 flex-1 rounded-md border px-3 text-sm"
               />
-              <select
-                value={trackFilter}
-                onChange={(event) => setTrackFilter(event.target.value)}
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-              >
-                {availableTracks.map((track) => (
-                  <option key={track} value={track}>
-                    {track === "all" ? "All tracks" : track}
-                  </option>
-                ))}
-              </select>
               <select
                 value={groupFilter}
                 onChange={(event) =>
@@ -1027,14 +977,12 @@ export function MatchingBoard({
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-base font-semibold">Waiting Area</h3>
                   <Badge variant="outline">
-                    {trackFilter === "all"
-                      ? `${waitingStudentIds.length} students`
-                      : `${visibleWaitingStudentIds.length}/${waitingStudentIds.length} students`}
+                    {`${waitingStudentIds.length} students`}
                   </Badge>
                 </div>
                 <DroppableStudentList
                   containerId={WAITING_CONTAINER_ID}
-                  studentIds={visibleWaitingStudentIds}
+                  studentIds={waitingStudentIds}
                   studentsById={boardData.studentsById}
                   recommendedGroupId={null}
                   emptyText="Drop students here to keep them waiting."
@@ -1061,7 +1009,7 @@ export function MatchingBoard({
                               {item.group.name}
                             </h3>
                             <p className="text-xs text-muted-foreground">
-                              {item.group.track} | {item.group.tutor}
+                              {item.group.tutor}
                             </p>
                           </div>
                           <Badge>

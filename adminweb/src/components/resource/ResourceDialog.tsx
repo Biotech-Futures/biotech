@@ -15,7 +15,6 @@ import {
   useCreateResource,
   useQueryResource,
   useQueryResourceRoles,
-  useQueryResourceTracks,
   useQueryResourceTypes,
   useReplaceResourceFile,
   useUpdateResource,
@@ -45,7 +44,6 @@ const emptyFormData: ResourceFormData = {
   description: "",
   kind: "file",
   visibilityScope: "role_based",
-  trackId: null,
   typeName: null,
   contentHtml: "",
   roleIds: [],
@@ -75,22 +73,17 @@ function getErrorMessage(error: unknown) {
 function getInitialFormData(resource: Resource | null): ResourceFormData {
   if (!resource) return emptyFormData;
 
-  const visibilityScope =
-    resource.visibility_scope === "track_based" ||
+  const visibilityScope: VisibilityScope =
+    resource.visibility_scope === "global" ||
     resource.visibility_scope === "role_based"
       ? resource.visibility_scope
-      : resource.audiences.some((audience) => audience.role?.slug !== "admin")
-        ? "role_based"
-        : resource.track_id !== null
-          ? "track_based"
-          : "role_based";
+      : "role_based";
 
   return {
     name: resource.name,
     description: resource.description ?? "",
     kind: resource.kind,
-    visibilityScope: visibilityScope as VisibilityScope,
-    trackId: resource.track_id,
+    visibilityScope,
     typeName: resource.type_name,
     contentHtml: resource.content_html ?? "",
     roleIds: Array.from(
@@ -117,7 +110,6 @@ export function ResourceDialog({
 }: ResourceDialogProps) {
   const { data: detailData } = useQueryResource(resource?.id ?? null);
   const { data: rolesData } = useQueryResourceRoles();
-  const { data: tracksData } = useQueryResourceTracks();
   const { data: typesData } = useQueryResourceTypes();
   const { mutateAsync: uploadResourceAsync, isPending: isUploadPending } =
     useUploadResource();
@@ -130,7 +122,6 @@ export function ResourceDialog({
 
   const currentResource = detailData?.data ?? resource;
   const roles = rolesData?.data ?? [];
-  const tracks = tracksData?.data ?? [];
   const types = typesData?.data ?? [];
   const isSaving =
     isUploadPending || isCreatePending || isUpdatePending || isReplacingFile;
@@ -165,14 +156,6 @@ export function ResourceDialog({
       return null;
     }
 
-    if (
-      formData.visibilityScope === "track_based" &&
-      formData.trackId === null
-    ) {
-      toast.error("Track is required for track-based visibility.");
-      return null;
-    }
-
     if (formData.visibilityScope === "role_based" && !formData.roleIds.length) {
       toast.error("Please select at least one role for role-based visibility.");
       return null;
@@ -196,7 +179,6 @@ export function ResourceDialog({
       resource_type: formData.typeName,
       content_html:
         formData.kind === "page" ? formData.contentHtml.trim() : null,
-      track_id: formData.trackId,
       role_ids: formData.roleIds,
       label_names,
     };
@@ -210,7 +192,6 @@ export function ResourceDialog({
       const parsed = createResourceSchema.safeParse({
         ...values,
         resource_type: values.resource_type ?? "guide",
-        track_id: values.track_id ?? undefined,
       });
       if (!parsed.success) {
         toast.error(parsed.error.issues[0]?.message ?? "Invalid form data.");
@@ -234,8 +215,6 @@ export function ResourceDialog({
     form.append("visibility_scope", values.visibility_scope);
     if (values.resource_type)
       form.append("resource_type", values.resource_type);
-    if (values.track_id !== null)
-      form.append("track_id", String(values.track_id));
     values.role_ids.forEach((roleId) =>
       form.append("role_ids", String(roleId)),
     );
@@ -310,7 +289,6 @@ export function ResourceDialog({
               value={formData}
               onChange={setFormData}
               roles={roles}
-              tracks={tracks}
               types={types}
               file={file}
               onFileChange={setFile}
@@ -323,7 +301,6 @@ export function ResourceDialog({
             <ResourceReadOnlyDetails
               resource={currentResource}
               roles={roles}
-              trackOptions={tracks}
               onDownload={onDownload}
             />
           ) : null}

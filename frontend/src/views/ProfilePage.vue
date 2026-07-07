@@ -39,7 +39,7 @@
       <div class="profile-header">
         <div class="profile-avatar-large">{{ getInitials(user.name) }}</div>
         <h2 class="profile-name">{{ user.name }}</h2>
-        <p class="profile-role">{{ capitalise(user.role) }} | {{ user.track }}</p>
+        <p class="profile-role">{{ capitalise(user.role) }} | {{ user.region }}</p>
       </div>
 
       <div class="profile-content">
@@ -50,8 +50,8 @@
             <span class="profile-field-value">{{ user.email }}</span>
           </div>
           <div class="profile-field">
-            <span class="profile-field-label">Track/Region:</span>
-            <span class="profile-field-value">{{ user.track }}</span>
+            <span class="profile-field-label">Region:</span>
+            <span class="profile-field-value">{{ user.region }}</span>
           </div>
           <div class="profile-field">
             <span class="profile-field-label">Role:</span>
@@ -216,7 +216,6 @@ const statusMessage = ref('')
 const timezoneSaving = ref(false)
 const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
-const trackById = ref(new Map())
 const unsetLabel = 'Not set'
 let statusMessageTimer = null
 const commonTimeZones = [
@@ -341,7 +340,6 @@ const user = computed(() => {
   const fullName = `${source?.first_name || ''} ${source?.last_name || ''}`.trim() || source?.email || 'User'
   const roleName = String(source?.current_role_name || auth.roleLabel || 'Member').trim()
   const roleKey = normaliseRole(roleName)
-  const trackId = Number(source?.track)
   const interests = listOrEmpty(source?.interests)
   const supervisorEmail = valueOrFallback(source?.supervisor_email, unsetLabel)
   const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
@@ -365,7 +363,7 @@ const user = computed(() => {
     email: source?.email || 'Unavailable',
     role: roleName || 'Member',
     accountStatus: source?.account_status || 'Unavailable',
-    track: trackById.value.get(trackId) || (source?.track ? `Track ${source.track}` : 'Unassigned'),
+    region: source?.state?.stateName || 'Unassigned',
     student: {
       hasDetails: hasStudentDetails,
       schoolName: valueOrFallback(source?.school_name, unsetLabel),
@@ -411,41 +409,12 @@ const capitalise = (value) => {
     .join(' ')
 }
 
-async function loadTracks() {
-  const response = await fetch(`${API_BASE_URL}/groups/tracks/?page_size=100`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: buildSessionHeaders({
-      headers: {
-        Accept: 'application/json'
-      }
-    })
-  })
-
-  if (!response.ok) {
-    throw await apiErrorFromResponse(response)
-  }
-
-  const text = await response.text()
-  const data = text ? JSON.parse(text) : null
-
-  const items = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : [])
-  trackById.value = new Map(
-    items
-      .map((track) => [Number(track?.id), track?.track_name])
-      .filter((entry) => entry[0] && entry[1])
-  )
-}
-
 async function loadProfile() {
   loading.value = true
   error.value = ''
 
   try {
-    await Promise.all([
-      auth.fetchUserData(),
-      loadTracks()
-    ])
+    await auth.fetchUserData()
 
     if (!auth.user) {
       throw new Error('Your current user profile could not be loaded.')

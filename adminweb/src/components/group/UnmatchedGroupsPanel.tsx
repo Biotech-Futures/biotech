@@ -61,7 +61,7 @@ function AssignMentorDialog({
             <span className="font-medium text-foreground">{group?.groupName}</span>
             {group && (
               <span className="ml-1 text-xs">
-                ({group.trackCode} · {group.studentCount} students)
+                ({group.countryName} · {group.studentCount} students)
               </span>
             )}
           </DialogDescription>
@@ -111,7 +111,7 @@ function AssignMentorDialog({
                     )}
                   </div>
                   <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                    <Badge variant="secondary" className="text-xs">{m.trackCode}</Badge>
+                    <Badge variant="secondary" className="text-xs">{m.countryName}</Badge>
                     <span className={cn(
                       "text-xs",
                       isFull ? "text-destructive" : "text-muted-foreground",
@@ -219,7 +219,7 @@ export function UnmatchedGroupsPanel() {
                     <span className="font-medium truncate">{g.groupName}</span>
                   </button>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                    <Badge variant="outline" className="text-xs">{g.trackCode}</Badge>
+                    <Badge variant="outline" className="text-xs">{g.countryName}</Badge>
                     <span className="text-xs text-muted-foreground">{g.studentCount} students</span>
                     <Button
                       size="sm"

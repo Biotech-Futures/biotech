@@ -5,7 +5,6 @@ import type {
   Resource,
   ResourceKind,
   ResourceRole,
-  ResourceTrackOption,
   ResourceOrder,
   ResourceAccess,
   ResourceTypeOption,
@@ -73,7 +72,6 @@ function normalizeResource(resource: ApiResource): Resource {
     type_name: resource.type_name ?? resource.resource_type ?? null,
     type_id: toNullableNumber(resource.type_id ?? resource.resource_type_id),
     group_id: toNullableNumber(resource.group_id),
-    track_id: toNullableNumber(resource.track_id),
     visibility_scope: resource.visibility_scope ?? "global",
     uploaded_at: resource.uploaded_at ?? "",
     deleted_at: resource.deleted_at ?? null,
@@ -102,11 +100,10 @@ interface QueryResourcesParams {
   page: number;
   search?: string;
   uploader?: string;
-  track_id?: number;
   order?: ResourceOrder;
   resource_type?: ResourceTypeName;
   resource_kind?: ResourceKind;
-  sortBy?: "name" | "type_name" | "visibility" | "role" | "track" | "uploader" | "uploaded_at";
+  sortBy?: "name" | "type_name" | "visibility" | "role" | "uploader" | "uploaded_at";
   sortOrder?: "asc" | "desc";
 }
 
@@ -115,7 +112,6 @@ export function useQueryResources(params: QueryResourcesParams) {
     page,
     search,
     uploader,
-    track_id,
     order,
     resource_type,
     resource_kind,
@@ -129,7 +125,6 @@ export function useQueryResources(params: QueryResourcesParams) {
       page,
       search,
       uploader,
-      track_id,
       order,
       resource_type,
       resource_kind,
@@ -144,7 +139,6 @@ export function useQueryResources(params: QueryResourcesParams) {
             page,
             search,
             uploader,
-            track_id,
             resource_type,
             resource_kind,
             order: order ?? "newest",
@@ -194,19 +188,6 @@ export function useQueryResourceTypes() {
         msg: string;
         data: ResourceTypeOption[];
       }>("/resource/types");
-      return res.data;
-    },
-  });
-}
-
-export function useQueryResourceTracks() {
-  return useQuery({
-    queryKey: ["resource-tracks"],
-    queryFn: async () => {
-      const res = await myFetch.get<{
-        msg: string;
-        data: ResourceTrackOption[];
-      }>("/resource/tracks");
       return res.data;
     },
   });

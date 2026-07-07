@@ -16,7 +16,6 @@ import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthUserRouteImport } from './routes/_auth/user'
-import { Route as AuthTrackRouteImport } from './routes/_auth/track'
 import { Route as AuthTaskRouteImport } from './routes/_auth/task'
 import { Route as AuthStudentRouteImport } from './routes/_auth/student'
 import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
@@ -59,11 +58,6 @@ const AuthCallbackRoute = AuthCallbackRouteImport.update({
 const AuthUserRoute = AuthUserRouteImport.update({
   id: '/user',
   path: '/user',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthTrackRoute = AuthTrackRouteImport.update({
-  id: '/track',
-  path: '/track',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthTaskRoute = AuthTaskRouteImport.update({
@@ -126,7 +120,6 @@ export interface FileRoutesByFullPath {
   '/resource': typeof AuthResourceRoute
   '/student': typeof AuthStudentRoute
   '/task': typeof AuthTaskRoute
-  '/track': typeof AuthTrackRoute
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
 }
@@ -143,7 +136,6 @@ export interface FileRoutesByTo {
   '/resource': typeof AuthResourceRoute
   '/student': typeof AuthStudentRoute
   '/task': typeof AuthTaskRoute
-  '/track': typeof AuthTrackRoute
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthIndexRoute
@@ -163,7 +155,6 @@ export interface FileRoutesById {
   '/_auth/resource': typeof AuthResourceRoute
   '/_auth/student': typeof AuthStudentRoute
   '/_auth/task': typeof AuthTaskRoute
-  '/_auth/track': typeof AuthTrackRoute
   '/_auth/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/_auth/': typeof AuthIndexRoute
@@ -184,7 +175,6 @@ export interface FileRouteTypes {
     | '/resource'
     | '/student'
     | '/task'
-    | '/track'
     | '/user'
     | '/auth/callback'
   fileRoutesByTo: FileRoutesByTo
@@ -201,7 +191,6 @@ export interface FileRouteTypes {
     | '/resource'
     | '/student'
     | '/task'
-    | '/track'
     | '/user'
     | '/auth/callback'
     | '/'
@@ -220,7 +209,6 @@ export interface FileRouteTypes {
     | '/_auth/resource'
     | '/_auth/student'
     | '/_auth/task'
-    | '/_auth/track'
     | '/_auth/user'
     | '/auth/callback'
     | '/_auth/'
@@ -283,13 +271,6 @@ declare module '@tanstack/react-router' {
       path: '/user'
       fullPath: '/user'
       preLoaderRoute: typeof AuthUserRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/track': {
-      id: '/_auth/track'
-      path: '/track'
-      fullPath: '/track'
-      preLoaderRoute: typeof AuthTrackRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/task': {
@@ -368,7 +349,6 @@ interface AuthRouteRouteChildren {
   AuthResourceRoute: typeof AuthResourceRoute
   AuthStudentRoute: typeof AuthStudentRoute
   AuthTaskRoute: typeof AuthTaskRoute
-  AuthTrackRoute: typeof AuthTrackRoute
   AuthUserRoute: typeof AuthUserRoute
   AuthIndexRoute: typeof AuthIndexRoute
 }
@@ -383,7 +363,6 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthResourceRoute: AuthResourceRoute,
   AuthStudentRoute: AuthStudentRoute,
   AuthTaskRoute: AuthTaskRoute,
-  AuthTrackRoute: AuthTrackRoute,
   AuthUserRoute: AuthUserRoute,
   AuthIndexRoute: AuthIndexRoute,
 }

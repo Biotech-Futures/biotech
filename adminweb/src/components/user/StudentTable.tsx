@@ -22,7 +22,7 @@ export type StudentSortKey =
   | "name"
   | "school"
   | "yearLevel"
-  | "track"
+  | "state"
   | "group"
   | "interests";
 

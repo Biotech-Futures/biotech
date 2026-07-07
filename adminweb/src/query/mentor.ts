@@ -28,7 +28,7 @@ const mentorDetailSchema = z.object({
   email: z.string(),
   isActive: z.boolean(),
   institution: z.string().nullable(),
-  trackCode: z.string(),
+  countryName: z.string(),
   maxGroupCount: z.number(),
   currentAssignedCount: z.number(),
   remainingCapacity: z.number(),

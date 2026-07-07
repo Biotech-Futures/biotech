@@ -14,7 +14,6 @@ import { Textarea } from "@/components/ui/textarea";
 import type {
   ResourceKind,
   ResourceRole,
-  ResourceTrackOption,
   ResourceTypeName,
   ResourceTypeOption,
   VisibilityScope,
@@ -26,7 +25,6 @@ export interface ResourceFormData {
   description: string;
   kind: ResourceKind;
   visibilityScope: VisibilityScope;
-  trackId: number | null;
   typeName: ResourceTypeName | null;
   contentHtml: string;
   roleIds: number[];
@@ -37,7 +35,6 @@ interface ResourceFormFieldsProps {
   value: ResourceFormData;
   onChange: (value: ResourceFormData) => void;
   roles: ResourceRole[];
-  tracks: ResourceTrackOption[];
   types: ResourceTypeOption[];
   file: File | null;
   onFileChange: (file: File | null) => void;
@@ -86,7 +83,6 @@ export function ResourceFormFields({
   value,
   onChange,
   roles,
-  tracks,
   types,
   file,
   onFileChange,
@@ -152,36 +148,11 @@ export function ResourceFormFields({
             <SelectValue placeholder="Select visibility mode" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="track_based">Track-based</SelectItem>
+            <SelectItem value="global">Global</SelectItem>
             <SelectItem value="role_based">Role-based</SelectItem>
           </SelectContent>
         </Select>
       </ResourceFieldRow>
-
-      {value.visibilityScope === "track_based" ? (
-        <ResourceFieldRow label="Track" htmlFor="resource-track" required>
-          <Select
-            value={value.trackId === null ? "none" : String(value.trackId)}
-            onValueChange={(nextValue) =>
-              updateValue({
-                trackId: nextValue === "none" ? null : Number(nextValue),
-              })
-            }
-          >
-            <SelectTrigger id="resource-track">
-              <SelectValue placeholder="Select track" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Unassigned</SelectItem>
-              {tracks.map((track) => (
-                <SelectItem key={track.id} value={String(track.id)}>
-                  {track.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </ResourceFieldRow>
-      ) : null}
 
       {value.visibilityScope === "role_based" ? (
         <ResourceFieldRow label="Visible Roles" required>

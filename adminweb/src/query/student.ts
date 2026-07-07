@@ -1,26 +1,33 @@
 import { useQuery } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
-import type {
-  StudentPaginatedResponse,
-  StudentTrack,
-  TracksResponse,
-} from "@/type/user";
+import type { StudentPaginatedResponse } from "@/type/user";
+
+export interface StudentStateOption {
+  id: number;
+  stateName: string;
+  countryName: string | null;
+}
+
+export interface StudentStatesResponse {
+  msg: string;
+  data: StudentStateOption[];
+}
 
 interface QueryStudentsParams {
   page: number;
   limit?: number;
   search?: string;
-  track?: StudentTrack;
+  state?: string;
   inGroup?: "yes" | "no";
-  sortBy?: "name" | "email" | "track" | "status" | "school" | "yearLevel" | "group" | "createdAt";
+  sortBy?: "name" | "email" | "state" | "status" | "school" | "yearLevel" | "group" | "createdAt";
   sortOrder?: "asc" | "desc";
 }
 
 export function useQueryStudents(params: QueryStudentsParams) {
-  const { page, limit = 10, search, track, inGroup, sortBy, sortOrder } = params;
+  const { page, limit = 10, search, state, inGroup, sortBy, sortOrder } = params;
 
   return useQuery({
-    queryKey: ["students", page, limit, search, track, inGroup, sortBy, sortOrder],
+    queryKey: ["students", page, limit, search, state, inGroup, sortBy, sortOrder],
     queryFn: async (): Promise<StudentPaginatedResponse> => {
       const res = await myFetch.get<StudentPaginatedResponse>("/user", {
         params: {
@@ -28,7 +35,7 @@ export function useQueryStudents(params: QueryStudentsParams) {
           limit,
           search,
           role: "student",
-          track,
+          state,
           inGroup,
           sortBy,
           sortOrder,
@@ -39,11 +46,11 @@ export function useQueryStudents(params: QueryStudentsParams) {
   });
 }
 
-export function useQueryTracks() {
+export function useQueryStates() {
   return useQuery({
-    queryKey: ["tracks"],
-    queryFn: async (): Promise<TracksResponse> => {
-      const res = await myFetch.get<TracksResponse>("/user/tracks");
+    queryKey: ["user-states"],
+    queryFn: async (): Promise<StudentStatesResponse> => {
+      const res = await myFetch.get<StudentStatesResponse>("/user/states");
       return res.data;
     },
   });

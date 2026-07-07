@@ -1,6 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -22,11 +21,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   USER_ROLES,
-  type TrackOption,
+  type StateOption,
   type UserAccount,
   type UserFormValues,
   type UserRole,
-  type UserTrack,
 } from "@/type/user";
 import { toast } from "sonner";
 
@@ -35,7 +33,7 @@ interface UserEditorSheetProps {
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
   user: UserAccount | null;
-  tracks?: TrackOption[];
+  states?: StateOption[];
   supervisors?: Array<{ id: string; name: string; email: string }>;
   onSubmit: (values: UserFormValues) => Promise<void> | void;
   onDelete?: (user: UserAccount) => Promise<void> | void;
@@ -48,9 +46,7 @@ const initialValues: UserFormValues = {
   lastName: "",
   email: "",
   role: "student",
-  track: null,
-  adminTracks: [],
-  adminIsGlobal: false,
+  stateId: null,
   schoolName: "",
   supervisorSchoolName: "",
   mentorBackground: "",
@@ -124,7 +120,7 @@ export function UserEditorSheet({
   onOpenChange,
   mode,
   user,
-  tracks,
+  states,
   supervisors,
   onSubmit,
   onDelete,
@@ -132,13 +128,12 @@ export function UserEditorSheet({
   isDeleting,
 }: UserEditorSheetProps) {
   const [values, setValues] = useState<UserFormValues>(initialValues);
-  const availableTracks = Array.from(
-    new Set([
-      ...(tracks ?? []).map((item) => item.trackName),
-      ...(user?.track ? [user.track] : []),
-      ...(user?.adminTracks ?? []),
-    ]),
-  );
+  const currentState = user?.state ?? null;
+  const stateOptions = states ?? [];
+  const availableStates =
+    currentState && !stateOptions.some((item) => item.id === currentState.id)
+      ? [...stateOptions, currentState]
+      : stateOptions;
 
   useEffect(() => {
     if (!open) return;
@@ -149,9 +144,7 @@ export function UserEditorSheet({
         lastName: user.lastName,
         email: user.email,
         role: user.role,
-        track: user.track,
-        adminTracks: user.role === "admin" ? (user.adminTracks ?? []) : [],
-        adminIsGlobal: user.role === "admin" ? user.adminIsGlobal : false,
+        stateId: user.state?.id ?? null,
         schoolName: user.role === "student" ? (user.schoolName ?? "") : "",
         supervisorSchoolName:
           user.role === "supervisor" ? (user.schoolName ?? "") : "",
@@ -189,16 +182,8 @@ export function UserEditorSheet({
       toast.error("Invalid email format.");
       return;
     }
-    if (values.role !== "admin" && !values.track) {
-      toast.error("Track is required for non-admin users.");
-      return;
-    }
-    if (
-      values.role === "admin" &&
-      !values.adminIsGlobal &&
-      !values.adminTracks.length
-    ) {
-      toast.error("Select global admin or at least one admin track.");
+    if (values.role !== "admin" && values.stateId == null) {
+      toast.error("State is required for non-admin users.");
       return;
     }
     if (values.role === "student") {
@@ -253,7 +238,7 @@ export function UserEditorSheet({
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Add User" : "Edit User"}</DialogTitle>
           <DialogDescription>
-            Manage role, track, and account status without touching other modules.
+            Manage role, state, and account status without touching other modules.
           </DialogDescription>
         </DialogHeader>
 
@@ -302,9 +287,7 @@ export function UserEditorSheet({
                 setValues((current) => ({
                   ...current,
                   role: value as UserRole,
-                  track: value === "admin" ? null : current.track,
-                  adminTracks: value === "admin" ? current.adminTracks : [],
-                  adminIsGlobal: value === "admin" ? current.adminIsGlobal : false,
+                  stateId: value === "admin" ? null : current.stateId,
                 }))
               }
             >
@@ -321,88 +304,33 @@ export function UserEditorSheet({
             </Select>
           </UserFormRow>
 
-          {values.role === "admin" ? (
-            <UserFormRow label="Admin Scope" required>
-              <div className="space-y-3">
-                <label className="flex cursor-pointer items-center gap-2 rounded-md border p-3 text-sm">
-                  <Checkbox
-                    checked={values.adminIsGlobal}
-                    onCheckedChange={(checked) =>
-                      setValues((current) => ({
-                        ...current,
-                        adminIsGlobal: checked === true,
-                      }))
-                    }
-                  />
-                  <span className="font-medium">Global admin</span>
-                </label>
-
-                <Label>Admin Tracks</Label>
-                <div className="max-h-40 overflow-auto rounded-md border p-3">
-                  {availableTracks.length ? (
-                    <div className="space-y-2">
-                      {availableTracks.map((track) => {
-                        const checked = values.adminTracks.includes(track);
-
-                        return (
-                          <label
-                            key={track}
-                            className="flex cursor-pointer items-center gap-2 text-sm"
-                          >
-                            <input
-                              type="checkbox"
-                              className="size-4 rounded border-border"
-                              checked={checked}
-                              disabled={values.adminIsGlobal}
-                              onChange={() =>
-                                setValues((current) => ({
-                                  ...current,
-                                  adminTracks: checked
-                                    ? current.adminTracks.filter(
-                                        (item) => item !== track,
-                                      )
-                                    : [...current.adminTracks, track],
-                                }))
-                              }
-                            />
-                            <span>{track}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No tracks are available.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </UserFormRow>
-          ) : (
-            <UserFormRow label="Track" htmlFor="user-track-select" required>
+          {values.role !== "admin" ? (
+            <UserFormRow label="State" htmlFor="user-state-select" required>
               <Select
-                value={values.track ?? "none"}
+                value={values.stateId != null ? String(values.stateId) : "none"}
                 onValueChange={(value) =>
                   setValues((current) => ({
                     ...current,
-                    track: value === "none" ? null : (value as UserTrack),
+                    stateId: value === "none" ? null : Number(value),
                   }))
                 }
               >
-                <SelectTrigger id="user-track-select">
-                  <SelectValue placeholder="Select a track" />
+                <SelectTrigger id="user-state-select">
+                  <SelectValue placeholder="Select a state" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Unassigned</SelectItem>
-                  {availableTracks.map((track) => (
-                    <SelectItem key={track} value={track}>
-                      {track}
+                  {availableStates.map((state) => (
+                    <SelectItem key={state.id} value={String(state.id)}>
+                      {state.countryName
+                        ? `${state.stateName} · ${state.countryName}`
+                        : state.stateName}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </UserFormRow>
-          )}
+          ) : null}
 
           {values.role === "student" ? (
             <>

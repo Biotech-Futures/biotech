@@ -11,8 +11,7 @@ import {
   createColumns,
 } from "@/components/group";
 import { useQueryGroup, useQueryGroups } from "@/query/group";
-import { useQueryTracks } from "@/query/student";
-import type { Group, MentorStatusFilter, Track } from "@/type/group";
+import type { Group, MentorStatusFilter } from "@/type/group";
 
 export const Route = createFileRoute("/_auth/group")({
   validateSearch: (
@@ -22,7 +21,6 @@ export const Route = createFileRoute("/_auth/group")({
     page: number;
     searchName?: string;
     searchGroup?: string;
-    track?: Track;
     mentorStatus?: MentorStatusFilter;
   } => {
     const params: {
@@ -30,7 +28,6 @@ export const Route = createFileRoute("/_auth/group")({
       page: number;
       searchName?: string;
       searchGroup?: string;
-      track?: Track;
       mentorStatus?: MentorStatusFilter;
     } = {
       page:
@@ -48,9 +45,6 @@ export const Route = createFileRoute("/_auth/group")({
     if (typeof search.searchGroup === "string" && search.searchGroup.trim()) {
       params.searchGroup = search.searchGroup;
     }
-    if (typeof search.track === "string" && search.track.trim()) {
-      params.track = search.track;
-    }
     if (
       search.mentorStatus === "matched" ||
       search.mentorStatus === "unmatched"
@@ -65,7 +59,7 @@ export const Route = createFileRoute("/_auth/group")({
 
 function GroupPage() {
   const navigate = useNavigate();
-  const { groupId, page, searchName, searchGroup, track, mentorStatus } =
+  const { groupId, page, searchName, searchGroup, mentorStatus } =
     Route.useSearch();
 
   // Detail modal state
@@ -82,18 +76,15 @@ function GroupPage() {
     page,
     searchName,
     searchGroup,
-    track,
     mentorStatus,
     sortBy:
       sorting[0]?.id === "name" ||
-      sorting[0]?.id === "track" ||
       sorting[0]?.id === "members" ||
       sorting[0]?.id === "mentor"
         ? sorting[0].id
         : "createdAt",
     sortOrder: sorting[0]?.desc ? "desc" : "asc",
   });
-  const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
 
   const { data: groupById, isPending: isGroupByIdPending } = useQueryGroup(
     groupId ?? "",
@@ -108,7 +99,6 @@ function GroupPage() {
     filters: Partial<{
       searchName: string;
       searchGroup: string;
-      track: Track;
       mentorStatus: MentorStatusFilter;
     }>,
   ) => {
@@ -201,16 +191,10 @@ function GroupPage() {
         onSearchGroupChange={(value) => {
           updateFilters({ searchGroup: value.trim() || undefined });
         }}
-        track={track}
-        onTrackChange={(value) => {
-          updateFilters({ track: value });
-        }}
         mentorStatus={mentorStatus}
         onMentorStatusChange={(value) => {
           updateFilters({ mentorStatus: value });
         }}
-        tracks={tracksData?.data ?? []}
-        isLoadingTracks={isLoadingTracks}
       />
 
       {/* Table */}

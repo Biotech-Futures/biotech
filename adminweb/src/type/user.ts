@@ -1,8 +1,18 @@
-export type UserTrack = string;
 export type UserRole = "student" | "mentor" | "supervisor" | "admin";
 export type ServerUserRole = UserRole;
 export type UserStatus = "active" | "inactive";
 export type UserSource = "server" | "local";
+
+export type StateOption = {
+  id: number;
+  stateName: string;
+  countryName: string | null;
+};
+
+export type StatesResponse = {
+  msg: string;
+  data: StateOption[];
+};
 
 export type UserAccount = {
   id: string;
@@ -11,7 +21,7 @@ export type UserAccount = {
   lastName: string;
   email: string;
   role: UserRole;
-  track: UserTrack | null;
+  state: StateOption | null;
   groupId: string | null;
   groupName: string | null;
   age: number | null;
@@ -21,8 +31,7 @@ export type UserAccount = {
   mentorReason: string | null;
   mentorMaxGroupCount: number | null;
   interests: string[];
-  adminTracks: string[];
-  adminIsGlobal: boolean;
+  isAdmin: boolean;
   createdAt: string;
   updatedAt: string;
   active: boolean;
@@ -50,9 +59,7 @@ export type UserFormValues = {
   lastName: string;
   email: string;
   role: UserRole;
-  track: UserTrack | null;
-  adminTracks: UserTrack[];
-  adminIsGlobal: boolean;
+  stateId: number | null;
   schoolName: string;
   supervisorSchoolName: string;
   mentorBackground: string;
@@ -65,18 +72,17 @@ export type UserFormValues = {
   supervisorEmail: string;
 };
 
-export type CsvUserRow = UserFormValues & {
+export type CsvUserRow = Omit<UserFormValues, "stateId"> & {
   id: string;
+  state: string | null;
 };
 
 export type UserOverride = Partial<
   Pick<
     UserAccount,
-    "name" | "email" | "role" | "track" | "active" | "updatedAt"
+    "name" | "email" | "role" | "state" | "active" | "updatedAt"
   >
 >;
-
-export const USER_TRACKS: UserTrack[] = [];
 
 export const USER_ROLES: UserRole[] = [
   "student",
@@ -92,18 +98,6 @@ export const SERVER_USER_ROLES: ServerUserRole[] = [
   "admin",
 ];
 
-export type StudentTrack = string;
-
-export type TrackOption = {
-  id: number;
-  trackName: string;
-};
-
-export type TracksResponse = {
-  msg: string;
-  data: TrackOption[];
-};
-
 export type StudentInterest = {
   id: number;
   description: string;
@@ -115,7 +109,7 @@ export type StudentUser = {
   lastName: string;
   email: string;
   role: "student";
-  track: StudentTrack | null;
+  state: StateOption | null;
   isActive: boolean;
   accountStatus: string;
   schoolName: string | null;
@@ -136,7 +130,6 @@ export type StudentPaginatedResponse = {
     hasMore: boolean;
   };
 };
-export const STUDENT_TRACKS: StudentTrack[] = USER_TRACKS;
 
 export function getUserStatus(user: Pick<UserAccount, "active">): UserStatus {
   return user.active ? "active" : "inactive";
@@ -146,6 +139,6 @@ export function labelizeUserRole(role: UserRole) {
   return role?.charAt(0).toUpperCase() + role?.slice(1);
 }
 
-export function labelizeTrack(track: UserTrack | null) {
-  return track ?? "Unassigned";
+export function labelizeState(state: StateOption | null) {
+  return state?.stateName ?? "Unassigned";
 }

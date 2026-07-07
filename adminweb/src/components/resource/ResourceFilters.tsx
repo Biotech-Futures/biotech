@@ -11,7 +11,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import type {
   ResourceOrder,
-  ResourceTrackOption,
   ResourceTypeName,
   ResourceTypeOption,
 } from "@/type/resource";
@@ -21,13 +20,10 @@ interface ResourceFiltersProps {
   onSearchChange: (value: string) => void;
   uploader: string;
   onUploaderChange: (value: string) => void;
-  trackId: number | undefined;
-  onTrackIdChange: (value: number | undefined) => void;
   order: ResourceOrder;
   onOrderChange: (value: ResourceOrder) => void;
   type: ResourceTypeName | undefined;
   onTypeChange: (value: ResourceTypeName | undefined) => void;
-  trackOptions: ResourceTrackOption[];
   typeOptions?: ResourceTypeOption[];
   actionSlot?: ReactNode;
 }
@@ -37,13 +33,10 @@ export function ResourceFilters({
   onSearchChange,
   uploader,
   onUploaderChange,
-  trackId,
-  onTrackIdChange,
   order,
   onOrderChange,
   type,
   onTypeChange,
-  trackOptions,
   typeOptions,
   actionSlot,
 }: ResourceFiltersProps) {
@@ -69,31 +62,7 @@ export function ResourceFilters({
   return (
     <div className="p-4 space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
-        <div className="md:col-span-1 xl:col-span-4">
-            <Label htmlFor="resource-track" className="text-sm text-muted-foreground mb-1.5 block">
-              Track
-            </Label>
-            <Select
-              value={trackId === undefined ? "all" : String(trackId)}
-              onValueChange={(value) =>
-                onTrackIdChange(value === "all" ? undefined : Number(value))
-              }
-            >
-              <SelectTrigger id="resource-track" className="w-full">
-                <SelectValue placeholder="All Tracks" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Tracks</SelectItem>
-                {trackOptions.map((track) => (
-                  <SelectItem key={track.id} value={String(track.id)}>
-                    {track.code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="md:col-span-1 xl:col-span-4">
+          <div className="md:col-span-1 xl:col-span-6">
             <Label htmlFor="resource-type" className="text-sm text-muted-foreground mb-1.5 block">
               Type
             </Label>
@@ -117,7 +86,7 @@ export function ResourceFilters({
             </Select>
           </div>
 
-        <div className="md:col-span-2 xl:col-span-4">
+        <div className="md:col-span-1 xl:col-span-6">
           <Label htmlFor="resource-order" className="text-sm text-muted-foreground mb-1.5 block">
             Sort by Date
           </Label>

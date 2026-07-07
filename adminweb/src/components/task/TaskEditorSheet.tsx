@@ -20,7 +20,6 @@ import {
 import { TASK_STATUSES, TASK_STATUS_LABELS } from "@/type/task";
 import type { Task, TaskCreateValues, TaskUpdateValues } from "@/type/task";
 import type { UserAccount } from "@/type/user";
-import { useListTracks } from "@/query/track";
 
 interface GroupOption {
   id: number;
@@ -39,10 +38,9 @@ interface TaskEditorSheetProps {
 }
 
 type FormValues = {
-  task_type: "group" | "individual" | "track";
+  task_type: "group" | "individual";
   group: string;
   assigned_user: string;
-  track: string;
   name: string;
   description: string;
   due_date: string;
@@ -64,7 +62,6 @@ export function TaskEditorSheet({
       task_type: "group",
       group: "",
       assigned_user: "",
-      track: "",
       name: "",
       description: "",
       due_date: "",
@@ -73,7 +70,6 @@ export function TaskEditorSheet({
   });
 
   const taskType = watch("task_type");
-  const { data: tracks } = useListTracks(false);
 
   useEffect(() => {
     if (!open) return;
@@ -83,7 +79,6 @@ export function TaskEditorSheet({
         group: task.group != null ? String(task.group) : "",
         assigned_user:
           task.assigned_user != null ? String(task.assigned_user) : "",
-        track: task.track != null ? String(task.track) : "",
         name: task.name,
         description: task.description,
         due_date: task.due_date
@@ -96,7 +91,6 @@ export function TaskEditorSheet({
         task_type: "group",
         group: "",
         assigned_user: "",
-        track: "",
         name: "",
         description: "",
         due_date: "",
@@ -113,10 +107,6 @@ export function TaskEditorSheet({
         assigned_user:
           values.task_type === "individual" && values.assigned_user
             ? Number(values.assigned_user)
-            : null,
-        track:
-          values.task_type === "track" && values.track
-            ? Number(values.track)
             : null,
         name: values.name.trim(),
         description: values.description.trim(),
@@ -163,7 +153,6 @@ export function TaskEditorSheet({
                       <SelectContent>
                         <SelectItem value="group">Group Task</SelectItem>
                         <SelectItem value="individual">Individual Task</SelectItem>
-                        <SelectItem value="track">Track Task</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
@@ -209,30 +198,6 @@ export function TaskEditorSheet({
                           {users.map((u) => (
                             <SelectItem key={u.id} value={String(u.id)}>
                               {u.name} ({u.email})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
-              )}
-
-              {taskType === "track" && (
-                <div className="space-y-1">
-                  <Label>Track</Label>
-                  <Controller
-                    control={control}
-                    name="track"
-                    render={({ field }) => (
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select track" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(tracks ?? []).map((t) => (
-                            <SelectItem key={t.id} value={String(t.id)}>
-                              {t.trackName}
                             </SelectItem>
                           ))}
                         </SelectContent>

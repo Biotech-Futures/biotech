@@ -15,9 +15,7 @@ type Props = {
 
 function scopeLabel(scope: string) {
   if (scope === "global") return "All users";
-  if (scope === "track_based") return "By track";
   if (scope === "role_based") return "By role";
-  if (scope === "track_role_based") return "By track & role";
   return scope;
 }
 
@@ -34,7 +32,6 @@ export function AnnouncementDetailSheet({ id, open, onOpenChange }: Props) {
           {data && (
             <div className="flex flex-wrap items-center gap-2 pt-1 text-sm text-muted-foreground">
               <Badge variant="outline">{scopeLabel(data.visibilityScope)}</Badge>
-              {data.trackName && <span>{data.trackName}</span>}
               <span>·</span>
               <span>{new Date(data.publishedAt).toLocaleString()}</span>
               {data.archivedAt && <Badge variant="secondary">Archived</Badge>}

@@ -8,8 +8,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import type { MentorStatusFilter, Track } from "@/type/group";
-import type { TrackOption } from "@/type/user";
+import type { MentorStatusFilter } from "@/type/group";
 import { SearchIcon, UserIcon } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -23,12 +22,8 @@ interface GroupFiltersProps {
   onSearchNameChange: (value: string) => void;
   searchGroup: string;
   onSearchGroupChange: (value: string) => void;
-  track: Track | undefined;
-  onTrackChange: (value: Track | undefined) => void;
   mentorStatus: MentorStatusFilter | undefined;
   onMentorStatusChange: (value: MentorStatusFilter | undefined) => void;
-  tracks?: TrackOption[];
-  isLoadingTracks?: boolean;
 }
 
 export function GroupFilters({
@@ -36,12 +31,8 @@ export function GroupFilters({
   onSearchNameChange,
   searchGroup,
   onSearchGroupChange,
-  track,
-  onTrackChange,
   mentorStatus,
   onMentorStatusChange,
-  tracks = [],
-  isLoadingTracks = false,
 }: GroupFiltersProps) {
   const [localSearchName, setLocalSearchName] = useState(searchName);
   const [localSearchGroup, setLocalSearchGroup] = useState(searchGroup);
@@ -163,39 +154,6 @@ export function GroupFilters({
             <SelectItem value="all">All Groups</SelectItem>
             <SelectItem value="matched">Matched</SelectItem>
             <SelectItem value="unmatched">Unmatched</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Track Filter */}
-      <div className="w-full lg:w-45">
-        <Label
-          htmlFor="track-filter"
-          className="text-sm text-muted-foreground mb-1.5 block"
-        >
-          Filter by Track
-        </Label>
-        <Select
-          value={track ?? "all"}
-          onValueChange={(value) => {
-            onTrackChange(value === "all" ? undefined : value);
-          }}
-        >
-          <SelectTrigger id="track-filter" className="min-w-32">
-            <SelectValue placeholder="All Tracks" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Tracks</SelectItem>
-            {isLoadingTracks && tracks.length === 0 && (
-              <SelectItem value="loading" disabled>
-                Loading tracks...
-              </SelectItem>
-            )}
-            {tracks.map((item) => (
-              <SelectItem key={item.id} value={item.trackName}>
-                {item.trackName}
-              </SelectItem>
-            ))}
           </SelectContent>
         </Select>
       </div>

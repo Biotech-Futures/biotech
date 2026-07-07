@@ -13,9 +13,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
+import { labelizeState, labelizeUserRole, type UserAccount } from "@/type/user";
 
-export type UserSortKey = "name" | "email" | "role" | "track" | "status";
+export type UserSortKey = "name" | "email" | "role" | "state" | "status";
 
 interface UserTableProps {
   data: UserAccount[];
@@ -106,7 +106,7 @@ export function UserTable({
                 />
               </TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Track</TableHead>
+              <TableHead>State</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
@@ -150,7 +150,7 @@ export function UserTable({
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell>{labelizeTrack(user.track)}</TableCell>
+                  <TableCell>{labelizeState(user.state)}</TableCell>
                   <TableCell>
                     <Badge variant={user.active ? "default" : "secondary"}>
                       {user.active ? "Active" : "Inactive"}

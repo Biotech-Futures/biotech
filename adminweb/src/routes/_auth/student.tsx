@@ -6,10 +6,10 @@ import { studentColumns } from "@/components/user/columns";
 import { Button } from "@/components/ui/button";
 import {
   useQueryStudents,
-  useQueryTracks,
+  useQueryStates,
   useQueryHasUngroupedStudents,
 } from "@/query/student";
-import type { StudentTrack, StudentUser } from "@/type/user";
+import type { StudentUser } from "@/type/user";
 import { ShuffleIcon } from "lucide-react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import ManualAssignDialog from "@/components/student/ManualAssignDialog";
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_auth/student")({
 function StudentPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [track, setTrack] = useState<StudentTrack | undefined>();
+  const [state, setState] = useState<string | undefined>();
   const [inGroup, setInGroup] = useState<"yes" | "no" | "all">("all");
   const [page, setPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([
@@ -35,25 +35,25 @@ function StudentPage() {
     page,
     limit: 10,
     search: search || undefined,
-    track,
+    state,
     inGroup: inGroup === "all" ? undefined : inGroup,
     sortBy:
       sorting[0]?.id === "school" ||
       sorting[0]?.id === "yearLevel" ||
-      sorting[0]?.id === "track" ||
+      sorting[0]?.id === "state" ||
       sorting[0]?.id === "group"
         ? sorting[0].id
         : "name",
     sortOrder: sorting[0]?.desc ? "desc" : "asc",
   });
 
-  const { data: tracksData, isPending: isLoadingTracks } = useQueryTracks();
+  const { data: statesData, isPending: isLoadingStates } = useQueryStates();
   const { data: ungroupedData } = useQueryHasUngroupedStudents();
   const hasUngrouped = ungroupedData?.data?.hasUngrouped ?? false;
 
   useEffect(() => {
     setPage(1);
-  }, [search, track, inGroup]);
+  }, [search, state, inGroup]);
 
   const students = data?.data?.items ?? [];
   const total = data?.data?.total ?? 0;
@@ -105,10 +105,10 @@ function StudentPage() {
       <StudentFilters
         search={search}
         onSearchChange={setSearch}
-        track={track}
-        onTrackChange={setTrack}
-        tracks={tracksData?.data ?? []}
-        isLoadingTracks={isLoadingTracks}
+        state={state}
+        onStateChange={setState}
+        states={statesData?.data ?? []}
+        isLoadingStates={isLoadingStates}
         inGroup={inGroup}
         onInGroupChange={setInGroup}
       />

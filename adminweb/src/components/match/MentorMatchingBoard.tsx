@@ -1,5 +1,9 @@
 import { useCallback, useMemo, useState, useEffect } from "react";
-import type { MentorGroupRecommendation, MentorListItem, UnmatchedGroup } from "@/type/mentorMatch";
+import type {
+  MentorGroupRecommendation,
+  MentorListItem,
+  UnmatchedGroup,
+} from "@/type/mentorMatch";
 import type { MatchMode } from "@/query/mentorMatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,25 +38,25 @@ const MATCH_MODES: {
     value: "balanced",
     label: "Balanced",
     description:
-      "Considers all available mentors for every group. Same-track mentors are preferred, but cross-track mentors can fill in when needed. Best overall coverage.",
+      "Considers all available mentors for every group. Same-country mentors are preferred, but cross-country mentors can fill in when needed. Best overall coverage.",
   },
   {
     value: "strict",
     label: "Strict",
     description:
-      "Only matches groups with mentors from the same track (or GLOBAL mentors). Groups with no compatible mentor in their track will be left unmatched.",
+      "Only matches groups with mentors from the same country (or GLOBAL mentors). Groups with no compatible mentor in their country will be left unmatched.",
   },
   {
     value: "coverage",
     label: "Coverage",
     description:
-      "Two-phase matching: first assigns same-track mentors, then uses remaining mentor capacity to cover still-unmatched groups across other tracks. Maximises the number of matched groups.",
+      "Two-phase matching: first assigns same-country mentors, then uses remaining mentor capacity to cover still-unmatched groups across other countries. Maximises the number of matched groups.",
   },
 ];
 
 type RecommendationSortKey =
   | "group"
-  | "track"
+  | "country"
   | "students"
   | "mentor"
   | "institution"
@@ -93,7 +97,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
         <div className="text-xs space-y-1">
           <p className="font-medium">{group.groupName}</p>
           <p className="text-muted-foreground">
-            Track: <span className="text-foreground">{group.trackCode}</span>
+            Country: <span className="text-foreground">{group.countryName}</span>
           </p>
           <p className="text-muted-foreground">
             Students: <span className="text-foreground">{group.studentCount}</span>
@@ -150,10 +154,10 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
             <span className="text-muted-foreground">Base</span>
             <span>{bd.baseScore}</span>
           </div>
-          {bd.trackPenalty > 0 && (
+          {bd.countryPenalty > 0 && (
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Track mismatch</span>
-              <span className="text-red-500">−{bd.trackPenalty}</span>
+              <span className="text-muted-foreground">Country mismatch</span>
+              <span className="text-red-500">−{bd.countryPenalty}</span>
             </div>
           )}
           {bd.interestBonus > 0 && (
@@ -206,7 +210,7 @@ function ExpandedDetail({ rec }: { rec: MentorGroupRecommendation }) {
               <p className="text-muted-foreground">{recommendedMentor.institution}</p>
             )}
             <p className="text-muted-foreground">
-              Track: <span className="text-foreground">{recommendedMentor.trackCode}</span>
+              Country: <span className="text-foreground">{recommendedMentor.countryName}</span>
             </p>
             <p className="text-muted-foreground">
               Remaining capacity:{" "}
@@ -256,7 +260,7 @@ export function MentorMatchingBoard({
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [expandedPreMatchIds, setExpandedPreMatchIds] = useState<Set<number>>(new Set());
   const [expandedMentorIds, setExpandedMentorIds] = useState<Set<number>>(new Set());
-  const [trackFilter, setTrackFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [overrides, setOverrides] = useState<Map<number, number>>(new Map());
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
@@ -273,26 +277,26 @@ export function MentorMatchingBoard({
     return shortage > 0 ? { totalCapacity, shortage } : null;
   }, [mentors, unmatchedGroups]);
 
-  const availableTracks = useMemo(() => {
+  const availableCountries = useMemo(() => {
     return [
       "all",
-      ...new Set(recommendations.map((r) => r.group.trackCode).filter(Boolean)),
+      ...new Set(recommendations.map((r) => r.group.countryName).filter(Boolean)),
     ];
   }, [recommendations]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return recommendations
-      .filter((r) => (trackFilter === "all" ? true : r.group.trackCode === trackFilter))
+      .filter((r) => (countryFilter === "all" ? true : r.group.countryName === countryFilter))
       .filter((r) => {
         if (!query) return true;
         return (
           r.group.groupName.toLowerCase().includes(query) ||
           r.recommendedMentor?.name.toLowerCase().includes(query) ||
-          r.group.trackCode.toLowerCase().includes(query)
+          r.group.countryName.toLowerCase().includes(query)
         );
       });
-  }, [recommendations, trackFilter, search]);
+  }, [recommendations, countryFilter, search]);
   const getRecommendationSortValue = useCallback(
     (rec: MentorGroupRecommendation, key: RecommendationSortKey) => {
       const overrideMentorId = overrides.get(rec.group.groupId);
@@ -304,8 +308,8 @@ export function MentorMatchingBoard({
       switch (key) {
         case "group":
           return rec.group.groupName;
-        case "track":
-          return rec.group.trackCode;
+        case "country":
+          return rec.group.countryName;
         case "students":
           return rec.group.studentCount;
         case "mentor":
@@ -535,7 +539,7 @@ export function MentorMatchingBoard({
                           )}
                           <span className="text-sm truncate">{g.groupName}</span>
                         </div>
-                        <Badge variant="outline" className="text-xs flex-shrink-0 ml-2">{g.trackCode}</Badge>
+                        <Badge variant="outline" className="text-xs flex-shrink-0 ml-2">{g.countryName}</Badge>
                       </button>
                       {isExpanded && (
                         <div className="px-4 pb-3 pt-1 bg-muted/10 space-y-2">
@@ -632,7 +636,7 @@ export function MentorMatchingBoard({
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                          <Badge variant="outline" className="text-xs">{m.trackCode}</Badge>
+                          <Badge variant="outline" className="text-xs">{m.countryName}</Badge>
                           <span className="text-xs text-muted-foreground">{m.currentAssignedCount}/{m.maxGroupCount}</span>
                         </div>
                       </button>
@@ -680,17 +684,17 @@ export function MentorMatchingBoard({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by group, mentor, or track"
+              placeholder="Search by group, mentor, or country"
               className="h-9 min-w-[220px] flex-1 rounded-md border px-3 text-sm"
             />
             <select
-              value={trackFilter}
-              onChange={(e) => setTrackFilter(e.target.value)}
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value)}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              {availableTracks.map((track) => (
-                <option key={track} value={track}>
-                  {track === "all" ? "All tracks" : track}
+              {availableCountries.map((country) => (
+                <option key={country} value={country}>
+                  {country === "all" ? "All countries" : country}
                 </option>
               ))}
             </select>
@@ -724,8 +728,8 @@ export function MentorMatchingBoard({
                 </TableHead>
                 <TableHead>
                   <SortableTableHead
-                    label="Track"
-                    sortKey="track"
+                    label="Country"
+                    sortKey="country"
                     sortState={sortState}
                     onSortChange={setSortState}
                   />
@@ -842,7 +846,7 @@ export function MentorMatchingBoard({
                         {rec.group.groupName}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{rec.group.trackCode}</Badge>
+                        <Badge variant="outline">{rec.group.countryName}</Badge>
                       </TableCell>
                       <TableCell>{rec.group.studentCount}</TableCell>
 
@@ -868,7 +872,7 @@ export function MentorMatchingBoard({
                               <option value="">— Select mentor —</option>
                               {mentors.map((m) => (
                                 <option key={m.mentorId} value={m.mentorId}>
-                                  {m.name} ({m.trackCode}, {m.remainingCapacity} left)
+                                  {m.name} ({m.countryName}, {m.remainingCapacity} left)
                                 </option>
                               ))}
                             </select>

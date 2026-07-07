@@ -438,7 +438,6 @@ const DASHBOARD_ENDPOINTS = {
     `${API_BASE_URL}/dashboard/v1/groups-preview/?page_size=20${mine ? '&mine=true' : ''}`,
   groups: `${API_BASE_URL}/groups/groups/?page_size=20`,
   groupsMine: `${API_BASE_URL}/groups/groups/?page_size=20&mine=true`,
-  tracks: `${API_BASE_URL}/groups/tracks/?page_size=100`,
   resources: `${API_BASE_URL}/resources/resource-files/?page_size=20`,
   announcements: `${API_BASE_URL}/announcements/v1/?page_size=10`,
   nextEvent: `${API_BASE_URL}/dashboard/v1/next-event/`,
@@ -944,7 +943,7 @@ function normalizeRoleName(value) {
   return role
 }
 
-function normalizeGroup(group, memberships = [], trackById = new Map()) {
+function normalizeGroup(group, memberships = []) {
   const groupId = group?.id
   const matchingMemberships = memberships.filter((item) => String(item?.group) === String(groupId))
   const activeMentors = matchingMemberships.filter((item) => {
@@ -960,10 +959,7 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
         group?.lead_user?.email ||
         group?.lead_name
       : ''
-  const trackLabel =
-    group?.track_name ||
-    trackById.get(Number(group?.track)) ||
-    (group?.track ? `Track ${group.track}` : group?.category)
+  const groupLabel = group?.category || group?.status || 'General'
   const memberCount = Number(
     group?.member_count ?? group?.memberCount ?? group?.members ?? matchingMemberships.length ?? 0,
   )
@@ -981,7 +977,8 @@ function normalizeGroup(group, memberships = [], trackById = new Map()) {
       group?.mentor ||
       group?.lead ||
       (activeMentors[0]?.user ? `Mentor #${activeMentors[0].user}` : 'Mentor team'),
-    track: trackLabel || 'General',
+    // Display-only category label (the track model is gone).
+    track: groupLabel,
   }
 }
 
@@ -1237,17 +1234,7 @@ async function loadGroups() {
       return
     }
 
-    let trackById = new Map()
-    try {
-      const tracks = extractCollectionItems(await fetchJson(DASHBOARD_ENDPOINTS.tracks))
-      trackById = new Map(
-        tracks.map((track) => [Number(track?.id), track?.track_name]).filter((item) => item[1]),
-      )
-    } catch {
-      trackById = new Map()
-    }
-
-    groups.value = groupItems.map((group) => normalizeGroup(group, [], trackById))
+    groups.value = groupItems.map((group) => normalizeGroup(group, []))
   } catch {
     groups.value = []
   }

@@ -6,7 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { labelizeTrack, labelizeUserRole, type UserAccount } from "@/type/user";
+import { labelizeState, labelizeUserRole, type UserAccount } from "@/type/user";
 
 interface UserDetailSheetProps {
   open: boolean;
@@ -41,7 +41,7 @@ export function UserDetailSheet({
                   <span className="text-muted-foreground">—</span>
                 ),
               },
-              { label: "Track", value: labelizeTrack(user.track) },
+              { label: "State", value: labelizeState(user.state) },
               {
                 label: "Status",
                 value: (
@@ -116,18 +116,7 @@ export function UserDetailSheet({
           {user.role === "admin" && (
             <DetailSection
               title="Admin Profile"
-              items={[
-                {
-                  label: "Scope",
-                  value: user.adminIsGlobal ? "Global admin" : "Track admin",
-                },
-                {
-                  label: "Managed Tracks",
-                  value: user.adminTracks.length
-                    ? user.adminTracks.join(", ")
-                    : "-",
-                },
-              ]}
+              items={[{ label: "Scope", value: "Admin" }]}
             />
           )}
         </div>
