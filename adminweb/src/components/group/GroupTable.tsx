@@ -16,14 +16,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
 import type { Group } from "@/type/group";
-import {
-  ArrowDownIcon,
-  ArrowUpDownIcon,
-  ArrowUpIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-} from "lucide-react";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { useState } from "react";
 
 interface GroupTableProps {
@@ -33,6 +28,8 @@ interface GroupTableProps {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  pageSize: number;
+  onPageSizeChange: (size: number) => void;
   sorting?: SortingState;
   onSortingChange?: (sorting: SortingState) => void;
   manualSorting?: boolean;
@@ -45,6 +42,8 @@ export function GroupTable({
   page,
   totalPages,
   onPageChange,
+  pageSize,
+  onPageSizeChange,
   sorting: controlledSorting,
   onSortingChange,
   manualSorting,
@@ -137,32 +136,14 @@ export function GroupTable({
         </Table>
       </div>
 
-      {/* Pagination Controls */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page - 1)}
-            disabled={page <= 1 || isPending}
-          >
-            <ChevronLeftIcon className="size-4" />
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page + 1)}
-            disabled={page >= totalPages || isPending}
-          >
-            Next
-            <ChevronRightIcon className="size-4" />
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        pageSize={pageSize}
+        onPageSizeChange={onPageSizeChange}
+        disabled={isPending}
+      />
     </div>
   );
 }

@@ -14,14 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  ArrowDownIcon,
-  ArrowUpDownIcon,
-  ArrowUpIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-} from "lucide-react";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import type { Resource } from "@/type/resource";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -36,6 +30,8 @@ interface ResourceTableProps {
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
   bulkMode: boolean;
   selectedIds: number[];
   onSelectedIdsChange: (ids: number[]) => void;
@@ -51,6 +47,8 @@ export function ResourceTable({
   page,
   totalPages,
   onPageChange,
+  pageSize,
+  onPageSizeChange,
   bulkMode,
   selectedIds,
   onSelectedIdsChange,
@@ -59,25 +57,9 @@ export function ResourceTable({
   manualSorting,
   isPending,
 }: ResourceTableProps) {
-  const [pageInput, setPageInput] = useState(String(page));
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const sorting = controlledSorting ?? internalSorting;
   const selectAllRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    setPageInput(String(page));
-  }, [page]);
-
-  const handleJumpPage = () => {
-    const parsed = Number.parseInt(pageInput, 10);
-    if (Number.isNaN(parsed)) {
-      setPageInput(String(page));
-      return;
-    }
-
-    const nextPage = Math.min(totalPages, Math.max(1, parsed));
-    onPageChange(nextPage);
-  };
 
   const table = useReactTable({
     data,
@@ -223,54 +205,14 @@ export function ResourceTable({
         </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <Input
-              value={pageInput}
-              onChange={(event) => setPageInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  handleJumpPage();
-                }
-              }}
-              className="w-18"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              aria-label="Go to page"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleJumpPage}
-              disabled={isPending}
-            >
-              Go
-            </Button>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page - 1)}
-            disabled={page <= 1 || isPending}
-          >
-            <ChevronLeftIcon className="size-4" />
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page + 1)}
-            disabled={page >= totalPages || isPending}
-          >
-            Next
-            <ChevronRightIcon className="size-4" />
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        pageSize={pageSize}
+        onPageSizeChange={onPageSizeChange}
+        disabled={isPending}
+      />
     </div>
   );
 }

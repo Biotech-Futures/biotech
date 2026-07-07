@@ -12,16 +12,25 @@ const BASE = "/announcement";
 
 export function useListAnnouncements(
   page: number,
+  limit: number,
   search: string,
   archived?: boolean,
   sort?: SortState<"title" | "audience" | "published" | "status">,
 ) {
   return useQuery({
-    queryKey: ["announcements", page, search, archived, sort?.key, sort?.direction],
+    queryKey: [
+      "announcements",
+      page,
+      limit,
+      search,
+      archived,
+      sort?.key,
+      sort?.direction,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(page),
-        limit: "10",
+        limit: String(limit),
       });
       if (search) params.set("search", search);
       if (archived === true) params.set("archived", "true");

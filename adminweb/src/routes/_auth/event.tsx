@@ -49,6 +49,7 @@ import {
   useSortableRows,
   type SortState,
 } from "@/components/ui/sortable-table";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
 import {
   createEventSchema,
   updateEventSchema,
@@ -95,6 +96,8 @@ import {
   useRef,
   useState,
 } from "react";
+
+const DEFAULT_PAGE_SIZE = 25;
 
 export const Route = createFileRoute("/_auth/event")({
   component: EventPage,
@@ -544,6 +547,7 @@ function DateTimeLocalInput({
 
 function EventPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [upcoming, setUpcoming] = useState(true);
   const [createEventOpen, setCreateEventOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
@@ -567,11 +571,16 @@ function EventPage() {
   const { user: currentUser } = useAuthContext();
   const { data, isPending } = useQueryEvents({
     page,
-    limit: 10,
+    limit: pageSize,
     upcoming,
     sortBy: eventSortState.key,
     sortOrder: eventSortState.direction,
   });
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1);
+  };
   const { data: usersData } = useQueryUsers();
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
@@ -718,8 +727,7 @@ function EventPage() {
 
   const eventsList = data?.data.items ?? [];
   const total = data?.data.total ?? 0;
-  const limit = data?.data.limit ?? 10;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
   const getRsvpSortValue = useCallback(
@@ -1017,31 +1025,14 @@ function EventPage() {
         </Table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={page <= 1 || isPending}
-            onClick={() => setPage((v) => Math.max(1, v - 1))}
-          >
-            Previous
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages || isPending}
-            onClick={() => setPage((v) => v + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={handlePageSizeChange}
+        disabled={isPending}
+      />
 
       {/* ── View Dialog ──────────────────────────────────────────────────── */}
       <Dialog

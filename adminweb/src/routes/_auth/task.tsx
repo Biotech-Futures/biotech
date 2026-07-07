@@ -39,11 +39,12 @@ export const Route = createFileRoute("/_auth/task")({
   component: TaskManagementPage,
 });
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 25;
 
 function TaskManagementPage() {
   const navigate = useNavigate();
   const { page, task_type } = Route.useSearch();
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -56,7 +57,7 @@ function TaskManagementPage() {
 
   const { data: taskData, isPending } = useQueryTasks({
     page,
-    limit: PAGE_SIZE,
+    limit: pageSize,
     task_type: typeFilter === "all" ? undefined : typeFilter,
     sortBy: sortState.key,
     sortOrder: sortState.direction,
@@ -83,7 +84,7 @@ function TaskManagementPage() {
 
   const tasks = taskData?.data?.items ?? [];
   const total = taskData?.data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const groups = useMemo(
     () => groupsData?.data?.items ?? [],
@@ -108,6 +109,11 @@ function TaskManagementPage() {
       search: { page: nextPage, task_type: typeFilter },
       replace: true,
     });
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    updatePage(1);
   };
 
   const openCreate = () => {
@@ -196,7 +202,9 @@ function TaskManagementPage() {
         data={tasks}
         page={page}
         totalPages={totalPages}
+        pageSize={pageSize}
         onPageChange={updatePage}
+        onPageSizeChange={handlePageSizeChange}
         onEdit={openEdit}
         onDelete={handleDelete}
         onToggle={handleToggle}

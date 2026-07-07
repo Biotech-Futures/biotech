@@ -98,6 +98,7 @@ function normalizePaginatedResources(
 
 interface QueryResourcesParams {
   page: number;
+  limit?: number;
   search?: string;
   uploader?: string;
   order?: ResourceOrder;
@@ -110,6 +111,7 @@ interface QueryResourcesParams {
 export function useQueryResources(params: QueryResourcesParams) {
   const {
     page,
+    limit = 10,
     search,
     uploader,
     order,
@@ -123,6 +125,7 @@ export function useQueryResources(params: QueryResourcesParams) {
     queryKey: [
       "resources",
       page,
+      limit,
       search,
       uploader,
       order,
@@ -137,6 +140,7 @@ export function useQueryResources(params: QueryResourcesParams) {
         {
           params: {
             page,
+            limit,
             search,
             uploader,
             resource_type,

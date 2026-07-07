@@ -13,12 +13,8 @@ import {
   SortableTableHead,
   type SortState,
 } from "@/components/ui/sortable-table";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  PencilIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
+import { PencilIcon, Trash2Icon } from "lucide-react";
 import type { Task } from "@/type/task";
 import { TASK_STATUS_LABELS } from "@/type/task";
 import type { UserAccount } from "@/type/user";
@@ -33,7 +29,9 @@ interface TaskTableProps {
   data: Task[];
   page: number;
   totalPages: number;
+  pageSize: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onToggle: (task: Task) => void;
@@ -57,7 +55,9 @@ export function TaskTable({
   data,
   page,
   totalPages,
+  pageSize,
   onPageChange,
+  onPageSizeChange,
   onEdit,
   onDelete,
   onToggle,
@@ -208,31 +208,14 @@ export function TaskTable({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page - 1)}
-            disabled={page <= 1 || isPending}
-          >
-            <ChevronLeftIcon className="size-4" />
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page + 1)}
-            disabled={page >= totalPages || isPending}
-          >
-            Next
-            <ChevronRightIcon className="size-4" />
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        pageSize={pageSize}
+        onPageSizeChange={onPageSizeChange}
+        disabled={isPending}
+      />
     </div>
   );
 }

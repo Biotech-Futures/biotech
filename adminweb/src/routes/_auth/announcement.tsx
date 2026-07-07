@@ -15,6 +15,7 @@ import {
   SortableTableHead,
   type SortState,
 } from "@/components/ui/sortable-table";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +44,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+const DEFAULT_PAGE_SIZE = 25;
+
 export const Route = createFileRoute("/_auth/announcement")({
   component: AnnouncementPage,
 });
@@ -62,6 +65,7 @@ const initialAnnouncementSort: SortState<AnnouncementSortKey> = {
 
 function AnnouncementPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
 
@@ -76,6 +80,7 @@ function AnnouncementPage() {
 
   const { data, isPending } = useListAnnouncements(
     page,
+    pageSize,
     search,
     showArchived ? true : false,
     sortState,
@@ -87,7 +92,12 @@ function AnnouncementPage() {
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
-  const totalPages = Math.ceil(total / 10);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  function handlePageSizeChange(size: number) {
+    setPageSize(size);
+    setPage(1);
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -299,29 +309,14 @@ function AnnouncementPage() {
         </Table>
       </div>
 
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          {total} announcement{total !== 1 ? "s" : ""}
-        </span>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={handlePageSizeChange}
+        disabled={isPending}
+      />
 
       <AnnouncementDetailSheet
         id={detailId}
