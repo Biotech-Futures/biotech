@@ -5,21 +5,11 @@ from enum import Enum
 # ── Constants ──────────────────────────────────────────────────────────────
 
 BASE_SCORE = 100
-TRACK_MISMATCH_PENALTY = 40
+COUNTRY_MISMATCH_PENALTY = 40
 INTEREST_OVERLAP_MAX_BONUS = 30
 TIMEZONE_WEIGHT = 2
 TIMEZONE_MAX_PENALTY = 18
 CAPACITY_BONUS_PER_SLOT = 2
-
-TRACK_UTC_OFFSET = {
-    "AUS-NSW": 10,
-    "AUS-QLD": 10,
-    "AUS-VIC": 10,
-    "AUS-WA": 8,
-    "AUS-SA": 9.5,
-    "BRA": -3,
-    "GLOBAL": 0,
-}
 
 MatchMode = Literal["balanced", "strict", "coverage"]
 
@@ -29,7 +19,8 @@ class MentorSource(TypedDict):
     mentorId: int
     firstName: str
     lastName: str
-    trackCode: str
+    countryName: Optional[str]
+    utcOffsetHours: float
     institution: Optional[str]
     interests: List[str]
     maxGroupCount: int
@@ -44,7 +35,8 @@ class GroupStudent(TypedDict, total=False):
 class GroupSource(TypedDict, total=False):
     groupId: int
     groupName: str
-    trackCode: str
+    countryName: Optional[str]
+    utcOffsetHours: float
     studentInterests: List[str]
     studentCount: int
     students: Optional[List[GroupStudent]]
@@ -52,7 +44,7 @@ class GroupSource(TypedDict, total=False):
 
 class MentorScoreBreakdown(TypedDict):
     baseScore: float
-    trackPenalty: float
+    countryPenalty: float
     interestBonus: float
     timezonePenalty: float
     capacityBonus: float
@@ -80,11 +72,14 @@ class GaleShapleyResult(TypedDict):
 
 # ── Helper Functions ──────────────────────────────────────────────────────
 
-def is_same_track_eligible(mentor: MentorSource, group: GroupSource) -> bool:
+def is_same_country_eligible(mentor: MentorSource, group: GroupSource) -> bool:
+    # Unknown country on either side acts as a wildcard (always eligible).
+    mentor_country = mentor.get("countryName")
+    group_country = group.get("countryName")
     return (
-        mentor["trackCode"] == "GLOBAL"
-        or group["trackCode"] == "GLOBAL"
-        or mentor["trackCode"] == group["trackCode"]
+        mentor_country is None
+        or group_country is None
+        or mentor_country == group_country
     )
 
 
@@ -104,53 +99,50 @@ def score_mentor_for_group(
 ) -> Tuple[float, MentorScoreBreakdown, str]:
     breakdown: MentorScoreBreakdown = {
         "baseScore": BASE_SCORE,
-        "trackPenalty": 0,
+        "countryPenalty": 0,
         "interestBonus": 0,
         "timezonePenalty": 0,
         "capacityBonus": 0,
         "objectiveScore": 0,
     }
 
-    mentor_track = mentor["trackCode"]
-    group_track = group["trackCode"]
-    is_global = mentor_track == "GLOBAL" or group_track == "GLOBAL"
-    track_match = is_global or mentor_track == group_track
+    mentor_country = mentor.get("countryName")
+    group_country = group.get("countryName")
+    country_known = mentor_country is not None and group_country is not None
+    country_mismatch = country_known and mentor_country != group_country
 
-    if not track_match:
-        breakdown["trackPenalty"] = TRACK_MISMATCH_PENALTY
+    if country_mismatch:
+        breakdown["countryPenalty"] = COUNTRY_MISMATCH_PENALTY
 
     breakdown["interestBonus"] = compute_interest_bonus(
         mentor["interests"], group.get("studentInterests", [])
     )
 
-    if not is_global:
-        mentor_offset = TRACK_UTC_OFFSET.get(mentor_track, 0)
-        group_offset = TRACK_UTC_OFFSET.get(group_track, 0)
-        tz_dist = abs(mentor_offset - group_offset)
-        breakdown["timezonePenalty"] = min(tz_dist * TIMEZONE_WEIGHT, TIMEZONE_MAX_PENALTY)
+    tz_dist = abs(mentor.get("utcOffsetHours", 0.0) - group.get("utcOffsetHours", 0.0))
+    breakdown["timezonePenalty"] = min(tz_dist * TIMEZONE_WEIGHT, TIMEZONE_MAX_PENALTY)
 
     remaining_capacity = mentor["maxGroupCount"] - mentor["currentAcceptedCount"]
     breakdown["capacityBonus"] = remaining_capacity * CAPACITY_BONUS_PER_SLOT
 
     breakdown["objectiveScore"] = (
         breakdown["baseScore"]
-        - breakdown["trackPenalty"]
+        - breakdown["countryPenalty"]
         + breakdown["interestBonus"]
         - breakdown["timezonePenalty"]
         + breakdown["capacityBonus"]
     )
 
     reasons: List[str] = []
-    if track_match and not is_global:
-        reasons.append(f"Track match: {mentor_track}")
-    if is_global:
-        reasons.append("GLOBAL track (flexible timezone)")
+    if country_known and not country_mismatch:
+        reasons.append(f"Country match: {mentor_country}")
+    if not country_known:
+        reasons.append("Country unknown (flexible timezone)")
     if breakdown["interestBonus"] > 0:
         group_interest_set = {i.lower() for i in group.get("studentInterests", [])}
         overlapping = [i for i in mentor["interests"] if i.lower() in group_interest_set]
         reasons.append(f"Shared interests: {', '.join(overlapping[:3])}")
-    if not track_match:
-        reasons.append("Track mismatch penalty applied")
+    if country_mismatch:
+        reasons.append("Country mismatch penalty applied")
 
     reason = ". ".join(reasons) if reasons else "No matching criteria found."
 
@@ -182,25 +174,27 @@ def unmatched_reason(
     if not all_mentors:
         return "No mentors are registered in the system."
 
+    country_label = group.get("countryName") or "unknown"
+
     if not eligible_mentors:
         if mode == "strict":
-            return f'No mentors are available for track "{group["trackCode"]}" (strict mode).'
+            return f'No mentors are available for country "{country_label}" (strict mode).'
         return "No mentors with remaining capacity are available."
 
-    same_track_eligible = [m for m in eligible_mentors if is_same_track_eligible(m, group)]
+    same_country_eligible = [m for m in eligible_mentors if is_same_country_eligible(m, group)]
 
-    if mode == "strict" and not same_track_eligible:
-        return f'No mentors are available for track "{group["trackCode"]}" (strict mode).'
+    if mode == "strict" and not same_country_eligible:
+        return f'No mentors are available for country "{country_label}" (strict mode).'
 
-    if same_track_eligible:
-        return f'All compatible mentors for track "{group["trackCode"]}" are fully assigned to higher-scoring groups.'
+    if same_country_eligible:
+        return f'All compatible mentors for country "{country_label}" are fully assigned to higher-scoring groups.'
 
     return "All available mentors are fully assigned to higher-scoring groups."
 
 
 EMPTY_BREAKDOWN: MentorScoreBreakdown = {
     "baseScore": BASE_SCORE,
-    "trackPenalty": 0,
+    "countryPenalty": 0,
     "interestBonus": 0,
     "timezonePenalty": 0,
     "capacityBonus": 0,
@@ -426,7 +420,7 @@ def build_results(
                 "recommendedMentor": {
                     "mentorId": mentor["mentorId"],
                     "name": f"{mentor['firstName']} {mentor['lastName']}".strip(),
-                    "trackCode": mentor["trackCode"],
+                    "countryName": mentor.get("countryName"),
                     "institution": mentor["institution"],
                     "interests": mentor["interests"],
                     "remainingCapacity": remaining_capacity,
@@ -493,7 +487,7 @@ def match_mentors(
     # ── Strict mode ────────────────────────────────────────────────────────
     if mode == "strict":
         eligible_by_group = {
-            g["groupId"]: [m for m in available_mentors if is_same_track_eligible(m, g)]
+            g["groupId"]: [m for m in available_mentors if is_same_country_eligible(m, g)]
             for g in groups
         }
 
@@ -519,15 +513,15 @@ def match_mentors(
         )
 
     # ── Coverage mode ──────────────────────────────────────────────────────
-    # Phase 1: same-track / GLOBAL
+    # Phase 1: same-country (unknown country acts as a wildcard)
     phase1_eligible_by_group = {
-        g["groupId"]: [m for m in available_mentors if is_same_track_eligible(m, g)]
+        g["groupId"]: [m for m in available_mentors if is_same_country_eligible(m, g)]
         for g in groups
     }
 
     phase1_mentors_for_matrix = [
         m for m in available_mentors
-        if any(is_same_track_eligible(m, g) for g in groups)
+        if any(is_same_country_eligible(m, g) for g in groups)
     ]
 
     phase1_score_matrix = build_score_matrix(groups, phase1_mentors_for_matrix)
@@ -549,7 +543,7 @@ def match_mentors(
             mode,
         )
 
-    # Phase 2: cross-track fallback
+    # Phase 2: cross-country fallback
     phase2_slots: Dict[int, int] = {}
     for m in available_mentors:
         used_in_phase1 = len(phase1_result["tentative"].get(m["mentorId"], set()))

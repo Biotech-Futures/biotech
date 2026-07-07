@@ -7,11 +7,10 @@ from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema
-from .models import Groups, Countries, GroupMembership, Tracks
+from .models import Groups, Countries, GroupMembership
 from .serializers import (
     CountrySerializer,
     GroupMembershipSerializer,
-    TrackSerializer,
     GroupSerializer,
     BulkUserSerializer,
     BulkGroupCreateSerializer,
@@ -38,9 +37,9 @@ class CountryViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         # ``list``/``retrieve`` were ``AllowAny`` historically; aligned with
-        # the sibling ``TrackViewSet`` and the global ``IsAuthenticated``
-        # default — see CONSOLIDATED issues list 1.2. There is no documented
-        # reason to expose the country catalogue pre-login.
+        # the global ``IsAuthenticated`` default — see CONSOLIDATED issues
+        # list 1.2. There is no documented reason to expose the country
+        # catalogue pre-login.
         if self.action in ["list", "retrieve"]:
             return [IsAuthenticated()]
         return [IsOperationalAdminPermission()]
@@ -98,20 +97,6 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
             sync_supervisor_memberships_for_student(membership.user_id)
 
 
-class TrackViewSet(viewsets.ModelViewSet):
-    queryset = Tracks.objects.order_by("track_name", "id")
-    serializer_class = TrackSerializer
-    http_method_names = ['get', 'post', 'put', 'patch']
-    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    ordering_fields = ['track_name', 'id']
-    search_fields = ['track_name']
-
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            return [IsAuthenticated()]
-        return [IsOperationalAdminPermission()]
-
-
 class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
 
@@ -142,7 +127,7 @@ class GroupViewSet(viewsets.ModelViewSet):
         return [IsOperationalAdminPermission()]
 
     def perform_create(self, serializer):
-        self._ensure_admin_track_access(self.request, serializer.validated_data["track"])
+        self._ensure_admin_track_access(self.request, None)
         group = serializer.save()
         log_audit_event(
             actor=self.request.user,
@@ -155,8 +140,6 @@ class GroupViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         group = serializer.instance
         self._ensure_admin_track_access(self.request, group)
-        new_track = serializer.validated_data.get("track", group.track)
-        self._ensure_admin_track_access(self.request, new_track)
         before_state = GroupSerializer(group).data
         group = serializer.save()
         log_audit_event(
@@ -186,12 +169,11 @@ class GroupViewSet(viewsets.ModelViewSet):
             return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
         # Restore must respect the active-only uniqueness constraint.
         if Groups.objects.filter(
-            track=group.track,
             group_name=group.group_name,
             deleted_at__isnull=True,
         ).exclude(pk=group.pk).exists():
             raise ValidationError({
-                "group_name": "An active group with this name already exists in this track."
+                "group_name": "An active group with this name already exists."
             })
 
         before_state = GroupSerializer(group).data
@@ -220,11 +202,9 @@ class GroupViewSet(viewsets.ModelViewSet):
 
         created_groups = []
         for group_payload in serializer.validated_data["groups"]:
-            track = group_payload["track"]
-            self._ensure_admin_track_access(request, track)
+            self._ensure_admin_track_access(request, None)
             group = Groups.objects.create(
                 group_name=group_payload["group_name"],
-                track=track,
             )
             member_users = group_payload.get("member_user_ids") or []
             for member_user in member_users:

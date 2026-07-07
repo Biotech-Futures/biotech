@@ -8,7 +8,6 @@ from .views import (
     ReceiveJoinPermissionView,
     AdminOperationalSummaryView,
     BulkUserStatusView,
-    BulkUserTrackAssignmentView,
     PasswordLoginView,
 )
 
@@ -21,5 +20,4 @@ urlpatterns = [
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
     path("admin/summary/", AdminOperationalSummaryView.as_view(), name="admin-summary"),
     path("admin/users/bulk-status/", BulkUserStatusView.as_view(), name="admin-bulk-user-status"),
-    path("admin/users/bulk-track/", BulkUserTrackAssignmentView.as_view(), name="admin-bulk-user-track"),
 ]

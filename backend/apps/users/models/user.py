@@ -48,7 +48,7 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=255, blank=False)
     last_name  = models.CharField(max_length=255, blank=False)
-    track = models.ForeignKey('groups.Tracks', on_delete=models.PROTECT,
+    state = models.ForeignKey('groups.CountryStates', on_delete=models.PROTECT,
                               null=True, blank=True, related_name='users')
     is_active = models.BooleanField(default=False)
     account_status = models.CharField(
@@ -70,21 +70,9 @@ class User(AbstractUser):
         verbose_name = "User"
         verbose_name_plural = "Users"
         indexes = [
-            models.Index(fields=["track"]),
+            models.Index(fields=["state"]),
             models.Index(fields=["account_status"]),
         ]
-
-    @property
-    def state(self):
-        if not self.track_id:
-            return None
-        return self.track.state
-
-    @property
-    def state_id(self):
-        if not self.track_id:
-            return None
-        return self.track.state_id
 
     # ----- Account status: prefer the explicit methods below -----
     #

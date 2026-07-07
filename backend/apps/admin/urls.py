@@ -8,7 +8,7 @@ urlpatterns = [
     # USER ROUTES
     # ========================================================================
     path('user/', views.UserListCreateView.as_view(), name='user-list-create'),
-    path('user/tracks/', views.UserTracksListView.as_view(), name='user-tracks-list'),
+    path('user/states/', views.UserStatesListView.as_view(), name='user-states-list'),
     path('user/bulk/', views.UserBulkCreateView.as_view(), name='user-bulk-create'),
     path('user/bulk-csv/', views.UserBulkCsvView.as_view(), name='user-bulk-csv'),
     path('user/bulk-status/', views.UserBulkStatusUpdateView.as_view(), name='user-bulk-status-update'),
@@ -98,12 +98,4 @@ urlpatterns = [
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
     path('mentor-match/bulk-replace-inactive/', views.MentorMatchBulkReplaceInactiveView.as_view(), name='mentor-match-bulk-replace-inactive'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
-
-    # ========================================================================
-    # TRACK ROUTES
-    # ========================================================================
-    path('track/', views.TrackListCreateView.as_view(), name='track-list-create'),
-    path('track/states/', views.TrackStatesListView.as_view(), name='track-states-list'),
-    path('track/<int:track_id>/archive/', views.TrackArchiveView.as_view(), name='track-archive'),
-    path('track/<int:track_id>/restore/', views.TrackRestoreView.as_view(), name='track-restore'),
 ]

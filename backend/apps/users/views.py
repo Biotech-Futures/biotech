@@ -22,13 +22,12 @@ from apps.common.role_names import (
     ROLE_SUPERVISOR,
     get_role_by_name,
 )
-from apps.groups.models import Tracks, Countries, CountryStates, Groups
+from apps.groups.models import Countries, CountryStates, Groups
 from apps.events.models import Events
 from apps.matching_runtime.models import MatchRecommendation
 from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
-    BulkUserTrackSerializer,
     JoinPermissionRequestSerializer,
     UserRegisterRequestSerializer,
     UserSerializer,
@@ -41,9 +40,7 @@ from config.errors import (
     MissingUsers,
     OperationalAdminRequired,
     TooManyFailedAttempts,
-    ArchivedTrackError,
 )
-from apps.users.utils.track_gate import is_track_archived
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +109,7 @@ class PasswordLoginView(APIView):
 
         # Single bcrypt check (was being done twice — once here, once inside
         # authenticate() — adding ~300ms per login).
-        user_obj = User.objects.select_related("track").filter(email=email).first()
+        user_obj = User.objects.filter(email=email).first()
         if user_obj is None or not user_obj.check_password(password):
             cache.set(email_key, email_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
@@ -120,13 +117,6 @@ class PasswordLoginView(APIView):
 
         if user_obj.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
-
-        if is_track_archived(user_obj) and not is_admin(user_obj):
-            logger.warning(
-                "password_login: blocked archived-track login email=%s track_id=%s",
-                email, user_obj.track_id,
-            )
-            raise ArchivedTrackError()
 
         # Bypass authenticate()'s second bcrypt by setting the backend manually;
         # login() only needs to know which auth backend to associate with the session.
@@ -168,7 +158,7 @@ class UserListHTMLView(generics.ListAPIView):
         if not is_admin(self.request.user):
             raise OperationalAdminRequired()
 
-        queryset = User.objects.select_related("track", "track__state").order_by("id")
+        queryset = User.objects.select_related("state", "state__country").order_by("id")
 
         account_status_param = self.request.query_params.get("account_status")
         if account_status_param is not None:
@@ -187,7 +177,7 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     caller flip ``account_status`` or assign an arbitrary ``role_id``
     (including admin) for any user — see CONSOLIDATED issues list 1.2.
     """
-    queryset = User.objects.select_related("track", "track__state")
+    queryset = User.objects.select_related("state", "state__country")
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [TemplateHTMLRenderer]
     template_name = "users/details.html"
@@ -254,7 +244,7 @@ SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
     "role_id", "role",
     "account_status",
     "is_staff", "is_superuser", "is_active",
-    "track", "track_id",
+    "state", "state_id",
 })
 
 SELF_PATCH_REJECTED_MESSAGE = (
@@ -360,22 +350,13 @@ class UserRegisterView(APIView):
         country, created = Countries.objects.get_or_create(country_name=databody["Country"])
 
         if databody["Country"] == "Australia":
-            user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Region"])
-            if databody["Region"] == "NSW":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-NSW", state=user_country)
-            elif databody["Region"] == "QLD":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-QLD", state=user_country)
-            elif databody["Region"] == "VIC":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-VIC", state=user_country)
-            elif databody["Region"] == "WA":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="AUS-WA", state=user_country)
+            state_name = databody["Region"]
         else:
-            user_country, s_created = CountryStates.objects.get_or_create(country=country, state_name=databody["Country"])
-            if databody["Country"] == "Brazil":
-                user_track, t_created = Tracks.objects.get_or_create(track_name="Brazil", state=user_country)
-            else:
-                user_track, t_created = Tracks.objects.get_or_create(track_name="Global", state=user_country)
-        user.track = user_track
+            state_name = databody["Country"]
+        user_state, s_created = CountryStates.objects.get_or_create(
+            country=country, state_name=state_name
+        )
+        user.state = user_state
 
         user.save()
 
@@ -541,33 +522,5 @@ class BulkUserStatusView(APIView):
         target_status = serializer.validated_data["account_status"]
         for user in users:
             user.apply_account_status(target_status)
-
-        return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)
-
-
-class BulkUserTrackAssignmentView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-    renderer_classes = [JSONRenderer]
-
-    @extend_schema(request=BulkUserTrackSerializer, responses={200: UserSerializer(many=True)})
-    @transaction.atomic
-    def post(self, request):
-        if not is_admin(request.user):
-            raise OperationalAdminRequired()
-
-        serializer = BulkUserTrackSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        target_track = serializer.validated_data["track"]
-
-        user_ids = serializer.validated_data["user_ids"]
-        users = list(User.objects.filter(id__in=user_ids).order_by("id"))
-        found_ids = {user.id for user in users}
-        missing_ids = [user_id for user_id in user_ids if user_id not in found_ids]
-        if missing_ids:
-            raise MissingUsers(missing_ids)
-
-        for user in users:
-            user.track = target_track
-            user.save(update_fields=["track"])
 
         return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)

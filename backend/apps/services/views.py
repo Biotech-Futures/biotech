@@ -18,7 +18,6 @@ from django.conf import settings
 from . import auth_service
 from apps.users.models import User
 from apps.common.rbac import is_admin
-from apps.users.utils.track_gate import is_track_archived
 from apps.user_sessions.models import UserSession
 from config.errors import (
     AccountInactive,
@@ -29,7 +28,6 @@ from config.errors import (
     LoginSendRateLimited,
     PasswordResetRateLimited,
     TooManyFailedAttempts,
-    ArchivedTrackError,
     UserNotFound,
     WeakPassword,
 )
@@ -162,18 +160,10 @@ class VerifyLoginCodeView(APIView):
             )
             raise InvalidOrExpiredCode()
 
-        user = User.objects.select_related("track").get(email=email)
+        user = User.objects.get(email=email)
 
         if user.account_status in ['suspended', 'deactivated']:
             raise AccountInactive()
-
-        # Admins are exempt so an admin who archives a track can still log in.
-        if is_track_archived(user) and not is_admin(user):
-            logger.warning(
-                "verify_login_code: blocked archived-track login email=%s track_id=%s",
-                email, user.track_id,
-            )
-            raise ArchivedTrackError()
 
         login(request, user)
         cache.delete(cache_key)
@@ -257,19 +247,12 @@ class MagicLoginView(APIView):
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         try:
-            user = User.objects.select_related("track").get(email=email)
+            user = User.objects.get(email=email)
         except User.DoesNotExist:
             return redirect(f"{callback_base}?error=invalid_or_expired_code")
 
         if user.account_status in ['suspended', 'deactivated']:
             return redirect(f"{callback_base}?error=account_inactive")
-
-        if is_track_archived(user) and not is_admin(user):
-            logger.warning(
-                "magic_login: blocked archived-track login email=%s track_id=%s",
-                email, user.track_id,
-            )
-            return redirect(f"{callback_base}?error=track_archived")
 
         login(request, user)
         cache.delete(cache_key)

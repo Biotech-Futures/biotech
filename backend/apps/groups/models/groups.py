@@ -59,22 +59,20 @@ class Groups(models.Model):
     objects = GroupManager()
 
     group_name = models.CharField(max_length=255)
-    track = models.ForeignKey('Tracks', on_delete=models.PROTECT)
     created_at = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'groups'
         indexes = [
-            models.Index(fields=['track']),
             models.Index(fields=['deleted_at']),
             models.Index(fields=['created_at']),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['track', 'group_name'],
+                fields=['group_name'],
                 condition=Q(deleted_at__isnull=True),
-                name='unique_active_group_name_per_track'
+                name='unique_active_group_name'
             ),
             models.CheckConstraint(
                 condition=Q(deleted_at__gte=F('created_at')) | Q(deleted_at__isnull=True),

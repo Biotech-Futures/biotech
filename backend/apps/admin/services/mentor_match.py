@@ -6,10 +6,11 @@ from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from apps.groups.models import Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
+from apps.common.tz import utc_offset_hours
 from apps.admin.algorithms.mentor import match_mentors
 from apps.admin.services.mentor import get_mentor_list
 
@@ -23,6 +24,29 @@ def _group_interests_by_key(rows: List[Dict], key_field: str, interest_field: st
             interest_map[key] = []
         interest_map[key].append(row[interest_field])
     return interest_map
+
+
+def _modal_country(countries: List[Optional[str]]) -> Optional[str]:
+    """Most common non-empty country in a list; None when none are known."""
+    counts: Dict[str, int] = {}
+    for country in countries:
+        if country:
+            counts[country] = counts.get(country, 0) + 1
+    if not counts:
+        return None
+    return max(sorted(counts.keys()), key=lambda country: counts[country])
+
+
+def _median(values: List[float]) -> float:
+    """Median of a list of numbers; 0.0 for an empty list."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
 
 
 def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, Any]]:
@@ -48,20 +72,17 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         .filter(
             ~Exists(mentor_subquery), deleted_at__isnull=True
         )
-        .filter(Q(track__isnull=True) | Q(track__is_archived=False))
-        .select_related('track')
         .values(
             'group_name',
             group_id=F('id'),
-            group_track_code=F('track__track_name'),
         )
     )
 
     if not groups_without_mentor:
         return []
-    
+
     group_ids = [g['group_id'] for g in groups_without_mentor]
-    
+
     # Collect student interests per group
     member_interest_rows = (
         GroupMembership.objects
@@ -70,19 +91,19 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user__track')
+        .select_related('user')
         .values(
             'group_id',
             interest_desc=F('user__userinterest__interest__interest_desc'),
         )
     )
-    
+
     interests_by_group = _group_interests_by_key(
         [r for r in member_interest_rows if r['interest_desc']],
         'group_id',
         'interest_desc'
     )
-    
+
     # Count members per group
     member_count_rows = (
         GroupMembership.objects
@@ -94,15 +115,39 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         .values('group_id')
         .annotate(count=Count('id'))
     )
-    
+
     member_count_by_group = {row['group_id']: row['count'] for row in member_count_rows}
-    
+
+    # Group geography: modal country + median timezone offset of active members.
+    member_geo_rows = (
+        GroupMembership.objects
+        .filter(
+            group_id__in=group_ids,
+            left_at__isnull=True,
+            user__studentprofile__isnull=False
+        )
+        .select_related('user', 'user__state', 'user__state__country')
+        .values(
+            'group_id',
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
+        )
+    )
+
+    countries_by_group: Dict[Any, List[Optional[str]]] = {}
+    offsets_by_group: Dict[Any, List[float]] = {}
+    for row in member_geo_rows:
+        gid = row['group_id']
+        countries_by_group.setdefault(gid, []).append(row['country_name'])
+        offsets_by_group.setdefault(gid, []).append(utc_offset_hours(row['user_tz']))
+
     # Build group sources
     group_sources = [
         {
             'groupId': g['group_id'],
             'groupName': g['group_name'],
-            'trackCode': g['group_track_code'],
+            'countryName': _modal_country(countries_by_group.get(g['group_id'], [])),
+            'utcOffsetHours': _median(offsets_by_group.get(g['group_id'], [])),
             'studentInterests': interests_by_group.get(g['group_id'], []),
             'studentCount': member_count_by_group.get(g['group_id'], 0),
         }
@@ -125,15 +170,15 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
     mentor_rows = (
         MentorProfile.objects
         .filter(user__is_active=True)
-        .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
-        .select_related('user', 'user__track')
+        .select_related('user', 'user__state', 'user__state__country')
         .values(
             'institution',
             mentor_id=F('user_id'),
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
             max_grp_cnt=F('max_group_count'),
-            track_code=F('user__track__track_name'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
         )
     )
     
@@ -158,7 +203,8 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
             'firstName': m['first_name'],
             'lastName': m['last_name'],
             'institution': m['institution'],
-            'trackCode': m['track_code'],
+            'countryName': m['country_name'],
+            'utcOffsetHours': utc_offset_hours(m['user_tz']),
             'interests': interests_by_mentor.get(m['mentor_id'], []),
             'maxGroupCount': m['max_grp_cnt'],
             'currentAcceptedCount': accepted_count_by_mentor.get(m['mentor_id'], 0),
@@ -203,15 +249,12 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     )
 
     groups_qs = Groups.objects.filter(~Exists(mentor_subquery), deleted_at__isnull=True)
-    groups_qs = groups_qs.filter(Q(track__isnull=True) | Q(track__is_archived=False))
 
     unmatched_groups_base = (
         groups_qs
-        .select_related('track')
         .values(
             'group_name',
             group_id=F('id'),
-            track_code=F('track__track_name'),
         )
     )
 
@@ -255,16 +298,18 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user')
+        .select_related('user', 'user__state', 'user__state__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
+            country_name=F('user__state__country__country_name'),
         )
     )
-    
+
     students_by_group = {}
+    countries_by_group: Dict[Any, List[Optional[str]]] = {}
     for row in student_name_rows:
         group_id = row['group_id']
         if group_id not in students_by_group:
@@ -273,14 +318,15 @@ def get_unmatched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             'user_id': row['user_id'],
             'name': f"{row['first_name']} {row['last_name']}".strip(),
         })
-    
+        countries_by_group.setdefault(group_id, []).append(row['country_name'])
+
     result = []
     for g in unmatched_groups_base:
         group_students = students_by_group.get(g['group_id'], [])
         result.append({
             'groupId': g['group_id'],
             'groupName': g['group_name'],
-            'trackCode': g['track_code'],
+            'countryName': _modal_country(countries_by_group.get(g['group_id'], [])),
             'studentInterests': interests_by_group.get(g['group_id'], []),
             'studentCount': len(group_students),
             'students': [
@@ -307,47 +353,28 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
         group__deleted_at__isnull=True,
         user__mentorprofile__isnull=False
     )
-    membership_qs = membership_qs.filter(
-        Q(group__track__isnull=True) | Q(group__track__is_archived=False)
-    )
 
     rows = (
         membership_qs
-        .select_related('group', 'group__track', 'user')
+        .select_related('group', 'user', 'user__state', 'user__state__country')
         .values(
             'group_id',
             membership_id=F('id'),
             group_name=F('group__group_name'),
-            group_track_id=F('group__track_id'),
             mentor_id=F('user_id'),
             mentor_first_name=F('user__first_name'),
             mentor_last_name=F('user__last_name'),
             is_active=F('user__is_active'),
             institution=F('user__mentorprofile__institution'),
-            mentor_track_id=F('user__track_id'),
+            mentor_country_name=F('user__state__country__country_name'),
         )
     )
-    
+
     if not rows:
         return []
-    
+
     group_ids = [r['group_id'] for r in rows]
-    
-    # Get all track IDs
-    all_track_ids = set()
-    for row in rows:
-        all_track_ids.add(row['group_track_id'])
-        if row['mentor_track_id']:
-            all_track_ids.add(row['mentor_track_id'])
-    
-    track_rows = (
-        Tracks.objects
-        .filter(id__in=all_track_ids)
-        .values('id', 'track_name')
-    )
-    
-    track_name_by_id = {row['id']: row['track_name'] for row in track_rows}
-    
+
     # Student names per group
     student_name_rows = (
         GroupMembership.objects
@@ -356,12 +383,13 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user')
+        .select_related('user', 'user__state', 'user__state__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
+            country_name=F('user__state__country__country_name'),
         )
     )
     
@@ -389,6 +417,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             interests_by_user[row['user_id']].append(row['interest_desc'])
     
     students_by_group = {}
+    countries_by_group: Dict[Any, List[Optional[str]]] = {}
     for row in student_name_rows:
         group_id = row['group_id']
         if group_id not in students_by_group:
@@ -397,7 +426,8 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             'name': f"{row['first_name']} {row['last_name']}".strip(),
             'interests': interests_by_user.get(row['user_id'], []),
         })
-    
+        countries_by_group.setdefault(group_id, []).append(row['country_name'])
+
     result = []
     for r in rows:
         students = students_by_group.get(r['group_id'], [])
@@ -405,14 +435,14 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
             'membershipId': r['membership_id'],
             'groupId': r['group_id'],
             'groupName': r['group_name'],
-            'trackCode': track_name_by_id.get(r['group_track_id'], ''),
+            'countryName': _modal_country(countries_by_group.get(r['group_id'], [])),
             'studentCount': len(students),
             'students': students,
             'mentor': {
                 'mentorId': r['mentor_id'],
                 'name': f"{r['mentor_first_name']} {r['mentor_last_name']}".strip(),
                 'isActive': r['is_active'],
-                'trackCode': track_name_by_id.get(r['mentor_track_id'], '') if r['mentor_track_id'] else '',
+                'countryName': r['mentor_country_name'],
                 'institution': r['institution'],
             },
         })

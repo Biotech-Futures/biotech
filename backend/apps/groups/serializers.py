@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Countries, GroupMembership, Tracks, Groups
+from .models import Countries, GroupMembership, Groups
 from apps.users.models import User
 
 
@@ -41,31 +41,24 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
     return attrs
 
 
-class TrackSerializer(serializers.ModelSerializer):
-  class Meta:
-    model = Tracks
-    fields = ['id', 'track_name', 'state']
-
-
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'track', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'created_at', 'deleted_at']
     read_only_fields = ['id', 'created_at', 'deleted_at']
     validators = []
 
   def validate(self, attrs):
-    track = attrs.get('track', getattr(self.instance, 'track', None))
     group_name = attrs.get('group_name', getattr(self.instance, 'group_name', None))
     deleted_at = attrs.get('deleted_at', getattr(self.instance, 'deleted_at', None))
 
-    if track is not None and group_name and deleted_at is None:
-      qs = Groups.objects.filter(track=track, group_name=group_name, deleted_at__isnull=True)
+    if group_name and deleted_at is None:
+      qs = Groups.objects.filter(group_name=group_name, deleted_at__isnull=True)
       if self.instance is not None:
         qs = qs.exclude(pk=self.instance.pk)
       if qs.exists():
         raise serializers.ValidationError({
-          'non_field_errors': ['An active group with this name already exists in this track.']
+          'non_field_errors': ['An active group with this name already exists.']
         })
     return attrs
 
@@ -79,7 +72,6 @@ class BulkUserSerializer(serializers.Serializer):
 
 class BulkGroupCreateItemSerializer(serializers.Serializer):
   group_name = serializers.CharField(max_length=255)
-  track = serializers.PrimaryKeyRelatedField(queryset=Tracks.objects.all())
   member_user_ids = serializers.ListField(
     child=serializers.PrimaryKeyRelatedField(queryset=User.objects.all()),
     required=False,

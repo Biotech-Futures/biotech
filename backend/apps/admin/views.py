@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from apps.admin.permissions import IsAdminScoped
 
 from apps.admin.services.user import (
-    query_users, query_user_by_id, query_tracks,
+    query_users, query_user_by_id, query_states,
     create_user, bulk_create_users, update_user, update_status,
     bulk_update_status, delete_user, has_ungrouped_students,
 )
@@ -49,13 +49,6 @@ from apps.admin.services.mentor_match import (
     confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
     unassign_mentors,
 )
-from apps.admin.services.track import (
-    list_tracks as admin_list_tracks,
-    create_track as admin_create_track,
-    archive_track as admin_archive_track,
-    restore_track as admin_restore_track,
-    list_states as admin_list_states,
-)
 
 
 # ============================================================================
@@ -74,7 +67,7 @@ class UserListCreateView(APIView):
             limit=int(request.query_params.get("limit", 10)),
             search=request.query_params.get("search"),
             role=request.query_params.get("role"),
-            track=request.query_params.get("track"),
+            state=request.query_params.get("state"),
             active=active,
             in_group=request.query_params.get("inGroup"),
             sort_by=request.query_params.get("sortBy", "createdAt"),
@@ -89,11 +82,11 @@ class UserListCreateView(APIView):
         return Response(result, status=code)
 
 
-class UserTracksListView(APIView):
+class UserStatesListView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        result = query_tracks(requesting_user=request.user)
+        result = query_states(requesting_user=request.user)
         return Response(result)
 
 
@@ -215,7 +208,6 @@ class GroupListView(APIView):
             limit=int(request.query_params.get("limit", 10)),
             search_name=request.query_params.get("searchName"),
             search_group=request.query_params.get("searchGroup"),
-            track=request.query_params.get("track"),
             mentor_status=request.query_params.get("mentorStatus"),
             requesting_user=request.user,
             sort_by=request.query_params.get("sortBy", "createdAt"),
@@ -240,7 +232,6 @@ class GroupDetailView(APIView):
         result = update_group(
             group_id,
             name=request.data.get("name"),
-            track=request.data.get("track"),
         )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
@@ -1041,76 +1032,5 @@ class AdminSetPasswordView(APIView):
         return Response({"msg": "Password set successfully", "data": True})
 
 
-# ============================================================================
-# TRACK ADMIN ENDPOINTS
-# ============================================================================
-class TrackListCreateView(APIView):
-    """GET /api/v1/admin/track/ — list tracks; POST — create track (global only)."""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        include_archived = request.query_params.get("includeArchived", "").lower() == "true"
-        result = admin_list_tracks(
-            requesting_user=request.user,
-            include_archived=include_archived,
-        )
-        return Response(result)
-
-    def post(self, request):
-        result = admin_create_track(request.data, requesting_user=request.user)
-        if result.get("data"):
-            code = status.HTTP_201_CREATED
-        else:
-            msg = result.get("msg", "")
-            code = (
-                status.HTTP_403_FORBIDDEN
-                if "global admins" in msg
-                else status.HTTP_400_BAD_REQUEST
-            )
-        return Response(result, status=code)
-
-
-class TrackArchiveView(APIView):
-    """POST /api/v1/admin/track/<id>/archive/ — global admin only."""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, track_id):
-        result = admin_archive_track(int(track_id), requesting_user=request.user)
-        if result.get("data"):
-            code = status.HTTP_200_OK
-        else:
-            msg = result.get("msg", "")
-            code = (
-                status.HTTP_403_FORBIDDEN
-                if "global admins" in msg
-                else status.HTTP_404_NOT_FOUND
-            )
-        return Response(result, status=code)
-
-
-class TrackRestoreView(APIView):
-    """POST /api/v1/admin/track/<id>/restore/ — global admin only."""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def post(self, request, track_id):
-        result = admin_restore_track(int(track_id), requesting_user=request.user)
-        if result.get("data"):
-            code = status.HTTP_200_OK
-        else:
-            msg = result.get("msg", "")
-            code = (
-                status.HTTP_403_FORBIDDEN
-                if "global admins" in msg
-                else status.HTTP_404_NOT_FOUND
-            )
-        return Response(result, status=code)
-
-
-class TrackStatesListView(APIView):
-    """GET /api/v1/admin/track/states/ — states/countries for the create form."""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        return Response(admin_list_states())
 
 

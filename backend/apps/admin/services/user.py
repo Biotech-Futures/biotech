@@ -14,7 +14,7 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
-from apps.groups.models import Tracks, Groups, GroupMembership
+from apps.groups.models import CountryStates, Groups, GroupMembership
 from apps.audit.services import log_audit_event
 
 
@@ -204,8 +204,20 @@ def rollback_created_user(user_id: int) -> None:
         User.objects.filter(id=user_id).delete()
 
 
+def _user_state_dict(user: User) -> Optional[Dict[str, Any]]:
+    """Serialize the user's region/state for the admin API, or None."""
+    if not user.state_id:
+        return None
+    state = user.state
+    return {
+        "id": state.id,
+        "stateName": state.state_name,
+        "countryName": state.country.country_name if state.country_id else None,
+    }
+
+
 def build_user_dict(user: User, role_str: Optional[str] = None,
-                   track_name: Optional[str] = None,
+                   state: Optional[Dict[str, Any]] = None,
                    group_name: Optional[str] = None,
                    student_profile: Optional[StudentProfile] = None,
                    supervisor_profile: Optional[SupervisorProfile] = None,
@@ -255,7 +267,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "lastName": user.last_name,
         "email": user.email,
         "role": role_str,
-        "track": track_name,
+        "state": state,
         "groupName": group_name,
         "schoolName": school_name,
         "mentorBackground": mentor_profile.background if mentor_profile else None,
@@ -281,7 +293,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     Fetch complete user data by ID with all related profiles.
     """
     try:
-        user = User.objects.get(id=user_id)
+        user = User.objects.select_related('state', 'state__country').get(id=user_id)
     except User.DoesNotExist:
         return None
 
@@ -290,7 +302,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     mentor_profile = MentorProfile.objects.filter(user_id=user_id).first()
     user_is_admin = is_admin_user(user_id)
 
-    track_name = user.track.track_name if user.track else None
+    state = _user_state_dict(user)
 
     # Resolve current role so we can fetch the right extra data
     now = timezone.now()
@@ -328,7 +340,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     return build_user_dict(
         user,
         role_str=role_str,
-        track_name=track_name,
+        state=state,
         student_profile=student_profile,
         supervisor_profile=supervisor_profile,
         mentor_profile=mentor_profile,
@@ -356,7 +368,7 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 # ============================================================================
 
 def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
-               role: Optional[str] = None, track: Optional[str] = None,
+               role: Optional[str] = None, state: Optional[str] = None,
                active: Optional[bool] = None, in_group: Optional[str] = None,
                sort_by: str = "createdAt", sort_order: str = "desc",
                requesting_user=None) -> Dict[str, Any]:
@@ -384,13 +396,11 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             Q(roleassignmenthistory__valid_to__gte=now)
         )
 
-    if track:
-        filters &= Q(track__track_name=track)
+    if state:
+        filters &= Q(state__state_name=state)
 
     if active is not None:
         filters &= Q(is_active=active)
-
-    filters &= (Q(track__isnull=True) | Q(track__is_archived=False))
 
     queryset = _filter_by_active_group_membership(
         User.objects.filter(filters),
@@ -405,7 +415,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         "name": ["first_name", "last_name", "id"],
         "email": ["email", "id"],
         "role": ["roleassignmenthistory__role__role_name", "first_name", "last_name", "id"],
-        "track": ["track__track_name", "first_name", "last_name", "id"],
+        "state": ["state__state_name", "first_name", "last_name", "id"],
         "status": ["is_active", "first_name", "last_name", "id"],
         "school": ["studentprofile__school_name", "first_name", "last_name", "id"],
         "yearLevel": ["studentprofile__year_lvl", "first_name", "last_name", "id"],
@@ -439,7 +449,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     # Bulk fetch all related data (6 queries instead of ~8 per user)
     users_by_id = {
-        u.id: u for u in User.objects.filter(id__in=user_ids).select_related('track')
+        u.id: u for u in User.objects.filter(id__in=user_ids).select_related('state', 'state__country')
     }
 
     student_profiles = {
@@ -539,7 +549,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "lastName": user.last_name,
             "email": user.email,
             "role": role_map.get(uid),
-            "track": user.track.track_name if user.track else None,
+            "state": _user_state_dict(user),
             "groupId": group_info["id"] if group_info else None,
             "groupName": group_info["name"] if group_info else None,
             "schoolName": school_name,
@@ -582,18 +592,22 @@ def query_user_by_id(user_id: int) -> Dict[str, Any]:
     return {"msg": "User retrieved successfully", "data": user}
 
 
-def query_tracks(requesting_user=None) -> Dict[str, Any]:
-    """
-    Get all available tracks for filtering and assignment. Archived tracks
-    are excluded — they should not be selectable when assigning users.
-    """
-    qs = Tracks.objects.filter(is_archived=False)
-    tracks_list = qs.values('id', 'track_name').order_by('track_name')
+def query_states(requesting_user=None) -> Dict[str, Any]:
+    """Get all states/regions for filtering and assignment."""
+    states_list = (
+        CountryStates.objects.select_related("country")
+        .order_by("country__country_name", "state_name")
+        .values("id", "state_name", "country__country_name")
+    )
     items = [
-        {"id": track["id"], "trackName": track["track_name"]}
-        for track in tracks_list
+        {
+            "id": s["id"],
+            "stateName": s["state_name"],
+            "countryName": s["country__country_name"],
+        }
+        for s in states_list
     ]
-    return {"msg": "Tracks retrieved successfully", "data": items}
+    return {"msg": "States retrieved successfully", "data": items}
 
 
 def _filter_by_active_group_membership(queryset, in_group: Optional[str]):
@@ -619,7 +633,7 @@ def _filter_by_active_group_membership(queryset, in_group: Optional[str]):
 # ============================================================================
 
 def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
-                  year_level: Optional[int] = None, track: Optional[str] = None,
+                  year_level: Optional[int] = None, state: Optional[str] = None,
                   interest: Optional[str] = None, in_group: Optional[str] = None,
                   active: Optional[bool] = None) -> Dict[str, Any]:
     """
@@ -643,10 +657,10 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
     
     if year_level:
         filters &= Q(studentprofile__year_lvl=str(year_level))
-    
-    if track:
-        filters &= Q(track__track_name=track)
-    
+
+    if state:
+        filters &= Q(state__state_name=state)
+
     if active is not None:
         filters &= Q(is_active=active)
     
@@ -686,7 +700,7 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
     # Fetch detailed student data
     students_list = []
     for user_id in user_ids:
-        user = User.objects.get(id=user_id)
+        user = User.objects.select_related('state', 'state__country').get(id=user_id)
         student_profile = StudentProfile.objects.get(user_id=user_id)
         
         # Get group
@@ -716,7 +730,7 @@ def query_students(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "lastName": user.last_name,
             "email": user.email,
             "role": "student",
-            "track": user.track.track_name if user.track else None,
+            "state": _user_state_dict(user),
             "isActive": user.is_active,
             "accountStatus": "active" if user.is_active else "deactivated",
             "schoolName": student_profile.school_name,
@@ -757,8 +771,8 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         first_name = input_data.get("firstName", "")
         last_name = input_data.get("lastName", "")
         role = input_data.get("role", "student")
-        track_name = (input_data.get("track") or "").strip()
-        
+        state_name = (input_data.get("state") or "").strip()
+
         # Check if user exists
         if User.objects.filter(email=email).exists():
             results.append({
@@ -768,11 +782,11 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Validate track for non-admin users
-        if role != "admin" and not track_name:
+        # Validate state/region for non-admin users
+        if role != "admin" and not state_name:
             results.append({
                 "input": input_data,
-                "msg": "Track is required",
+                "msg": "State is required",
                 "data": None
             })
             continue
@@ -848,19 +862,18 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 })
                 continue
         
-        # Resolve track ID
-        track_id = None
-        if track_name:
-            try:
-                track = Tracks.objects.get(track_name=track_name)
-                track_id = track.id
-            except Tracks.DoesNotExist:
+        # Resolve state ID
+        state_id = None
+        if state_name:
+            state_obj = CountryStates.objects.filter(state_name=state_name).first()
+            if state_obj is None:
                 results.append({
                     "input": input_data,
-                    "msg": f'Track "{track_name}" not found',
+                    "msg": f'State "{state_name}" not found',
                     "data": None
                 })
                 continue
+            state_id = state_obj.id
         
         # Resolve role ID
         try:
@@ -897,7 +910,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     first_name=first_name,
                     last_name=last_name,
                     password=None,  # No password set
-                    track_id=track_id,
+                    state_id=state_id,
                     is_active=is_active,
                     account_status=account_status,
                     is_staff=role == "admin",
@@ -1117,20 +1130,16 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id) if role_changed else None
 
-    # Handle track update
-    if "track" in input_data:
-        if next_role == "admin":
-            if input_data["track"] is None:
-                user.track_id = None
+    # Handle state/region update
+    if "stateId" in input_data:
+        if input_data["stateId"] is None:
+            if next_role != "admin":
+                return {"msg": "State cannot be cleared", "data": None}
+            user.state_id = None
         else:
-            if input_data["track"] is None:
-                return {"msg": "Track cannot be cleared", "data": None}
-            
-            try:
-                track = Tracks.objects.get(track_name=input_data["track"])
-                user.track_id = track.id
-            except Tracks.DoesNotExist:
-                return {"msg": f'Track "{input_data["track"]}" not found', "data": None}
+            if not CountryStates.objects.filter(id=input_data["stateId"]).exists():
+                return {"msg": f'State "{input_data["stateId"]}" not found', "data": None}
+            user.state_id = input_data["stateId"]
     
     try:
         with transaction.atomic():
@@ -1139,7 +1148,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if "track" in input_data or any(k in input_data for k in ["firstName", "lastName"]):
+            if "stateId" in input_data or any(k in input_data for k in ["firstName", "lastName"]):
                 user.save()
             
             # Handle role change

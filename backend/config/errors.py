@@ -42,12 +42,6 @@ class AccountInactive(APIException):
     default_code = "account_inactive"
 
 
-class ArchivedTrackError(APIException):
-    status_code = status.HTTP_403_FORBIDDEN
-    default_detail = "Your track has been archived. Please contact an administrator."
-    default_code = "track_archived"
-
-
 class OperationalAdminRequired(APIException):
     status_code = status.HTTP_403_FORBIDDEN
     default_detail = "Operational admin access is required."
