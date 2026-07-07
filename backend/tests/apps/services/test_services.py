@@ -336,7 +336,7 @@ class MagicLinkAdminRedirectTest(TestCase):
             last_name="User",
             account_status=User.AccountStatus.ACTIVE,
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
     def _magic_url(self, email: str, code: str, redirect_url: str | None = None) -> str:
         url = f"/services/magic/?email={email}&code={code}"
@@ -398,7 +398,7 @@ class MagicLinkAdminRedirectTest(TestCase):
             last_name="Admin",
             account_status=User.AccountStatus.ACTIVE,
         )
-        AdminScope.objects.create(user=scoped_admin, is_global=True)
+        AdminScope.objects.create(user=scoped_admin)
 
         token = LoginToken.create_for_user(scoped_admin)
         response = self.client.get(self._magic_url(scoped_admin.email, token.token))
@@ -428,7 +428,7 @@ class PasswordResetAdminRedirectTest(TestCase):
             last_name="User",
             account_status=User.AccountStatus.ACTIVE,
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
     @patch("apps.services.auth_service.render_to_string")
     @patch("apps.services.auth_service.EmailMultiAlternatives")
@@ -479,7 +479,7 @@ class PasswordResetAdminRedirectTest(TestCase):
             last_name="Admin",
             account_status=User.AccountStatus.ACTIVE,
         )
-        AdminScope.objects.create(user=scoped_admin, is_global=True)
+        AdminScope.objects.create(user=scoped_admin)
 
         mock_render.return_value = "<html>reset</html>"
         mock_msg = MagicMock()
