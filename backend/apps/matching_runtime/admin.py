@@ -10,8 +10,8 @@ class MatchRecommendationInline(admin.TabularInline):
 
 @admin.register(MatchRun)
 class MatchRunAdmin(admin.ModelAdmin):
-    list_display = ("id", "run_type", "initiated_by_user", "track", "created_at")
-    list_filter = ("run_type", "track", "created_at")
+    list_display = ("id", "run_type", "initiated_by_user", "created_at")
+    list_filter = ("run_type", "created_at")
     search_fields = ("initiated_by_user__email",)
     inlines = [MatchRecommendationInline]
 

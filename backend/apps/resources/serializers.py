@@ -129,20 +129,18 @@ class RoleAssignmentHistorySerializer(serializers.ModelSerializer):
 
 class ResourceAudienceSerializer(serializers.ModelSerializer):
     role_name = serializers.CharField(source="role.role_name", read_only=True)
-    track_name = serializers.CharField(source="track.track_name", read_only=True)
 
     class Meta:
         model = ResourceAudience
-        fields = ["id", "role", "role_name", "track", "track_name"]
+        fields = ["id", "role", "role_name"]
 
 
 class ResourceAudienceWriteSerializer(serializers.Serializer):
     role_id = serializers.IntegerField(required=False)
-    track_id = serializers.IntegerField(required=False)
 
     def validate(self, attrs):
-        if not attrs.get("role_id") and not attrs.get("track_id"):
-            raise serializers.ValidationError("Each audience rule must include role_id or track_id.")
+        if not attrs.get("role_id"):
+            raise serializers.ValidationError("Each audience rule must include role_id.")
         return attrs
 
 
@@ -232,7 +230,6 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             'file_size',
             'storage_key',
             'uploaded_file',
-            'track',
             'group',
             'visibility_scope',
             'uploaded_at',
@@ -326,7 +323,6 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
                 ResourceAudience.objects.create(
                     resource=resource,
                     role_id=rule.get("role_id"),
-                    track_id=rule.get("track_id"),
                 )
 
     def create(self, validated_data):

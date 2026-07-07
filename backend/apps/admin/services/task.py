@@ -13,22 +13,7 @@ def _admin_visible_tasks(requesting_user):
     """Tasks visible to an admin — gated on AdminScope, not is_staff/is_superuser."""
     if not is_admin(requesting_user):
         return Task.objects.none()
-    return (
-        Task.objects.active()
-        .filter(
-            ~Q(task_type=TaskType.TRACK) | Q(track__is_archived=False)
-        )
-        .filter(
-            ~Q(task_type=TaskType.GROUP)
-            | Q(group__track__isnull=True)
-            | Q(group__track__is_archived=False)
-        )
-        .filter(
-            ~Q(task_type=TaskType.INDIVIDUAL)
-            | Q(assigned_user__track__isnull=True)
-            | Q(assigned_user__track__is_archived=False)
-        )
-    )
+    return Task.objects.active()
 
 
 # Type definitions
@@ -43,7 +28,6 @@ class TaskDict(TypedDict):
     task_type: str
     group: Optional[int]
     assigned_user: Optional[int]
-    track: Optional[int]
     created_by: Optional[Dict[str, Any]]
     creator_role: str
     deleted_at: Optional[str]
@@ -77,7 +61,6 @@ def _serialize_task(task: Task) -> TaskDict:
         "task_type": task.task_type,
         "group": task.group_id,
         "assigned_user": task.assigned_user_id,
-        "track": getattr(task, "track_id", None),
         "created_by": created_by,
         "creator_role": task.creator_role,
         "deleted_at": task.deleted_at.isoformat() if task.deleted_at else None,
@@ -185,35 +168,22 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
     task_type = input_data.get("task_type")
     group_id = input_data.get("group")
     assigned_user_id = input_data.get("assigned_user")
-    track_id = input_data.get("track")
 
     if task_type == TaskType.GROUP and not group_id:
         return {"msg": "Group task requires a group", "data": None}
     if task_type == TaskType.INDIVIDUAL and not assigned_user_id:
         return {"msg": "Individual task requires an assigned user", "data": None}
-    if task_type == "track" and not track_id:
-        return {"msg": "Track task requires a track", "data": None}
 
-    # Track-level tasks bypass resolve_creator_role (it does not know about
-    # TaskType.TRACK, which lives in apps/tasks and is owned by the tasks team).
-    if task_type == "track":
-        if not is_admin(requesting_user):
-            return {
-                "msg": "You do not have authority to create tasks for this track",
-                "data": None,
-            }
-        creator_role = CreatorRole.GLOBAL_ADMIN
-    else:
-        creator_role = resolve_creator_role(
-            requesting_user,
-            task_type,
-            group=group_id,
-            assigned_user=assigned_user_id,
-        )
+    creator_role = resolve_creator_role(
+        requesting_user,
+        task_type,
+        group=group_id,
+        assigned_user=assigned_user_id,
+    )
 
-        # §3: only admins may create via this endpoint
-        if creator_role != CreatorRole.GLOBAL_ADMIN:
-            return {"msg": "You do not have authority to create tasks for this target", "data": None}
+    # §3: only admins may create via this endpoint
+    if creator_role != CreatorRole.GLOBAL_ADMIN:
+        return {"msg": "You do not have authority to create tasks for this target", "data": None}
 
     task = Task.objects.create(
         name=(input_data.get("name") or "").strip(),
@@ -223,7 +193,6 @@ def create_admin_task(requesting_user, input_data: dict) -> TaskResponseDict:
         task_type=task_type,
         group_id=group_id if task_type == TaskType.GROUP else None,
         assigned_user_id=assigned_user_id if task_type == TaskType.INDIVIDUAL else None,
-        track_id=track_id if task_type == "track" else None,
         parent_id=input_data.get("parent") or None,
         created_by=requesting_user,
         creator_role=creator_role,

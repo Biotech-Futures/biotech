@@ -149,13 +149,12 @@ class EventViewSet(viewsets.ModelViewSet):
 
         qs = visible_events_queryset(self.request.user, base_qs).prefetch_related(
             "eventtargetgroup_set",
-            "eventtargettrack_set",
             "eventtargetrole_set",
         )
-        # host_user/track are only read by audit-log serialization on
-        # writes; skip the join on list to keep the row narrower.
+        # host_user is only read by audit-log serialization on writes;
+        # skip the join on list to keep the row narrower.
         if action != "list":
-            qs = qs.select_related("host_user", "track")
+            qs = qs.select_related("host_user")
         return qs.annotate(
             _accepted_count=Count("rsvps", filter=Q(rsvps__rsvp_status="accepted")),
             _waitlist_count=Count("rsvps", filter=Q(rsvps__rsvp_status="waitlisted")),

@@ -9,7 +9,6 @@ class ProgressQuerySerializer(serializers.Serializer):
 
 class GroupsPreviewQuerySerializer(serializers.Serializer):
     mine = serializers.BooleanField(required=False, default=False)
-    track_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     page = serializers.IntegerField(required=False, default=1, min_value=1)
     page_size = serializers.IntegerField(required=False, default=20, min_value=1, max_value=100)
 
@@ -27,7 +26,6 @@ class DashboardNextEventSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     event_name = serializers.CharField()
     description = serializers.CharField(source='event_description', allow_null=True)
-    track = serializers.IntegerField(source='track_id', allow_null=True)
     groups = serializers.ListField(child=serializers.IntegerField(), allow_empty=True, allow_null=True)
     event_type = serializers.CharField(allow_null=True)
     start_datetime = serializers.DateTimeField()
@@ -65,8 +63,6 @@ class DashboardGroupPreviewSerializer(serializers.Serializer):
 
     id = serializers.IntegerField()
     group_name = serializers.CharField()
-    track_id = serializers.IntegerField()
-    track_name = serializers.CharField(source="track.track_name")
     member_count = serializers.IntegerField()
     lead_user = serializers.SerializerMethodField()
     lead_name = serializers.SerializerMethodField()

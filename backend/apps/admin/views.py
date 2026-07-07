@@ -24,20 +24,20 @@ from apps.admin.services.event import (
     query_events, query_event_by_id, create_event, update_event, delete_event,
     query_event_rsvps, create_event_rsvp, update_event_rsvp,
     query_event_targets, query_groups as event_query_groups,
-    query_roles as event_query_roles, query_tracks as event_query_tracks,
+    query_roles as event_query_roles,
 )
 from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
     delete_resource, replace_resource_file, download_resource, access_resource,
     assign_role_to_resource, remove_role_from_resource,
-    list_resource_roles, list_resource_types, list_resource_tracks,
+    list_resource_roles, list_resource_types,
 )
 from apps.resources.services.upload import upload_resource_file
 from apps.resources.models import Resources
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, delete_announcement, send_announcement_email,
-    list_announcement_tracks, list_announcement_roles,
+    list_announcement_groups, list_announcement_roles,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
@@ -475,15 +475,6 @@ class EventMetaRolesView(APIView):
         return Response(result)
 
 
-class EventMetaTracksView(APIView):
-    """GET /api/v1/event/meta/tracks - List tracks for event targeting"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        result = event_query_tracks(requesting_user=request.user)
-        return Response(result)
-
-
 # ============================================================================
 # RESOURCE ENDPOINTS
 # ============================================================================
@@ -663,15 +654,6 @@ class ResourceTypesListView(APIView):
         return Response(result)
 
 
-class ResourceTracksListView(APIView):
-    """GET /api/v1/resource/tracks - List available resource tracks"""
-    permission_classes = [IsAuthenticated, IsAdminScoped]
-
-    def get(self, request):
-        result = list_resource_tracks(requesting_user=request.user)
-        return Response(result)
-
-
 class ResourceAssignRoleView(APIView):
     """POST /api/v1/resource/{id}/assign-role - Assign role to resource"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
@@ -823,12 +805,12 @@ class AnnouncementNotifyView(APIView):
         return Response(result, status=code)
 
 
-class AnnouncementTracksListView(APIView):
-    """GET /api/v1/announcement/tracks - List available announcement tracks"""
+class AnnouncementGroupsListView(APIView):
+    """GET /api/v1/announcement/groups - List groups for announcement targeting"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        result = list_announcement_tracks(requesting_user=request.user)
+        result = list_announcement_groups(requesting_user=request.user)
         return Response(result)
 
 

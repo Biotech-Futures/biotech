@@ -8,7 +8,6 @@ from apps.common.rbac import is_admin
 from .models import (
     EventRsvp,
     EventTargetGroup,
-    EventTargetTrack,
     Events,
 )
 
@@ -23,12 +22,8 @@ class EventFilter(django_filters.FilterSet):
       allowed; admins may audit anyone; supervisors may audit their
       supervisees and the mentors of those supervisees' groups.
     * `group=<id>` — events targeting the given group. Members and
-      track admins (within scope) may query; supervisors may query
-      groups containing any of their supervisees.
-    * `track=<id>` — events touching the given track (direct FK,
-      EventTargetTrack, or via EventTargetGroup's parent track).
-      Members and track admins (within scope) may query; supervisors
-      may query tracks containing any of their supervisees' groups.
+      admins may query; supervisors may query groups containing any of
+      their supervisees.
 
     Each id filter returns an empty queryset (rather than 403) when
     the caller may not query the requested id, so unauthorised tries
@@ -39,11 +34,10 @@ class EventFilter(django_filters.FilterSet):
     category = django_filters.CharFilter(field_name="event_type", lookup_expr="iexact")
     user = django_filters.NumberFilter(method="filter_user")
     group = django_filters.NumberFilter(method="filter_group")
-    track = django_filters.NumberFilter(method="filter_track")
 
     class Meta:
         model = Events
-        fields = ["rsvp_status", "category", "user", "group", "track"]
+        fields = ["rsvp_status", "category", "user", "group"]
 
     _VALID_STATUSES = frozenset(EventRsvp.RsvpStatus.values)
 
@@ -99,29 +93,6 @@ class EventFilter(django_filters.FilterSet):
                 )
             )
         )
-
-    def filter_track(self, queryset, name, track_id):
-        caller = self._caller()
-        if caller is None or not caller.is_authenticated:
-            return queryset.none()
-        if not _can_caller_query_track(caller, track_id):
-            return queryset.none()
-        # Track scope = direct FK + EventTargetTrack + groups whose
-        # parent track matches.
-        return queryset.filter(
-            Q(track_id=track_id)
-            | Exists(
-                EventTargetTrack.objects.filter(
-                    event_id=OuterRef("id"), track_id=track_id
-                )
-            )
-            | Exists(
-                EventTargetGroup.objects.filter(
-                    event_id=OuterRef("id"), group__track_id=track_id
-                )
-            )
-        )
-
 
 # ---------------------------------------------------------------------------
 # Permission helpers for the scoped id filters.
@@ -198,33 +169,6 @@ def _can_caller_query_group(caller, group_id) -> bool:
     supervisee_ids = _supervisee_user_ids(caller)
     if supervisee_ids and GroupMembership.objects.filter(
         group_id=group_id, user_id__in=supervisee_ids, left_at__isnull=True
-    ).exists():
-        return True
-
-    return False
-
-
-def _can_caller_query_track(caller, track_id) -> bool:
-    """Admin, member of any group on the track (or user.track_id
-    matches), or supervisor of any member on the track."""
-    if is_admin(caller):
-        return True
-
-    if getattr(caller, "track_id", None) == track_id:
-        return True
-
-    from apps.groups.models import GroupMembership
-
-    if GroupMembership.objects.filter(
-        user=caller, group__track_id=track_id, left_at__isnull=True
-    ).exists():
-        return True
-
-    supervisee_ids = _supervisee_user_ids(caller)
-    if supervisee_ids and GroupMembership.objects.filter(
-        user_id__in=supervisee_ids,
-        group__track_id=track_id,
-        left_at__isnull=True,
     ).exists():
         return True
 

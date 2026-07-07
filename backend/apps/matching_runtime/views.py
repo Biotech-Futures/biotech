@@ -21,7 +21,7 @@ class MatchRunViewSet(
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
-    queryset = MatchRun.objects.select_related("initiated_by_user", "track").prefetch_related("recommendations").all()
+    queryset = MatchRun.objects.select_related("initiated_by_user").prefetch_related("recommendations").all()
     serializer_class = MatchRunSerializer
     permission_classes = [permissions.IsAdminUser]
 

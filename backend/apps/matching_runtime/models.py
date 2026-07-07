@@ -10,7 +10,6 @@ class MatchRun(models.Model):
         RERUN = "rerun", "Re-run"
 
     initiated_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
     run_type = models.CharField(max_length=100, choices=RunTypeChoices.choices)
     rules_snapshot = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -20,7 +19,6 @@ class MatchRun(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["initiated_by_user"]),
-            models.Index(fields=["track"]),
             models.Index(fields=["run_type"]),
             models.Index(fields=["created_at"]),
         ]

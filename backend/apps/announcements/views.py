@@ -20,7 +20,7 @@ class AnnouncementViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    queryset = Announcement.objects.select_related("author_user", "track").prefetch_related("audiences__role", "audiences__track").all()
+    queryset = Announcement.objects.select_related("author_user").prefetch_related("audiences__role", "audiences__group").all()
     serializer_class = AnnouncementSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -64,8 +64,6 @@ class AnnouncementViewSet(
         )
         if role_ids:
             audience_filter |= Q(audiences__role_id__in=role_ids)
-        if user.track_id:
-            audience_filter |= Q(track_id=user.track_id) | Q(audiences__track_id=user.track_id)
 
         # Group-targeted announcements: visible to active members of the
         # targeted group(s).

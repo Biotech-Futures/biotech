@@ -10,7 +10,6 @@ from apps.common.rbac import (
 
 
 RESOURCE_PUBLIC_SCOPE = "public"
-RESOURCE_TRACK_SCOPE = "track"
 RESOURCE_GROUP_SCOPE = "group"
 
 
@@ -31,7 +30,7 @@ def _resource_audiences(resource):
     else:
         ResourceAudience = apps.get_model("resources", "ResourceAudience")
         cached = list(
-            ResourceAudience.objects.filter(resource=resource).select_related("role", "track")
+            ResourceAudience.objects.filter(resource=resource).select_related("role")
         )
     try:
         resource._audiences_evaluated = cached
@@ -40,53 +39,14 @@ def _resource_audiences(resource):
     return cached
 
 
-def _resource_track_ids(resource) -> set[int]:
-    if resource is None:
-        return set()
-
-    cached = getattr(resource, "_track_ids_evaluated", None)
-    if cached is not None:
-        return cached
-
-    track_ids: set[int] = set()
-    if getattr(resource, "track_id", None):
-        track_ids.add(int(resource.track_id))
-
-    group = getattr(resource, "group", None)
-    if group is None and getattr(resource, "group_id", None):
-        Groups = apps.get_model("groups", "Groups")
-        group = Groups.objects.only("id", "track_id").filter(pk=resource.group_id).first()
-    if group is not None and getattr(group, "track_id", None):
-        track_ids.add(int(group.track_id))
-
-    for audience in _resource_audiences(resource):
-        if audience.track_id:
-            track_ids.add(int(audience.track_id))
-
-    try:
-        resource._track_ids_evaluated = track_ids
-    except Exception:
-        pass
-    return track_ids
-
-
 def _resource_list_access_q(user):
     role_ids = active_role_ids(user)
     member_group_ids = group_participant_qs(user).values_list("group_id", flat=True)
 
     access_q = Q(visibility_scope=RESOURCE_PUBLIC_SCOPE)
 
-    if user.track_id:
-        access_q |= (
-            Q(visibility_scope=RESOURCE_TRACK_SCOPE)
-            & (Q(track_id=user.track_id) | Q(group__track_id=user.track_id))
-        )
-        access_q |= Q(audiences__role__isnull=True, audiences__track_id=user.track_id)
-        if role_ids:
-            access_q |= Q(audiences__role_id__in=role_ids, audiences__track_id=user.track_id)
-
     if role_ids:
-        access_q |= Q(audiences__role_id__in=role_ids, audiences__track__isnull=True)
+        access_q |= Q(audiences__role_id__in=role_ids)
 
     access_q |= Q(visibility_scope=RESOURCE_GROUP_SCOPE, group_id__in=member_group_ids)
 
@@ -108,14 +68,6 @@ def can_access_resource_file(user, resource) -> bool:
     if resource.visibility_scope == RESOURCE_PUBLIC_SCOPE:
         return True
 
-    resource_track_ids = _resource_track_ids(resource)
-    if (
-        resource.visibility_scope == RESOURCE_TRACK_SCOPE
-        and user.track_id
-        and int(user.track_id) in resource_track_ids
-    ):
-        return True
-
     if (
         resource.visibility_scope == RESOURCE_GROUP_SCOPE
         and getattr(resource, "group_id", None)
@@ -124,11 +76,8 @@ def can_access_resource_file(user, resource) -> bool:
         return True
 
     user_role_ids = active_role_ids(user)
-    user_track_id = int(user.track_id) if user.track_id else None
     for audience in _resource_audiences(resource):
-        role_ok = audience.role_id is None or audience.role_id in user_role_ids
-        track_ok = audience.track_id is None or audience.track_id == user_track_id
-        if role_ok and track_ok:
+        if audience.role_id is not None and audience.role_id in user_role_ids:
             return True
 
     return False

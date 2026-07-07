@@ -18,7 +18,6 @@ class Events(models.Model):
 
     event_name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True)
     event_type = models.CharField(max_length=100, choices=EventTypeChoices.choices, blank=True, null=True)
     start_datetime = models.DateTimeField()
     ends_datetime = models.DateTimeField()
@@ -56,7 +55,6 @@ class Events(models.Model):
         indexes = [
             models.Index(fields=["start_datetime"]),
             models.Index(fields=["host_user"]),
-            models.Index(fields=["track"]),
             # ``?when=upcoming|past`` on the list endpoint filters by
             # ends_datetime against now(); without this it falls back to
             # a heap scan once the events table grows.

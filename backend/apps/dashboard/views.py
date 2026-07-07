@@ -77,7 +77,6 @@ class GroupsPreviewView(APIView):
         queryset = get_groups_preview(
             user=request.user,
             mine=params["mine"],
-            track_id=params.get("track_id"),
         )
 
         paginator = Paginator(queryset, params["page_size"])

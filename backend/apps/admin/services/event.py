@@ -5,8 +5,8 @@ from django.db.models import Q, F, Count, Exists, OuterRef, query
 from django.utils import timezone
 from django.db import transaction
 
-from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack
-from apps.groups.models import Groups, Tracks
+from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
+from apps.groups.models import Groups
 from apps.resources.models import Roles
 from apps.users.models import User
 from apps.audit.services import log_audit_event
@@ -46,7 +46,6 @@ class CreateEventInput(TypedDict, total=False):
     ends_at: str
     target_group_ids: Optional[List[int]]
     target_role_ids: Optional[List[int]]
-    target_track_ids: Optional[List[int]]
 
 
 class UpdateEventInput(TypedDict, total=False):
@@ -60,7 +59,6 @@ class UpdateEventInput(TypedDict, total=False):
     ends_at: Optional[str]
     target_group_ids: Optional[List[int]]
     target_role_ids: Optional[List[int]]
-    target_track_ids: Optional[List[int]]
 
 
 def _resolve_event_format(data: Dict[str, Any]) -> Optional[str]:
@@ -142,14 +140,6 @@ def query_events(params: QueryEventsInput, requesting_user=None) -> PaginatedEve
     if upcoming:
         now = timezone.now()
         queryset = queryset.filter(start_datetime__gte=now)
-
-    # Hide events where every target track is archived
-    # (events with no target tracks, or at least one non-archived target track, remain visible)
-    has_any_target_track = Exists(EventTargetTrack.objects.filter(event_id=OuterRef("id")))
-    has_active_target_track = Exists(
-        EventTargetTrack.objects.filter(event_id=OuterRef("id"), track__is_archived=False)
-    )
-    queryset = queryset.exclude(has_any_target_track & ~has_active_target_track)
 
     # Get total count
     total = queryset.count()
@@ -251,28 +241,26 @@ def query_event_by_id(id_str: str) -> EventResponseDict:
 
 def query_event_targets(id_str: str) -> EventTargetsResponseDict:
     """
-    Get target groups, roles, and tracks for an event.
-    
+    Get target groups and roles for an event.
+
     Args:
         id_str: Event ID as string
-        
+
     Returns:
         Dictionary with grouped target IDs
     """
     event_id = _to_event_id(id_str)
     if not event_id:
         return {"msg": "Invalid event id", "data": None}
-    
+
     group_rows = EventTargetGroup.objects.filter(event_id=event_id).values_list("group_id", flat=True)
     role_rows = EventTargetRole.objects.filter(event_id=event_id).values_list("role_id", flat=True)
-    track_rows = EventTargetTrack.objects.filter(event_id=event_id).values_list("track_id", flat=True)
-    
+
     return {
         "msg": "Event targets retrieved successfully",
         "data": {
             "groupIds": list(group_rows),
             "roleIds": list(role_rows),
-            "trackIds": list(track_rows),
         },
     }
 
@@ -282,16 +270,14 @@ def _sync_targets(
     event_id: int,
     group_ids: Optional[List[int]] = None,
     role_ids: Optional[List[int]] = None,
-    track_ids: Optional[List[int]] = None,
 ) -> None:
     """
     Sync event targets with provided IDs.
-    
+
     Args:
         event_id: Event ID
         group_ids: List of group IDs to sync (None to skip)
         role_ids: List of role IDs to sync (None to skip)
-        track_ids: List of track IDs to sync (None to skip)
     """
     if group_ids is not None:
         EventTargetGroup.objects.filter(event_id=event_id).delete()
@@ -300,21 +286,13 @@ def _sync_targets(
                 EventTargetGroup(event_id=event_id, group_id=gid)
                 for gid in group_ids
             ])
-    
+
     if role_ids is not None:
         EventTargetRole.objects.filter(event_id=event_id).delete()
         if role_ids:
             EventTargetRole.objects.bulk_create([
                 EventTargetRole(event_id=event_id, role_id=rid)
                 for rid in role_ids
-            ])
-    
-    if track_ids is not None:
-        EventTargetTrack.objects.filter(event_id=event_id).delete()
-        if track_ids:
-            EventTargetTrack.objects.bulk_create([
-                EventTargetTrack(event_id=event_id, track_id=tid)
-                for tid in track_ids
             ])
 
 
@@ -377,7 +355,6 @@ def create_event(data: Dict[str, Any], requesting_user=None) -> EventResponseDic
         event.id,
         data.get("targetGroupIds") or data.get("target_group_ids"),
         data.get("targetRoleIds") or data.get("target_role_ids"),
-        data.get("targetTrackIds") or data.get("target_track_ids"),
     )
 
     return {"msg": "Event created successfully", "data": _event_model_to_camel(event)}
@@ -460,7 +437,6 @@ def update_event(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
         event_id,
         data.get("targetGroupIds") or data.get("target_group_ids"),
         data.get("targetRoleIds") or data.get("target_role_ids"),
-        data.get("targetTrackIds") or data.get("target_track_ids"),
     )
 
     return {"msg": "Event updated successfully", "data": _event_model_to_camel(event)}
@@ -629,17 +605,13 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
 def query_groups(requesting_user=None) -> Dict[str, Any]:
     """Get all groups for reference data."""
     qs = Groups.objects.filter(deleted_at__isnull=True)
-    groups = list(qs.order_by("track__track_name", "group_name").values(
-        "id", "group_name", "track_id", "track__track_name"
-    ))
+    groups = list(qs.order_by("group_name").values("id", "group_name"))
     return {
         "msg": "Groups retrieved successfully",
         "data": [
             {
                 "id": g["id"],
                 "groupName": g["group_name"],
-                "trackId": g["track_id"],
-                "trackName": g["track__track_name"],
             }
             for g in groups
         ],
@@ -660,11 +632,3 @@ def query_roles() -> Dict[str, Any]:
     }
 
 
-def query_tracks(requesting_user=None) -> Dict[str, Any]:
-    """Get all tracks for reference data. Archived tracks are excluded."""
-    qs = Tracks.objects.filter(is_archived=False)
-    tracks = list(qs.order_by("id").values("id", "track_name"))
-    return {
-        "msg": "Tracks retrieved successfully",
-        "data": [{"id": t["id"], "trackName": t["track_name"]} for t in tracks],
-    }
