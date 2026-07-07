@@ -1,14 +1,21 @@
 import logging
 
 from django.conf import settings
-from django.db import migrations, models
+from django.db import migrations
 
 logger = logging.getLogger(__name__)
 
 
 def delete_track_tasks(apps, schema_editor):
     """Hard-delete TRACK-type tasks (Task.parent CASCADE removes descendants)
-    and remap the retired track_admin creator role to global_admin."""
+    and remap the retired track_admin creator role to global_admin.
+
+    NOTE: this migration only DROPS the old check constraint and does the data
+    work. The column/field removal lives in 0011 so the cascade DELETE here
+    commits first — Postgres refuses to ALTER a table that still has pending
+    (deferred) FK trigger events from a cascade delete in the same transaction
+    ("cannot ALTER TABLE ... because it has pending trigger events").
+    """
     Task = apps.get_model("tasks", "Task")
 
     deleted, _ = Task.objects.filter(task_type="track").delete()
@@ -38,22 +45,4 @@ class Migration(migrations.Migration):
             name='task_type_target_consistency',
         ),
         migrations.RunPython(delete_track_tasks, migrations.RunPython.noop),
-        migrations.RemoveField(
-            model_name='task',
-            name='track',
-        ),
-        migrations.AlterField(
-            model_name='task',
-            name='creator_role',
-            field=models.CharField(choices=[('global_admin', 'Administrator'), ('mentor', 'Mentor'), ('supervisor', 'Supervisor'), ('student', 'Student')], max_length=20),
-        ),
-        migrations.AlterField(
-            model_name='task',
-            name='task_type',
-            field=models.CharField(choices=[('group', 'Group'), ('individual', 'Individual')], max_length=20),
-        ),
-        migrations.AddConstraint(
-            model_name='task',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('task_type', 'group'), ('group__isnull', False), ('assigned_user__isnull', True)), models.Q(('task_type', 'individual'), ('assigned_user__isnull', False), ('group__isnull', True)), _connector='OR'), name='task_type_target_consistency'),
-        ),
     ]
