@@ -11,25 +11,26 @@ import {
   createColumns,
 } from "@/components/group";
 import { useQueryGroup, useQueryGroups } from "@/query/group";
+import {
+  MAX_PAGE_SIZE,
+  MIN_PAGE_SIZE,
+} from "@/components/user/PageSizeSelect";
 import type { Group, MentorStatusFilter } from "@/type/group";
 
+const DEFAULT_PAGE_SIZE = 25;
+
+type GroupSearchParams = {
+  groupId?: string;
+  page: number;
+  limit?: number;
+  searchName?: string;
+  searchGroup?: string;
+  mentorStatus?: MentorStatusFilter;
+};
+
 export const Route = createFileRoute("/_auth/group")({
-  validateSearch: (
-    search,
-  ): {
-    groupId?: string;
-    page: number;
-    searchName?: string;
-    searchGroup?: string;
-    mentorStatus?: MentorStatusFilter;
-  } => {
-    const params: {
-      groupId?: string;
-      page: number;
-      searchName?: string;
-      searchGroup?: string;
-      mentorStatus?: MentorStatusFilter;
-    } = {
+  validateSearch: (search): GroupSearchParams => {
+    const params: GroupSearchParams = {
       page:
         typeof search.page === "number" && search.page >= 1
           ? search.page
@@ -37,6 +38,16 @@ export const Route = createFileRoute("/_auth/group")({
             ? Number(search.page)
             : 1,
     };
+
+    const rawLimit =
+      typeof search.limit === "number"
+        ? search.limit
+        : typeof search.limit === "string"
+          ? Number(search.limit)
+          : NaN;
+    if (Number.isFinite(rawLimit) && rawLimit >= MIN_PAGE_SIZE) {
+      params.limit = Math.min(MAX_PAGE_SIZE, Math.floor(rawLimit));
+    }
 
     if (typeof search.groupId === "string") params.groupId = search.groupId;
     if (typeof search.searchName === "string" && search.searchName.trim()) {
@@ -59,8 +70,9 @@ export const Route = createFileRoute("/_auth/group")({
 
 function GroupPage() {
   const navigate = useNavigate();
-  const { groupId, page, searchName, searchGroup, mentorStatus } =
+  const { groupId, page, limit, searchName, searchGroup, mentorStatus } =
     Route.useSearch();
+  const pageSize = limit ?? DEFAULT_PAGE_SIZE;
 
   // Detail modal state
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
@@ -74,6 +86,7 @@ function GroupPage() {
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
     page,
+    limit: pageSize,
     searchName,
     searchGroup,
     mentorStatus,
@@ -91,9 +104,7 @@ function GroupPage() {
   );
 
   const groups = data?.data.items ?? [];
-  const totalPages = Math.ceil(
-    (data?.data.total ?? 0) / (data?.data.limit ?? 10),
-  );
+  const totalPages = Math.max(1, Math.ceil((data?.data.total ?? 0) / pageSize));
 
   const updateFilters = (
     filters: Partial<{
@@ -117,6 +128,18 @@ function GroupPage() {
     void navigate({
       to: "/group",
       search: (prev) => ({ ...prev, page: nextPage }),
+      replace: true,
+    });
+  };
+
+  const handlePageSizeChange = (nextSize: number) => {
+    void navigate({
+      to: "/group",
+      search: (prev) => ({
+        ...prev,
+        limit: nextSize === DEFAULT_PAGE_SIZE ? undefined : nextSize,
+        page: 1,
+      }),
       replace: true,
     });
   };
@@ -204,6 +227,8 @@ function GroupPage() {
         page={page}
         totalPages={totalPages}
         onPageChange={handlePageChange}
+        pageSize={pageSize}
+        onPageSizeChange={handlePageSizeChange}
         sorting={sorting}
         onSortingChange={(nextSorting) => {
           setSorting(nextSorting);

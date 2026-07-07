@@ -14,6 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
 import type { StudentUser } from "@/type/user";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { useState } from "react";
@@ -26,17 +28,27 @@ export type StudentSortKey =
   | "group"
   | "interests";
 
+export interface StudentTableSelection {
+  isSelected: (id: number) => boolean;
+  onToggleRow: (student: StudentUser) => void;
+  headerState: boolean | "indeterminate";
+  onToggleAll: () => void;
+}
+
 interface StudentTableProps {
   data: StudentUser[];
   columns: ColumnDef<StudentUser>[];
   page: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
   onRowClick?: (student: StudentUser) => void;
   sorting?: SortingState;
   onSortingChange?: (sorting: SortingState) => void;
   manualSorting?: boolean;
   isPending?: boolean;
+  selection?: StudentTableSelection;
 }
 
 export function StudentTable({
@@ -45,11 +57,14 @@ export function StudentTable({
   page,
   totalPages,
   onPageChange,
+  pageSize,
+  onPageSizeChange,
   onRowClick,
   sorting: controlledSorting,
   onSortingChange,
   manualSorting,
   isPending,
+  selection,
 }: StudentTableProps) {
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const sorting = controlledSorting ?? internalSorting;
@@ -67,6 +82,9 @@ export function StudentTable({
     getSortedRowModel: getSortedRowModel(),
   });
 
+  // Column span for the loading / empty rows, accounting for the select column.
+  const spanCount = columns.length + (selection ? 1 : 0);
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
@@ -74,6 +92,16 @@ export function StudentTable({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
+                {selection && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={selection.headerState}
+                      onCheckedChange={selection.onToggleAll}
+                      disabled={isPending || data.length === 0}
+                      aria-label="Select all students on this page"
+                    />
+                  </TableHead>
+                )}
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -104,7 +132,7 @@ export function StudentTable({
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={spanCount} className="h-24 text-center">
                   Loading...
                 </TableCell>
               </TableRow>
@@ -113,8 +141,23 @@ export function StudentTable({
                 <TableRow
                   key={row.id}
                   onClick={() => onRowClick?.(row.original)}
+                  data-state={
+                    selection?.isSelected(row.original.id) ? "selected" : undefined
+                  }
                   className={onRowClick && row.original.groupId ? "cursor-pointer hover:bg-muted/40" : undefined}
                 >
+                  {selection && (
+                    <TableCell
+                      className="w-10"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={selection.isSelected(row.original.id)}
+                        onCheckedChange={() => selection.onToggleRow(row.original)}
+                        aria-label={`Select ${row.original.firstName} ${row.original.lastName}`.trim()}
+                      />
+                    </TableCell>
+                  )}
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -124,7 +167,7 @@ export function StudentTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={spanCount} className="h-24 text-center">
                   No students found.
                 </TableCell>
               </TableRow>
@@ -133,19 +176,14 @@ export function StudentTable({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => onPageChange(page - 1)} disabled={page <= 1 || isPending}>
-            Previous
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages || isPending}>
-            Next
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        pageSize={pageSize}
+        onPageSizeChange={onPageSizeChange}
+        disabled={isPending}
+      />
     </div>
   );
 }

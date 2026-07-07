@@ -1,10 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TablePaginationBar } from "@/components/ui/table-pagination";
 import {
   SortableTableHead,
   type SortState,
 } from "@/components/ui/sortable-table";
+import { CheckCheckIcon, InfoIcon } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -13,7 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PageSizeSelect } from "@/components/user/PageSizeSelect";
 import { labelizeState, labelizeUserRole, type UserAccount } from "@/type/user";
 
 export type UserSortKey = "name" | "email" | "role" | "state" | "status";
@@ -178,14 +179,18 @@ export function UserTable({
           </TableHeader>
           <TableBody>
             {showSelectionBanner && (
-              <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableRow className="border-primary/20 bg-primary/10 hover:bg-primary/10">
                 <TableCell
                   colSpan={COLUMN_COUNT}
-                  className="py-2 text-center text-sm"
+                  className="py-3 text-center text-sm"
                 >
                   {selectAllMatching ? (
                     <span className="inline-flex flex-wrap items-center justify-center gap-2">
-                      <span aria-live="polite">
+                      <CheckCheckIcon
+                        className="size-4 text-primary"
+                        aria-hidden
+                      />
+                      <span aria-live="polite" className="font-medium">
                         {excludedCount > 0
                           ? `${effectiveAllCount} of ${total} users selected.`
                           : `All ${total} users matching these filters are selected.`}
@@ -193,7 +198,7 @@ export function UserTable({
                       <Button
                         variant="link"
                         size="sm"
-                        className="h-auto p-0"
+                        className="h-auto p-0 font-semibold underline"
                         onClick={onClear}
                       >
                         Clear selection
@@ -201,13 +206,14 @@ export function UserTable({
                     </span>
                   ) : (
                     <span className="inline-flex flex-wrap items-center justify-center gap-2">
-                      <span>
+                      <InfoIcon className="size-4 text-primary" aria-hidden />
+                      <span className="font-medium">
                         All {pageIds.length} users on this page are selected.
                       </span>
                       <Button
                         variant="link"
                         size="sm"
-                        className="h-auto p-0"
+                        className="h-auto p-0 font-semibold underline"
                         onClick={onSelectAllMatching}
                       >
                         Select all {total} users matching these filters
@@ -294,36 +300,14 @@ export function UserTable({
         </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-4">
-          <PageSizeSelect
-            value={pageSize}
-            onChange={onPageSizeChange}
-            disabled={isPending}
-          />
-          <p className="text-sm text-muted-foreground">
-            Page {page} of {totalPages}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page - 1)}
-            disabled={page <= 1 || isPending}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onPageChange(page + 1)}
-            disabled={page >= totalPages || isPending}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <TablePaginationBar
+        page={page}
+        totalPages={totalPages}
+        onPageChange={onPageChange}
+        pageSize={pageSize}
+        onPageSizeChange={onPageSizeChange}
+        disabled={isPending}
+      />
     </div>
   );
 }

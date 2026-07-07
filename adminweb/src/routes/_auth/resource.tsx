@@ -49,6 +49,7 @@ function ResourcePage() {
     ResourceTypeName | undefined
   >();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [showBatchVisibilityEditor, setShowBatchVisibilityEditor] =
@@ -71,6 +72,7 @@ function ResourcePage() {
 
   const { data, isPending } = useQueryResources({
     page,
+    limit: pageSize,
     search,
     uploader,
     order,
@@ -109,10 +111,12 @@ function ResourcePage() {
   const availableRoles = rolesData?.data.filter((role) => role.slug !== "admin") ?? [];
 
   const resources = data?.data.items ?? [];
-  const totalPages = Math.max(
-    1,
-    Math.ceil((data?.data.total ?? 0) / (data?.data.limit ?? 10)),
-  );
+  const totalPages = Math.max(1, Math.ceil((data?.data.total ?? 0) / pageSize));
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1);
+  };
 
   const handleViewDetail = (resource: Resource) => {
     setSelectedResource(resource);
@@ -468,6 +472,8 @@ function ResourcePage() {
         page={page}
         totalPages={totalPages}
         onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={handlePageSizeChange}
         bulkMode={bulkMode}
         selectedIds={selectedIds}
         onSelectedIdsChange={setSelectedIds}
