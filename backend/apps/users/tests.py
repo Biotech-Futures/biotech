@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.groups.models import Countries, CountryStates, Tracks
+from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import (
     AreasOfInterest,
@@ -19,52 +19,60 @@ from apps.users.serializers import UserSerializer
 
 
 class UserGeographyTests(TestCase):
+    """Geography now lives on ``User.state`` (a direct FK to
+    ``groups.CountryStates``). The old track model and the derived state it
+    used to imply were removed, so these tests assert the user's state can be
+    set/reassigned directly and that the model shape reflects the migration
+    (``state`` FK present, the former geography field gone)."""
+
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
         self.nsw = CountryStates.objects.create(country=country, state_name="NSW")
         self.vic = CountryStates.objects.create(country=country, state_name="VIC")
-        self.nsw_track = Tracks.objects.create(track_name="AUS-NSW", state=self.nsw)
-        self.vic_track = Tracks.objects.create(track_name="AUS-VIC", state=self.vic)
 
-    def test_state_is_derived_from_track(self):
+    def test_state_can_be_assigned(self):
         user = User.objects.create_user(
-            email="derived-state@example.com",
-            first_name="Derived",
+            email="assigned-state@example.com",
+            first_name="Assigned",
             last_name="State",
-            track=self.nsw_track,
+            state=self.nsw,
         )
 
         self.assertEqual(user.state_id, self.nsw.id)
         self.assertEqual(user.state, self.nsw)
 
-    def test_state_changes_when_track_changes(self):
+    def test_state_can_be_reassigned(self):
         user = User.objects.create_user(
-            email="track-swap@example.com",
-            first_name="Track",
+            email="state-swap@example.com",
+            first_name="State",
             last_name="Swap",
-            track=self.nsw_track,
+            state=self.nsw,
         )
 
-        user.track = self.vic_track
-        user.save(update_fields=["track"])
+        user.state = self.vic
+        user.save(update_fields=["state"])
         user.refresh_from_db()
 
         self.assertEqual(user.state_id, self.vic.id)
         self.assertEqual(user.state, self.vic)
 
-    def test_state_is_none_without_track(self):
+    def test_state_is_none_without_geography(self):
         user = User.objects.create_user(
-            email="no-track@example.com",
+            email="no-state@example.com",
             first_name="No",
-            last_name="Track",
+            last_name="State",
         )
 
         self.assertIsNone(user.state_id)
         self.assertIsNone(user.state)
 
-    def test_user_model_no_longer_has_state_field(self):
+    def test_user_model_has_state_fk_and_no_track_field(self):
+        # ``state`` is now a real FK to CountryStates ...
+        state_field = User._meta.get_field("state")
+        self.assertEqual(state_field.related_model, CountryStates)
+        # ... and the retired ``track`` field is gone.
         with self.assertRaises(FieldDoesNotExist):
-            User._meta.get_field("state")
+            User._meta.get_field("track")
 
 
 class MustChangePasswordFlagTests(TestCase):

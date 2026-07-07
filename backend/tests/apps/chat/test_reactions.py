@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.chat.models import MessageReaction, Messages
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.users.models import AdminScope
 
 
@@ -42,14 +42,11 @@ class MessageReactionTests(TestCase):
             email="admin@test.com", password="pw", first_name="Ad", last_name="Min"
         )
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
+        self.group = Groups.objects.create(group_name="G1")
 
         GroupMembership.objects.create(user=self.alice, group=self.group)
         GroupMembership.objects.create(user=self.bob, group=self.group)
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         self.message = Messages.objects.create(
             group=self.group, sender_user=self.alice, message_text="hi"

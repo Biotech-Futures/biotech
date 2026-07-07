@@ -106,7 +106,6 @@ class CanAccessResource(BasePermission):
             return None
 
         Resources = apps.get_model("resources", "Resources")
-        return Resources.objects.select_related("group", "track").prefetch_related(
+        return Resources.objects.select_related("group").prefetch_related(
             "audiences__role",
-            "audiences__track",
         ).filter(pk=resource_id).first()

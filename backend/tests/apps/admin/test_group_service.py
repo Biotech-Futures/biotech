@@ -8,21 +8,17 @@ from apps.admin.services.group import (
     update_group, remove_group_member, remove_group_message,
 )
 from apps.chat.models import Messages
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
 from apps.users.models import MentorProfile, StudentProfile, User
 
 
 class AdminGroupServiceTests(TestCase):
     def setUp(self):
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=state)
-        self.group = Groups.objects.create(group_name="Group One", track=self.track)
+        self.group = Groups.objects.create(group_name="Group One")
         self.mentor = User.objects.create_user(
             email="mentor@example.com",
             first_name="Mina",
             last_name="Mentor",
-            track=self.track,
             password="testpass",
         )
         MentorProfile.objects.create(
@@ -39,7 +35,7 @@ class AdminGroupServiceTests(TestCase):
             email="admin@example.com", first_name="Admin", password="testpass",
         )
         from apps.users.models.admin_scope import AdminScope
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
     def test_query_groups_uses_adminweb_camel_case_contract(self):
         result = query_groups(requesting_user=self.admin_user)
@@ -53,7 +49,7 @@ class AdminGroupServiceTests(TestCase):
 
     def test_query_groups_orders_by_created_at_desc(self):
         older = self.group
-        newer = Groups.objects.create(group_name="Group Two", track=self.track)
+        newer = Groups.objects.create(group_name="Group Two")
 
         now = timezone.now()
         Groups.objects.filter(id=older.id).update(created_at=now - timedelta(days=1))
@@ -124,21 +120,10 @@ class AdminGroupServiceTests(TestCase):
         self.assertEqual(result["msg"], "Group not found")
         self.assertIsNone(result["data"])
 
-    def test_update_group_track(self):
-        new_track = Tracks.objects.create(track_name="TRACK-2", state=CountryStates.objects.first())
-        result = update_group(str(self.group.id), track="TRACK-2")
-        self.assertEqual(result["msg"], "Group updated successfully")
-        self.assertEqual(result["data"]["track"], "TRACK-2")
-
-    def test_update_group_track_not_found(self):
-        result = update_group(str(self.group.id), track="NONEXISTENT")
-        self.assertEqual(result["msg"], 'Track "NONEXISTENT" not found')
-        self.assertIsNone(result["data"])
-
     def test_remove_group_member(self):
         student = User.objects.create_user(
             email="student@example.com", first_name="Stud", last_name="Ent",
-            track=self.track, password="testpass",
+            password="testpass",
         )
         StudentProfile.objects.create(
             user=student, pg_first_name="P", pg_last_name="E",

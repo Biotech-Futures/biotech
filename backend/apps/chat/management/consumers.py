@@ -104,7 +104,7 @@ class GroupChatConsumer(AsyncJsonWebsocketConsumer):
     @database_sync_to_async
     def _can_access_group(self, user):
         # Deleted groups cannot accept WebSocket subscribers, including old members.
-        group = Groups.objects.only("id", "track_id").filter(
+        group = Groups.objects.only("id").filter(
             pk=self.group_id,
             deleted_at__isnull=True,
         ).first()

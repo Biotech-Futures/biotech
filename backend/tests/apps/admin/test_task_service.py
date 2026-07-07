@@ -8,7 +8,7 @@ from apps.admin.services.task import (
     list_admin_tasks, get_admin_task_by_id, create_admin_task,
     update_admin_task, delete_admin_task, toggle_admin_task,
 )
-from apps.groups.models import Countries, CountryStates, Groups, Tracks
+from apps.groups.models import Groups
 from apps.tasks.models import CreatorRole, Task, TaskType
 from apps.users.models import AdminScope
 
@@ -18,12 +18,9 @@ User = get_user_model()
 
 class AdminTaskTests(TestCase):
     def setUp(self):
-        country = Countries.objects.create(country_name="AU")
-        state = CountryStates.objects.create(country=country, state_name="VIC")
-        track = Tracks.objects.create(track_name="VIC-01", state=state)
-        self.group = Groups.objects.create(group_name="Group A", track=track)
+        self.group = Groups.objects.create(group_name="Group A")
         self.admin = User.objects.create_user(email="admin@example.com", password="pw")
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
     def test_lists_tasks_by_created_at_desc(self):
         older = Task.objects.create(

@@ -9,23 +9,19 @@ from apps.common.rbac import (
     active_role_names,
     get_active_role_name,
     group_participant_qs,
-    is_global_admin,
-    track_admin_track_ids,
+    is_admin,
     user_has_role,
 )
 from apps.common.role_names import (
+    ROLE_ADMIN,
     ROLE_MENTOR,
     ROLE_STUDENT,
     get_role_by_name,
     try_get_role_by_name,
 )
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope
-from apps.users.utils.admin_scope import (
-    get_admin_track_ids as get_operational_admin_track_ids,
-    is_operational_admin,
-)
 
 
 User = get_user_model()
@@ -33,22 +29,22 @@ User = get_user_model()
 
 class CommonRBACTests(TestCase):
     def setUp(self):
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.primary_track = Tracks.objects.create(track_name="Primary", state=self.state)
-        self.secondary_track = Tracks.objects.create(track_name="Secondary", state=self.state)
-        self.group = Groups.objects.create(group_name="Primary Group", track=self.primary_track)
+        self.group = Groups.objects.create(group_name="Primary Group")
 
-        self.global_user = User.objects.create_user(
-            email="global-admin@test.com",
+        # Two admins that in the old model were a "global admin" and a
+        # "track admin" respectively. Under the single-tier model an
+        # AdminScope row is the only thing that matters, so both are now
+        # simply admins.
+        self.admin_user = User.objects.create_user(
+            email="admin@test.com",
             password="pw",
-            first_name="Global",
+            first_name="Some",
             last_name="Admin",
         )
-        self.track_admin = User.objects.create_user(
-            email="track-admin@test.com",
+        self.second_admin = User.objects.create_user(
+            email="second-admin@test.com",
             password="pw",
-            first_name="Track",
+            first_name="Second",
             last_name="Admin",
         )
         self.mentor = User.objects.create_user(
@@ -56,7 +52,6 @@ class CommonRBACTests(TestCase):
             password="pw",
             first_name="Mentor",
             last_name="User",
-            track=self.primary_track,
         )
 
         self.admin_role = Roles.objects.create(role_name="admin")
@@ -64,14 +59,17 @@ class CommonRBACTests(TestCase):
         now = timezone.now()
         future = now + timedelta(days=365)
 
-        AdminScope.objects.create(user=self.global_user, is_global=True)
-        AdminScope.objects.create(user=self.track_admin, track=self.primary_track, is_global=False)
+        AdminScope.objects.create(user=self.admin_user)
+        AdminScope.objects.create(user=self.second_admin)
         RoleAssignmentHistory.objects.create(user=self.mentor, role=self.mentor_role, valid_from=now, valid_to=future)
         GroupMembership.objects.create(user=self.mentor, group=self.group, membership_role="mentor")
 
-    def test_is_global_admin_accepts_global_admin_scope(self):
-        self.assertTrue(is_global_admin(self.global_user))
-        self.assertFalse(is_global_admin(self.track_admin))
+    def test_is_admin_accepts_any_admin_scope_row(self):
+        # Both formerly-distinct admin tiers collapse to a single check:
+        # any AdminScope row means admin.
+        self.assertTrue(is_admin(self.admin_user))
+        self.assertTrue(is_admin(self.second_admin))
+        self.assertFalse(is_admin(self.mentor))
 
     def test_active_role_helpers_resolve_current_role_assignments(self):
         self.assertEqual(active_role_names(self.mentor), {"mentor"})
@@ -85,36 +83,30 @@ class CommonRBACTests(TestCase):
 
         self.assertFalse(group_participant_qs(self.mentor, self.group.id).exists())
 
-    def test_track_admin_track_ids_returns_scoped_tracks_only_for_non_global_admin(self):
-        self.assertEqual(track_admin_track_ids(self.track_admin), {self.primary_track.id})
-        self.assertEqual(track_admin_track_ids(self.global_user), set())
-
-    def test_is_global_admin_ignores_is_staff_and_is_superuser(self):
+    def test_is_admin_ignores_is_staff_and_is_superuser(self):
         staff_user = User.objects.create_user(email="staff@test.com", password="pw", is_staff=True)
         super_user = User.objects.create_user(email="super@test.com", password="pw", is_superuser=True)
-        self.assertFalse(is_global_admin(staff_user))
-        self.assertFalse(is_global_admin(super_user))
-        self.assertEqual(track_admin_track_ids(staff_user), set())
-        self.assertEqual(track_admin_track_ids(super_user), set())
+        self.assertFalse(is_admin(staff_user))
+        self.assertFalse(is_admin(super_user))
 
-    def test_operational_admin_helper_requires_admin_scope(self):
+    def test_is_admin_requires_an_admin_scope_row(self):
         staff_user = User.objects.create_user(email="ops-staff@test.com", password="pw", is_staff=True)
-        scoped_user = User.objects.create_user(email="ops-track@test.com", password="pw")
-        AdminScope.objects.create(user=scoped_user, track=self.primary_track, is_global=False)
+        scoped_user = User.objects.create_user(email="ops-scoped@test.com", password="pw")
+        AdminScope.objects.create(user=scoped_user)
 
-        self.assertFalse(is_operational_admin(staff_user))
-        self.assertEqual(get_operational_admin_track_ids(staff_user), [])
-        self.assertTrue(is_operational_admin(scoped_user))
-        self.assertEqual(get_operational_admin_track_ids(scoped_user), [self.primary_track.id])
+        # is_staff alone never confers admin; only an AdminScope row does.
+        self.assertFalse(is_admin(staff_user))
+        self.assertTrue(is_admin(scoped_user))
 
-    def test_is_global_admin_ignores_role_assignments(self):
-        admin_role = Roles.objects.create(role_name="global_admin")
+    def test_is_admin_ignores_role_assignments(self):
+        admin_role = get_role_by_name(ROLE_ADMIN)
         user = User.objects.create_user(email="role-admin@test.com", password="pw")
         now = timezone.now()
         RoleAssignmentHistory.objects.create(
             user=user, role=admin_role, valid_from=now, valid_to=now + timedelta(days=365)
         )
-        self.assertFalse(is_global_admin(user))
+        # An "admin" role assignment is not the same as an AdminScope row.
+        self.assertFalse(is_admin(user))
 
     def test_get_active_role_name_returns_normalized_role(self):
         self.assertEqual(get_active_role_name(self.mentor), ROLE_MENTOR)

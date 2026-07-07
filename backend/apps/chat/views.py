@@ -527,7 +527,7 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def _get_group(self):
         group_pk = self.kwargs.get("group_pk")
-        return Groups.objects.only("id", "track_id").filter(
+        return Groups.objects.only("id").filter(
             pk=group_pk,
             deleted_at__isnull=True,
         ).first()

@@ -297,7 +297,7 @@ def _can_toggle(user, task: Task) -> bool:
         return False
 
     # Case 1: Student-assignee — role-class restricted.
-    if task.creator_role in (CreatorRole.GLOBAL_ADMIN, CreatorRole.TRACK_ADMIN):
+    if task.creator_role == CreatorRole.GLOBAL_ADMIN:
         return _is_active_group_mentor(
             user, _user_active_group_id(task.assigned_user_id)
         ) or _is_supervisor_of(user, task.assigned_user_id)

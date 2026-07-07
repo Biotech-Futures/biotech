@@ -5,8 +5,7 @@ from apps.groups.models import Groups
 
 
 class IsGroupMemberOrAdmin(BasePermission):
-    """Read / post: caller is an active member of the target group, or
-    has admin scope for the group's track (global or track-scoped).
+    """Read / post: caller is an active member of the target group, or an admin.
 
     Delegates to the shared RBAC helper so REST, download, and websocket
     access stay aligned.
@@ -18,7 +17,7 @@ class IsGroupMemberOrAdmin(BasePermission):
             return False
         gid = view.kwargs.get("group_pk")
         # A deleted group no longer grants chat access through membership or admin scope.
-        group = Groups.objects.only("id", "track_id").filter(
+        group = Groups.objects.only("id").filter(
             pk=gid,
             deleted_at__isnull=True,
         ).first()
@@ -29,7 +28,7 @@ class CanModerateMessage(BasePermission):
     """Delete a chat message.
 
     Allowed iff the caller is the sender within the self-action window,
-    or has admin scope for the message's group's track.
+    or an admin.
     """
 
     def has_object_permission(self, request, view, obj):
@@ -38,8 +37,8 @@ class CanModerateMessage(BasePermission):
 
 class CanEditMessage(BasePermission):
     """Edit a chat message. Same rule as CanModerateMessage — sender
-    within the self-action window, or admin scope for the message's
-    track. Kept as a separate class so views wire intent explicitly.
+    within the self-action window, or an admin. Kept as a separate class
+    so views wire intent explicitly.
     """
 
     def has_object_permission(self, request, view, obj):

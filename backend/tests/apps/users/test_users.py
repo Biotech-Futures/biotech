@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.events.models import Events
-from apps.groups.models import Countries, CountryStates, Groups, Tracks
+from apps.groups.models import Groups
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
 from apps.users.models import AdminScope
 
@@ -32,7 +32,7 @@ class UserEmailFilterTestCase(TestCase):
             last_name="User",
             is_active=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
         self.regular_user = User.objects.create_user(
             email="user@example.com",
@@ -53,7 +53,7 @@ class UserEmailFilterTestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_email_filter_admin(self):
-        """Operational admin can filter for admin@admin.com"""
+        """Admin can filter for admin@admin.com"""
         self.client.force_login(self.admin_user)
         response = self.client.get(reverse("UserListHTMLView"), {"email": "admin@admin.com"})
 
@@ -62,7 +62,7 @@ class UserEmailFilterTestCase(TestCase):
         self.assertContains(response, 'Admin')
 
     def test_email_filter_regular_user(self):
-        """Operational admin can filter for user@example.com"""
+        """Admin can filter for user@example.com"""
         self.client.force_login(self.admin_user)
         response = self.client.get(reverse("UserListHTMLView"), {"email": "user@example.com"})
 
@@ -71,7 +71,7 @@ class UserEmailFilterTestCase(TestCase):
         self.assertContains(response, 'Regular')
 
     def test_email_filter_nonexistent(self):
-        """Operational admin filtering for a non-existent email returns no rows."""
+        """Admin filtering for a non-existent email returns no rows."""
         self.client.force_login(self.admin_user)
         response = self.client.get(reverse("UserListHTMLView"), {"email": "notfound@example.com"})
 
@@ -80,7 +80,7 @@ class UserEmailFilterTestCase(TestCase):
         self.assertNotContains(response, 'user@example.com')
 
     def test_no_email_filter(self):
-        """Operational admin without a filter sees all users."""
+        """Admin without a filter sees all users."""
         self.client.force_login(self.admin_user)
         response = self.client.get(reverse("UserListHTMLView"))
 
@@ -98,28 +98,22 @@ class AdminWorkflowApiTests(TestCase):
             first_name="Ops",
             last_name="Admin",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="OPS-TRACK", state=self.state)
+        AdminScope.objects.create(user=self.admin_user)
 
         self.target_user = User.objects.create_user(
             email="target@test.com",
             first_name="Target",
             last_name="User",
-            track=self.track,
         )
         self.invited_user = User.objects.create_user(
             email="invited@test.com",
             first_name="Invited",
             last_name="User",
-            track=self.track,
         )
-        self.group = Groups.objects.create(group_name="Ops Group", track=self.track)
+        self.group = Groups.objects.create(group_name="Ops Group")
         self.match_run = MatchRun.objects.create(
             initiated_by_user=self.admin_user,
-            track=self.track,
-            run_type="initial",
+            run_type=MatchRun.RunTypeChoices.MANUAL,
         )
         self.recommendation = MatchRecommendation.objects.create(
             match_run=self.match_run,
@@ -196,7 +190,7 @@ class AuthUnificationTests(TestCase):
                 {"email": self.user_email, "password": "WrongPassword"},
                 format="json"
             )
-        
+
         # 6th attempt should be 429 Too Many Requests
         response = self.client.post(
             reverse("password-login"),
@@ -272,23 +266,18 @@ class UserDetailLockdownTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="LOCK-TRACK", state=self.state)
 
         self.admin_user = User.objects.create_user(
             email="admin-lockdown@test.com",
             first_name="Lock",
             last_name="Admin",
-            track=self.track,
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
         self.target_user = User.objects.create_user(
             email="target-lockdown@test.com",
             first_name="Lock",
             last_name="Target",
-            track=self.track,
         )
         self.url = reverse("user-detail", args=[self.target_user.id])
 
@@ -314,7 +303,7 @@ class UserDetailLockdownTests(TestCase):
 
     def test_non_admin_patch_forbidden(self):
         other_user = User.objects.create_user(
-            email="random@test.com", first_name="Random", last_name="User", track=self.track,
+            email="random@test.com", first_name="Random", last_name="User",
         )
         self.client.force_authenticate(user=other_user)
         response = self.client.patch(
@@ -348,9 +337,6 @@ class MePatchPrivilegeEscalationTests(TestCase):
         cache.clear()
 
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="ME-TRACK", state=self.state)
 
         from apps.resources.models import Roles
         self.admin_role = Roles.objects.create(role_name="admin")
@@ -361,7 +347,6 @@ class MePatchPrivilegeEscalationTests(TestCase):
             password="StudentPass123",
             first_name="Esc",
             last_name="Student",
-            track=self.track,
             account_status=User.AccountStatus.ACTIVE,
         )
         self.url = reverse("MeListHTMLView")
@@ -404,13 +389,17 @@ class MePatchPrivilegeEscalationTests(TestCase):
         self.assertEqual(self.student.account_status, User.AccountStatus.ACTIVE)
 
     def test_patch_other_admin_only_fields_return_400(self):
-        """All admin-only fields should fail loud, not silently."""
+        """All admin-only fields should fail loud, not silently.
+
+        ``state`` / ``state_id`` are the geography fields that replaced the
+        removed ``track`` — they remain admin-only on the self endpoint.
+        """
         for field, value in [
             ("is_staff", True),
             ("is_superuser", True),
             ("is_active", False),
-            ("track_id", 9999),
-            ("track", 9999),
+            ("state_id", 9999),
+            ("state", 9999),
         ]:
             response = self.client.patch(self.url, {field: value}, format="json")
             self.assertEqual(
@@ -463,14 +452,10 @@ class ReceiveJoinPermissionTokenTests(TestCase):
     def setUp(self):
         from apps.users.models import StudentProfile
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="JOIN-TRACK", state=self.state)
         self.student = User.objects.create_user(
             email="student-joinperm@test.com",
             first_name="Join",
             last_name="Student",
-            track=self.track,
         )
         self.profile = StudentProfile.objects.create(
             user=self.student,

@@ -2,29 +2,28 @@ from django.test import TestCase
 from rest_framework.exceptions import ValidationError
 
 from apps.admin.services.match import confirm_student_assignments
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
 from apps.users.models import User
 
 
 class ConfirmStudentAssignmentsTests(TestCase):
     def setUp(self):
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-        self.group_one = Groups.objects.create(group_name="Group One", track=self.track)
-        self.group_two = Groups.objects.create(group_name="Group Two", track=self.track)
+        self.group_one = Groups.objects.create(group_name="Group One")
+        self.group_two = Groups.objects.create(group_name="Group Two")
         self.students = [
             User.objects.create_user(
                 email=f"student{index}@example.com",
                 first_name=f"Student{index}",
                 last_name="Example",
-                track=self.track,
                 password="testpass",
             )
             for index in range(4)
         ]
 
     def test_confirms_camel_case_assignments_with_synthetic_group(self):
+        synthetic_group_id = (
+            f"new-{self.students[2].id}-{self.students[3].id}"
+        )
         result = confirm_student_assignments(
             {
                 "assignments": [
@@ -32,11 +31,11 @@ class ConfirmStudentAssignmentsTests(TestCase):
                     {"studentId": self.students[1].id, "groupId": self.group_one.id},
                     {
                         "studentId": self.students[2].id,
-                        "groupId": f"new-AUS-NSW-{self.students[2].id}-{self.students[3].id}",
+                        "groupId": synthetic_group_id,
                     },
                     {
                         "studentId": self.students[3].id,
-                        "groupId": f"new-AUS-NSW-{self.students[2].id}-{self.students[3].id}",
+                        "groupId": synthetic_group_id,
                     },
                 ]
             }

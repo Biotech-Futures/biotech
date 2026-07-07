@@ -6,7 +6,6 @@ from rest_framework.test import APIClient
 from django.test import TestCase, override_settings
 from unittest.mock import Mock, patch
 
-from apps.groups.models import Countries, CountryStates, Tracks
 from apps.resources.models import ResourceAudience, Resources, ResourceType, Roles
 from apps.users.models import AdminScope
 
@@ -21,7 +20,7 @@ class AdminResourceUploadTests(TestCase):
             last_name="User",
             is_staff=True,
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.client.force_authenticate(user=self.admin_user)
         self.role = Roles.objects.create(role_name="Student")
 
@@ -446,39 +445,27 @@ class AdminResourceUploadTests(TestCase):
         self.assertEqual(response.content, b"resource container content")
         download_file_bytes_mock.assert_called_once_with(resource.storage_key)
 
-    def test_resource_list_accepts_adminweb_track_and_type_filters(self):
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        nsw_track = Tracks.objects.create(track_name="AUS-NSW", state=state)
-        vic_track = Tracks.objects.create(track_name="AUS-VIC", state=state)
+    def test_resource_list_accepts_adminweb_type_filter(self):
+        # Track scoping was removed; the adminweb list still narrows by type.
         document_type = ResourceType.objects.create(type_name="document")
         video_type = ResourceType.objects.create(type_name="video")
 
         matching_resource = Resources.objects.create(
             name="Matching Resource",
-            description="Visible when both filters are applied",
+            description="Visible when the type filter is applied",
             type=document_type,
-            track=nsw_track,
-            uploaded_by=self.admin_user,
-        )
-        Resources.objects.create(
-            name="Wrong Track",
-            description="Same type but different track",
-            type=document_type,
-            track=vic_track,
             uploaded_by=self.admin_user,
         )
         Resources.objects.create(
             name="Wrong Type",
-            description="Same track but different type",
+            description="Excluded because it has a different type",
             type=video_type,
-            track=nsw_track,
             uploaded_by=self.admin_user,
         )
 
         response = self.client.get(
             reverse("admin_api:resource-list-create"),
-            {"track_id": nsw_track.id, "resource_type": "document"},
+            {"resource_type": "document"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

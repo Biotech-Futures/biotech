@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 
 from apps.chat.models import MessageMention, Messages
 from apps.chat.utils import parse_mentions
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
 
 
 class ParseMentionsTests(TestCase):
@@ -67,11 +67,10 @@ class MentionWireupTests(TestCase):
             email="out-m@test.com", password="pw", first_name="Out", last_name="O"
         )
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
-        self.other_group = Groups.objects.create(group_name="G2", track=self.track)
+        # Geography (state/country) is irrelevant to @mentions, which key
+        # off group membership only. Groups no longer carry a track.
+        self.group = Groups.objects.create(group_name="G1")
+        self.other_group = Groups.objects.create(group_name="G2")
 
         GroupMembership.objects.create(user=self.alice, group=self.group)
         GroupMembership.objects.create(user=self.bob, group=self.group)

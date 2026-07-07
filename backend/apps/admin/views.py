@@ -488,10 +488,6 @@ class ResourceListCreateView(APIView):
                 request.query_params.get("resourceType")
                 or request.query_params.get("resource_type")
             ),
-            "track_id": (
-                request.query_params.get("trackId")
-                or request.query_params.get("track_id")
-            ),
             "search": request.query_params.get("search"),
             "order": request.query_params.get("order", "newest"),
             "sort_by": request.query_params.get("sortBy"),

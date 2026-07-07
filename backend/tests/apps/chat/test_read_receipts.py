@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from apps.chat.models import MessageStatus, Messages
 from apps.chat.views import mark_delivered_cursor
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.users.models import AdminScope
 
 
@@ -36,16 +36,13 @@ class MessageReadReceiptTests(TestCase):
             email="admin@test.com", password="pw", first_name="Ad", last_name="Min"
         )
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
-        self.other_group = Groups.objects.create(group_name="G2", track=self.track)
+        self.group = Groups.objects.create(group_name="G1")
+        self.other_group = Groups.objects.create(group_name="G2")
 
         GroupMembership.objects.create(user=self.alice, group=self.group)
         GroupMembership.objects.create(user=self.bob, group=self.group)
         GroupMembership.objects.create(user=self.carol, group=self.group)
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         # Alice sends 3, Bob sends 1.
         self.m1 = Messages.objects.create(group=self.group, sender_user=self.alice, message_text="a1")
@@ -225,11 +222,8 @@ class MessageDeliveredReceiptTests(TestCase):
             email="out2@test.com", password="pw", first_name="Out", last_name="Sider"
         )
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
-        self.other_group = Groups.objects.create(group_name="G2", track=self.track)
+        self.group = Groups.objects.create(group_name="G1")
+        self.other_group = Groups.objects.create(group_name="G2")
 
         GroupMembership.objects.create(user=self.alice, group=self.group)
         GroupMembership.objects.create(user=self.bob, group=self.group)
@@ -392,10 +386,7 @@ class MarkDeliveredCursorUnitTests(TestCase):
         self.sender = User.objects.create_user(email="s@test.com", password="pw")
         self.receiver = User.objects.create_user(email="r@test.com", password="pw")
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="AUS-NSW", state=state)
-        self.group = Groups.objects.create(group_name="G", track=track)
+        self.group = Groups.objects.create(group_name="G")
         GroupMembership.objects.create(user=self.sender, group=self.group)
         GroupMembership.objects.create(user=self.receiver, group=self.group)
 
@@ -413,7 +404,7 @@ class MarkDeliveredCursorUnitTests(TestCase):
         # Nothing in this group from someone other than receiver — they
         # haven't sent any messages, but the receiver sent none either.
         # Use a fresh group with only the receiver's own messages.
-        other_group = Groups.objects.create(group_name="solo", track=self.group.track)
+        other_group = Groups.objects.create(group_name="solo")
         GroupMembership.objects.create(user=self.receiver, group=other_group)
         msg = Messages.objects.create(group=other_group, sender_user=self.receiver, message_text="self")
         count = mark_delivered_cursor(self.receiver, other_group.id, msg.id)

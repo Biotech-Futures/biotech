@@ -8,10 +8,10 @@ from django.utils import timezone
 from apps.admin.services.event import (
     query_event_by_id, create_event, update_event, delete_event,
     query_event_rsvps, create_event_rsvp, update_event_rsvp,
-    query_event_targets, query_groups, query_roles, query_tracks,
+    query_event_targets, query_groups, query_roles,
 )
-from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole, EventTargetTrack
-from apps.groups.models import Countries, CountryStates, Groups, Tracks
+from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
+from apps.groups.models import Groups
 from apps.resources.models import Roles
 from apps.users.models import User
 from apps.users.models.admin_scope import AdminScope
@@ -19,10 +19,6 @@ from apps.users.models.admin_scope import AdminScope
 
 class EventServiceTests(TestCase):
     def setUp(self):
-        country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
-
         self.host = User.objects.create_user(
             email="host@example.com", first_name="Host", last_name="User",
             password="testpass",
@@ -30,7 +26,7 @@ class EventServiceTests(TestCase):
         self.admin = User.objects.create_user(
             email="admin@example.com", first_name="Admin", password="testpass",
         )
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         now = timezone.now()
         self.event = Events.objects.create(
@@ -127,17 +123,16 @@ class EventServiceTests(TestCase):
         self.assertIsNone(result["data"])
 
     def test_query_event_targets(self):
-        group = Groups.objects.create(group_name="Target Group", track=self.track)
+        # Event targeting is group + role only (track targeting was removed).
+        group = Groups.objects.create(group_name="Target Group")
         role, _ = Roles.objects.get_or_create(role_name="student")
         EventTargetGroup.objects.create(event=self.event, group=group)
         EventTargetRole.objects.create(event=self.event, role=role)
-        EventTargetTrack.objects.create(event=self.event, track=self.track)
 
         result = query_event_targets(str(self.event.id))
         self.assertEqual(result["msg"], "Event targets retrieved successfully")
         self.assertIn(group.id, result["data"]["groupIds"])
         self.assertIn(role.id, result["data"]["roleIds"])
-        self.assertIn(self.track.id, result["data"]["trackIds"])
 
     def test_query_event_targets_invalid_id(self):
         result = query_event_targets("bad")
@@ -146,7 +141,7 @@ class EventServiceTests(TestCase):
 
     def test_query_event_rsvps(self):
         rsvp = EventRsvp.objects.create(
-            event=self.event, user=self.host, rsvp_status="going",
+            event=self.event, user=self.host, rsvp_status="accepted",
         )
         result = query_event_rsvps(str(self.event.id))
         self.assertEqual(result["msg"], "Event RSVPs retrieved successfully")
@@ -180,7 +175,7 @@ class EventServiceTests(TestCase):
         self.assertEqual(result["data"]["rsvpStatus"], "declined")
 
     def test_update_event_rsvp_not_found(self):
-        result = update_event_rsvp("9999", {"rsvpStatus": "maybe"})
+        result = update_event_rsvp("9999", {"rsvpStatus": "tentative"})
         self.assertEqual(result["msg"], "Event RSVP not found")
         self.assertIsNone(result["data"])
 
@@ -190,7 +185,7 @@ class EventServiceTests(TestCase):
         self.assertIsNone(result["data"])
 
     def test_query_groups_reference(self):
-        group = Groups.objects.create(group_name="Ref Group", track=self.track)
+        Groups.objects.create(group_name="Ref Group")
         result = query_groups(requesting_user=self.admin)
         group_names = [g["groupName"] for g in result["data"]]
         self.assertIn("Ref Group", group_names)
@@ -200,11 +195,6 @@ class EventServiceTests(TestCase):
         Roles.objects.get_or_create(role_name="mentor")
         result = query_roles()
         self.assertGreaterEqual(len(result["data"]), 2)
-
-    def test_query_tracks_reference(self):
-        result = query_tracks(requesting_user=self.admin)
-        track_names = [t["trackName"] for t in result["data"]]
-        self.assertIn("TRACK-1", track_names)
 
 
 class EventImageUploadTests(TestCase):

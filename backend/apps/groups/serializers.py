@@ -47,6 +47,10 @@ class GroupSerializer(serializers.ModelSerializer):
     fields = ['id', 'group_name', 'created_at', 'deleted_at']
     read_only_fields = ['id', 'created_at', 'deleted_at']
     validators = []
+    # Suppress the auto-derived field-level UniqueValidator so the duplicate-name
+    # check flows through validate() and surfaces as non_field_errors (the shape
+    # the frontend expects), not a group_name field error.
+    extra_kwargs = {'group_name': {'validators': []}}
 
   def validate(self, attrs):
     group_name = attrs.get('group_name', getattr(self.instance, 'group_name', None))

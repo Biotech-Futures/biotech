@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.users.models import AdminScope, MentorProfile
 
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
@@ -18,7 +18,7 @@ class MatchingRuntimeAdminWorkflowTests(TestCase):
             password="adminpass",
             is_staff=True,
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.old_mentor = get_user_model().objects.create_user(
             email="old-mentor@test.com",
             password="mentorpass",
@@ -40,10 +40,7 @@ class MatchingRuntimeAdminWorkflowTests(TestCase):
             max_group_count=2,
         )
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-OPS", state=state)
-        self.group = Groups.objects.create(group_name="Ops Group", track=self.track)
+        self.group = Groups.objects.create(group_name="Ops Group")
         self.existing_membership = GroupMembership.objects.create(
             group=self.group,
             user=self.old_mentor,
@@ -51,8 +48,7 @@ class MatchingRuntimeAdminWorkflowTests(TestCase):
         )
         self.match_run = MatchRun.objects.create(
             initiated_by_user=self.admin_user,
-            track=self.track,
-            run_type="reassignment",
+            run_type=MatchRun.RunTypeChoices.RERUN,
         )
         self.recommendation = MatchRecommendation.objects.create(
             match_run=self.match_run,

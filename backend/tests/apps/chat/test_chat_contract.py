@@ -9,6 +9,10 @@ GET pagination edges (limit clamping, empty list, default limit),
 anonymous and forbidden — no WWW-Authenticate challenge to drive 401),
 and WebSocket close-code coverage for the unauthenticated and no-access
 paths.
+
+Admin scope is now a single global tier (any ``AdminScope`` row = admin
+who can see/moderate every group); the former per-scope admin
+distinction was removed alongside the geography rework.
 """
 from __future__ import annotations
 
@@ -35,7 +39,7 @@ except ImportError:
 
 from apps.chat.models import Messages
 from apps.common.storage import get_chat_storage
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles, Resources
 from apps.users.models import AdminScope
 from tests.apps._helpers import StorageCleanupMixin, assert_public_message_shape
@@ -61,7 +65,6 @@ class _ChatFixture(StorageCleanupMixin, TestCase):
         self.mentor = User.objects.create_user(email="mentor@test.com", password="pw")
         self.supervisor = User.objects.create_user(email="supervisor@test.com", password="pw")
         self.admin = User.objects.create_user(email="admin@test.com", password="pw")
-        self.track_admin = User.objects.create_user(email="track_admin@test.com", password="pw")
         self.outsider = User.objects.create_user(email="outsider@test.com", password="pw")
 
         self.role_student = Roles.objects.create(role_name="student")
@@ -80,22 +83,19 @@ class _ChatFixture(StorageCleanupMixin, TestCase):
         ]:
             RoleAssignmentHistory.objects.create(user=u, role=r, valid_from=now, valid_to=future)
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-        self.other_state = CountryStates.objects.create(country=self.country, state_name="VIC")
-        self.other_track = Tracks.objects.create(track_name="AUS-VIC", state=self.other_state)
-
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
-        self.other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        # Groups no longer carry a track; names are globally unique among
+        # active groups. ``other_group`` exercises the "admin sees every
+        # group" / "outsider is denied" arms.
+        self.group = Groups.objects.create(group_name="G1")
+        self.other_group = Groups.objects.create(group_name="G-VIC")
 
         GroupMembership.objects.create(user=self.student, group=self.group)
         GroupMembership.objects.create(user=self.peer, group=self.group)
         GroupMembership.objects.create(user=self.mentor, group=self.group, membership_role="mentor")
         GroupMembership.objects.create(user=self.supervisor, group=self.group, membership_role="supervisor")
 
-        AdminScope.objects.create(user=self.admin, is_global=True)
-        AdminScope.objects.create(user=self.track_admin, track=self.track, is_global=False)
+        # Any AdminScope row = admin (single global tier).
+        AdminScope.objects.create(user=self.admin)
 
         self.res1 = Resources.objects.create(
             name="R1", description="d1", uploaded_by=self.admin,
@@ -108,7 +108,6 @@ class _ChatFixture(StorageCleanupMixin, TestCase):
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
-        self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
         self.client_outsider = APIClient(); self.client_outsider.force_authenticate(user=self.outsider)
         self.client_anon = APIClient()
 
@@ -177,7 +176,7 @@ class PatchMessageContractTests(_ChatFixture):
         resp = self._patch(self.client_supervisor, msg)
         self.assertEqual(resp.status_code, 403, resp.content)
 
-    def test_patch_allowed_for_global_admin_anywhere(self):
+    def test_patch_allowed_for_admin_anywhere(self):
         msg = Messages.objects.create(
             group=self.other_group, sender_user=self.student, message_text="old"
         )
@@ -187,17 +186,6 @@ class PatchMessageContractTests(_ChatFixture):
         msg.refresh_from_db()
         self.assertEqual(msg.message_text, "moderated")
         self.assertIsNotNone(msg.edited_at)
-
-    def test_patch_allowed_for_track_admin_within_track(self):
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="old")
-        resp = self._patch(self.client_track_admin, msg)
-        self.assertEqual(resp.status_code, 200, resp.content)
-
-    def test_patch_forbidden_for_track_admin_outside_track(self):
-        msg = Messages.objects.create(group=self.other_group, sender_user=self.student, message_text="old")
-        url = reverse("group-messages-detail", kwargs={"group_pk": self.other_group.id, "pk": msg.id})
-        resp = self.client_track_admin.patch(url, {"message_text": "x"}, format="json")
-        self.assertEqual(resp.status_code, 403, resp.content)
 
     def test_patch_404_for_soft_deleted_message(self):
         # ``sent_at`` must precede ``deleted_at`` (CHECK constraint
@@ -425,22 +413,12 @@ class ListMessagesContractTests(_ChatFixture):
         resp = self.client_outsider.get(self._list_url())
         self.assertEqual(resp.status_code, 403, resp.content)
 
-    def test_global_admin_can_list_any_group(self):
+    def test_admin_can_list_any_group(self):
         url = self._list_url(self.other_group.id)
         Messages.objects.create(group=self.other_group, sender_user=self.student, message_text="x")
         resp = self.client_admin.get(url)
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(len(resp.data["items"]), 1)
-
-    def test_track_admin_can_list_within_track_only(self):
-        Messages.objects.create(group=self.group, sender_user=self.student, message_text="x")
-        Messages.objects.create(group=self.other_group, sender_user=self.student, message_text="y")
-        ok = self.client_track_admin.get(self._list_url())
-        self.assertEqual(ok.status_code, 200)
-        self.assertEqual(len(ok.data["items"]), 1)
-
-        nope = self.client_track_admin.get(self._list_url(self.other_group.id))
-        self.assertEqual(nope.status_code, 403, nope.content)
 
 
 class DeleteMessageContractTests(_ChatFixture):
@@ -541,13 +519,7 @@ class WebSocketCloseCodeTests(_ChatFixture):
         connected, _ = self._connect(group_id=self.group.id, cookie_header=header)
         self.assertTrue(connected)
 
-    def test_ws_connects_for_global_admin_in_any_group(self):
+    def test_ws_connects_for_admin_in_any_group(self):
         header = self._cookie_header(self.admin)
         connected, _ = self._connect(group_id=self.other_group.id, cookie_header=header)
         self.assertTrue(connected)
-
-    def test_ws_closes_4403_for_track_admin_outside_track(self):
-        header = self._cookie_header(self.track_admin)
-        connected, code = self._connect(group_id=self.other_group.id, cookie_header=header)
-        self.assertFalse(connected)
-        self.assertEqual(code, 4403)

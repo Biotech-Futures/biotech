@@ -34,10 +34,9 @@ def _to_int_or_none(value: Any) -> int | None:
         return None
 
 
-def _visibility_scope(value: Any, *, track_id: int | None, role_ids: list[Any]) -> str:
+def _visibility_scope(value: Any, *, role_ids: list[Any]) -> str:
     legacy_map = {
         "global": Resources.VisibilityScope.PUBLIC,
-        "track_based": Resources.VisibilityScope.TRACK,
         "role_based": Resources.VisibilityScope.ROLE,
     }
     if value in legacy_map:
@@ -46,8 +45,6 @@ def _visibility_scope(value: Any, *, track_id: int | None, role_ids: list[Any]) 
         return value
     if role_ids:
         return Resources.VisibilityScope.ROLE
-    if track_id is not None:
-        return Resources.VisibilityScope.TRACK
     return Resources.VisibilityScope.PUBLIC
 
 
@@ -85,7 +82,6 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         raise ValueError("No file was uploaded.")
 
     role_ids = _get_list(data, "role_ids")
-    track_id = _to_int_or_none(_get_first(data, "track_id"))
     group_id = _to_int_or_none(_get_first(data, "group_id"))
     type_id = _resource_type_id(data)
     kind = _resource_kind(data)
@@ -106,15 +102,12 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
         "uploaded_file": uploaded_file,
         "visibility_scope": _visibility_scope(
             _get_first(data, "visibility_scope"),
-            track_id=track_id,
             role_ids=role_ids,
         ),
     }
 
     if type_id is not None:
         serializer_data["type_id"] = type_id
-    if track_id is not None:
-        serializer_data["track"] = track_id
     if group_id is not None:
         serializer_data["group"] = group_id
     if role_ids:

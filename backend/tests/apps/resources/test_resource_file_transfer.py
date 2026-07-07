@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.common.storage import get_resource_storage
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import (
     ResourceAudience,
     ResourceLabel,
@@ -32,57 +32,44 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.primary_track = Tracks.objects.create(track_name="Primary", state=self.state)
-        self.secondary_track = Tracks.objects.create(track_name="Secondary", state=self.state)
-        self.primary_group = Groups.objects.create(group_name="Primary Group", track=self.primary_track)
+        self.primary_group = Groups.objects.create(group_name="Primary Group")
 
+        # Both admins are now a single global tier: an AdminScope row means
+        # "admin", full stop. The former track-admin distinction is gone, so we
+        # just keep two admins to prove admin-ness is per-user, not per-scope.
         self.global_admin = User.objects.create_user(
             email="global-admin@test.com",
             password="pass123",
             first_name="Global",
             last_name="Admin",
-            track=self.primary_track,
         )
-        self.track_admin = User.objects.create_user(
-            email="track-admin@test.com",
+        self.second_admin = User.objects.create_user(
+            email="second-admin@test.com",
             password="pass123",
-            first_name="Track",
+            first_name="Second",
             last_name="Admin",
-            track=self.primary_track,
         )
         self.mentor = User.objects.create_user(
             email="mentor@test.com",
             password="pass123",
             first_name="Mentor",
             last_name="User",
-            track=self.primary_track,
         )
         self.supervisor = User.objects.create_user(
             email="supervisor@test.com",
             password="pass123",
             first_name="Supervisor",
             last_name="User",
-            track=self.primary_track,
         )
         self.student = User.objects.create_user(
             email="student@test.com",
             password="pass123",
             first_name="Student",
             last_name="User",
-            track=self.primary_track,
-        )
-        self.outsider = User.objects.create_user(
-            email="outsider@test.com",
-            password="pass123",
-            first_name="Outside",
-            last_name="User",
-            track=self.secondary_track,
         )
 
-        AdminScope.objects.create(user=self.global_admin, is_global=True)
-        AdminScope.objects.create(user=self.track_admin, track=self.primary_track, is_global=False)
+        AdminScope.objects.create(user=self.global_admin)
+        AdminScope.objects.create(user=self.second_admin)
 
         self.mentor_role = Roles.objects.create(role_name="mentor")
         self.supervisor_role = Roles.objects.create(role_name="supervisor")
@@ -150,7 +137,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             self.created_storage_keys.append(resource.storage_key)
         return response, resource
 
-    def _create_resource(self, *, user, name, visibility_scope, audience_role=None, audience_track=None, **overrides):
+    def _create_resource(self, *, user, name, visibility_scope, audience_role=None, **overrides):
         response, resource = self._post_resource(
             user,
             name=name,
@@ -158,21 +145,19 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             **overrides,
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        if audience_role is not None or audience_track is not None:
+        if audience_role is not None:
             ResourceAudience.objects.create(
                 resource=resource,
                 role=audience_role,
-                track=audience_track,
             )
         resource.refresh_from_db()
         return response, resource
 
-    def test_global_admin_can_upload_resource(self):
+    def test_admin_can_upload_resource(self):
         response, resource = self._post_resource(
             self.global_admin,
             name="Global Admin Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -187,7 +172,6 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         self.assertNotIn(resource.storage_key, response.data["download_url"])
         self.assertNotIn("storage_key", response.data)
         self.assertNotIn("uploader", response.data)
-        self.assertNotIn("track", response.data)
         self.assertNotIn("group", response.data)
         self.assertNotIn("visibility_scope", response.data)
         self.assertNotIn("visible_roles", response.data)
@@ -197,8 +181,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Public Detail Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -214,40 +197,27 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         self.assertIn("storage_status", response.data)
         self.assertNotIn("storage_key", response.data)
         self.assertNotIn("uploader", response.data)
-        self.assertNotIn("track", response.data)
         self.assertNotIn("group", response.data)
         self.assertNotIn("visibility_scope", response.data)
         self.assertNotIn("visible_roles", response.data)
         self.assertNotIn("audiences", response.data)
 
-    def test_track_admin_can_upload_resource_within_assigned_track(self):
+    def test_second_admin_can_upload_resource(self):
         response, resource = self._post_resource(
-            self.track_admin,
-            name="Track Admin Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            self.second_admin,
+            name="Second Admin Guide",
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(resource.track_id, self.primary_track.id)
-        self.assertEqual(response.data["uploader_name"], "Track Admin")
-
-    def test_track_admin_cannot_upload_resource_outside_assigned_track(self):
-        response, _ = self._post_resource(
-            self.track_admin,
-            name="Out Of Scope Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.secondary_track,
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resource.uploaded_by_id, self.second_admin.id)
+        self.assertEqual(response.data["uploader_name"], "Second Admin")
 
     def test_mentor_cannot_upload_resource(self):
         response, _ = self._post_resource(
             self.mentor,
             name="Mentor Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -256,8 +226,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.supervisor,
             name="Supervisor Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -266,8 +235,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.student,
             name="Student Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -277,8 +245,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.global_admin,
             name="Large Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
             uploaded_file=self._build_upload(content=b"12345"),
         )
 
@@ -291,8 +258,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.global_admin,
             name="Executable Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
             uploaded_file=self._build_upload(
                 filename="malware.exe",
                 content_type="application/octet-stream",
@@ -308,8 +274,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, _ = self._post_resource(
             self.global_admin,
             name="Wrong Mime Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
             uploaded_file=self._build_upload(
                 filename="guide.pdf",
                 content_type="application/octet-stream",
@@ -324,16 +289,16 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
     def test_allowed_user_can_download_visible_resource(self):
         _, resource = self._create_resource(
             user=self.global_admin,
-            name="Primary Track Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            name="Shared Public Guide",
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
-        self.client.force_authenticate(user=self.track_admin)
+        # A plain student (non-admin) can reach a public resource.
+        self.client.force_authenticate(user=self.student)
         access_response = self.client.get(reverse("resource-files-access", kwargs={"pk": resource.id}))
         self.assertEqual(access_response.status_code, status.HTTP_200_OK)
         self.assertEqual(access_response.data["storage_status"], "managed_key")
-        self.assertEqual(access_response.data["file_name"], "primary-track-guide.pdf")
+        self.assertEqual(access_response.data["file_name"], "shared-public-guide.pdf")
         self.assertTrue(access_response.data["access_url"].endswith(reverse("resource-files-access", kwargs={"pk": resource.id})))
         self.assertTrue(access_response.data["download_url"].endswith(reverse("resource-files-download", kwargs={"pk": resource.id})))
 
@@ -349,7 +314,6 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             name="Mentor Only Guide",
             visibility_scope=Resources.VisibilityScope.ROLE,
             audience_role=self.mentor_role,
-            track=self.primary_track,
         )
 
         self.client.force_authenticate(user=self.student)
@@ -362,7 +326,6 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             name="Restricted Guide",
             visibility_scope=Resources.VisibilityScope.ROLE,
             audience_role=self.mentor_role,
-            track=self.primary_track,
         )
 
         self.client.force_authenticate(user=self.student)
@@ -379,8 +342,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         response, resource = self._post_resource(
             self.global_admin,
             name="Unsafe Filename Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
             uploaded_file=self._build_upload(filename="<script>badword.PDF"),
         )
 
@@ -393,8 +355,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Unsafe Filename Download",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
             uploaded_file=self._build_upload(filename="<script>badword.PDF"),
         )
 
@@ -411,8 +372,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Inline Preview Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -446,8 +406,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Inline Preview Truthy",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -470,8 +429,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             uploaded_by=self.global_admin,
             kind=Resources.ResourceKind.FILE,
             storage_key="http://example.test/guide.pdf",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -489,7 +447,6 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         *,
         name="Mentor Handbook",
         body=b"<h1>Welcome</h1><p>Body content.</p>",
-        track=None,
     ):
         from django.core.files.base import ContentFile
 
@@ -503,8 +460,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             storage_key=storage_key,
             file_mime_type="text/html",
             file_size=len(body),
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=track or self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
         return resource
 
@@ -530,8 +486,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
             kind=Resources.ResourceKind.PAGE,
             storage_key="https://example.org/handbook",
             file_mime_type="text/html",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -545,8 +500,7 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         _, resource = self._create_resource(
             user=self.global_admin,
             name="Plain PDF Guide",
-            visibility_scope=Resources.VisibilityScope.TRACK,
-            track=self.primary_track,
+            visibility_scope=Resources.VisibilityScope.PUBLIC,
         )
 
         self.client.force_authenticate(user=self.global_admin)
@@ -621,7 +575,6 @@ class ResourceFileTransferTests(StorageCleanupMixin, TestCase):
         # Make access scope role-based so the audience rule is enforced.
         Resources.objects.filter(pk=resource.pk).update(
             visibility_scope=Resources.VisibilityScope.ROLE,
-            track=None,
         )
 
         self.client.force_authenticate(user=self.student)
@@ -642,18 +595,14 @@ class ResourceListFilterValidationTests(StorageCleanupMixin, TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="NSW", state=self.state)
 
         self.admin = User.objects.create_user(
             email="admin@filter-tests.local",
             password="pass123",
             first_name="Admin",
             last_name="User",
-            track=self.track,
         )
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         self.label_mentoring = ResourceLabel.objects.create(name="Mentoring")
         self.label_information = ResourceLabel.objects.create(name="Information")
@@ -661,7 +610,7 @@ class ResourceListFilterValidationTests(StorageCleanupMixin, TestCase):
         self.created_storage_keys = []
         self.storage = get_resource_storage()
 
-        # Two PUBLIC resources so the global admin sees both.
+        # Two PUBLIC resources so the admin sees both.
         self.r_old = Resources.objects.create(
             name="Old Resource",
             description="Old",

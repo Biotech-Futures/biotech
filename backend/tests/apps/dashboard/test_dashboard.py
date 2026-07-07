@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.events.models import EventRsvp, EventTargetGroup, EventTargetRole, Events
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope
 
@@ -21,10 +21,6 @@ User = get_user_model()
 class DashboardNextEventApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.primary_track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-        self.secondary_track = Tracks.objects.create(track_name="AUS-ALT", state=self.state)
         self.student_role = Roles.objects.create(role_name="student")
         self.mentor_role = Roles.objects.create(role_name="mentor")
         self.supervisor_role = Roles.objects.create(role_name="supervisor")
@@ -39,11 +35,10 @@ class DashboardNextEventApiTests(TestCase):
             valid_to=now + timedelta(days=30),
         )
 
-    def _create_event(self, name, *, start_in_days, track=None, event_format="virtual"):
+    def _create_event(self, name, *, start_in_days, event_format="virtual"):
         start = timezone.now() + timedelta(days=start_in_days)
         return Events.objects.create(
             event_name=name,
-            track=track,
             start_datetime=start,
             ends_datetime=start + timedelta(hours=1),
             event_format=event_format,
@@ -55,16 +50,15 @@ class DashboardNextEventApiTests(TestCase):
             password="pass123",
             first_name="Stu",
             last_name="Dent",
-            track=self.primary_track,
         )
         self._assign_role(student, self.student_role)
-        group = Groups.objects.create(group_name="BTF046", track=self.primary_track)
+        group = Groups.objects.create(group_name="BTF046")
         GroupMembership.objects.create(group=group, user=student, membership_role="student")
 
-        mentor_only = self._create_event("Mentor Sync", start_in_days=1, track=self.primary_track)
+        mentor_only = self._create_event("Mentor Sync", start_in_days=1)
         EventTargetRole.objects.create(event=mentor_only, role=self.mentor_role)
 
-        group_event = self._create_event("Group Check-in", start_in_days=2, track=self.primary_track)
+        group_event = self._create_event("Group Check-in", start_in_days=2)
         EventTargetGroup.objects.create(event=group_event, group=group)
 
         self.client.force_authenticate(user=student)
@@ -87,26 +81,25 @@ class DashboardNextEventApiTests(TestCase):
                 "location_link",
                 "rsvp_status",
                 "start_datetime",
-                "track",
             ],
         )
 
-    def test_mentor_invite_overrides_track_and_group_targeting(self):
+    def test_mentor_invite_overrides_group_targeting(self):
         mentor = User.objects.create_user(
             email="mentor@test.com",
             password="pass123",
             first_name="Men",
             last_name="Tor",
-            track=self.primary_track,
         )
         self._assign_role(mentor, self.mentor_role)
-        group = Groups.objects.create(group_name="Mentor Group", track=self.primary_track)
+        group = Groups.objects.create(group_name="Mentor Group")
         GroupMembership.objects.create(group=group, user=mentor, membership_role="mentor")
 
-        invited_event = self._create_event("Special Invite", start_in_days=1, track=self.secondary_track)
+        # Directly invited (RSVP) event the mentor is neither group- nor role-targeted for.
+        invited_event = self._create_event("Special Invite", start_in_days=1)
         EventRsvp.objects.create(event=invited_event, user=mentor, rsvp_status=EventRsvp.RsvpStatus.PENDING)
 
-        group_event = self._create_event("Regular Group Event", start_in_days=2, track=self.primary_track)
+        group_event = self._create_event("Regular Group Event", start_in_days=2)
         EventTargetGroup.objects.create(event=group_event, group=group)
 
         self.client.force_authenticate(user=mentor)
@@ -116,24 +109,33 @@ class DashboardNextEventApiTests(TestCase):
         self.assertEqual(response.data["event_name"], "Special Invite")
         self.assertEqual(response.data["id"], invited_event.id)
 
-    def test_track_scoped_admin_sees_platform_wide_event_before_other_track_event(self):
+    def test_admin_sees_earliest_event_regardless_of_targeting(self):
         admin = User.objects.create_user(
-            email="scoped-admin@test.com",
+            email="admin@test.com",
             password="pass123",
-            first_name="Scoped",
-            last_name="Admin",
+            first_name="Ad",
+            last_name="Min",
         )
-        AdminScope.objects.create(user=admin, track=self.primary_track, is_global=False)
+        AdminScope.objects.create(user=admin)
 
-        self._create_event("Other Track Event", start_in_days=1, track=self.secondary_track)
-        platform_event = self._create_event("Platform Event", start_in_days=2, track=None)
-        self._create_event("Primary Track Event", start_in_days=3, track=self.primary_track)
+        # A group the admin is not a member of, plus events targeted at it / at a role.
+        other_group = Groups.objects.create(group_name="BTF099")
+
+        role_event = self._create_event("Role Event", start_in_days=3)
+        EventTargetRole.objects.create(event=role_event, role=self.mentor_role)
+
+        group_event = self._create_event("Group Event", start_in_days=2)
+        EventTargetGroup.objects.create(event=group_event, group=other_group)
+
+        earliest = self._create_event("Earliest Event", start_in_days=1)
+        EventTargetGroup.objects.create(event=earliest, group=other_group)
 
         self.client.force_authenticate(user=admin)
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["event_name"], platform_event.event_name)
+        # Any admin bypasses membership/role targeting → sees the earliest upcoming event.
+        self.assertEqual(response.data["event_name"], earliest.event_name)
         self.assertIsNone(response.data["location"])
 
     def test_returns_204_when_user_has_no_relevant_upcoming_event(self):
@@ -142,12 +144,11 @@ class DashboardNextEventApiTests(TestCase):
             password="pass123",
             first_name="Super",
             last_name="Visor",
-            track=self.primary_track,
         )
         self._assign_role(supervisor, self.supervisor_role)
 
-        other_track_event = self._create_event("Other Track Event", start_in_days=1, track=self.secondary_track)
-        EventTargetRole.objects.create(event=other_track_event, role=self.mentor_role)
+        mentor_only_event = self._create_event("Mentor Only Event", start_in_days=1)
+        EventTargetRole.objects.create(event=mentor_only_event, role=self.mentor_role)
 
         self.client.force_authenticate(user=supervisor)
         response = self.client.get(self.url)
@@ -169,6 +170,7 @@ class DashboardNextEventApiTests(TestCase):
         self.assertEqual(response.data["user"], user.email)
         self.assertEqual(response.data["stats"], {"tasks": 0, "events": 0, "groups": 0})
 
+
 class GroupsPreviewViewTest(TestCase):
     """End-to-end tests for ``GET /dashboard/v1/groups-preview/``."""
 
@@ -176,11 +178,6 @@ class GroupsPreviewViewTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_nsw = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-        self.track_vic = Tracks.objects.create(track_name="AUS-VIC", state=self.state)
 
         self.lead = User.objects.create_user(
             email="anita@test.com", password="pass123",
@@ -203,8 +200,8 @@ class GroupsPreviewViewTest(TestCase):
             first_name="View", last_name="Er",
         )
 
-        # NSW group BTF046: lead + 4 students = 5 active members, status=active
-        self.group_btf046 = Groups.objects.create(group_name="BTF046", track=self.track_nsw)
+        # Group BTF046: lead + 4 students = 5 active members, status=active
+        self.group_btf046 = Groups.objects.create(group_name="BTF046")
         GroupMembership.objects.create(
             group=self.group_btf046, user=self.lead,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
@@ -215,8 +212,8 @@ class GroupsPreviewViewTest(TestCase):
                 membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             )
 
-        # NSW group BTF047: lead + viewer = 2 active members; member_a has left
-        self.group_btf047 = Groups.objects.create(group_name="BTF047", track=self.track_nsw)
+        # Group BTF047: lead + viewer = 2 active members; member_a has left
+        self.group_btf047 = Groups.objects.create(group_name="BTF047")
         GroupMembership.objects.create(
             group=self.group_btf047, user=self.lead,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
@@ -235,15 +232,15 @@ class GroupsPreviewViewTest(TestCase):
             left_at=now,
         )
 
-        # NSW group BTF048: viewer only, NO mentor → status=inactive
-        self.group_unmatched = Groups.objects.create(group_name="BTF048", track=self.track_nsw)
+        # Group BTF048: viewer only, NO mentor → status=inactive
+        self.group_unmatched = Groups.objects.create(group_name="BTF048")
         GroupMembership.objects.create(
             group=self.group_unmatched, user=self.viewer,
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
 
-        # VIC group: viewer is NOT a member; used for admin scoping tests
-        self.group_vic = Groups.objects.create(group_name="VIC001", track=self.track_vic)
+        # Group VIC001: viewer is NOT a member; used for admin scoping tests
+        self.group_vic = Groups.objects.create(group_name="VIC001")
         GroupMembership.objects.create(
             group=self.group_vic, user=self.member_a,
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
@@ -253,7 +250,7 @@ class GroupsPreviewViewTest(TestCase):
         # `created_at` pinned to the past for the model's
         # `deleted_at >= created_at` CHECK constraint.
         self.deleted_group = Groups.objects.create(
-            group_name="ZZZ_DELETED", track=self.track_nsw,
+            group_name="ZZZ_DELETED",
             created_at=now - timedelta(days=2),
             deleted_at=now,
         )
@@ -281,7 +278,7 @@ class GroupsPreviewViewTest(TestCase):
         self.assertEqual(
             set(rows[0].keys()),
             {
-                "id", "group_name", "track_id", "track_name",
+                "id", "group_name",
                 "member_count", "lead_user", "lead_name", "status",
             },
         )
@@ -349,7 +346,7 @@ class GroupsPreviewViewTest(TestCase):
         baseline = len(ctx_small.captured_queries)
 
         for i in range(8):
-            extra = Groups.objects.create(group_name=f"BTF1{i:02d}", track=self.track_nsw)
+            extra = Groups.objects.create(group_name=f"BTF1{i:02d}")
             GroupMembership.objects.create(
                 group=extra, user=self.lead,
                 membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
@@ -365,40 +362,6 @@ class GroupsPreviewViewTest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertLessEqual(scaled, baseline + 2)
-
-    # ----- track_id query-param filter ---------------------------------
-
-    def test_track_id_filter_narrows_to_track(self):
-        admin = User.objects.create_user(
-            email="admin-track@test.com", password="pass",
-            first_name="Adm", last_name="In",
-        )
-        AdminScope.objects.create(user=admin, is_global=True)
-        self.client.force_authenticate(user=admin)
-
-        response = self.client.get(self.url + f"?track_id={self.track_nsw.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        names = {r["group_name"] for r in response.json()["results"]}
-        self.assertEqual(names, {"BTF046", "BTF047", "BTF048"})
-
-    def test_track_id_filter_returns_empty_for_unknown_track(self):
-        admin = User.objects.create_user(
-            email="admin-empty@test.com", password="pass",
-            first_name="A", last_name="E",
-        )
-        AdminScope.objects.create(user=admin, is_global=True)
-        self.client.force_authenticate(user=admin)
-
-        response = self.client.get(self.url + "?track_id=999999")
-        body = response.json()
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(body["count"], 0)
-        self.assertEqual(body["results"], [])
-
-    def test_invalid_track_id_returns_400(self):
-        self.client.force_authenticate(user=self.viewer)
-        response = self.client.get(self.url + "?track_id=abc")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     # ----- Input validation (covers PR-11's `or 20` zero-bug) ----------
 
@@ -432,25 +395,27 @@ class GroupsPreviewViewTest(TestCase):
             self.assertEqual(names, {"BTF046", "BTF047", "BTF048"}, msg=f"query={query!r}")
             self.assertNotIn("VIC001", names)
 
-    def test_admin_without_mine_sees_all_in_track_scope(self):
+    def test_admin_without_mine_sees_all_active_groups(self):
         admin = User.objects.create_user(
             email="admin-scope@test.com", password="pass",
             first_name="A", last_name="S",
         )
-        AdminScope.objects.create(user=admin, track=self.track_nsw, is_global=False)
+        AdminScope.objects.create(user=admin)
         self.client.force_authenticate(user=admin)
 
         response = self.client.get(self.url)
         names = {r["group_name"] for r in response.json()["results"]}
-        self.assertEqual(names, {"BTF046", "BTF047", "BTF048"})
-        self.assertNotIn("VIC001", names)
+        # Single-tier admin without ``mine`` sees every active group, including
+        # ones they are not a member of. Soft-deleted groups stay excluded.
+        self.assertEqual(names, {"BTF046", "BTF047", "BTF048", "VIC001"})
+        self.assertNotIn("ZZZ_DELETED", names)
 
     def test_admin_with_mine_only_sees_memberships(self):
         admin = User.objects.create_user(
             email="admin-mine@test.com", password="pass",
             first_name="A", last_name="M",
         )
-        AdminScope.objects.create(user=admin, is_global=True)
+        AdminScope.objects.create(user=admin)
         GroupMembership.objects.create(
             group=self.group_vic, user=admin,
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
@@ -506,30 +471,25 @@ class DashboardProgressApiTests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
 
         self.student = User.objects.create_user(
             email="student_prog@test.com",
             password="pass123",
             first_name="Stu",
             last_name="Dent",
-            track=self.track,
         )
         self.mentor = User.objects.create_user(
             email="mentor_prog@test.com",
             password="pass123",
             first_name="Men",
             last_name="Tor",
-            track=self.track,
         )
         MentorProfile.objects.create(
             user=self.mentor,
             institution="University of Sydney",
             mentor_reason="I like mentoring",
         )
-        self.group = Groups.objects.create(group_name="BTF046_Prog", track=self.track)
+        self.group = Groups.objects.create(group_name="BTF046_Prog")
         GroupMembership.objects.create(
             group=self.group,
             user=self.mentor,
@@ -569,8 +529,7 @@ class DashboardProgressApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_student_cannot_access_other_group(self):
-        other_track = Tracks.objects.create(track_name="AUS-VIC", state=self.state)
-        other_group = Groups.objects.create(group_name="OtherGroup", track=other_track)
+        other_group = Groups.objects.create(group_name="OtherGroup")
         self.client.force_authenticate(user=self.student)
         response = self.client.get(self.url + f"?group_id={other_group.id}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

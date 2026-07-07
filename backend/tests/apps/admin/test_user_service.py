@@ -5,12 +5,11 @@ from rest_framework.test import APIClient
 from unittest.mock import patch
 
 from apps.admin.services.user import (
-    query_users, query_user_by_id, query_tracks,
+    query_users, query_user_by_id, query_states,
     create_user, update_user, update_status, bulk_update_status, delete_user,
     has_ungrouped_students,
 )
-from apps.admin.scope_utils import get_admin_track_ids
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import StudentProfile, MentorProfile, User
 from apps.users.models.admin_scope import AdminScope
@@ -19,8 +18,7 @@ from apps.users.models.admin_scope import AdminScope
 class AdminUserServiceTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
+        self.state = CountryStates.objects.create(country=country, state_name="NSW")
         self.user = User.objects.create_user(
             email="supervisor@example.com",
             first_name="Chen",
@@ -33,7 +31,7 @@ class AdminUserServiceTests(TestCase):
             last_name="Admin",
             password="testpass",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
     def test_update_user_assigns_incoming_role_when_current_role_is_missing(self):
         result = update_user(
@@ -42,8 +40,6 @@ class AdminUserServiceTests(TestCase):
                 "firstName": "Chen",
                 "lastName": "Supervisor",
                 "role": "admin",
-                "track": None,
-                "adminTracks": ["AUS-NSW"],
                 "interests": [],
                 "joinPermissionReceived": False,
             },
@@ -51,7 +47,7 @@ class AdminUserServiceTests(TestCase):
 
         self.assertEqual(result["msg"], "User updated successfully")
         self.assertEqual(result["data"]["role"], "admin")
-        self.assertEqual(result["data"]["adminTracks"], ["AUS-NSW"])
+        self.assertTrue(result["data"]["isAdmin"])
         self.assertTrue(
             RoleAssignmentHistory.objects.filter(
                 user=self.user,
@@ -60,34 +56,45 @@ class AdminUserServiceTests(TestCase):
             ).exists()
         )
         self.assertTrue(
-            AdminScope.objects.filter(user=self.user, track=self.track).exists()
+            AdminScope.objects.filter(user=self.user).exists()
         )
 
-    def test_update_user_can_assign_global_admin_scope(self):
+    def test_update_user_to_admin_creates_single_admin_scope(self):
         result = update_user(
             self.user.id,
             {
                 "firstName": "Chen",
                 "lastName": "Supervisor",
                 "role": "admin",
-                "track": None,
-                "adminIsGlobal": True,
-                "adminTracks": [],
                 "interests": [],
                 "joinPermissionReceived": False,
             },
         )
 
         self.assertEqual(result["msg"], "User updated successfully")
-        self.assertTrue(result["data"]["adminIsGlobal"])
-        self.assertEqual(result["data"]["adminTracks"], ["AUS-NSW"])
-        self.assertTrue(
-            AdminScope.objects.filter(
-                user=self.user,
-                is_global=True,
-                track__isnull=True,
-            ).exists()
+        self.assertTrue(result["data"]["isAdmin"])
+        self.assertEqual(
+            AdminScope.objects.filter(user=self.user).count(), 1
         )
+
+    def test_update_user_demoting_admin_clears_admin_scope(self):
+        AdminScope.objects.create(user=self.user)
+        result = update_user(
+            self.user.id,
+            {
+                "firstName": "Chen",
+                "lastName": "Supervisor",
+                "role": "student",
+                "schoolName": "Test School",
+                "yearLevel": 10,
+                "interests": ["Biotechnology"],
+                "joinPermissionReceived": False,
+            },
+        )
+
+        self.assertEqual(result["msg"], "User updated successfully")
+        self.assertFalse(result["data"]["isAdmin"])
+        self.assertFalse(AdminScope.objects.filter(user=self.user).exists())
 
     def test_update_user_always_sets_student_join_permission(self):
         result = update_user(
@@ -96,7 +103,6 @@ class AdminUserServiceTests(TestCase):
                 "firstName": "Chen",
                 "lastName": "Supervisor",
                 "role": "student",
-                "track": "AUS-NSW",
                 "schoolName": "Test School",
                 "yearLevel": 10,
                 "interests": ["Biotechnology"],
@@ -115,10 +121,9 @@ class AdminUserServiceTests(TestCase):
         left_student = self._create_student("left@example.com", "Left")
         deleted_group_student = self._create_student("deleted@example.com", "Deleted")
         now = timezone.now()
-        group = Groups.objects.create(group_name="Active Group", track=self.track)
+        group = Groups.objects.create(group_name="Active Group")
         deleted_group = Groups.objects.create(
             group_name="Deleted Group",
-            track=self.track,
             created_at=now,
             deleted_at=now,
         )
@@ -175,7 +180,7 @@ class AdminUserServiceTests(TestCase):
             first_name="Student",
             last_name=last_name,
             password="testpass",
-            track=self.track,
+            state=self.state,
         )
         role, _ = Roles.objects.get_or_create(role_name="student")
         RoleAssignmentHistory.objects.create(
@@ -204,7 +209,7 @@ class AdminUserBulkCreateViewTests(TestCase):
             last_name="Admin",
             password="testpass",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.client.force_authenticate(user=self.admin_user)
         self.url = "/api/v1/admin/user/bulk/"
         self.payload = [
@@ -256,8 +261,7 @@ class AdminUserBulkCreateViewTests(TestCase):
 class AdminUserServiceCreateUserTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
+        self.state = CountryStates.objects.create(country=country, state_name="NSW")
 
     def test_create_student_user(self):
         result = create_user({
@@ -265,7 +269,7 @@ class AdminUserServiceCreateUserTests(TestCase):
             "firstName": "Alice",
             "lastName": "Student",
             "role": "student",
-            "track": "AUS-NSW",
+            "state": "NSW",
             "schoolName": "Test High School",
             "yearLevel": 10,
             "interests": ["Biotech"],
@@ -282,11 +286,25 @@ class AdminUserServiceCreateUserTests(TestCase):
             "firstName": "Bob",
             "lastName": "Student",
             "role": "student",
-            "track": "AUS-NSW",
+            "state": "NSW",
             "yearLevel": 10,
         })
 
         self.assertEqual(result["msg"], "School is required for student users")
+        self.assertIsNone(result["data"])
+
+    def test_create_student_missing_state_returns_error(self):
+        result = create_user({
+            "email": "student3@example.com",
+            "firstName": "Cara",
+            "lastName": "Student",
+            "role": "student",
+            "schoolName": "Test High School",
+            "yearLevel": 10,
+            "interests": ["Biotech"],
+        })
+
+        self.assertEqual(result["msg"], "State is required")
         self.assertIsNone(result["data"])
 
     def test_create_mentor_user(self):
@@ -295,7 +313,7 @@ class AdminUserServiceCreateUserTests(TestCase):
             "firstName": "Mina",
             "lastName": "Mentor",
             "role": "mentor",
-            "track": "AUS-NSW",
+            "state": "NSW",
             "mentorInstitution": "UNSW",
             "mentorReason": "Want to help",
             "mentorMaxGroupCount": 3,
@@ -314,46 +332,35 @@ class AdminUserServiceCreateUserTests(TestCase):
             "firstName": "Dup",
             "lastName": "User",
             "role": "student",
-            "track": "AUS-NSW",
+            "state": "NSW",
             "schoolName": "School",
             "yearLevel": 10,
         })
 
         self.assertEqual(result["msg"], "Email already exists")
 
-    def test_create_admin_global_user(self):
+    def test_create_admin_user(self):
         result = create_user({
             "email": "admin-global@example.com",
             "firstName": "Global",
             "lastName": "Admin",
             "role": "admin",
-            "adminIsGlobal": True,
         })
 
         self.assertEqual(result["msg"], "User created successfully")
-        self.assertTrue(result["data"]["adminIsGlobal"])
-
-    def test_create_admin_missing_scope_returns_error(self):
-        result = create_user({
-            "email": "admin-bad@example.com",
-            "firstName": "Bad",
-            "lastName": "Admin",
-            "role": "admin",
-            "adminIsGlobal": False,
-            "adminTracks": [],
-        })
-
-        self.assertEqual(result["msg"], "Select global admin or at least one admin track for admin users")
+        self.assertTrue(result["data"]["isAdmin"])
+        self.assertTrue(
+            AdminScope.objects.filter(user_id=result["data"]["id"]).exists()
+        )
 
 
 class AdminUserServiceStatusTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="AUS-NSW", state=state)
         self.user = User.objects.create_user(
             email="status@example.com", first_name="Test", last_name="User",
-            track=track, password="testpass",
+            state=state, password="testpass",
             is_active=True,
         )
         role, _ = Roles.objects.get_or_create(role_name="student")
@@ -393,11 +400,10 @@ class AdminUserServiceBulkStatusTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
         state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="AUS-NSW", state=state)
         self.users = [
             User.objects.create_user(
                 email=f"bulk{i}@example.com", first_name=f"Bulk{i}", last_name="User",
-                track=track, password="testpass", is_active=True,
+                state=state, password="testpass", is_active=True,
             )
             for i in range(3)
         ]
@@ -405,7 +411,7 @@ class AdminUserServiceBulkStatusTests(TestCase):
             email="bulkadmin@example.com", first_name="Ada", last_name="Admin",
             password="testpass",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
     def test_bulk_deactivate_updates_all(self):
         ids = [u.id for u in self.users]
@@ -488,17 +494,16 @@ class AdminUserServiceBulkStatusTests(TestCase):
 class AdminUserServiceQueryTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=state)
+        self.state = CountryStates.objects.create(country=country, state_name="NSW")
         self.admin_user = User.objects.create_user(
             email="admin@example.com", first_name="Admin", password="testpass",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
     def test_query_user_by_id_found(self):
         user = User.objects.create_user(
             email="findme@example.com", first_name="Find", last_name="Me",
-            track=self.track, password="testpass",
+            state=self.state, password="testpass",
         )
         result = query_user_by_id(user.id)
         self.assertEqual(result["msg"], "User retrieved successfully")
@@ -509,19 +514,21 @@ class AdminUserServiceQueryTests(TestCase):
         self.assertEqual(result["msg"], "User not found")
         self.assertIsNone(result["data"])
 
-    def test_query_tracks_returns_unarchived(self):
-        archived = Tracks.objects.create(track_name="ARCHIVED", state=CountryStates.objects.first())
-        archived.is_archived = True
-        archived.save()
-        result = query_tracks(requesting_user=self.admin_user)
-        names = [t["trackName"] for t in result["data"]]
-        self.assertIn("AUS-NSW", names)
-        self.assertNotIn("ARCHIVED", names)
+    def test_query_states_returns_states(self):
+        vic = CountryStates.objects.create(
+            country=self.state.country, state_name="VIC"
+        )
+        result = query_states(requesting_user=self.admin_user)
+        names = [s["stateName"] for s in result["data"]]
+        self.assertIn("NSW", names)
+        self.assertIn("VIC", names)
+        nsw = next(s for s in result["data"] if s["stateName"] == "NSW")
+        self.assertEqual(nsw["countryName"], "Australia")
 
     def test_has_ungrouped_students_true(self):
         user = User.objects.create_user(
             email="alone@example.com", first_name="Alone", last_name="Student",
-            track=self.track, password="testpass",
+            state=self.state, password="testpass",
         )
         StudentProfile.objects.create(user=user, pg_first_name="P", pg_last_name="S", parent_guardian_flag=True, school_name="Test School", year_lvl="10")
         self.assertTrue(has_ungrouped_students())
@@ -529,17 +536,17 @@ class AdminUserServiceQueryTests(TestCase):
     def test_has_ungrouped_students_false_when_all_grouped(self):
         user = User.objects.create_user(
             email="grouped@example.com", first_name="Grouped", last_name="Student",
-            track=self.track, password="testpass",
+            state=self.state, password="testpass",
         )
         StudentProfile.objects.create(user=user, pg_first_name="P", pg_last_name="S", parent_guardian_flag=True, school_name="Test School", year_lvl="10")
-        group = Groups.objects.create(group_name="Test Group", track=self.track)
+        group = Groups.objects.create(group_name="Test Group")
         GroupMembership.objects.create(user=user, group=group, membership_role="student")
         self.assertFalse(has_ungrouped_students())
 
     def test_query_users_search_by_email(self):
         User.objects.create_user(
             email="unique-email@example.com", first_name="Unique", last_name="User",
-            track=self.track, password="testpass",
+            state=self.state, password="testpass",
         )
         result = query_users(search="unique-email", requesting_user=self.admin_user)
         self.assertEqual(result["data"]["total"], 1)
