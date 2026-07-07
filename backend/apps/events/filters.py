@@ -83,9 +83,7 @@ class EventFilter(django_filters.FilterSet):
         if not _can_caller_query_group(caller, group_id):
             return queryset.none()
         # An event is "for this group" if it carries an EventTargetGroup
-        # row pointing at it. (Track-level events also reach the group
-        # but those are queried via `?track=` — keep the two filters
-        # distinct so the FE can ask precisely.)
+        # row pointing at it.
         return queryset.filter(
             Exists(
                 EventTargetGroup.objects.filter(
