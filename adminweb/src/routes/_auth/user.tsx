@@ -11,7 +11,12 @@ import {
   useQueryUsers,
   useUpdateUser,
   useUpdateUserStatus,
+  type BulkStatusFilters,
 } from "@/query/user";
+import {
+  MAX_PAGE_SIZE,
+  MIN_PAGE_SIZE,
+} from "@/components/user/PageSizeSelect";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,23 +43,26 @@ import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 import type { SortState } from "@/components/ui/sortable-table";
 import { toast } from "sonner";
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 25;
 type UserStatusFilter = "all" | "active" | "inactive";
-type SortOption =
-  | "createdAt_desc"
-  | "createdAt_asc"
-  | "name_asc"
-  | "name_desc"
-  | "email_asc"
-  | "email_desc"
-  | "role_asc"
-  | "role_desc"
-  | "state_asc"
-  | "state_desc"
-  | "status_asc"
-  | "status_desc";
+const SORT_OPTIONS = [
+  "createdAt_desc",
+  "createdAt_asc",
+  "name_asc",
+  "name_desc",
+  "email_asc",
+  "email_desc",
+  "role_asc",
+  "role_desc",
+  "state_asc",
+  "state_desc",
+  "status_asc",
+  "status_desc",
+] as const;
+type SortOption = (typeof SORT_OPTIONS)[number];
 type UserSearchParams = {
   page: number;
+  limit?: number;
   search?: string;
   role?: UserRole;
   state?: string;
@@ -80,6 +88,16 @@ export const Route = createFileRoute("/_auth/user")({
             : 1,
     };
 
+    const rawLimit =
+      typeof search.limit === "number"
+        ? search.limit
+        : typeof search.limit === "string"
+          ? Number(search.limit)
+          : NaN;
+    if (Number.isFinite(rawLimit) && rawLimit >= MIN_PAGE_SIZE) {
+      params.limit = Math.min(MAX_PAGE_SIZE, Math.floor(rawLimit));
+    }
+
     if (typeof search.search === "string" && search.search.trim()) {
       params.search = search.search;
     }
@@ -104,12 +122,10 @@ export const Route = createFileRoute("/_auth/user")({
     }
 
     if (
-      search.sort === "createdAt_desc" ||
-      search.sort === "createdAt_asc" ||
-      search.sort === "name_asc" ||
-      search.sort === "name_desc"
+      typeof search.sort === "string" &&
+      (SORT_OPTIONS as readonly string[]).includes(search.sort)
     ) {
-      params.sort = search.sort;
+      params.sort = search.sort as SortOption;
     }
 
     return params;
@@ -126,6 +142,7 @@ function UserManagementPage() {
   const status = searchParams.status ?? "all";
   const sort = searchParams.sort ?? "createdAt_desc";
   const page = searchParams.page;
+  const pageSize = searchParams.limit ?? DEFAULT_PAGE_SIZE;
   const [sortBy, sortOrder] = sort.split("_") as [
     "name" | "email" | "role" | "state" | "status" | "createdAt",
     "asc" | "desc",
@@ -140,6 +157,10 @@ function UserManagementPage() {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // "Select all matching" mode: every row in the filtered set is selected
+  // except the ids the admin explicitly unchecked (excludedIds).
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   // Snapshot the count when the dialog opens so its copy stays stable while
   // the selection is cleared and the dialog animates out.
   const [bulkAction, setBulkAction] = useState<{
@@ -147,13 +168,24 @@ function UserManagementPage() {
     count: number;
   } | null>(null);
 
-  const { data, isPending } = useQueryUsers({
-    page,
-    limit: PAGE_SIZE,
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+    setExcludedIds(new Set());
+  };
+
+  // Filters shared by the list query and "select all matching" bulk actions.
+  const currentFilters: BulkStatusFilters = {
     search: search.trim() || undefined,
     role: role === "all" ? undefined : role,
     state: stateFilter === "all" ? undefined : stateFilter,
     active: status === "all" ? undefined : status === "active",
+  };
+
+  const { data, isPending } = useQueryUsers({
+    page,
+    limit: pageSize,
+    ...currentFilters,
     sortBy,
     sortOrder,
   });
@@ -179,7 +211,9 @@ function UserManagementPage() {
       sort: SortOption;
     }>,
   ) => {
-    setSelectedIds(new Set());
+    // Filters change the matching set, so any selection (including
+    // "all matching") no longer maps to what's on screen.
+    clearSelection();
     void navigate({
       to: "/user",
       search: () =>
@@ -196,6 +230,15 @@ function UserManagementPage() {
     void navigate({
       to: "/user",
       search: () => cleanSearchParams({ ...searchParams, page: nextPage }),
+      replace: true,
+    });
+  };
+
+  const updatePageSize = (nextSize: number) => {
+    void navigate({
+      to: "/user",
+      search: () =>
+        cleanSearchParams({ ...searchParams, limit: nextSize, page: 1 }),
       replace: true,
     });
   };
@@ -222,7 +265,10 @@ function UserManagementPage() {
   );
 
   const total = data?.data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const effectiveSelectedCount = selectAllMatching
+    ? Math.max(0, total - excludedIds.size)
+    : selectedIds.size;
 
   const openCreate = () => {
     setSelectedUser(null);
@@ -370,13 +416,26 @@ function UserManagementPage() {
   };
 
   const handleBulkStatusConfirm = async () => {
-    if (!bulkAction || selectedIds.size === 0) return;
+    if (!bulkAction) return;
+    if (!selectAllMatching && selectedIds.size === 0) {
+      setBulkAction(null);
+      return;
+    }
+
+    const isActive = bulkAction.action === "activate";
 
     try {
-      const response = await bulkUpdateUserStatus.mutateAsync({
-        ids: [...selectedIds],
-        isActive: bulkAction.action === "activate",
-      });
+      const response = selectAllMatching
+        ? await bulkUpdateUserStatus.mutateAsync({
+            selectAll: true,
+            filters: currentFilters,
+            excludeIds: [...excludedIds],
+            isActive,
+          })
+        : await bulkUpdateUserStatus.mutateAsync({
+            ids: [...selectedIds],
+            isActive,
+          });
 
       if (!response.data) {
         toast.error(response.msg || "Unable to update account statuses.");
@@ -384,7 +443,7 @@ function UserManagementPage() {
       }
 
       toast.success(response.msg);
-      setSelectedIds(new Set());
+      clearSelection();
     } catch {
       toast.error("Unable to update account statuses right now.");
     } finally {
@@ -492,16 +551,22 @@ function UserManagementPage() {
         />
       </div>
 
-      {selectedIds.size > 0 && (
+      {effectiveSelectedCount > 0 && (
         <UserBulkActionsBar
-          count={selectedIds.size}
+          count={effectiveSelectedCount}
           onActivate={() =>
-            setBulkAction({ action: "activate", count: selectedIds.size })
+            setBulkAction({
+              action: "activate",
+              count: effectiveSelectedCount,
+            })
           }
           onDeactivate={() =>
-            setBulkAction({ action: "deactivate", count: selectedIds.size })
+            setBulkAction({
+              action: "deactivate",
+              count: effectiveSelectedCount,
+            })
           }
-          onClear={() => setSelectedIds(new Set())}
+          onClear={clearSelection}
           isPending={bulkUpdateUserStatus.isPending}
         />
       )}
@@ -510,7 +575,9 @@ function UserManagementPage() {
         data={pageItems}
         page={page}
         totalPages={totalPages}
+        pageSize={pageSize}
         onPageChange={updatePage}
+        onPageSizeChange={updatePageSize}
         sortState={tableSortState}
         onSortChange={(nextSort) =>
           updateFilters({
@@ -520,8 +587,20 @@ function UserManagementPage() {
         onView={openDetail}
         onEdit={openEdit}
         onToggleActive={handleToggleActive}
-        selectedIds={selectedIds}
-        onSelectionChange={setSelectedIds}
+        selection={{
+          selectedIds,
+          selectAllMatching,
+          excludedIds,
+          total,
+          onSelectionChange: setSelectedIds,
+          onExcludedChange: setExcludedIds,
+          onSelectAllMatching: () => {
+            setSelectedIds(new Set());
+            setExcludedIds(new Set());
+            setSelectAllMatching(true);
+          },
+          onClear: clearSelection,
+        }}
         isPending={
           isPending ||
           createUser.isPending ||
@@ -611,6 +690,9 @@ function cleanSearchParams(params: EditableUserSearchParams): UserSearchParams {
   };
   const search = params.search?.trim();
 
+  if (params.limit && params.limit !== DEFAULT_PAGE_SIZE) {
+    next.limit = params.limit;
+  }
   if (search) next.search = search;
   if (params.role && params.role !== "all") next.role = params.role;
   if (params.state && params.state !== "all") next.state = params.state;

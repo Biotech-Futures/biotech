@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_states,
-    create_user, update_user, update_status, bulk_update_status, delete_user,
+    create_user, update_user, update_status, bulk_update_status,
+    bulk_update_status_by_filter, delete_user,
     has_ungrouped_students,
 )
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
@@ -485,6 +486,63 @@ class AdminUserServiceBulkStatusTests(TestCase):
         response = client.patch(
             "/api/v1/admin/user/bulk-status/",
             {"isActive": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bulk_by_filter_updates_all_matching(self):
+        # The 3 bulk users are in NSW; the admin has no state and is excluded.
+        result = bulk_update_status_by_filter(
+            {"state": "NSW"}, False, initiated_by=self.admin_user
+        )
+
+        ids = [u.id for u in self.users]
+        self.assertEqual(sorted(result["data"]["updatedIds"]), sorted(ids))
+        for user in self.users:
+            user.refresh_from_db()
+            self.assertFalse(user.is_active)
+
+    def test_bulk_by_filter_respects_exclusions(self):
+        excluded = self.users[0].id
+        result = bulk_update_status_by_filter(
+            {"state": "NSW"}, False, exclude_ids=[excluded],
+            initiated_by=self.admin_user,
+        )
+
+        self.assertNotIn(excluded, result["data"]["updatedIds"])
+        self.assertEqual(len(result["data"]["updatedIds"]), 2)
+        self.users[0].refresh_from_db()
+        self.assertTrue(self.users[0].is_active)
+
+    def test_bulk_by_filter_no_matches_returns_empty(self):
+        result = bulk_update_status_by_filter(
+            {"state": "VIC"}, False, initiated_by=self.admin_user
+        )
+
+        self.assertEqual(result["data"]["updatedIds"], [])
+
+    def test_bulk_status_endpoint_select_all(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+
+        response = client.patch(
+            "/api/v1/admin/user/bulk-status/",
+            {"selectAll": True, "isActive": False, "filters": {"state": "NSW"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [u.id for u in self.users]
+        self.assertEqual(sorted(response.data["data"]["updatedIds"]), sorted(ids))
+
+    def test_bulk_status_endpoint_select_all_requires_is_active(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin_user)
+
+        response = client.patch(
+            "/api/v1/admin/user/bulk-status/",
+            {"selectAll": True, "filters": {"state": "NSW"}},
             format="json",
         )
 
