@@ -13,20 +13,39 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageSizeSelect } from "@/components/user/PageSizeSelect";
 import { labelizeState, labelizeUserRole, type UserAccount } from "@/type/user";
 
 export type UserSortKey = "name" | "email" | "role" | "state" | "status";
+
+const COLUMN_COUNT = 7;
+
+export interface UserTableSelection {
+  /** Explicitly checked row ids (used when selectAllMatching is false). */
+  selectedIds: Set<string>;
+  /** True once the admin has expanded selection to the whole filtered set. */
+  selectAllMatching: boolean;
+  /** Rows unchecked while in selectAllMatching mode. */
+  excludedIds: Set<string>;
+  /** Total rows matching the current filters (across all pages). */
+  total: number;
+  onSelectionChange: (ids: Set<string>) => void;
+  onExcludedChange: (ids: Set<string>) => void;
+  onSelectAllMatching: () => void;
+  onClear: () => void;
+}
 
 interface UserTableProps {
   data: UserAccount[];
   page: number;
   totalPages: number;
+  pageSize: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
   onView: (user: UserAccount) => void;
   onEdit: (user: UserAccount) => void;
   onToggleActive: (user: UserAccount) => void;
-  selectedIds: Set<string>;
-  onSelectionChange: (ids: Set<string>) => void;
+  selection: UserTableSelection;
   sortState: SortState<UserSortKey>;
   onSortChange: (sortState: SortState<UserSortKey>) => void;
   isPending?: boolean;
@@ -36,18 +55,32 @@ export function UserTable({
   data,
   page,
   totalPages,
+  pageSize,
   onPageChange,
+  onPageSizeChange,
   onView,
   onEdit,
   onToggleActive,
-  selectedIds,
-  onSelectionChange,
+  selection,
   sortState,
   onSortChange,
   isPending,
 }: UserTableProps) {
+  const {
+    selectedIds,
+    selectAllMatching,
+    excludedIds,
+    total,
+    onSelectionChange,
+    onExcludedChange,
+    onSelectAllMatching,
+    onClear,
+  } = selection;
+
   const pageIds = data.map((user) => user.id);
-  const selectedOnPage = pageIds.filter((id) => selectedIds.has(id));
+  const isRowSelected = (id: string) =>
+    selectAllMatching ? !excludedIds.has(id) : selectedIds.has(id);
+  const selectedOnPage = pageIds.filter(isRowSelected);
   const headerChecked: boolean | "indeterminate" =
     selectedOnPage.length === 0
       ? false
@@ -56,6 +89,18 @@ export function UserTable({
         : "indeterminate";
 
   const toggleAllOnPage = () => {
+    if (selectAllMatching) {
+      const next = new Set(excludedIds);
+      if (selectedOnPage.length === pageIds.length) {
+        // Whole page currently selected -> exclude it.
+        pageIds.forEach((id) => next.add(id));
+      } else {
+        pageIds.forEach((id) => next.delete(id));
+      }
+      onExcludedChange(next);
+      return;
+    }
+
     const next = new Set(selectedIds);
     if (selectedOnPage.length === pageIds.length) {
       pageIds.forEach((id) => next.delete(id));
@@ -66,6 +111,17 @@ export function UserTable({
   };
 
   const toggleOne = (id: string) => {
+    if (selectAllMatching) {
+      const next = new Set(excludedIds);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      onExcludedChange(next);
+      return;
+    }
+
     const next = new Set(selectedIds);
     if (next.has(id)) {
       next.delete(id);
@@ -74,6 +130,15 @@ export function UserTable({
     }
     onSelectionChange(next);
   };
+
+  const excludedCount = excludedIds.size;
+  const effectiveAllCount = Math.max(0, total - excludedCount);
+  const showExpandOffer =
+    !selectAllMatching &&
+    pageIds.length > 0 &&
+    selectedOnPage.length === pageIds.length &&
+    total > pageIds.length;
+  const showSelectionBanner = !isPending && (showExpandOffer || selectAllMatching);
 
   return (
     <div className="space-y-4">
@@ -112,9 +177,49 @@ export function UserTable({
             </TableRow>
           </TableHeader>
           <TableBody>
+            {showSelectionBanner && (
+              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableCell
+                  colSpan={COLUMN_COUNT}
+                  className="py-2 text-center text-sm"
+                >
+                  {selectAllMatching ? (
+                    <span className="inline-flex flex-wrap items-center justify-center gap-2">
+                      <span aria-live="polite">
+                        {excludedCount > 0
+                          ? `${effectiveAllCount} of ${total} users selected.`
+                          : `All ${total} users matching these filters are selected.`}
+                      </span>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={onClear}
+                      >
+                        Clear selection
+                      </Button>
+                    </span>
+                  ) : (
+                    <span className="inline-flex flex-wrap items-center justify-center gap-2">
+                      <span>
+                        All {pageIds.length} users on this page are selected.
+                      </span>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={onSelectAllMatching}
+                      >
+                        Select all {total} users matching these filters
+                      </Button>
+                    </span>
+                  )}
+                </TableCell>
+              </TableRow>
+            )}
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={COLUMN_COUNT} className="h-24 text-center">
                   Loading users...
                 </TableCell>
               </TableRow>
@@ -122,11 +227,11 @@ export function UserTable({
               data.map((user) => (
                 <TableRow
                   key={user.id}
-                  data-state={selectedIds.has(user.id) ? "selected" : undefined}
+                  data-state={isRowSelected(user.id) ? "selected" : undefined}
                 >
                   <TableCell>
                     <Checkbox
-                      checked={selectedIds.has(user.id)}
+                      checked={isRowSelected(user.id)}
                       onCheckedChange={() => toggleOne(user.id)}
                       aria-label={`Select ${user.name}`}
                     />
@@ -180,7 +285,7 @@ export function UserTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={COLUMN_COUNT} className="h-24 text-center">
                   No users found.
                 </TableCell>
               </TableRow>
@@ -189,10 +294,17 @@ export function UserTable({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <PageSizeSelect
+            value={pageSize}
+            onChange={onPageSizeChange}
+            disabled={isPending}
+          />
+          <p className="text-sm text-muted-foreground">
+            Page {page} of {totalPages}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

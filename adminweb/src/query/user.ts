@@ -61,6 +61,24 @@ type BulkStatusResult = {
   skippedSelf: boolean;
 };
 
+// Filters mirror the list query so a "select all matching" bulk action targets
+// exactly the rows the admin was viewing.
+export type BulkStatusFilters = {
+  search?: string;
+  role?: UserRole;
+  state?: string;
+  active?: boolean;
+};
+
+export type BulkStatusVars =
+  | { ids: string[]; isActive: boolean }
+  | {
+      selectAll: true;
+      filters: BulkStatusFilters;
+      excludeIds: string[];
+      isActive: boolean;
+    };
+
 type MutationResponse<T> = {
   msg: string;
   data: T;
@@ -227,17 +245,29 @@ export function useBulkUpdateUserStatus() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: { ids: string[]; isActive: boolean }) => {
+    mutationFn: async (payload: BulkStatusVars) => {
+      const body =
+        "selectAll" in payload
+          ? {
+              selectAll: true,
+              isActive: payload.isActive,
+              filters: payload.filters,
+              excludeIds: payload.excludeIds.map(Number),
+            }
+          : { userIds: payload.ids.map(Number), isActive: payload.isActive };
+
       const res = await myFetch.patch<MutationResponse<BulkStatusResult | null>>(
         "/user/bulk-status",
-        { userIds: payload.ids.map(Number), isActive: payload.isActive },
+        body,
       );
       return res.data;
     },
-    onSuccess: (_, { ids }) => {
+    onSuccess: (_, payload) => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      for (const id of ids) {
-        queryClient.invalidateQueries({ queryKey: ["user", id] });
+      if (!("selectAll" in payload)) {
+        for (const id of payload.ids) {
+          queryClient.invalidateQueries({ queryKey: ["user", id] });
+        }
       }
     },
   });
