@@ -4,11 +4,11 @@ from django.db.models import Q, Count, F, Max, Value, CharField
 from django.db.models.functions import Concat
 from django.utils import timezone
 
-from apps.groups.models import Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
+from apps.common.tz import utc_offset_hours
 from apps.users.models import User, MentorProfile
 from apps.chat.models import Messages
 from apps.users.models import UserInterest, AreasOfInterest
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.admin.services.user import STATUS_ACTIVE, STATUS_DEACTIVATED
 from apps.audit.services import log_audit_event
 
@@ -34,15 +34,11 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
         for row in assigned_count_rows
     }
     
-    # 2. Fetch all mentor base info (exclude mentors in archived tracks)
+    # 2. Fetch all mentor base info
     mentor_qs = (
         MentorProfile.objects
-        .select_related('user', 'user__track')
-        .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
+        .select_related('user', 'user__state', 'user__state__country')
     )
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        mentor_qs = mentor_qs.filter(Q(user__track_id__in=track_ids) | Q(user__track__isnull=True))
     mentor_rows = (
         mentor_qs
         .values(
@@ -53,7 +49,8 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
             email=F('user__email'),
             is_active=F('user__is_active'),
             max_grp_cnt=F('max_group_count'),
-            track_code=F('user__track__track_name'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
             background_desc=F('background'),
         )
         .order_by('user_id')
@@ -146,7 +143,8 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
             'email': m['email'],
             'isActive': m['is_active'],
             'institution': m['institution'],
-            'trackCode': m['track_code'],
+            'countryName': m['country_name'],
+            'utcOffsetHours': utc_offset_hours(m['user_tz']),
             'maxGroupCount': m['max_grp_cnt'],
             'currentAssignedCount': current_assigned_count,
             'remainingCapacity': m['max_grp_cnt'] - current_assigned_count,

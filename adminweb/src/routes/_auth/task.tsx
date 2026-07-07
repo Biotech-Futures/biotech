@@ -17,7 +17,6 @@ import {
   useToggleTask,
 } from "@/query/task";
 import { useQueryUsers } from "@/query/user";
-import { useListTracks } from "@/query/track";
 import { useQuery } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import { TaskTable, type TaskSortKey } from "@/components/task/TaskTable";
@@ -26,16 +25,14 @@ import type { Task, TaskCreateValues, TaskUpdateValues } from "@/type/task";
 import { toast } from "sonner";
 import type { SortState } from "@/components/ui/sortable-table";
 
-type TaskTypeFilter = "all" | "group" | "individual" | "track";
+type TaskTypeFilter = "all" | "group" | "individual";
 type SearchParams = { page: number; task_type?: TaskTypeFilter };
 
 export const Route = createFileRoute("/_auth/task")({
   validateSearch: (search): SearchParams => ({
     page: typeof search.page === "number" && search.page >= 1 ? search.page : 1,
     task_type:
-      search.task_type === "group" ||
-      search.task_type === "individual" ||
-      search.task_type === "track"
+      search.task_type === "group" || search.task_type === "individual"
         ? search.task_type
         : "all",
   }),
@@ -66,7 +63,6 @@ function TaskManagementPage() {
   });
 
   const { data: usersData } = useQueryUsers({ page: 1, limit: 200 });
-  const { data: tracksData } = useListTracks(false);
   const { data: groupsData } = useQuery({
     queryKey: ["admin-groups-dropdown"],
     queryFn: async () => {
@@ -186,7 +182,6 @@ function TaskManagementPage() {
               <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="group">Group Tasks</SelectItem>
               <SelectItem value="individual">Individual Tasks</SelectItem>
-              <SelectItem value="track">Track Tasks</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -213,7 +208,6 @@ function TaskManagementPage() {
         isPending={isPending || isMutating}
         groups={groups}
         users={users}
-        tracks={tracksData ?? []}
       />
 
       <TaskEditorSheet

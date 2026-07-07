@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
-from apps.groups.models import Groups, GroupMembership, CountryStates, Tracks, Countries
+from apps.groups.models import Groups, GroupMembership, Countries
 from apps.users.models import AdminScope
 
 
@@ -14,23 +14,19 @@ class GroupsTests(TestCase):
         self.admin_user = get_user_model().objects.create_user(
             email="myemail1@gmail.com", password='adminpass'
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.normal_user = get_user_model().objects.create_user(
             email="myemail2@gmail.com", password='userpass'
         )
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
-        self.group1 = Groups.objects.create(group_name='Group One', track=self.track)
+        self.group1 = Groups.objects.create(group_name='Group One')
 
         self.create_group_data = {
             'group_name': 'team_alpha',
-            'track': self.track.id
         }
 
     def make_deleted_group(self, name="Deleted Group"):
-        g = Groups.objects.create(group_name=name, track=self.track)
+        g = Groups.objects.create(group_name=name)
         g.deleted_at = timezone.now()
         g.save(update_fields=["deleted_at"])
         return g
@@ -81,27 +77,27 @@ class GroupsTests(TestCase):
         self.client.force_authenticate(user=self.admin_user)
         response = self.client.post(url, self.create_group_data, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Groups.objects.filter(group_name='team_alpha', track=self.track).exists())
+        self.assertTrue(Groups.objects.filter(group_name='team_alpha').exists())
 
     def test_readonly_fields_ignored_on_create(self):
         url = reverse('groups-list')
         self.client.force_authenticate(user=self.admin_user)
         payload = {
             'group_name': 'team_beta',
-            'track': self.track.id,
             'deleted_at': timezone.now().isoformat(),
         }
         resp = self.client.post(url, payload, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        obj = Groups.objects.get(group_name='team_beta', track=self.track)
+        obj = Groups.objects.get(group_name='team_beta')
         self.assertIsNone(obj.deleted_at)
 
-    def test_duplicate_group_name_per_track_returns_400(self):
+    def test_duplicate_group_name_returns_400(self):
+        # Group names are now globally unique among active groups.
         url = reverse('groups-list')
         self.client.force_authenticate(user=self.admin_user)
-        resp1 = self.client.post(url, {'group_name': 'dup', 'track': self.track.id}, format='json')
+        resp1 = self.client.post(url, {'group_name': 'dup'}, format='json')
         self.assertEqual(resp1.status_code, status.HTTP_201_CREATED)
-        resp2 = self.client.post(url, {'group_name': 'dup', 'track': self.track.id}, format='json')
+        resp2 = self.client.post(url, {'group_name': 'dup'}, format='json')
         self.assertEqual(resp2.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('non_field_errors', resp2.json().get('fields', {}))
 
@@ -182,7 +178,7 @@ class GroupsTests(TestCase):
     def test_restore_group_rejects_active_name_conflict(self):
         # A deleted duplicate stays tombstoned if it would violate active uniqueness.
         deleted = self.make_deleted_group(name="Conflicting Group")
-        Groups.objects.create(group_name="Conflicting Group", track=self.track)
+        Groups.objects.create(group_name="Conflicting Group")
         url = reverse("groups-restore", args=[deleted.id])
         self.client.force_authenticate(user=self.admin_user)
 
@@ -228,7 +224,6 @@ class GroupsTests(TestCase):
                 "groups": [
                     {
                         "group_name": "Bulk Group",
-                        "track": self.track.id,
                         "member_user_ids": [extra_user.id],
                     }
                 ]
@@ -237,7 +232,7 @@ class GroupsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        created_group = Groups.objects.get(group_name="Bulk Group", track=self.track)
+        created_group = Groups.objects.get(group_name="Bulk Group")
         self.assertTrue(
             GroupMembership.objects.filter(
                 group=created_group,
@@ -315,7 +310,7 @@ class CountriesApiTests(TestCase):
         self.admin_user = get_user_model().objects.create_user(
             email="myemail1@gmail.com", password='adminpass'
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.normal_user = get_user_model().objects.create_user(
             email="myemail2@gmail.com", password='userpass'
         )
@@ -388,15 +383,12 @@ class GroupMemberApiTests(TestCase):
         self.admin_user = get_user_model().objects.create_user(
             email="admin@test.com", password="adminpass"
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.normal_user = get_user_model().objects.create_user(
             email="user@test.com", password="userpass"
         )
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
-        self.group = Groups.objects.create(group_name="Test Group", track=self.track)
+        self.group = Groups.objects.create(group_name="Test Group")
         self.member1 = GroupMembership.objects.create(user=self.normal_user, group=self.group)
         self.member2 = GroupMembership.objects.create(user=self.admin_user, group=self.group)
         self.list_url = reverse("group-members-list")
@@ -457,65 +449,4 @@ class GroupMemberApiTests(TestCase):
     def test_by_group_action_unauthenticated(self):
         self.client.logout()
         response = self.client.get(self.by_group_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-
-class TrackApiTests(TestCase):
-    def setUp(self):
-        self.client = APIClient()
-        self.admin_user = get_user_model().objects.create_user(
-            email="admin@test.com", password="adminpass"
-        )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
-        self.normal_user = get_user_model().objects.create_user(
-            email="user@test.com", password="userpass"
-        )
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
-        self.list_url = reverse("tracks-list")
-        self.detail_url = reverse("tracks-detail", args=[self.track.id])
-
-    def test_list_tracks_authenticated(self):
-        self.client.force_authenticate(user=self.normal_user)
-        response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_list_tracks_unauthenticated(self):
-        self.client.logout()
-        response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_retrieve_track_authenticated(self):
-        self.client.force_authenticate(user=self.normal_user)
-        response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_retrieve_track_unauthenticated(self):
-        self.client.logout()
-        response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_create_track_admin_only(self):
-        self.client.force_authenticate(user=self.admin_user)
-        response = self.client.post(
-            self.list_url,
-            {"track_name": "TRACK-2", "state": self.state.id}
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def test_create_track_non_admin_forbidden(self):
-        self.client.force_authenticate(user=self.normal_user)
-        response = self.client.post(
-            self.list_url,
-            {"track_name": "TRACK-2", "state": self.state.id}
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_create_track_unauthenticated_forbidden(self):
-        self.client.logout()
-        response = self.client.post(
-            self.list_url,
-            {"track_name": "TRACK-2", "state": self.state.id}
-        )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

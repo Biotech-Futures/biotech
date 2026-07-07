@@ -191,8 +191,8 @@ export function useUpdateEventRsvp() {
 export function useQueryGroups() {
   return useQuery({
     queryKey: ["event-meta-groups"],
-    queryFn: async (): Promise<ApiResponse<{ id: number; groupName: string; trackId: number | null; trackName: string | null }[]>> => {
-      const res = await myFetch.get<ApiResponse<{ id: number; groupName: string; trackId: number | null; trackName: string | null }[]>>(
+    queryFn: async (): Promise<ApiResponse<{ id: number; groupName: string }[]>> => {
+      const res = await myFetch.get<ApiResponse<{ id: number; groupName: string }[]>>(
         "/event/meta/groups",
       );
       return res.data;
@@ -212,23 +212,11 @@ export function useQueryRoles() {
   });
 }
 
-export function useQueryTracks() {
-  return useQuery({
-    queryKey: ["event-meta-tracks"],
-    queryFn: async (): Promise<ApiResponse<{ id: number; trackName: string }[]>> => {
-      const res = await myFetch.get<ApiResponse<{ id: number; trackName: string }[]>>(
-        "/event/meta/tracks",
-      );
-      return res.data;
-    },
-  });
-}
-
 export function useQueryEventTargets(eventId: number | null) {
   return useQuery({
     queryKey: ["event-targets", eventId],
-    queryFn: async (): Promise<ApiResponse<{ groupIds: number[]; roleIds: number[]; trackIds: number[] }>> => {
-      const res = await myFetch.get<ApiResponse<{ groupIds: number[]; roleIds: number[]; trackIds: number[] }>>(
+    queryFn: async (): Promise<ApiResponse<{ groupIds: number[]; roleIds: number[] }>> => {
+      const res = await myFetch.get<ApiResponse<{ groupIds: number[]; roleIds: number[] }>>(
         `/event/${eventId}/targets`,
       );
       return res.data;

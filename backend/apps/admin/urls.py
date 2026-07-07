@@ -8,7 +8,7 @@ urlpatterns = [
     # USER ROUTES
     # ========================================================================
     path('user/', views.UserListCreateView.as_view(), name='user-list-create'),
-    path('user/tracks/', views.UserTracksListView.as_view(), name='user-tracks-list'),
+    path('user/states/', views.UserStatesListView.as_view(), name='user-states-list'),
     path('user/bulk/', views.UserBulkCreateView.as_view(), name='user-bulk-create'),
     path('user/bulk-csv/', views.UserBulkCsvView.as_view(), name='user-bulk-csv'),
     path('user/bulk-status/', views.UserBulkStatusUpdateView.as_view(), name='user-bulk-status-update'),
@@ -42,7 +42,6 @@ urlpatterns = [
     path('event/<str:event_id>/targets/', views.EventTargetsView.as_view(), name='event-targets'),
     path('event/meta/groups/', views.EventMetaGroupsView.as_view(), name='event-meta-groups'),
     path('event/meta/roles/', views.EventMetaRolesView.as_view(), name='event-meta-roles'),
-    path('event/meta/tracks/', views.EventMetaTracksView.as_view(), name='event-meta-tracks'),
     path('event/rsvp/<str:rsvp_id>/', views.EventRsvpDetailView.as_view(), name='event-rsvp-detail'),
     
     # ========================================================================
@@ -58,7 +57,6 @@ urlpatterns = [
     path('resource/upload/', views.ResourceUploadView.as_view(), name='resource-upload'),
     path('resource/roles/', views.ResourceRolesListView.as_view(), name='resource-roles-list'),
     path('resource/types/', views.ResourceTypesListView.as_view(), name='resource-types-list'),
-    path('resource/tracks/', views.ResourceTracksListView.as_view(), name='resource-tracks-list'),
     
     # ========================================================================
     # ANNOUNCEMENT ROUTES
@@ -67,7 +65,7 @@ urlpatterns = [
     path('announcement/<int:announcement_id>/', views.AnnouncementDetailView.as_view(), name='announcement-detail'),
     path('announcement/<int:announcement_id>/archive/', views.AnnouncementArchiveView.as_view(), name='announcement-archive'),
     path('announcement/<int:announcement_id>/notify/', views.AnnouncementNotifyView.as_view(), name='announcement-notify'),
-    path('announcement/tracks/', views.AnnouncementTracksListView.as_view(), name='announcement-tracks-list'),
+    path('announcement/groups/', views.AnnouncementGroupsListView.as_view(), name='announcement-groups-list'),
     path('announcement/roles/', views.AnnouncementRolesListView.as_view(), name='announcement-roles-list'),
     
     # ========================================================================
@@ -100,17 +98,4 @@ urlpatterns = [
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
     path('mentor-match/bulk-replace-inactive/', views.MentorMatchBulkReplaceInactiveView.as_view(), name='mentor-match-bulk-replace-inactive'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
-
-    # ========================================================================
-    # TRACK ROUTES
-    # ========================================================================
-    path('track/', views.TrackListCreateView.as_view(), name='track-list-create'),
-    path('track/states/', views.TrackStatesListView.as_view(), name='track-states-list'),
-    path('track/<int:track_id>/archive/', views.TrackArchiveView.as_view(), name='track-archive'),
-    path('track/<int:track_id>/restore/', views.TrackRestoreView.as_view(), name='track-restore'),
-
-    # ========================================================================
-    # ADMIN SCOPE
-    # ========================================================================
-    path('auth/scope/', views.AdminAuthScopeView.as_view(), name='admin-auth-scope'),
 ]

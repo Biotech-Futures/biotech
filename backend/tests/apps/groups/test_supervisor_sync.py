@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.groups.services import (
     sync_supervisor_memberships,
     sync_supervisor_memberships_for_student,
@@ -27,11 +27,11 @@ class _SupervisorWorld:
     group A) and one unrelated student. Built once per test method."""
 
     def _build(self):
-        country = Countries.objects.create(country_name="AU-S")
-        state = CountryStates.objects.create(country=country, state_name="VIC-S")
-        self.track = Tracks.objects.create(track_name="VIC-S-01", state=state)
-        self.group_a = Groups.objects.create(group_name="S-Group-A", track=self.track)
-        self.group_b = Groups.objects.create(group_name="S-Group-B", track=self.track)
+        # Track/geography removed: groups are created flat and their names are
+        # globally unique among active groups. This suite never asserts on
+        # geography, so no CountryStates fixture is needed.
+        self.group_a = Groups.objects.create(group_name="S-Group-A")
+        self.group_b = Groups.objects.create(group_name="S-Group-B")
 
         self.supervisor = User.objects.create_user(email="sup@s.com", password="pw")
         self.student_x = User.objects.create_user(email="sx@s.com", password="pw")
@@ -162,7 +162,8 @@ class SupervisorMembershipViewIntegrationTests(_SupervisorWorld, TestCase):
     def setUp(self):
         self._build()
         self.admin = User.objects.create_user(email="admin@s.com", password="pw")
-        AdminScope.objects.create(user=self.admin, track=self.track)
+        # Any AdminScope row now marks a single-tier admin who sees everything.
+        AdminScope.objects.create(user=self.admin)
         from rest_framework.test import APIClient
         self.client = APIClient()
         self.client.force_authenticate(user=self.admin)

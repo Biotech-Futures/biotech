@@ -4,7 +4,7 @@ import type {
   Announcement,
   PaginatedAnnouncements,
   RoleOption,
-  TrackOption,
+  GroupOption,
 } from "@/type/announcement";
 import type { SortState } from "@/components/ui/sortable-table";
 
@@ -51,12 +51,12 @@ export function useGetAnnouncement(id: number | null) {
   });
 }
 
-export function useAnnouncementTracks() {
+export function useAnnouncementGroups() {
   return useQuery({
-    queryKey: ["announcement-tracks"],
+    queryKey: ["announcement-groups"],
     queryFn: async () => {
-      const res = await myFetch.get<{ msg: string; data: TrackOption[] }>(
-        `${BASE}/tracks`,
+      const res = await myFetch.get<{ msg: string; data: GroupOption[] }>(
+        `${BASE}/groups`,
       );
       return res.data.data;
     },
@@ -81,8 +81,8 @@ export function useCreateAnnouncement() {
     mutationFn: async (data: {
       title: string;
       body: string;
-      track_ids?: number[];
       role_ids?: number[];
+      group_ids?: number[];
       send_email: boolean;
     }) => {
       const res = await myFetch.post<{ msg: string; data: Announcement }>(
@@ -106,8 +106,8 @@ export function useUpdateAnnouncement() {
       data: {
         title?: string;
         body?: string;
-        track_ids?: number[];
         role_ids?: number[];
+        group_ids?: number[];
         send_email?: boolean;
       };
     }) => {

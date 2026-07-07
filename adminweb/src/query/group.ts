@@ -4,7 +4,6 @@ import type {
   Group,
   GroupMessage,
   MentorStatusFilter,
-  Track,
   PaginatedResponse,
 } from "@/type/group";
 
@@ -13,14 +12,13 @@ interface QueryGroupsParams {
   limit?: number;
   searchName?: string;
   searchGroup?: string;
-  track?: Track;
   mentorStatus?: MentorStatusFilter;
-  sortBy?: "name" | "track" | "members" | "mentor" | "createdAt";
+  sortBy?: "name" | "members" | "mentor" | "createdAt";
   sortOrder?: "asc" | "desc";
 }
 
 export function useQueryGroups(params: QueryGroupsParams) {
-  const { page, limit = 10, searchName, searchGroup, track, mentorStatus, sortBy, sortOrder } =
+  const { page, limit = 10, searchName, searchGroup, mentorStatus, sortBy, sortOrder } =
     params;
   return useQuery({
     queryKey: [
@@ -29,7 +27,6 @@ export function useQueryGroups(params: QueryGroupsParams) {
       limit,
       searchName,
       searchGroup,
-      track,
       mentorStatus,
       sortBy,
       sortOrder,
@@ -41,7 +38,6 @@ export function useQueryGroups(params: QueryGroupsParams) {
           limit,
           searchName,
           searchGroup,
-          track,
           mentorStatus,
           sortBy,
           sortOrder,

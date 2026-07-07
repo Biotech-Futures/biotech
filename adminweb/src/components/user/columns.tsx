@@ -37,9 +37,16 @@ export const studentColumns: ColumnDef<StudentUser>[] = [
     },
   },
   {
-    accessorKey: "track",
-    header: "Track",
-    cell: ({ row }) => row.original.track ?? "-",
+    id: "state",
+    accessorFn: (row) => row.state?.stateName ?? "",
+    header: "State",
+    cell: ({ row }) => {
+      const state = row.original.state;
+      if (!state) return "-";
+      return state.countryName
+        ? `${state.stateName} · ${state.countryName}`
+        : state.stateName;
+    },
   },
   {
     id: "group",

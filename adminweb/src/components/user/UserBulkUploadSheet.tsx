@@ -29,9 +29,7 @@ const USER_IMPORT_TEMPLATE = [
     "lastName",
     "email",
     "role",
-    "track",
-    "adminTracks",
-    "adminIsGlobal",
+    "state",
     "school",
     "yearLevel",
     "interests",
@@ -47,9 +45,7 @@ const USER_IMPORT_TEMPLATE = [
     "Nguyen",
     "ava.nguyen@example.com",
     "student",
-    "AUS-NSW",
-    "",
-    "",
+    "New South Wales",
     "Example High School",
     "10",
     "Biotechnology, Data Science",
@@ -65,9 +61,7 @@ const USER_IMPORT_TEMPLATE = [
     "Patel",
     "noah.patel@example.com",
     "mentor",
-    "AUS-QLD",
-    "",
-    "",
+    "Queensland",
     "",
     "",
     "Biotechnology, Research",
@@ -83,9 +77,7 @@ const USER_IMPORT_TEMPLATE = [
     "Chen",
     "mia.chen@example.com",
     "supervisor",
-    "AUS-VIC",
-    "",
-    "",
+    "Victoria",
     "Example High School",
     "",
     "",
@@ -102,8 +94,6 @@ const USER_IMPORT_TEMPLATE = [
     "liam.taylor@example.com",
     "admin",
     "",
-    "AUS-NSW|AUS-QLD",
-    "no",
     "",
     "",
     "",
@@ -165,16 +155,6 @@ export function UserBulkUploadSheet({
     if (rowMissingSchool) {
       toast.error(
         `School is required for ${rowMissingSchool.role} user ${rowMissingSchool.email}.`,
-      );
-      return;
-    }
-    const adminMissingTracks = rows.find(
-      (row) =>
-        row.role === "admin" && !row.adminIsGlobal && !row.adminTracks.length,
-    );
-    if (adminMissingTracks) {
-      toast.error(
-        `Select global admin or at least one admin track for admin user ${adminMissingTracks.email}.`,
       );
       return;
     }
@@ -241,7 +221,7 @@ export function UserBulkUploadSheet({
           <DialogTitle>Bulk Upload Users</DialogTitle>
           <DialogDescription>
             Upload a CSV with either a single name column or split firstName and
-            lastName columns, plus email, role, track, adminTracks, adminIsGlobal, school,
+            lastName columns, plus email, role, state, school,
             yearLevel, interests, institution, mentorReason, maxGroupCount,
             background, status, and supervisorEmail (student rows only —
             use the supervisor's email to link them; the supervisor must also be in
@@ -305,7 +285,7 @@ export function UserBulkUploadSheet({
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline">{row.role}</Badge>
-                        <Badge variant="outline">{row.track ?? "unassigned"}</Badge>
+                        <Badge variant="outline">{row.state ?? "unassigned"}</Badge>
                         <Badge variant={row.active ? "default" : "secondary"}>
                           {row.active ? "active" : "inactive"}
                         </Badge>

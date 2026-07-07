@@ -5,7 +5,9 @@ from typing import Iterable, Optional
 from django.apps import apps
 from rest_framework.permissions import BasePermission
 
-from .rbac import can_access_resource_file, is_global_admin
+from apps.common.rbac import is_admin
+
+from .rbac import can_access_resource_file
 
 
 class IsResourceAdmin(BasePermission):
@@ -14,7 +16,7 @@ class IsResourceAdmin(BasePermission):
     def has_permission(self, request, view) -> bool:
         # Developer note: keep the DRF permission shim thin so resource RBAC logic
         # lives in one helper module instead of drifting between views and classes.
-        return is_global_admin(getattr(request, "user", None))
+        return is_admin(getattr(request, "user", None))
 
 
 class IsInAnyGroup(BasePermission):
@@ -104,7 +106,6 @@ class CanAccessResource(BasePermission):
             return None
 
         Resources = apps.get_model("resources", "Resources")
-        return Resources.objects.select_related("group", "track").prefetch_related(
+        return Resources.objects.select_related("group").prefetch_related(
             "audiences__role",
-            "audiences__track",
         ).filter(pk=resource_id).first()

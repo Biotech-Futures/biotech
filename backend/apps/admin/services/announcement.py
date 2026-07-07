@@ -16,9 +16,8 @@ from apps.announcements.models import (
     AnnouncementDelivery,
 )
 from apps.resources.models import Roles, RoleAssignmentHistory
-from apps.groups.models import Tracks
+from apps.groups.models import GroupMembership
 from apps.users.models import User
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 from apps.services.email_branding import attach_inline_logo, brand_context
 
@@ -71,9 +70,8 @@ class CreateAnnouncementInput(TypedDict, total=False):
     title: str
     body: str
     visibility_scope: str
-    track_id: Optional[int]
-    track_ids: Optional[List[int]]
     role_ids: Optional[List[int]]
+    group_ids: Optional[List[int]]
     send_email: bool
 
 
@@ -81,9 +79,8 @@ class UpdateAnnouncementInput(TypedDict, total=False):
     title: Optional[str]
     body: Optional[str]
     visibility_scope: Optional[str]
-    track_id: Optional[int]
-    track_ids: Optional[List[int]]
     role_ids: Optional[List[int]]
+    group_ids: Optional[List[int]]
     send_email: bool
 
 
@@ -129,49 +126,28 @@ def _resolve_recipient_emails(
     announcement_id: int,
     visibility_scope: str,
 ) -> List[str]:
-    """Resolve recipient emails based on visibility scope.
-
-    Users whose only track is archived are excluded from every branch — an
-    archived track should not produce email traffic. The global branch also
-    filters here so that a freeze on a track effectively quiets that cohort
-    even for org-wide announcements.
-    """
+    """Resolve recipient emails based on visibility scope."""
     if visibility_scope == "global":
-        users = (
-            User.objects.filter(is_active=True)
-            .exclude(track__is_archived=True)
-            .values_list("email", flat=True)
+        return list(
+            User.objects.filter(is_active=True).values_list("email", flat=True)
         )
-        return list(users)
 
     audience_rows = AnnouncementAudience.objects.filter(
         announcement_id=announcement_id
-    ).values_list("role_id", "track_id")
+    ).values_list("role_id", "group_id")
 
     if not audience_rows:
         return []
 
-    track_ids = [row[1] for row in audience_rows if row[1] is not None]
     role_ids = [row[0] for row in audience_rows if row[0] is not None]
+    group_ids = [row[1] for row in audience_rows if row[1] is not None]
 
     emails: set = set()
     now = timezone.now()
 
-    if track_ids:
-        track_emails = (
-            User.objects.filter(
-                is_active=True,
-                track_id__in=track_ids,
-            )
-            .exclude(track__is_archived=True)
-            .values_list("email", flat=True)
-        )
-        emails.update(track_emails)
-
     if role_ids:
         role_emails = (
             User.objects.filter(is_active=True)
-            .exclude(track__is_archived=True)
             .filter(
                 Exists(
                     RoleAssignmentHistory.objects.filter(
@@ -187,14 +163,29 @@ def _resolve_recipient_emails(
         )
         emails.update(role_emails)
 
+    if group_ids:
+        group_emails = (
+            User.objects.filter(
+                is_active=True,
+                id__in=GroupMembership.objects.filter(
+                    group_id__in=group_ids,
+                    left_at__isnull=True,
+                    group__deleted_at__isnull=True,
+                ).values("user_id"),
+            )
+            .values_list("email", flat=True)
+            .distinct()
+        )
+        emails.update(group_emails)
+
     return list(emails)
 
 
 @transaction.atomic
 def _sync_audience(
     announcement_id: int,
-    track_ids: Optional[List[int]] = None,
     role_ids: Optional[List[int]] = None,
+    group_ids: Optional[List[int]] = None,
 ) -> str:
     """
     Sync audience targeting for an announcement.
@@ -202,23 +193,19 @@ def _sync_audience(
     """
     AnnouncementAudience.objects.filter(announcement_id=announcement_id).delete()
 
-    track_ids = [t for t in (track_ids or []) if t]
     role_ids = [r for r in (role_ids or []) if r]
+    group_ids = [g for g in (group_ids or []) if g]
 
     records = []
-    for tid in track_ids:
-        records.append(AnnouncementAudience(announcement_id=announcement_id, track_id=tid))
     for rid in role_ids:
         records.append(AnnouncementAudience(announcement_id=announcement_id, role_id=rid))
+    for gid in group_ids:
+        records.append(AnnouncementAudience(announcement_id=announcement_id, group_id=gid))
 
     if records:
         AnnouncementAudience.objects.bulk_create(records)
 
-    if track_ids and role_ids:
-        return "track_role_based"
-    if track_ids:
-        return "track_based"
-    if role_ids:
+    if role_ids or group_ids:
         return "role_based"
     return "global"
 
@@ -227,21 +214,20 @@ def _sync_audience(
 
 def _fetch_announcement(announcement_id: int) -> Optional[Dict[str, Any]]:
     try:
-        announcement = Announcement.objects.select_related(
-            "track"
-        ).get(id=announcement_id)
+        announcement = Announcement.objects.get(id=announcement_id)
     except Announcement.DoesNotExist:
         return None
 
     audience_rows = list(
         AnnouncementAudience.objects
         .filter(announcement_id=announcement_id)
-        .select_related("role")
+        .select_related("role", "group")
         .values(
             "id",
             roleId=F("role_id"),
-            trackId=F("track_id"),
+            groupId=F("group_id"),
             roleName=F("role__role_name"),
+            groupName=F("group__group_name"),
         )
     )
 
@@ -253,8 +239,6 @@ def _fetch_announcement(announcement_id: int) -> Optional[Dict[str, Any]]:
         "publishedAt": announcement.published_at.isoformat() if announcement.published_at else None,
         "archivedAt": announcement.archived_at.isoformat() if announcement.archived_at else None,
         "authorUserId": announcement.author_user_id,
-        "trackId": announcement.track_id,
-        "trackName": announcement.track.track_name if announcement.track else None,
         "audiences": audience_rows,
     }
 
@@ -279,44 +263,25 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
     offset = (page - 1) * limit
     
     # Build query conditions
-    queryset = Announcement.objects.select_related("track")
-    
+    queryset = Announcement.objects.all()
+
     if search:
         queryset = queryset.filter(
             Q(title__icontains=search) | Q(body__icontains=search)
         )
-    
+
     if archived is True:
         queryset = queryset.filter(archived_at__isnull=False)
     else:  # archived is False or None
         queryset = queryset.filter(archived_at__isnull=True)
 
-    # Hide only if every audience track is archived (same logic as events).
-    # Announcements with no track audiences (global/role-based) are always visible.
-    has_any_track_audience = Exists(
-        AnnouncementAudience.objects.filter(
-            announcement_id=OuterRef("id"), track__isnull=False
-        )
-    )
-    has_active_track_audience = Exists(
-        AnnouncementAudience.objects.filter(
-            announcement_id=OuterRef("id"),
-            track__isnull=False,
-            track__is_archived=False,
-        )
-    )
-    queryset = queryset.filter(~has_any_track_audience | has_active_track_audience)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        queryset = queryset.filter(Q(track_id__in=track_ids) | Q(track__isnull=True))
-
     # Get total count
     total = queryset.count()
-    
+
     # Fetch items
     sort_map = {
         "title": ["title", "id"],
-        "audience": ["visibility_scope", "track__track_name", "title", "id"],
+        "audience": ["visibility_scope", "title", "id"],
         "published": ["published_at", "id"],
         "status": ["archived_at", "published_at", "id"],
     }
@@ -334,8 +299,6 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
             publishedAt=F("published_at"),
             archivedAt=F("archived_at"),
             authorUserId=F("author_user_id"),
-            trackId=F("track_id"),
-            trackName=F("track__track_name"),
         )[offset:offset + limit]
     )
 
@@ -345,13 +308,14 @@ def list_announcements(params: QueryAnnouncementsInput, requesting_user=None) ->
         audience_rows = list(
             AnnouncementAudience.objects
             .filter(announcement_id__in=all_ids)
-            .select_related("role")
+            .select_related("role", "group")
             .values(
                 "id",
                 announcementId=F("announcement_id"),
                 roleId=F("role_id"),
-                trackId=F("track_id"),
+                groupId=F("group_id"),
                 roleName=F("role__role_name"),
+                groupName=F("group__group_name"),
             )
         )
     else:
@@ -463,11 +427,8 @@ def create_announcement(
     """
     now = timezone.now()
 
-    # Normalise track_ids: accept either track_ids (list) or legacy track_id (single)
-    raw_track_ids = input_data.get("track_ids") or []
-    if not raw_track_ids and input_data.get("track_id"):
-        raw_track_ids = [input_data["track_id"]]
     role_ids = input_data.get("role_ids") or []
+    group_ids = input_data.get("group_ids") or []
 
     resolved_author_id = _resolve_author_user_id(author_user_id, initiated_by)
 
@@ -477,10 +438,9 @@ def create_announcement(
         visibility_scope="global",  # will be updated below
         published_at=now,
         author_user_id=resolved_author_id,
-        track_id=raw_track_ids[0] if raw_track_ids else None,
     )
 
-    resolved_scope = _sync_audience(announcement.id, raw_track_ids, role_ids)
+    resolved_scope = _sync_audience(announcement.id, role_ids, group_ids)
     announcement.visibility_scope = resolved_scope
     announcement.save(update_fields=["visibility_scope"])
 
@@ -515,17 +475,13 @@ def update_announcement(
     if "body" in input_data and input_data["body"] is not None:
         announcement.body = input_data["body"]
 
-    # Determine new track_ids from either track_ids or legacy track_id
-    audience_fields = {"track_ids", "track_id", "role_ids"}
+    audience_fields = {"role_ids", "group_ids"}
     if audience_fields.intersection(input_data.keys()):
-        raw_track_ids = input_data.get("track_ids") or []
-        if not raw_track_ids and input_data.get("track_id"):
-            raw_track_ids = [input_data["track_id"]]
         role_ids = input_data.get("role_ids") or []
+        group_ids = input_data.get("group_ids") or []
 
-        resolved_scope = _sync_audience(announcement_id, raw_track_ids, role_ids)
+        resolved_scope = _sync_audience(announcement_id, role_ids, group_ids)
         announcement.visibility_scope = resolved_scope
-        announcement.track_id = raw_track_ids[0] if raw_track_ids else None
 
     announcement.save()
 
@@ -883,14 +839,15 @@ def send_announcement_email(
     }
 
 
-def list_announcement_tracks(requesting_user=None) -> Dict[str, Any]:
-    """Get all tracks for announcement reference data. Archived tracks excluded."""
-    qs = Tracks.objects.filter(is_archived=False)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(id__in=track_ids)
-    tracks = list(qs.order_by("track_name").values("id", name=F("track_name")))
-    return {"msg": "Tracks retrieved successfully", "data": tracks}
+def list_announcement_groups(requesting_user=None) -> Dict[str, Any]:
+    """Get all active groups for announcement reference data."""
+    from apps.groups.models import Groups
+    groups = list(
+        Groups.objects.filter(deleted_at__isnull=True)
+        .order_by("group_name")
+        .values("id", name=F("group_name"))
+    )
+    return {"msg": "Groups retrieved successfully", "data": groups}
 
 
 def list_announcement_roles() -> Dict[str, Any]:

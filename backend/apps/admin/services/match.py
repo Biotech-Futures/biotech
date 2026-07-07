@@ -1,3 +1,4 @@
+import uuid
 from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
@@ -6,15 +7,16 @@ from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
-from apps.groups.models import Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
 from apps.groups.models import Countries, CountryStates
+from apps.common.tz import utc_offset_hours
 from apps.admin.algorithms.student import (
     build_groups,
     format_recommendation_input,
-    recommend_groups_by_track,
+    recommend_groups_by_country,
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
 
@@ -79,7 +81,6 @@ class MatchRecommendationGroup:
     def __init__(self):
         self.id = None
         self.group_name = None
-        self.track_id = None
         self.max_size = None
         self.tutor = None
         self.existing_students = []
@@ -123,7 +124,6 @@ def _map_existing_students(group: Dict[str, Any]) -> List[Dict[str, Any]]:
         _without_none({
             'id': student.get('id'),
             'name': student.get('name') or f"Student #{student.get('id')}",
-            'trackId': student.get('trackId'),
             'country': student.get('country'),
             'yearLevel': student.get('yearLevel') or student.get('yearlevel'),
             'interests': student.get('interests') or [],
@@ -159,7 +159,6 @@ def _group_student_recommendations(
             grouped = {
                 'id': group.get('id'),
                 'groupName': group.get('groupName'),
-                'trackId': group.get('trackId'),
                 'maxSize': group.get('maxSize') or DEFAULT_GROUP_MAX_SIZE,
                 'tutor': group.get('tutor'),
                 'existingStudents': _map_existing_students(group),
@@ -228,18 +227,18 @@ def _build_form_recommendations(
             continue
 
         student_score = score_by_student_id.get(sid)
-        virtual_group_id = f"new-{matched_group['track']}-{'-'.join(str(item) for item in matched_group['studentIds'])}"
+        group_country = matched_group['country'] or 'group'
+        virtual_group_id = f"new-{group_country}-{'-'.join(str(item) for item in matched_group['studentIds'])}"
         recommendations.append({
             'student': student,
             'recommendGroup': {
                 'id': virtual_group_id,
-                'groupName': f"Suggested {matched_group['track']} Group",
-                'trackId': matched_group['track'],
+                'groupName': "Suggested Group",
                 'maxSize': DEFAULT_GROUP_MAX_SIZE,
                 'tutor': None,
                 'groupStudent': [],
             },
-            'reason': 'Assigned to highest score-based formed group considering interests, track, and compatibility.',
+            'reason': 'Assigned to highest score-based formed group considering interests, country, and compatibility.',
             'score': student_score['score'] if student_score else matched_group['groupScore'],
             'scoreBreakdown': {
                 'baseScore': student_score['scoreBreakdown']['baseScore'] if student_score else 100,
@@ -275,56 +274,45 @@ def match_student(uid: str) -> MatchStudentResult:
     standalone_students = (
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
-        .filter(Q(user__track__isnull=True) | Q(user__track__is_archived=False))
-        .select_related('user', 'user__track', 'user__track__state')
-        .annotate(
-            country_state_id=F('user__track__state_id'),
-        )
+        .select_related('user', 'user__state', 'user__state__country')
         .values(
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            track_id=F('user__track_id'),
-            track_code=F('user__track__track_name'),
             year_level=F('year_lvl'),
-            country_name=F('user__track__state__country__country_name'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
         )
     )
 
-    # Query students in groups (exclude archived-track groups)
+    # Query students in groups
     group_members_rows = (
         GroupMembership.objects
         .filter(
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .filter(Q(group__track__isnull=True) | Q(group__track__is_archived=False))
-        .select_related('group', 'user', 'user__track')
+        .select_related('group', 'user', 'user__state', 'user__state__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            track_id=F('user__track_id'),
-            track_code=F('user__track__track_name'),
             year_level=F('user__studentprofile__year_lvl'),
-            country_name=F('user__track__state__country__country_name'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
         )
     )
-    
+
     group_ids = list(set(row['group_id'] for row in group_members_rows))
-    
-    # Get group metadata (exclude archived-track groups)
+
+    # Get group metadata
     group_meta_rows = (
         Groups.objects
         .filter(id__in=group_ids, deleted_at__isnull=True)
-        .filter(Q(track__isnull=True) | Q(track__is_archived=False))
-        .select_related('track')
         .values(
             'group_name',
             group_id=F('id'),
-            group_track_id=F('track_id'),
-            group_track_code=F('track__track_name'),
         )
     )
     
@@ -383,8 +371,6 @@ def match_student(uid: str) -> MatchStudentResult:
         group_students.append({
             **student,
             'group_name': group_meta['group_name'],
-            'group_track_id': group_meta['group_track_id'],
-            'group_track_code': group_meta['group_track_code'],
             'group_tutor_id': tutor['tutor_user_id'] if tutor else None,
             'group_tutor_name': tutor['tutor_name'] if tutor else None,
         })
@@ -408,8 +394,8 @@ def match_student(uid: str) -> MatchStudentResult:
         _without_none({
             'id': student['user_id'],
             'name': f"{student['first_name'] or ''} {student['last_name'] or ''}".strip(),
-            'trackId': student['track_code'] or student['track_id'],
             'country': student['country_name'],
+            'timezoneOffsetHours': utc_offset_hours(student['user_tz']),
             'yearLevel': _safe_int(student['year_level']),
             'interests': interests_by_user.get(student['user_id'], []),
         })
@@ -423,15 +409,12 @@ def match_student(uid: str) -> MatchStudentResult:
                 'userId': student['user_id'],
                 'firstName': student['first_name'],
                 'lastName': student['last_name'],
-                'trackId': student['track_id'],
-                'trackCode': student['track_code'],
                 'countryName': student['country_name'],
+                'timezoneOffsetHours': utc_offset_hours(student['user_tz']),
                 'yearLevel': _safe_int(student['year_level']),
                 'interests': student.get('interests', []),
                 'groupId': student['group_id'],
                 'groupName': student['group_name'],
-                'groupTrackId': student['group_track_id'],
-                'groupTrackCode': student['group_track_code'],
                 'groupTutorId': student['group_tutor_id'],
                 'groupTutorName': student['group_tutor_name'],
             }
@@ -442,16 +425,15 @@ def match_student(uid: str) -> MatchStudentResult:
                 'userId': student['user_id'],
                 'firstName': student['first_name'],
                 'lastName': student['last_name'],
-                'trackId': student['track_id'],
-                'trackCode': student['track_code'],
                 'countryName': student['country_name'],
+                'timezoneOffsetHours': utc_offset_hours(student['user_tz']),
                 'yearLevel': _safe_int(student['year_level']),
                 'interests': student.get('interests', []),
             }
             for student in formatted_individual_students
         ],
     )
-    join_recommendations = recommend_groups_by_track(join_input)
+    join_recommendations = recommend_groups_by_country(join_input)
 
     baseline_form = build_groups(ungrouped_students)
     _, baseline_objective_by_student_id = _build_form_recommendations(
@@ -535,17 +517,14 @@ def match_student(uid: str) -> MatchStudentResult:
     all_groups = (
         Groups.objects
         .filter(deleted_at__isnull=True)
-        .select_related('track')
         .values(
             'group_name',
-            'track_id',
             group_id=F('id'),
-            track_code=F('track__track_name'),
         )
     )
-    
+
     all_group_ids = [g['group_id'] for g in all_groups]
-    
+
     # Count active students per group
     active_student_rows = (
         GroupMembership.objects
@@ -554,14 +533,13 @@ def match_student(uid: str) -> MatchStudentResult:
             left_at__isnull=True,
             user__studentprofile__isnull=False
         )
-        .select_related('user', 'user__track')
+        .select_related('user', 'user__state', 'user__state__country')
         .values(
             'group_id',
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            track_code=F('user__track__track_name'),
-            country_name=F('user__track__state__country__country_name'),
+            country_name=F('user__state__country__country_name'),
         )
     )
 
@@ -573,24 +551,22 @@ def match_student(uid: str) -> MatchStudentResult:
         students_by_group[group_id].append({
             'id': row['user_id'],
             'name': f"{row['first_name']} {row['last_name']}".strip(),
-            'track_id': row['track_code'],
             'country': row['country_name'],
             'interests': interests_by_user.get(row['user_id'], []),
         })
-    
+
     # Build not-full groups
     not_full_groups = []
     for group in all_groups:
         group_students = students_by_group.get(group['group_id'], [])
         student_count = len(group_students)
         available_seats = max(0, DEFAULT_GROUP_MAX_SIZE - student_count)
-        
+
         if available_seats > 0:
             tutor = tutor_by_group_id.get(group['group_id'])
             not_full_groups.append({
                 'id': group['group_id'],
                 'groupName': group['group_name'],
-                'trackId': group['track_code'] or group['track_id'],
                 'maxSize': DEFAULT_GROUP_MAX_SIZE,
                 'tutor': tutor,
                 'groupStudent': group_students,
@@ -635,15 +611,13 @@ def get_individual_students() -> List[Dict[str, Any]]:
     individual_students = (
         StudentProfile.objects
         .filter(~Exists(active_membership_subquery))
-        .select_related('user', 'user__track')
+        .select_related('user', 'user__state', 'user__state__country')
         .values(
             'user_id',
             first_name=F('user__first_name'),
             last_name=F('user__last_name'),
-            track_id=F('user__track_id'),
-            track_code=F('user__track__track_name'),
             year_level=F('year_lvl'),
-            country_name=F('user__track__state__country__country_name'),
+            country_name=F('user__state__country__country_name'),
         )
     )
     
@@ -705,42 +679,26 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
         
         # Handle synthetic groups (new groups starting with "new-")
         resolved_assignments = assignments
-        
+
         if any(isinstance(a['group_id'], str) and a['group_id'].startswith('new-') for a in assignments):
-            # Get student track IDs for new group creation
-            students = User.objects.filter(id__in=student_ids).values('id', 'track_id')
-            track_by_student = {s['id']: s['track_id'] for s in students}
-            
-            # Group by synthetic ID
-            synthetic_groups = {}
+            # Collect synthetic group IDs in first-seen order.
+            synthetic_ids: Dict[str, bool] = {}
             for item in assignments:
-                if isinstance(item['group_id'], str) and item['group_id'].startswith('new-'):
-                    if item['group_id'] not in synthetic_groups:
-                        synthetic_groups[item['group_id']] = []
-                    synthetic_groups[item['group_id']].append(item['student_id'])
-            
-            # Create new groups
+                gid = item['group_id']
+                if isinstance(gid, str) and gid.startswith('new-'):
+                    synthetic_ids.setdefault(gid, True)
+
+            # Create one new group per synthetic ID. Seed with a unique
+            # placeholder so the create never collides with an existing active
+            # group literally named "Auto Group" (group names are globally
+            # unique now), then rename to the stable pk-based name.
             created_group_by_synthetic = {}
-            for synthetic_id, members in synthetic_groups.items():
-                first_track = None
-                for member_id in members:
-                    track_id = track_by_student.get(member_id)
-                    if track_id:
-                        first_track = track_id
-                        break
-                
-                if first_track is None:
-                    continue
-                
-                group = Groups.objects.create(
-                    group_name='Auto Group',
-                    track_id=first_track,
-                )
+            for synthetic_id in synthetic_ids:
+                group = Groups.objects.create(group_name=f'Auto Group {uuid.uuid4()}')
                 group.group_name = f'Auto Group {group.id}'
                 group.save()
-                
                 created_group_by_synthetic[synthetic_id] = group.id
-            
+
             # Resolve assignments
             resolved_assignments = []
             for item in assignments:

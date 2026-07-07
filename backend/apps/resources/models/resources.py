@@ -7,7 +7,6 @@ class Resources(models.Model):
     class VisibilityScope(models.TextChoices):
         PUBLIC = "public", "Public"
         ROLE = "role", "Role"
-        TRACK = "track", "Track"
         GROUP = "group", "Group"
         SCOPED = "scoped", "Scoped"
 
@@ -29,7 +28,6 @@ class Resources(models.Model):
     file_size = models.BigIntegerField(null=True, blank=True)
     storage_key = models.CharField(max_length=255, null=True, blank=True)
 
-    track = models.ForeignKey("groups.Tracks", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     group = models.ForeignKey("groups.Groups", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     labels = models.ManyToManyField("ResourceLabel", blank=True, related_name="resources")
     visibility_scope = models.CharField(
@@ -47,7 +45,6 @@ class Resources(models.Model):
         verbose_name_plural = "Resources"
         indexes = [
             models.Index(fields=['uploaded_by']),
-            models.Index(fields=['track']),
             models.Index(fields=['visibility_scope']),
             models.Index(fields=['deleted_at']),
         ]

@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.groups.models import Countries, CountryStates, GroupMembership, Groups, Tracks
+from apps.groups.models import GroupMembership, Groups
 from apps.tasks.models import CreatorRole, Task, TaskType
 from apps.users.models import AdminScope, StudentProfile, SupervisorProfile
 
@@ -27,18 +27,16 @@ def _toggle_url(pk):
 
 
 class _World:
-    def _build(self):
-        country = Countries.objects.create(country_name="AU-T")
-        state = CountryStates.objects.create(country=country, state_name="VIC-T")
-        self.track_one = Tracks.objects.create(track_name="VIC-T-01", state=state)
-        self.track_two = Tracks.objects.create(track_name="VIC-T-02", state=state)
-        self.group_a = Groups.objects.create(group_name="T-Group-A", track=self.track_one)
-        self.group_b = Groups.objects.create(group_name="T-Group-B", track=self.track_one)
-        self.group_c = Groups.objects.create(group_name="T-Group-C", track=self.track_two)
+    """Shared fixture. Geography (tracks/states) was removed from the domain;
+    task visibility is now driven purely by group membership and supervision,
+    and admin is a single global tier (any AdminScope row = admin)."""
 
-        self.global_admin = User.objects.create_user(email="ga@t.com", password="pw")
-        self.track_one_admin = User.objects.create_user(email="t1a@t.com", password="pw")
-        self.track_two_admin = User.objects.create_user(email="t2a@t.com", password="pw")
+    def _build(self):
+        self.group_a = Groups.objects.create(group_name="Group-A")
+        self.group_b = Groups.objects.create(group_name="Group-B")
+        self.group_c = Groups.objects.create(group_name="Group-C")
+
+        self.admin = User.objects.create_user(email="ga@t.com", password="pw")
         self.mentor_a = User.objects.create_user(email="ma@t.com", password="pw")
         self.mentor_b = User.objects.create_user(email="mb@t.com", password="pw")
         self.supervisor_a = User.objects.create_user(email="sa@t.com", password="pw")
@@ -48,9 +46,8 @@ class _World:
         self.student_z = User.objects.create_user(email="sz@t.com", password="pw")
         self.outsider = User.objects.create_user(email="out@t.com", password="pw")
 
-        AdminScope.objects.create(user=self.global_admin, is_global=True)
-        AdminScope.objects.create(user=self.track_one_admin, track=self.track_one, is_global=False)
-        AdminScope.objects.create(user=self.track_two_admin, track=self.track_two, is_global=False)
+        # Single-tier admin: one AdminScope row is all admin-ness there is.
+        AdminScope.objects.create(user=self.admin)
 
         GroupMembership.objects.create(
             group=self.group_a,
@@ -96,36 +93,29 @@ class TaskListVisibilityTests(_World, APITestCase):
 
         self.task_a_group = Task.objects.create(
             name="GA-task-A", task_type=TaskType.GROUP, group=self.group_a,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.task_c_group = Task.objects.create(
             name="GA-task-C", task_type=TaskType.GROUP, group=self.group_c,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.task_x_indiv = Task.objects.create(
             name="GA-indiv-X", task_type=TaskType.INDIVIDUAL, assigned_user=self.student_x,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
     def test_anonymous_blocked(self):
         response = self.client.get(LIST_URL)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_global_admin_sees_all(self):
-        self.client.force_authenticate(user=self.global_admin)
+    def test_admin_sees_all(self):
+        # Single global admin tier sees every task regardless of group.
+        self.client.force_authenticate(user=self.admin)
         response = self.client.get(LIST_URL)
         ids = {r["id"] for r in response.data["results"]}
         self.assertIn(self.task_a_group.id, ids)
         self.assertIn(self.task_c_group.id, ids)
         self.assertIn(self.task_x_indiv.id, ids)
-
-    def test_track_admin_scoped_to_track(self):
-        self.client.force_authenticate(user=self.track_one_admin)
-        response = self.client.get(LIST_URL)
-        ids = {r["id"] for r in response.data["results"]}
-        self.assertIn(self.task_a_group.id, ids)
-        self.assertIn(self.task_x_indiv.id, ids)
-        self.assertNotIn(self.task_c_group.id, ids)
 
     def test_mentor_sees_their_group_and_assigned_individuals(self):
         self.client.force_authenticate(user=self.mentor_a)
@@ -168,8 +158,8 @@ class TaskCreateTests(_World, APITestCase):
     def _individual_payload(self, user):
         return {"name": "I-task", "task_type": "individual", "assigned_user": user.id}
 
-    def test_global_admin_creates_anywhere(self):
-        self.client.force_authenticate(user=self.global_admin)
+    def test_admin_creates_anywhere(self):
+        self.client.force_authenticate(user=self.admin)
         for group in (self.group_a, self.group_c):
             r = self.client.post(LIST_URL, self._group_payload(group), format="json")
             self.assertEqual(r.status_code, status.HTTP_201_CREATED)
@@ -177,22 +167,16 @@ class TaskCreateTests(_World, APITestCase):
         r = self.client.post(LIST_URL, self._individual_payload(self.student_z), format="json")
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
 
-    def test_track_admin_creates_in_track(self):
-        self.client.force_authenticate(user=self.track_one_admin)
-        r = self.client.post(LIST_URL, self._group_payload(self.group_a), format="json")
-        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(r.data["creator_role"], CreatorRole.TRACK_ADMIN)
-
-    def test_track_admin_blocked_outside_track(self):
-        self.client.force_authenticate(user=self.track_one_admin)
-        r = self.client.post(LIST_URL, self._group_payload(self.group_c), format="json")
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_mentor_creates_group_task_in_own_group(self):
         self.client.force_authenticate(user=self.mentor_a)
         r = self.client.post(LIST_URL, self._group_payload(self.group_a), format="json")
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(r.data["creator_role"], CreatorRole.MENTOR)
+
+    def test_mentor_blocked_group_task_outside_own_group(self):
+        self.client.force_authenticate(user=self.mentor_a)
+        r = self.client.post(LIST_URL, self._group_payload(self.group_c), format="json")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_mentor_creates_individual_for_student_in_their_group(self):
         self.client.force_authenticate(user=self.mentor_a)
@@ -243,7 +227,7 @@ class TaskCreateTests(_World, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_rejects_group_with_assigned_user(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(
             LIST_URL,
             {
@@ -257,7 +241,7 @@ class TaskCreateTests(_World, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_rejects_individual_with_group(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(
             LIST_URL,
             {
@@ -276,7 +260,7 @@ class TaskOwnershipTests(_World, APITestCase):
         self._build()
         self.admin_task = Task.objects.create(
             name="admin-G-A", task_type=TaskType.GROUP, group=self.group_a,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.mentor_task = Task.objects.create(
             name="mentor-G-A", task_type=TaskType.GROUP, group=self.group_a,
@@ -291,21 +275,11 @@ class TaskOwnershipTests(_World, APITestCase):
             created_by=self.student_x, creator_role=CreatorRole.STUDENT,
         )
 
-    def test_global_admin_can_edit_anything(self):
-        self.client.force_authenticate(user=self.global_admin)
+    def test_admin_can_edit_anything(self):
+        self.client.force_authenticate(user=self.admin)
         for t in (self.admin_task, self.mentor_task, self.supervisor_task, self.student_indiv):
             r = self.client.patch(_detail_url(t.id), {"name": "renamed"}, format="json")
             self.assertEqual(r.status_code, status.HTTP_200_OK)
-
-    def test_track_admin_in_scope_can_edit_anything_in_track(self):
-        self.client.force_authenticate(user=self.track_one_admin)
-        r = self.client.patch(_detail_url(self.mentor_task.id), {"name": "renamed"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-
-    def test_track_admin_outside_scope_blocked(self):
-        self.client.force_authenticate(user=self.track_two_admin)
-        r = self.client.patch(_detail_url(self.mentor_task.id), {"name": "x"}, format="json")
-        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_mentor_creator_can_edit_own_task(self):
         self.client.force_authenticate(user=self.mentor_a)
@@ -359,22 +333,22 @@ class TaskDeleteTests(_World, APITestCase):
         self._build()
         self.parent = Task.objects.create(
             name="parent", task_type=TaskType.GROUP, group=self.group_a,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.child = Task.objects.create(
             name="child", task_type=TaskType.GROUP, group=self.group_a,
             parent=self.parent,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
     def test_soft_delete_returns_object_and_marks_deleted(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.delete(_detail_url(self.parent.id))
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(r.data["deleted_at"])
 
     def test_soft_delete_cascades_to_children(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         self.client.delete(_detail_url(self.parent.id))
         self.parent.refresh_from_db()
         self.child.refresh_from_db()
@@ -383,7 +357,7 @@ class TaskDeleteTests(_World, APITestCase):
 
     def test_restore_parent_cascades_matching_deleted_children(self):
         # Restore cascades only through children tombstoned by the same delete.
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         self.client.delete(_detail_url(self.parent.id))
 
         r = self.client.post(_restore_url(self.parent.id))
@@ -396,7 +370,7 @@ class TaskDeleteTests(_World, APITestCase):
 
     def test_deleted_filter_returns_deleted_tasks(self):
         # deleted=true is the recovery list for tasks visible to the caller.
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         self.client.delete(_detail_url(self.parent.id))
 
         r = self.client.get(LIST_URL + "?deleted=true")
@@ -438,11 +412,11 @@ class GroupTaskToggleTests(_World, APITestCase):
         self._build()
         self.gtask = Task.objects.create(
             name="gtask", task_type=TaskType.GROUP, group=self.group_a,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
     def test_admin_can_toggle(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(_toggle_url(self.gtask.id), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(r.data["completed"])
@@ -452,7 +426,7 @@ class GroupTaskToggleTests(_World, APITestCase):
         r = self.client.post(_toggle_url(self.gtask.id), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
-    def test_supervisor_auto_added_can_toggle(self):
+    def test_supervisor_of_group_member_can_toggle(self):
         self.client.force_authenticate(user=self.supervisor_a)
         r = self.client.post(_toggle_url(self.gtask.id), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
@@ -465,7 +439,7 @@ class GroupTaskToggleTests(_World, APITestCase):
     def test_explicit_set(self):
         self.gtask.completed = True
         self.gtask.save(update_fields=["completed"])
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(_toggle_url(self.gtask.id), {"completed": False}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertFalse(r.data["completed"])
@@ -478,7 +452,7 @@ class IndividualToggleStudentAssigneeTests(_World, APITestCase):
         self._build()
         self.admin_indiv = Task.objects.create(
             name="ai", task_type=TaskType.INDIVIDUAL, assigned_user=self.student_x,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.mentor_indiv = Task.objects.create(
             name="mi", task_type=TaskType.INDIVIDUAL, assigned_user=self.student_x,
@@ -529,7 +503,7 @@ class IndividualToggleNonStudentAssigneeTests(_World, APITestCase):
         self._build()
         self.mentor_assigned = Task.objects.create(
             name="m-assigned", task_type=TaskType.INDIVIDUAL, assigned_user=self.mentor_a,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
     def test_assignee_mentor_can_toggle(self):
@@ -538,7 +512,7 @@ class IndividualToggleNonStudentAssigneeTests(_World, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
     def test_admin_can_toggle(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(_toggle_url(self.mentor_assigned.id), {}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
@@ -572,15 +546,15 @@ class TaskListNewFiltersTests(_World, APITestCase):
             name="todo task", task_type=TaskType.GROUP, group=self.group_a,
             status="todo", completed=False,
             due_date=now + timezone.timedelta(days=7),
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.done = Task.objects.create(
             name="done task", task_type=TaskType.GROUP, group=self.group_a,
             status="done", completed=True,
             due_date=now - timezone.timedelta(days=1),
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
 
     def test_filter_status(self):
         r = self.client.get(LIST_URL + "?status=done")
@@ -619,15 +593,15 @@ class TaskBulkToggleTests(_World, APITestCase):
         # individual task assigned to student_x.
         self.t1 = Task.objects.create(
             name="bt1", task_type=TaskType.GROUP, group=self.group_a, completed=False,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.t2 = Task.objects.create(
             name="bt2", task_type=TaskType.GROUP, group=self.group_a, completed=False,
-            created_by=self.global_admin, creator_role=CreatorRole.GLOBAL_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
         self.t_indiv = Task.objects.create(
             name="bt-indiv", task_type=TaskType.INDIVIDUAL, assigned_user=self.student_x,
-            completed=False, created_by=self.global_admin,
+            completed=False, created_by=self.admin,
             creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
@@ -635,7 +609,7 @@ class TaskBulkToggleTests(_World, APITestCase):
         return "/api/v1/tasks/bulk/check/"
 
     def test_admin_bulk_set_completed_true(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(
             self._url(),
             {"task_ids": [self.t1.id, self.t2.id], "completed": True},
@@ -647,14 +621,14 @@ class TaskBulkToggleTests(_World, APITestCase):
         self.assertTrue(self.t1.completed and self.t2.completed)
 
     def test_bulk_flips_when_no_completed_provided(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(self._url(), {"task_ids": [self.t1.id]}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.t1.refresh_from_db()
         self.assertTrue(self.t1.completed)
 
     def test_unknown_ids_go_to_not_found(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(
             self._url(),
             {"task_ids": [self.t1.id, 999999]},
@@ -676,7 +650,7 @@ class TaskBulkToggleTests(_World, APITestCase):
         self.assertEqual([row["id"] for row in r.data["updated"]], [self.t_indiv.id])
 
     def test_empty_task_ids_rejected(self):
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         r = self.client.post(self._url(), {"task_ids": []}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -777,7 +751,7 @@ class SupervisorCannotEditGroupTaskTests(_World, APITestCase):
         )
         self.admin_created = Task.objects.create(
             name="Admin task", task_type=TaskType.GROUP, group=self.group_a,
-            created_by=self.track_one_admin, creator_role=CreatorRole.TRACK_ADMIN,
+            created_by=self.admin, creator_role=CreatorRole.GLOBAL_ADMIN,
         )
 
     def test_supervisor_cannot_patch_mentor_created_group_task(self):

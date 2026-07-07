@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.groups.models import Countries, CountryStates, Groups, Tracks
+from apps.groups.models import Groups
 
 from .filters import TaskFilter
 from .models import CreatorRole, Task, TaskType
@@ -9,10 +9,7 @@ from .models import CreatorRole, Task, TaskType
 
 class DeletedFilterTests(TestCase):
     def setUp(self):
-        country = Countries.objects.create(country_name="AU-DF")
-        state = CountryStates.objects.create(country=country, state_name="VIC-DF")
-        track = Tracks.objects.create(track_name="VIC-DF-01", state=state)
-        self.group = Groups.objects.create(group_name="DF-Group", track=track)
+        self.group = Groups.objects.create(group_name="DF-Group")
         self.active = Task.objects.create(
             name="active", task_type=TaskType.GROUP, group=self.group,
             creator_role=CreatorRole.GLOBAL_ADMIN,

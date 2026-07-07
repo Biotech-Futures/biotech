@@ -1,7 +1,5 @@
 // Group type definitions
 
-export type Track = string;
-
 export type MentorStatusFilter = "matched" | "unmatched";
 
 export type GroupMember = {
@@ -15,7 +13,6 @@ export type GroupMember = {
 export type Group = {
   id: string;
   name: string;
-  track: Track;
   members: GroupMember[];
   mentor: GroupMember | null;
   createdAt: string;

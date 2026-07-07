@@ -13,7 +13,6 @@ export interface BackendEvent {
   id: number
   event_name?: string | null
   description?: string | null
-  track?: number | null
   start_datetime?: string | null
   ends_datetime?: string | null
   location?: string | null
@@ -27,7 +26,6 @@ export interface BackendEvent {
   waitlist_count?: number
   accepted?: boolean
   target_groups?: number[]
-  target_tracks?: number[]
   target_roles?: number[]
 }
 
@@ -47,7 +45,6 @@ export interface EventListParams {
   rsvp_status?: EventRsvpStatus | EventRsvpStatus[] | string
   user?: number
   group?: number
-  track?: number
   ordering?: 'start_datetime' | '-start_datetime' | 'ends_datetime' | '-ends_datetime'
 }
 
@@ -111,7 +108,6 @@ const eventListUrl = (params: EventListParams = {}) => {
   appendParam(query, 'rsvp_status', params.rsvp_status)
   appendParam(query, 'user', params.user)
   appendParam(query, 'group', params.group)
-  appendParam(query, 'track', params.track)
   appendParam(query, 'ordering', params.ordering || 'start_datetime')
 
   return `${EVENTS_API_BASE}/?${query.toString()}`

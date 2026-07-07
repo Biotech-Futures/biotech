@@ -21,32 +21,23 @@ class GroupQuerySet(models.QuerySet):
 
         Scope rules (mirrors the existing dashboard preview semantics):
 
-        - Operational admin without ``mine`` → all active groups within
-          their admin track scope (or all active groups if the admin is
-          globally scoped via ``AdminScope.is_global``).
-        - Operational admin with ``mine=True`` → only the groups they
-          are an active member of.
+        - Admin without ``mine`` → all active groups.
+        - Admin with ``mine=True`` → only the groups they are an active
+          member of.
         - Non-admin user → only the groups they are an active member of.
 
-        The ``GroupMembership`` and admin-scope helpers are imported
-        inside the method to avoid a circular import at module load
-        (``Groups`` is imported before ``GroupMembership`` in this
-        package's ``__init__``).
+        The ``GroupMembership`` and admin helpers are imported inside the
+        method to avoid a circular import at module load (``Groups`` is
+        imported before ``GroupMembership`` in this package's
+        ``__init__``).
         """
+        from apps.common.rbac import is_admin
         from apps.groups.models import GroupMembership
-        from apps.users.utils.admin_scope import (
-            get_admin_track_ids,
-            is_operational_admin,
-        )
 
         qs = self.active()
 
-        if is_operational_admin(user) and not mine:
-            admin_track_ids = get_admin_track_ids(user)
-            if admin_track_ids is None:
-                # Globally-scoped admin — no track filter needed.
-                return qs
-            return qs.filter(track_id__in=admin_track_ids)
+        if is_admin(user) and not mine:
+            return qs
 
         member_group_ids = GroupMembership.objects.filter(
             user=user,
@@ -68,22 +59,20 @@ class Groups(models.Model):
     objects = GroupManager()
 
     group_name = models.CharField(max_length=255)
-    track = models.ForeignKey('Tracks', on_delete=models.PROTECT)
     created_at = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'groups'
         indexes = [
-            models.Index(fields=['track']),
             models.Index(fields=['deleted_at']),
             models.Index(fields=['created_at']),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['track', 'group_name'],
+                fields=['group_name'],
                 condition=Q(deleted_at__isnull=True),
-                name='unique_active_group_name_per_track'
+                name='unique_active_group_name'
             ),
             models.CheckConstraint(
                 condition=Q(deleted_at__gte=F('created_at')) | Q(deleted_at__isnull=True),

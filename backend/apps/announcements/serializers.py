@@ -5,23 +5,21 @@ from .models import Announcement, AnnouncementAudience
 
 class AnnouncementAudienceSerializer(serializers.ModelSerializer):
     role_name = serializers.CharField(source="role.role_name", read_only=True)
-    track_name = serializers.CharField(source="track.track_name", read_only=True)
     group_name = serializers.CharField(source="group.group_name", read_only=True)
 
     class Meta:
         model = AnnouncementAudience
-        fields = ["id", "role", "role_name", "track", "track_name", "group", "group_name"]
+        fields = ["id", "role", "role_name", "group", "group_name"]
 
 
 class AnnouncementAudienceWriteSerializer(serializers.Serializer):
     role_id = serializers.IntegerField(required=False)
-    track_id = serializers.IntegerField(required=False)
     group_id = serializers.IntegerField(required=False)
 
     def validate(self, attrs):
-        if not attrs.get("role_id") and not attrs.get("track_id") and not attrs.get("group_id"):
+        if not attrs.get("role_id") and not attrs.get("group_id"):
             raise serializers.ValidationError(
-                "Each audience rule must include role_id, track_id, or group_id."
+                "Each audience rule must include role_id or group_id."
             )
         return attrs
 
@@ -44,7 +42,6 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "sender_name",
-            "track",
             "title",
             "body",
             "visibility_scope",
@@ -63,7 +60,6 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             AnnouncementAudience.objects.create(
                 announcement=announcement,
                 role_id=rule.get("role_id"),
-                track_id=rule.get("track_id"),
                 group_id=rule.get("group_id"),
             )
 

@@ -51,7 +51,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type MentorSortKey =
   | "name"
-  | "track"
+  | "country"
   | "institution"
   | "capacity"
   | "lastMessage"
@@ -101,8 +101,8 @@ function MentorPage() {
       switch (key) {
         case "name":
           return `${mentor.name} ${mentor.email}`;
-        case "track":
-          return mentor.trackCode;
+        case "country":
+          return mentor.countryName;
         case "institution":
           return mentor.institution ?? "";
         case "capacity":
@@ -244,8 +244,8 @@ function MentorPage() {
                 </TableHead>
                 <TableHead>
                   <SortableTableHead
-                    label="Track"
-                    sortKey="track"
+                    label="Country"
+                    sortKey="country"
                     sortState={sortState}
                     onSortChange={setSortState}
                   />
@@ -320,7 +320,7 @@ function MentorPage() {
                       </p>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{mentor.trackCode}</Badge>
+                      <Badge variant="outline">{mentor.countryName}</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {mentor.institution ?? "—"}

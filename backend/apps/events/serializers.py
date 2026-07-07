@@ -6,7 +6,6 @@ from .models import (
     EventRsvp,
     EventTargetGroup,
     EventTargetRole,
-    EventTargetTrack,
     Events,
 )
 
@@ -15,7 +14,7 @@ class _LazyPKField(serializers.PrimaryKeyRelatedField):
     """PrimaryKeyRelatedField that resolves its queryset on first use.
 
     Overriding get_queryset short-circuits DRF's queryset assert and lets
-    us reference Groups / Tracks / Roles without the events ↔ groups ↔
+    us reference Groups / Roles without the events ↔ groups ↔
     resources import cycle at module load.
     """
 
@@ -44,13 +43,6 @@ class EventSerializer(serializers.ModelSerializer):
         source="event_target_groups",
         write_only=True,
     )
-    target_track_ids = _LazyPKField(
-        "apps.groups.models.Tracks",
-        many=True,
-        required=False,
-        source="event_target_tracks",
-        write_only=True,
-    )
     target_role_ids = _LazyPKField(
         "apps.resources.models.Roles",
         many=True,
@@ -59,7 +51,6 @@ class EventSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     target_groups = serializers.SerializerMethodField()
-    target_tracks = serializers.SerializerMethodField()
     target_roles = serializers.SerializerMethodField()
     accepted_count = serializers.SerializerMethodField()
     waitlist_count = serializers.SerializerMethodField()
@@ -81,7 +72,6 @@ class EventSerializer(serializers.ModelSerializer):
             "id",
             "event_name",
             "description",
-            "track",
             "event_type",
             "start_datetime",
             "ends_datetime",
@@ -97,10 +87,8 @@ class EventSerializer(serializers.ModelSerializer):
             "waitlist_count",
             "accepted",
             "target_groups",
-            "target_tracks",
             "target_roles",
             "target_group_ids",
-            "target_track_ids",
             "target_role_ids",
         ]
         read_only_fields = [
@@ -111,7 +99,6 @@ class EventSerializer(serializers.ModelSerializer):
             "accepted_count",
             "waitlist_count",
             "target_groups",
-            "target_tracks",
             "target_roles",
         ]
 
@@ -125,9 +112,6 @@ class EventSerializer(serializers.ModelSerializer):
     # don't set one.
     def get_target_groups(self, event):
         return [t.group_id for t in event.eventtargetgroup_set.all()]
-
-    def get_target_tracks(self, event):
-        return [t.track_id for t in event.eventtargettrack_set.all()]
 
     def get_target_roles(self, event):
         return [t.role_id for t in event.eventtargetrole_set.all()]
@@ -181,39 +165,30 @@ class EventSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         groups = validated_data.pop("event_target_groups", None)
-        tracks = validated_data.pop("event_target_tracks", None)
         roles = validated_data.pop("event_target_roles", None)
         event = super().create(validated_data)
-        self._apply_targets(event, groups, tracks, roles)
+        self._apply_targets(event, groups, roles)
         return event
 
     @transaction.atomic
     def update(self, instance, validated_data):
         groups = validated_data.pop("event_target_groups", _UNSET)
-        tracks = validated_data.pop("event_target_tracks", _UNSET)
         roles = validated_data.pop("event_target_roles", _UNSET)
         instance = super().update(instance, validated_data)
         self._apply_targets(
             instance,
             None if groups is _UNSET else groups,
-            None if tracks is _UNSET else tracks,
             None if roles is _UNSET else roles,
         )
         return instance
 
     @staticmethod
-    def _apply_targets(event, groups, tracks, roles):
+    def _apply_targets(event, groups, roles):
         # None = field absent (no-op); [] = explicit clear.
         if groups is not None:
             EventTargetGroup.objects.filter(event=event).delete()
             EventTargetGroup.objects.bulk_create(
                 [EventTargetGroup(event=event, group=g) for g in groups],
-                ignore_conflicts=True,
-            )
-        if tracks is not None:
-            EventTargetTrack.objects.filter(event=event).delete()
-            EventTargetTrack.objects.bulk_create(
-                [EventTargetTrack(event=event, track=t) for t in tracks],
                 ignore_conflicts=True,
             )
         if roles is not None:

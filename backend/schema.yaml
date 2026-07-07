@@ -60,6 +60,22 @@ paths:
       responses:
         '200':
           description: No response body
+    delete:
+      operationId: api_v1_admin_announcement_destroy
+      description: GET /api/v1/announcement/{id} - Get single announcement
+      parameters:
+      - in: path
+        name: announcement_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/admin/announcement/{announcement_id}/archive/:
     post:
       operationId: api_v1_admin_announcement_archive_create
@@ -95,10 +111,11 @@ paths:
       responses:
         '200':
           description: No response body
-  /api/v1/admin/announcement/roles/:
+  /api/v1/admin/announcement/groups/:
     get:
-      operationId: api_v1_admin_announcement_roles_retrieve
-      description: GET /api/v1/announcement/roles - List available announcement roles
+      operationId: api_v1_admin_announcement_groups_retrieve
+      description: GET /api/v1/announcement/groups - List groups for announcement
+        targeting
       tags:
       - api
       security:
@@ -106,10 +123,10 @@ paths:
       responses:
         '200':
           description: No response body
-  /api/v1/admin/announcement/tracks/:
+  /api/v1/admin/announcement/roles/:
     get:
-      operationId: api_v1_admin_announcement_tracks_retrieve
-      description: GET /api/v1/announcement/tracks - List available announcement tracks
+      operationId: api_v1_admin_announcement_roles_retrieve
+      description: GET /api/v1/announcement/roles - List available announcement roles
       tags:
       - api
       security:
@@ -298,17 +315,6 @@ paths:
     get:
       operationId: api_v1_admin_event_meta_roles_retrieve
       description: GET /api/v1/event/meta/roles - List roles for event targeting
-      tags:
-      - api
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          description: No response body
-  /api/v1/admin/event/meta/tracks/:
-    get:
-      operationId: api_v1_admin_event_meta_tracks_retrieve
-      description: GET /api/v1/event/meta/tracks - List tracks for event targeting
       tags:
       - api
       security:
@@ -772,17 +778,6 @@ paths:
       responses:
         '200':
           description: No response body
-  /api/v1/admin/resource/tracks/:
-    get:
-      operationId: api_v1_admin_resource_tracks_retrieve
-      description: GET /api/v1/resource/tracks - List available resource tracks
-      tags:
-      - api
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          description: No response body
   /api/v1/admin/resource/types/:
     get:
       operationId: api_v1_admin_resource_types_retrieve
@@ -1007,9 +1002,19 @@ paths:
       responses:
         '200':
           description: No response body
-  /api/v1/admin/user/tracks/:
+  /api/v1/admin/user/bulk-status/:
+    patch:
+      operationId: api_v1_admin_user_bulk_status_partial_update
+      tags:
+      - api
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/admin/user/states/:
     get:
-      operationId: api_v1_admin_user_tracks_retrieve
+      operationId: api_v1_admin_user_states_retrieve
       tags:
       - api
       security:
@@ -1043,34 +1048,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/BulkUserStatus'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
-          description: ''
-  /api/v1/admin/users/bulk-track/:
-    post:
-      operationId: api_v1_admin_users_bulk_track_create
-      tags:
-      - api
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BulkUserTrack'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/BulkUserTrack'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/BulkUserTrack'
         required: true
       security:
       - cookieAuth: []
@@ -1706,10 +1683,6 @@ paths:
         description: A search term.
         schema:
           type: string
-      - in: query
-        name: track
-        schema:
-          type: integer
       - in: query
         name: user
         schema:
@@ -2746,148 +2719,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedGroupList'
-          description: ''
-  /api/v1/groups/tracks/:
-    get:
-      operationId: api_v1_groups_tracks_list
-      parameters:
-      - name: ordering
-        required: false
-        in: query
-        description: Which field to use when ordering the results.
-        schema:
-          type: string
-      - name: page
-        required: false
-        in: query
-        description: A page number within the paginated result set.
-        schema:
-          type: integer
-      - name: search
-        required: false
-        in: query
-        description: A search term.
-        schema:
-          type: string
-      tags:
-      - api
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedTrackList'
-          description: ''
-    post:
-      operationId: api_v1_groups_tracks_create
-      tags:
-      - api
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Track'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/Track'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/Track'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Track'
-          description: ''
-  /api/v1/groups/tracks/{id}/:
-    get:
-      operationId: api_v1_groups_tracks_retrieve
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        description: A unique integer value identifying this tracks.
-        required: true
-      tags:
-      - api
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Track'
-          description: ''
-    put:
-      operationId: api_v1_groups_tracks_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        description: A unique integer value identifying this tracks.
-        required: true
-      tags:
-      - api
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Track'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/Track'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/Track'
-        required: true
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Track'
-          description: ''
-    patch:
-      operationId: api_v1_groups_tracks_partial_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: integer
-        description: A unique integer value identifying this tracks.
-        required: true
-      tags:
-      - api
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedTrack'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedTrack'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedTrack'
-      security:
-      - cookieAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Track'
           description: ''
   /api/v1/login/:
     post:
@@ -3978,11 +3809,9 @@ paths:
           enum:
           - group
           - individual
-          - track
         description: |-
           * `group` - Group
           * `individual` - Individual
-          * `track` - Track
       tags:
       - api
       security:
@@ -4274,11 +4103,9 @@ paths:
     get:
       operationId: api_v1_users_list
       description: |-
-        Operational-admin user search rendered as HTML.
+        Admin user search rendered as HTML.
 
-        Auth-gated to operational admins and scoped to the caller's admin
-        track(s). A global admin sees all users; a track-scoped admin only sees
-        users in their tracks. The legacy ``AllowAny`` override exposed the full
+        Auth-gated to admins. The legacy ``AllowAny`` override exposed the full
         user table (PII + account_status oracle) to anonymous callers — see
         CONSOLIDATED issues list 1.2.
       parameters:
@@ -4309,13 +4136,11 @@ paths:
     get:
       operationId: api_v1_users_retrieve
       description: |-
-        Operational-admin user detail + mutation view rendered as HTML.
+        Admin user detail + mutation view rendered as HTML.
 
-        Auth-gated to operational admins; PATCH is further restricted to admins
-        whose scope covers the target user's track. The legacy ``AllowAny``
-        override let any anonymous caller flip ``account_status`` or assign an
-        arbitrary ``role_id`` (including admin) for any user — see CONSOLIDATED
-        issues list 1.2.
+        Auth-gated to admins. The legacy ``AllowAny`` override let any anonymous
+        caller flip ``account_status`` or assign an arbitrary ``role_id``
+        (including admin) for any user — see CONSOLIDATED issues list 1.2.
       parameters:
       - in: path
         name: id
@@ -4336,13 +4161,11 @@ paths:
     put:
       operationId: api_v1_users_update
       description: |-
-        Operational-admin user detail + mutation view rendered as HTML.
+        Admin user detail + mutation view rendered as HTML.
 
-        Auth-gated to operational admins; PATCH is further restricted to admins
-        whose scope covers the target user's track. The legacy ``AllowAny``
-        override let any anonymous caller flip ``account_status`` or assign an
-        arbitrary ``role_id`` (including admin) for any user — see CONSOLIDATED
-        issues list 1.2.
+        Auth-gated to admins. The legacy ``AllowAny`` override let any anonymous
+        caller flip ``account_status`` or assign an arbitrary ``role_id``
+        (including admin) for any user — see CONSOLIDATED issues list 1.2.
       parameters:
       - in: path
         name: id
@@ -4375,13 +4198,11 @@ paths:
     patch:
       operationId: api_v1_users_partial_update
       description: |-
-        Operational-admin user detail + mutation view rendered as HTML.
+        Admin user detail + mutation view rendered as HTML.
 
-        Auth-gated to operational admins; PATCH is further restricted to admins
-        whose scope covers the target user's track. The legacy ``AllowAny``
-        override let any anonymous caller flip ``account_status`` or assign an
-        arbitrary ``role_id`` (including admin) for any user — see CONSOLIDATED
-        issues list 1.2.
+        Auth-gated to admins. The legacy ``AllowAny`` override let any anonymous
+        caller flip ``account_status`` or assign an arbitrary ``role_id``
+        (including admin) for any user — see CONSOLIDATED issues list 1.2.
       parameters:
       - in: path
         name: id
@@ -4421,7 +4242,7 @@ paths:
         entire request with HTTP 400 and a field-keyed error message — see the
         module-level comment above for the security rationale. The legitimate
         admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
-        and is gated on ``is_operational_admin`` + ``can_admin_track``.
+        and is gated on ``is_admin``.
       tags:
       - api
       security:
@@ -4443,7 +4264,7 @@ paths:
         entire request with HTTP 400 and a field-keyed error message — see the
         module-level comment above for the security rationale. The legitimate
         admin-driven role-assignment path lives on :class:`UsersRetrieveUpdateView`
-        and is gated on ``is_operational_admin`` + ``can_admin_track``.
+        and is gated on ``is_admin``.
       tags:
       - api
       requestBody:
@@ -4485,11 +4306,6 @@ components:
     AdminOperationsSummary:
       type: object
       properties:
-        track_scope:
-          type: array
-          items:
-            type: integer
-            minimum: 1
         active_users:
           type: integer
         invited_or_pending_users:
@@ -4537,8 +4353,6 @@ components:
         group_name:
           type: string
           maxLength: 255
-        track:
-          type: integer
         member_user_ids:
           type: array
           items:
@@ -4548,7 +4362,6 @@ components:
           nullable: true
       required:
       - group_name
-      - track
     BulkUser:
       type: object
       properties:
@@ -4572,19 +4385,6 @@ components:
       required:
       - account_status
       - user_ids
-    BulkUserTrack:
-      type: object
-      properties:
-        user_ids:
-          type: array
-          items:
-            type: integer
-            minimum: 1
-        track_id:
-          type: integer
-      required:
-      - track_id
-      - user_ids
     Country:
       type: object
       properties:
@@ -4600,14 +4400,12 @@ components:
     CreatorRoleEnum:
       enum:
       - global_admin
-      - track_admin
       - mentor
       - supervisor
       - student
       type: string
       description: |-
-        * `global_admin` - Global Administrator
-        * `track_admin` - Track Administrator
+        * `global_admin` - Administrator
         * `mentor` - Mentor
         * `supervisor` - Supervisor
         * `student` - Student
@@ -4625,10 +4423,6 @@ components:
         id:
           type: integer
         group_name:
-          type: string
-        track_id:
-          type: integer
-        track_name:
           type: string
         member_count:
           type: integer
@@ -4648,8 +4442,6 @@ components:
       - lead_user
       - member_count
       - status
-      - track_id
-      - track_name
     DashboardNextEvent:
       type: object
       properties:
@@ -4659,9 +4451,6 @@ components:
           type: string
         description:
           type: string
-          nullable: true
-        track:
-          type: integer
           nullable: true
         groups:
           type: array
@@ -4707,7 +4496,6 @@ components:
       - location_link
       - rsvp_status
       - start_datetime
-      - track
     Event:
       type: object
       properties:
@@ -4719,9 +4507,6 @@ components:
           maxLength: 255
         description:
           type: string
-          nullable: true
-        track:
-          type: integer
           nullable: true
         event_type:
           nullable: true
@@ -4782,19 +4567,10 @@ components:
         target_groups:
           type: string
           readOnly: true
-        target_tracks:
-          type: string
-          readOnly: true
         target_roles:
           type: string
           readOnly: true
         target_group_ids:
-          type: array
-          items:
-            type: string
-            writeOnly: true
-          writeOnly: true
-        target_track_ids:
           type: array
           items:
             type: string
@@ -4817,7 +4593,6 @@ components:
       - start_datetime
       - target_groups
       - target_roles
-      - target_tracks
       - waitlist_count
     EventBulkInvite:
       type: object
@@ -4938,8 +4713,6 @@ components:
         group_name:
           type: string
           maxLength: 255
-        track:
-          type: integer
         created_at:
           type: string
           format: date-time
@@ -4954,7 +4727,6 @@ components:
       - deleted_at
       - group_name
       - id
-      - track
     GroupMembership:
       type: object
       properties:
@@ -5637,29 +5409,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Task'
-    PaginatedTrackList:
-      type: object
-      required:
-      - count
-      - results
-      properties:
-        count:
-          type: integer
-          example: 123
-        next:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=4
-        previous:
-          type: string
-          nullable: true
-          format: uri
-          example: http://api.example.org/accounts/?page=2
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/Track'
     PaginatedUserList:
       type: object
       required:
@@ -5736,9 +5485,6 @@ components:
         description:
           type: string
           nullable: true
-        track:
-          type: integer
-          nullable: true
         event_type:
           nullable: true
           oneOf:
@@ -5798,19 +5544,10 @@ components:
         target_groups:
           type: string
           readOnly: true
-        target_tracks:
-          type: string
-          readOnly: true
         target_roles:
           type: string
           readOnly: true
         target_group_ids:
-          type: array
-          items:
-            type: string
-            writeOnly: true
-          writeOnly: true
-        target_track_ids:
           type: array
           items:
             type: string
@@ -5831,8 +5568,6 @@ components:
         group_name:
           type: string
           maxLength: 255
-        track:
-          type: integer
         created_at:
           type: string
           format: date-time
@@ -5924,9 +5659,6 @@ components:
           type: string
           format: uri
           writeOnly: true
-          nullable: true
-        track:
-          type: integer
           nullable: true
         group:
           type: integer
@@ -6035,17 +5767,6 @@ components:
         parent:
           type: integer
           nullable: true
-    PatchedTrack:
-      type: object
-      properties:
-        id:
-          type: integer
-          readOnly: true
-        track_name:
-          type: string
-          maxLength: 100
-        state:
-          type: integer
     PatchedUser:
       type: object
       properties:
@@ -6064,9 +5785,11 @@ components:
           maxLength: 254
         account_status:
           $ref: '#/components/schemas/AccountStatusEnum'
-        track:
-          type: integer
+        state:
+          type: object
+          additionalProperties: {}
           nullable: true
+          readOnly: true
         current_role_id:
           type: integer
           nullable: true
@@ -6194,22 +5917,13 @@ components:
         role_name:
           type: string
           readOnly: true
-        track:
-          type: integer
-          nullable: true
-        track_name:
-          type: string
-          readOnly: true
       required:
       - id
       - role_name
-      - track_name
     ResourceAudienceWrite:
       type: object
       properties:
         role_id:
-          type: integer
-        track_id:
           type: integer
     ResourceLabel:
       type: object
@@ -6438,9 +6152,6 @@ components:
           type: string
           format: uri
           writeOnly: true
-          nullable: true
-        track:
-          type: integer
           nullable: true
         group:
           type: integer
@@ -6725,12 +6436,10 @@ components:
       enum:
       - group
       - individual
-      - track
       type: string
       description: |-
         * `group` - Group
         * `individual` - Individual
-        * `track` - Track
     TaskUpdate:
       type: object
       properties:
@@ -6750,21 +6459,6 @@ components:
           nullable: true
       required:
       - name
-    Track:
-      type: object
-      properties:
-        id:
-          type: integer
-          readOnly: true
-        track_name:
-          type: string
-          maxLength: 100
-        state:
-          type: integer
-      required:
-      - id
-      - state
-      - track_name
     User:
       type: object
       properties:
@@ -6783,9 +6477,11 @@ components:
           maxLength: 254
         account_status:
           $ref: '#/components/schemas/AccountStatusEnum'
-        track:
-          type: integer
+        state:
+          type: object
+          additionalProperties: {}
           nullable: true
+          readOnly: true
         current_role_id:
           type: integer
           nullable: true
@@ -6866,6 +6562,7 @@ components:
       - pg_firstname
       - pg_lastname
       - school_name
+      - state
       - supervisor_email
       - supervisor_name
       - supervisor_school_name
@@ -6978,14 +6675,12 @@ components:
       enum:
       - public
       - role
-      - track
       - group
       - scoped
       type: string
       description: |-
         * `public` - Public
         * `role` - Role
-        * `track` - Track
         * `group` - Group
         * `scoped` - Scoped
   securitySchemes:

@@ -1,25 +1,9 @@
 // Group table columns definition
 
 import type { ColumnDef } from "@tanstack/react-table";
-import type { Group, Track } from "@/type/group";
-import { Badge } from "@/components/ui/badge";
+import type { Group } from "@/type/group";
 import { Button } from "@/components/ui/button";
 import { UsersIcon, UserIcon } from "lucide-react";
-
-function getTrackColor(track: Track) {
-  switch (track.toLowerCase()) {
-    case "frontend":
-      return "bg-blue-100 text-blue-800";
-    case "backend":
-      return "bg-green-100 text-green-800";
-    case "fullstack":
-      return "bg-purple-100 text-purple-800";
-    case "data":
-      return "bg-orange-100 text-orange-800";
-    default:
-      return "bg-slate-100 text-slate-800";
-  }
-}
 
 interface ColumnsOptions {
   onViewDetail?: (group: Group) => void;
@@ -44,17 +28,6 @@ export function createColumns({
             {group.name}
           </button>
         );
-      },
-    },
-    {
-      accessorKey: "track",
-      header: "Track",
-      cell: ({ row }) => {
-        const track = row.getValue("track") as Track;
-        return <Badge className={getTrackColor(track)}>{track}</Badge>;
-      },
-      filterFn: (row, id, value) => {
-        return value.includes(row.getValue(id));
       },
     },
     {

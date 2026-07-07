@@ -1,9 +1,8 @@
 """Tests for admin mentor service."""
 from django.test import TestCase
-from django.utils import timezone
 
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.users.models import MentorProfile, User
 from apps.users.models.admin_scope import AdminScope
 
@@ -12,16 +11,15 @@ class MentorServiceTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
         self.admin_user = User.objects.create_user(
             email="admin@example.com", first_name="Admin", password="testpass",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.mentor = User.objects.create_user(
             email="mentor1@example.com",
             first_name="Mina",
             last_name="Mentor",
-            track=self.track,
+            state=self.state,
             password="testpass",
             is_active=True,
         )
@@ -46,14 +44,15 @@ class MentorServiceTests(TestCase):
         self.assertEqual(mentor["lastName"], "Mentor")
         self.assertEqual(mentor["email"], "mentor1@example.com")
         self.assertEqual(mentor["institution"], "UNSW")
-        self.assertEqual(mentor["trackCode"], "TRACK-1")
+        self.assertEqual(mentor["countryName"], "Australia")
+        self.assertEqual(mentor["utcOffsetHours"], 0.0)
         self.assertEqual(mentor["maxGroupCount"], 3)
         self.assertEqual(mentor["currentAssignedCount"], 0)
         self.assertEqual(mentor["remainingCapacity"], 3)
         self.assertTrue(mentor["isActive"])
 
     def test_get_mentor_list_counts_assigned_groups(self):
-        group = Groups.objects.create(group_name="Group A", track=self.track)
+        group = Groups.objects.create(group_name="Group A")
         GroupMembership.objects.create(
             user=self.mentor,
             group=group,
@@ -63,21 +62,18 @@ class MentorServiceTests(TestCase):
         self.assertEqual(result[0]["currentAssignedCount"], 1)
         self.assertEqual(result[0]["remainingCapacity"], 2)
 
-    def test_get_mentor_list_excludes_mentors_in_archived_tracks(self):
-        archived_track = Tracks.objects.create(track_name="ARCHIVED", state=self.state)
-        archived_track.is_archived = True
-        archived_track.save()
-        archived_mentor = User.objects.create_user(
-            email="archived-mentor@example.com", first_name="Archived",
-            last_name="Mentor", track=archived_track, password="testpass",
+    def test_get_mentor_list_handles_mentor_without_geography(self):
+        mentor_no_state = User.objects.create_user(
+            email="mentor2@example.com", first_name="No", last_name="State",
+            password="testpass",
         )
         MentorProfile.objects.create(
-            user=archived_mentor, institution="UAT", mentor_reason="Test",
+            user=mentor_no_state, institution="UAT", mentor_reason="Test",
         )
         result = get_mentor_list(requesting_user=self.admin_user)
-        emails = [m["email"] for m in result]
-        self.assertIn("mentor1@example.com", emails)
-        self.assertNotIn("archived-mentor@example.com", emails)
+        by_email = {m["email"]: m for m in result}
+        self.assertIn("mentor2@example.com", by_email)
+        self.assertIsNone(by_email["mentor2@example.com"]["countryName"])
 
     def test_set_mentor_active_deactivates(self):
         set_mentor_active(self.mentor.id, False)

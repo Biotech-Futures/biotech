@@ -9,9 +9,8 @@ import {
 } from "@/components/ui/select";
 import {
   USER_ROLES,
-  type TrackOption,
+  type StateOption,
   type UserRole,
-  type UserTrack,
 } from "@/type/user";
 
 interface UserFiltersProps {
@@ -19,9 +18,9 @@ interface UserFiltersProps {
   onSearchChange: (value: string) => void;
   role: UserRole | "all";
   onRoleChange: (value: UserRole | "all") => void;
-  track: UserTrack | "all";
-  onTrackChange: (value: UserTrack | "all") => void;
-  tracks?: TrackOption[];
+  state: string | "all";
+  onStateChange: (value: string | "all") => void;
+  states?: StateOption[];
   status: "all" | "active" | "inactive";
   onStatusChange: (value: "all" | "active" | "inactive") => void;
 }
@@ -31,13 +30,13 @@ export function UserFilters({
   onSearchChange,
   role,
   onRoleChange,
-  track,
-  onTrackChange,
-  tracks,
+  state,
+  onStateChange,
+  states,
   status,
   onStatusChange,
 }: UserFiltersProps) {
-  const availableTracks = (tracks ?? []).map((item) => item.trackName);
+  const availableStates = states ?? [];
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -72,19 +71,21 @@ export function UserFilters({
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="user-track">Track</Label>
+        <Label htmlFor="user-state">State</Label>
         <Select
-          value={track}
-          onValueChange={(value) => onTrackChange(value as UserTrack | "all")}
+          value={state}
+          onValueChange={(value) => onStateChange(value)}
         >
-          <SelectTrigger id="user-track">
-            <SelectValue placeholder="All tracks" />
+          <SelectTrigger id="user-state">
+            <SelectValue placeholder="All states" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All tracks</SelectItem>
-            {availableTracks.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
+            <SelectItem value="all">All states</SelectItem>
+            {availableStates.map((item) => (
+              <SelectItem key={item.id} value={item.stateName}>
+                {item.countryName
+                  ? `${item.stateName} · ${item.countryName}`
+                  : item.stateName}
               </SelectItem>
             ))}
           </SelectContent>

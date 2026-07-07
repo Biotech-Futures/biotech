@@ -2,13 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import type {
   CsvUserRow,
-  TracksResponse,
+  StatesResponse,
   ServerUser,
   UserAccount,
   UserFormValues,
   UserOverride,
   UserPaginatedResponse,
-  UserTrack,
   UserRole,
 } from "@/type/user";
 
@@ -20,9 +19,8 @@ type CreateUserPayload = {
   lastName: string;
   email: string;
   role: UserRole;
-  track?: UserTrack;
-  adminTracks?: UserTrack[];
-  adminIsGlobal?: boolean;
+  // Backend create resolves the state by name (add_users_by_role reads `state`).
+  state?: string;
   schoolName?: string;
   supervisorSchoolName?: string;
   mentorBackground?: string | null;
@@ -39,9 +37,8 @@ type UpdateUserPayload = {
   firstName?: string;
   lastName?: string;
   role?: UserRole;
-  track?: UserTrack | null;
-  adminTracks?: string[];
-  adminIsGlobal?: boolean;
+  // Backend update resolves the state by id (update_user reads `stateId`).
+  stateId?: number | null;
   schoolName?: string | null;
   supervisorSchoolName?: string | null;
   mentorBackground?: string | null;
@@ -74,9 +71,9 @@ interface QueryUsersParams {
   limit?: number;
   search?: string;
   role?: UserRole;
-  track?: UserTrack;
+  state?: string;
   active?: boolean;
-  sortBy?: "name" | "email" | "role" | "track" | "status" | "createdAt";
+  sortBy?: "name" | "email" | "role" | "state" | "status" | "createdAt";
   sortOrder?: "asc" | "desc";
 }
 
@@ -94,10 +91,10 @@ function writeStorage<T>(key: string, value: T) {
 }
 
 export function useQueryUsers(params: QueryUsersParams = {}) {
-  const { page = 1, limit = 100, search, role, track, active, sortBy, sortOrder } = params;
+  const { page = 1, limit = 100, search, role, state, active, sortBy, sortOrder } = params;
 
   return useQuery({
-    queryKey: ["users", page, limit, search, role, track, active, sortBy, sortOrder],
+    queryKey: ["users", page, limit, search, role, state, active, sortBy, sortOrder],
     queryFn: async (): Promise<UserPaginatedResponse> => {
       const res = await myFetch.get<{
         msg: string;
@@ -126,7 +123,7 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
           limit,
           search,
           role,
-          track,
+          state,
           active,
           sortBy,
           sortOrder,
@@ -147,11 +144,11 @@ export function useQueryUsers(params: QueryUsersParams = {}) {
   });
 }
 
-export function useQueryTracks() {
+export function useQueryStates() {
   return useQuery({
-    queryKey: ["user-tracks"],
-    queryFn: async (): Promise<TracksResponse> => {
-      const res = await myFetch.get<TracksResponse>("/user/tracks");
+    queryKey: ["user-states"],
+    queryFn: async (): Promise<StatesResponse> => {
+      const res = await myFetch.get<StatesResponse>("/user/states");
       return res.data;
     },
   });
@@ -301,7 +298,7 @@ export function normalizeServerUser(
     lastName: resolvedLastName || fallbackLastName,
     email: user.email ?? "",
     role: (user.role ?? "") as UserRole,
-    track: user.track ?? null,
+    state: user.state ?? null,
     groupId: user.groupId ?? null,
     groupName: user.groupName ?? null,
     age: user.age ?? user.yearLevel ?? null,
@@ -311,8 +308,7 @@ export function normalizeServerUser(
     mentorReason: user.mentorReason ?? null,
     mentorMaxGroupCount: user.mentorMaxGroupCount ?? null,
     interests: Array.isArray(user.interests) ? user.interests : [],
-    adminTracks: Array.isArray((user as any).adminTracks) ? (user as any).adminTracks : [],
-    adminIsGlobal: Boolean((user as any).adminIsGlobal),
+    isAdmin: Boolean(user.isAdmin),
     createdAt:
       user.createdAt ?? user.invitedAt ?? user.activatedAt ?? new Date(0).toISOString(),
     updatedAt:
@@ -335,7 +331,7 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     lastName: values.lastName.trim(),
     email: values.email.trim(),
     role: values.role,
-    track: values.track,
+    state: null,
     groupId: null,
     groupName: null,
     age: values.role === "student" ? values.yearLevel : null,
@@ -355,8 +351,7 @@ export function makeLocalUser(values: UserFormValues): UserAccount {
     supervisorName: null,
     supervisorEmail: null,
     supervisees: [],
-    adminTracks: values.role === "admin" ? values.adminTracks : [],
-    adminIsGlobal: values.role === "admin" ? values.adminIsGlobal : false,
+    isAdmin: values.role === "admin",
     interests:
       values.role === "student" || values.role === "mentor"
         ? values.interests
@@ -427,14 +422,7 @@ export function parseCsvUsers(text: string) {
         : parsedLastName;
       const roleValue = (row[headerIndex.role] ?? "").trim().toLowerCase();
       const role = normalizeRole(roleValue);
-      const track = normalizeTrack((row[headerIndex.track] ?? "").trim());
-      const adminTracksRaw = (row[headerIndex.admintracks] ?? "").trim();
-      const adminIsGlobalRaw = (
-        row[headerIndex.adminisglobal] ??
-        row[headerIndex.globaladmin] ??
-        row[headerIndex.isglobaladmin] ??
-        ""
-      ).trim();
+      const state = normalizeState((row[headerIndex.state] ?? "").trim());
       const statusRaw = (row[headerIndex.status] ?? "").trim().toLowerCase();
       const schoolName = (
         row[headerIndex.school] ??
@@ -468,9 +456,7 @@ export function parseCsvUsers(text: string) {
         lastName,
         email,
         role,
-        track,
-        adminTracks: parseTrackList(adminTracksRaw),
-        adminIsGlobal: parseBoolean(adminIsGlobalRaw),
+        state,
         schoolName,
         supervisorSchoolName:
           role === "supervisor"
@@ -507,11 +493,11 @@ function normalizeRole(role: string) {
   throw new Error(`Unsupported role "${role}". Use student, mentor, supervisor, or admin.`);
 }
 
-function normalizeTrack(track: string) {
-  if (!track || track === "unassigned" || track === "none") {
+function normalizeState(state: string) {
+  if (!state || state.toLowerCase() === "unassigned" || state.toLowerCase() === "none") {
     return null;
   }
-  return track;
+  return state;
 }
 
 export function parseInterestList(input: string) {
@@ -522,27 +508,6 @@ export function parseInterestList(input: string) {
         .map((item) => item.trim())
         .filter(Boolean),
     ),
-  );
-}
-
-function parseTrackList(input: string) {
-  return Array.from(
-    new Set(
-      input
-        .split(/[|;,]/)
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function parseBoolean(input: string) {
-  const normalized = input.trim().toLowerCase();
-  return (
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "y" ||
-    normalized === "1"
   );
 }
 

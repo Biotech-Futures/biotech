@@ -24,8 +24,7 @@ type IndividualStudentTableProps = {
 type IndividualStudentSortKey =
   | "index"
   | "name"
-  | "track"
-  | "trackId"
+  | "country"
   | "interest"
   | "yearLevel";
 
@@ -39,7 +38,7 @@ function StudentTableSkeleton() {
     <>
       {Array.from({ length: 5 }).map((_, rowIndex) => (
         <TableRow key={rowIndex}>
-          {Array.from({ length: 6 }).map((__, cellIndex) => (
+          {Array.from({ length: 5 }).map((__, cellIndex) => (
             <TableCell key={cellIndex}>
               <Skeleton className="h-4 w-full max-w-[140px]" />
             </TableCell>
@@ -61,10 +60,8 @@ export function IndividualStudentTable({
           return students.findIndex((item) => item.userId === student.userId);
         case "name":
           return `${student.firstName} ${student.lastName}`;
-        case "track":
-          return student.trackCode;
-        case "trackId":
-          return student.trackId;
+        case "country":
+          return student.countryName;
         case "interest":
           return student.interests.join(", ");
         case "yearLevel":
@@ -102,16 +99,8 @@ export function IndividualStudentTable({
             </TableHead>
             <TableHead>
               <SortableTableHead
-                label="Track"
-                sortKey="track"
-                sortState={sortState}
-                onSortChange={setSortState}
-              />
-            </TableHead>
-            <TableHead>
-              <SortableTableHead
-                label="Track ID"
-                sortKey="trackId"
+                label="Country"
+                sortKey="country"
                 sortState={sortState}
                 onSortChange={setSortState}
               />
@@ -145,9 +134,8 @@ export function IndividualStudentTable({
                   {student.firstName} {student.lastName}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline">{student.trackCode}</Badge>
+                  <Badge variant="outline">{student.countryName}</Badge>
                 </TableCell>
-                <TableCell>{student.trackId}</TableCell>
                 <TableCell>
                   {student.interests.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
@@ -166,7 +154,7 @@ export function IndividualStudentTable({
             ))
           ) : (
             <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center">
+              <TableCell colSpan={5} className="h-24 text-center">
                 No individual students found.
               </TableCell>
             </TableRow>

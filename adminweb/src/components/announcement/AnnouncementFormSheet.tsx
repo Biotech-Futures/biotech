@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { RichEditor } from "./RichEditor";
 import {
-  useAnnouncementTracks,
+  useAnnouncementGroups,
   useAnnouncementRoles,
   useCreateAnnouncement,
   useUpdateAnnouncement,
@@ -40,12 +40,12 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [trackIds, setTrackIds] = useState<number[]>([]);
+  const [groupIds, setGroupIds] = useState<number[]>([]);
   const [roleIds, setRoleIds] = useState<number[]>([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingSendEmail, setPendingSendEmail] = useState(false);
 
-  const { data: tracks } = useAnnouncementTracks();
+  const { data: groups } = useAnnouncementGroups();
   const { data: roles } = useAnnouncementRoles();
   const { mutateAsync: create, isPending: creating } = useCreateAnnouncement();
   const { mutateAsync: update, isPending: updating } = useUpdateAnnouncement();
@@ -55,10 +55,11 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
     if (editing) {
       setTitle(editing.title);
       setBody(editing.body ?? "");
-      const existingTrackIds = editing.audiences
-        .map((a) => a.trackId)
-        .filter((id): id is number => id !== null);
-      setTrackIds(existingTrackIds.length > 0 ? existingTrackIds : (editing.trackId ? [editing.trackId] : []));
+      setGroupIds(
+        editing.audiences
+          .map((a) => a.groupId)
+          .filter((id): id is number => id !== null),
+      );
       setRoleIds(
         editing.audiences
           .map((a) => a.roleId)
@@ -67,14 +68,14 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
     } else {
       setTitle("");
       setBody("");
-      setTrackIds([]);
+      setGroupIds([]);
       setRoleIds([]);
     }
   }, [editing, open]);
 
-  function toggleTrack(id: number) {
-    setTrackIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+  function toggleGroup(id: number) {
+    setGroupIds((prev) =>
+      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
     );
   }
 
@@ -88,8 +89,8 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
     return {
       title,
       body,
-      track_ids: trackIds.length > 0 ? trackIds : undefined,
       role_ids: roleIds.length > 0 ? roleIds : undefined,
+      group_ids: groupIds.length > 0 ? groupIds : undefined,
       send_email: sendEmail,
     };
   }
@@ -135,32 +136,6 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
               <RichEditor key={editing?.id ?? "new"} value={body} onChange={setBody} />
             </div>
 
-            {(tracks?.length ?? 0) > 0 && (
-              <div className="space-y-2">
-                <Label>Target Tracks</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {tracks!.map((t) => (
-                    <label
-                      key={t.id}
-                      className="flex items-center gap-2 text-sm cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={trackIds.includes(t.id)}
-                        onChange={() => toggleTrack(t.id)}
-                      />
-                      {t.name}
-                    </label>
-                  ))}
-                </div>
-                {trackIds.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {trackIds.length} track{trackIds.length > 1 ? "s" : ""} selected
-                  </p>
-                )}
-              </div>
-            )}
-
             {(roles?.length ?? 0) > 0 && (
               <div className="space-y-2">
                 <Label>Target Roles</Label>
@@ -187,9 +162,35 @@ export function AnnouncementFormSheet({ open, onOpenChange, editing }: Props) {
               </div>
             )}
 
-            {trackIds.length === 0 && roleIds.length === 0 && (
+            {(groups?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <Label>Target Groups</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {groups!.map((g) => (
+                    <label
+                      key={g.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={groupIds.includes(g.id)}
+                        onChange={() => toggleGroup(g.id)}
+                      />
+                      {g.name}
+                    </label>
+                  ))}
+                </div>
+                {groupIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {groupIds.length} group{groupIds.length > 1 ? "s" : ""} selected
+                  </p>
+                )}
+              </div>
+            )}
+
+            {groupIds.length === 0 && roleIds.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                No tracks or roles selected — announcement will be visible to all users.
+                No roles or groups selected — announcement will be visible to all users.
               </p>
             )}
           </div>

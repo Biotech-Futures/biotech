@@ -2,13 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import type { ReactNode } from "react";
-import type {
-  Resource,
-  ResourceKind,
-  ResourceRole,
-  ResourceTrackOption,
-} from "@/type/resource";
-import { getResourceTrackLabel, getResourceTypeLabel } from "@/type/resource";
+import type { Resource, ResourceKind, ResourceRole } from "@/type/resource";
+import { getResourceTypeLabel } from "@/type/resource";
 import { ResourceRoleSelector } from "./ResourceRoleSelector";
 import { RichEditor } from "@/components/announcement/RichEditor";
 
@@ -21,7 +16,6 @@ function getResourceKindLabel(kind: ResourceKind) {
 interface ResourceReadOnlyDetailsProps {
   resource: Resource;
   roles: ResourceRole[];
-  trackOptions: ResourceTrackOption[];
   onDownload?: (resource: Resource) => void;
 }
 
@@ -44,18 +38,9 @@ function ResourceDetailRow({ label, children }: ResourceDetailRowProps) {
 export function ResourceReadOnlyDetails({
   resource,
   roles,
-  trackOptions,
   onDownload,
 }: ResourceReadOnlyDetailsProps) {
   const pageContentHtml = resource.content_html?.trim() || "";
-  const trackId = Number(resource.track_id);
-  const trackLabel =
-    resource.track_id === null ||
-    resource.track_id === undefined ||
-    !Number.isFinite(trackId)
-      ? "Unassigned"
-      : trackOptions.find((item) => item.id === trackId)?.label ??
-        getResourceTrackLabel(trackId);
   const visibleRoleSlugs = Array.from(
     new Set(
       resource.audiences
@@ -93,12 +78,6 @@ export function ResourceReadOnlyDetails({
       <ResourceDetailRow label="Visibility">
         <p>{resource.visibility_scope}</p>
       </ResourceDetailRow>
-
-      {resource.visibility_scope === "track_based" ? (
-        <ResourceDetailRow label="Track">
-          <p>{trackLabel}</p>
-        </ResourceDetailRow>
-      ) : null}
 
       {resource.visibility_scope === "role_based" ||
       resource.visibility_scope === "global" ? (

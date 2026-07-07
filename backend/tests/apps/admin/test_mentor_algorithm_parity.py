@@ -15,7 +15,8 @@ def test_balanced_mentor_recommendations_match_typescript_shape():
             {
                 "groupId": 10,
                 "groupName": "NSW Bio",
-                "trackCode": "AUS-NSW",
+                "countryName": "Australia",
+                "utcOffsetHours": 10.0,
                 "studentInterests": ["Genomics", "AI", "Vaccines", "Climate"],
                 "studentCount": 3,
             }
@@ -25,7 +26,8 @@ def test_balanced_mentor_recommendations_match_typescript_shape():
                 "mentorId": 20,
                 "firstName": "Maya",
                 "lastName": "Chen",
-                "trackCode": "AUS-NSW",
+                "countryName": "Australia",
+                "utcOffsetHours": 10.0,
                 "institution": "UTS",
                 "interests": ["Genomics", "AI", "Vaccines"],
                 "maxGroupCount": 2,
@@ -40,23 +42,24 @@ def test_balanced_mentor_recommendations_match_typescript_shape():
             "group": {
                 "groupId": 10,
                 "groupName": "NSW Bio",
-                "trackCode": "AUS-NSW",
+                "countryName": "Australia",
+                "utcOffsetHours": 10.0,
                 "studentInterests": ["Genomics", "AI", "Vaccines", "Climate"],
                 "studentCount": 3,
             },
             "recommendedMentor": {
                 "mentorId": 20,
                 "name": "Maya Chen",
-                "trackCode": "AUS-NSW",
+                "countryName": "Australia",
                 "institution": "UTS",
                 "interests": ["Genomics", "AI", "Vaccines"],
                 "remainingCapacity": 1,
             },
-            "reason": "Track match: AUS-NSW. Shared interests: Genomics, AI, Vaccines",
+            "reason": "Country match: Australia. Shared interests: Genomics, AI, Vaccines",
             "score": 127,
             "scoreBreakdown": {
                 "baseScore": 100,
-                "trackPenalty": 0,
+                "countryPenalty": 0,
                 "interestBonus": 23,
                 "timezonePenalty": 0,
                 "capacityBonus": 4,
@@ -72,7 +75,8 @@ def test_balanced_returns_null_recommendation_for_no_shared_interests():
             {
                 "groupId": 11,
                 "groupName": "No Overlap",
-                "trackCode": "AUS-NSW",
+                "countryName": "Australia",
+                "utcOffsetHours": 10.0,
                 "studentInterests": ["Climate"],
                 "studentCount": 2,
             }
@@ -82,7 +86,8 @@ def test_balanced_returns_null_recommendation_for_no_shared_interests():
                 "mentorId": 21,
                 "firstName": "Noah",
                 "lastName": "Singh",
-                "trackCode": "AUS-NSW",
+                "countryName": "Australia",
+                "utcOffsetHours": 10.0,
                 "institution": None,
                 "interests": ["Genomics"],
                 "maxGroupCount": 1,
@@ -107,7 +112,8 @@ def test_mentor_match_mentor_list_reuses_admin_mentor_response(monkeypatch):
             "email": "maya@example.com",
             "isActive": True,
             "institution": "UTS",
-            "trackCode": "AUS-NSW",
+            "countryName": "Australia",
+            "utcOffsetHours": 10.0,
             "maxGroupCount": 2,
             "currentAssignedCount": 1,
             "remainingCapacity": 1,
@@ -118,6 +124,8 @@ def test_mentor_match_mentor_list_reuses_admin_mentor_response(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr(mentor_match, "get_mentor_list", lambda: expected)
+    monkeypatch.setattr(
+        mentor_match, "get_mentor_list", lambda requesting_user=None: expected
+    )
 
     assert mentor_match.get_mentors() == expected

@@ -28,7 +28,6 @@ apps/admin/
 ├── apps.py              # Django app config
 ├── models.py            # Admin-owned persistence, including MatchRun
 ├── permissions.py       # Admin permission checks
-├── scope_utils.py       # Global-admin vs track-admin scoping helpers
 ├── urls.py              # Admin API route map
 └── views.py             # DRF API views
 ```
@@ -83,9 +82,8 @@ The password helper endpoints under `auth/` require only an authenticated sessio
 
 Admin scope behavior:
 
-- Global admins have `AdminScope.is_global=True` and can access all admin-managed records.
-- Track admins are restricted to their assigned tracks where service-level filtering is implemented.
-- `get_admin_track_ids(user)` returns `None` for global admins, a list of track IDs for track admins, and an empty list for unauthenticated users.
+- A row in `admin_scope` marks the user as an admin; all admins can access all admin-managed records (single global tier).
+- `apps.common.rbac.is_admin(user)` is the canonical check.
 
 ## API Surface
 

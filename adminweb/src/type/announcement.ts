@@ -1,20 +1,19 @@
 export type AnnouncementAudience = {
   id: number;
   roleId: number | null;
-  trackId: number | null;
+  groupId: number | null;
   roleName: string | null;
+  groupName: string | null;
 };
 
 export type Announcement = {
   id: number;
   title: string;
   body: string;
-  visibilityScope: "global" | "track_based" | "role_based" | "track_role_based";
+  visibilityScope: "global" | "role_based";
   publishedAt: string;
   archivedAt: string | null;
   authorUserId: number;
-  trackId: number | null;
-  trackName: string | null;
   audiences: AnnouncementAudience[];
 };
 
@@ -28,5 +27,5 @@ export type PaginatedAnnouncements = {
   hasMore: boolean;
 };
 
-export type TrackOption = { id: number; name: string };
+export type GroupOption = { id: number; name: string };
 export type RoleOption = { id: number; name: string };

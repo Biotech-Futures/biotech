@@ -13,7 +13,6 @@ import {
   openResourceAccess,
   useDeleteResource,
   useQueryResourceRoles,
-  useQueryResourceTracks,
   useQueryResourceTypes,
   useQueryResources,
   useUpdateResource,
@@ -42,7 +41,6 @@ export const Route = createFileRoute("/_auth/resource")({
 function ResourcePage() {
   const [search, setSearch] = useState("");
   const [uploader, setUploader] = useState("");
-  const [trackId, setTrackId] = useState<number | undefined>();
   const [order, setOrder] = useState<ResourceOrder>("newest");
   const [sorting, setSorting] = useState<SortingState>([
     { id: "uploaded_at", desc: true },
@@ -56,12 +54,11 @@ function ResourcePage() {
   const [showBatchVisibilityEditor, setShowBatchVisibilityEditor] =
     useState(false);
   const [singleBatchEditor, setSingleBatchEditor] = useState<
-    "visibility" | "track" | "roles" | null
+    "visibility" | "roles" | null
   >(null);
   const [batchVisibilityScope, setBatchVisibilityScope] = useState<
-    "track_based" | "role_based"
+    "global" | "role_based"
   >("role_based");
-  const [batchTrackId, setBatchTrackId] = useState<number | null>(null);
   const [batchRoleIds, setBatchRoleIds] = useState<number[]>([]);
 
   const [selectedResource, setSelectedResource] = useState<Resource | null>(
@@ -76,14 +73,12 @@ function ResourcePage() {
     page,
     search,
     uploader,
-    track_id: trackId,
     order,
     sortBy:
       sorting[0]?.id === "name" ||
       sorting[0]?.id === "type_name" ||
       sorting[0]?.id === "visibility" ||
       sorting[0]?.id === "role" ||
-      sorting[0]?.id === "track" ||
       sorting[0]?.id === "uploader" ||
       sorting[0]?.id === "uploaded_at"
         ? sorting[0].id
@@ -95,12 +90,11 @@ function ResourcePage() {
   const { mutate: deleteResource, mutateAsync: deleteResourceAsync } = useDeleteResource();
   const { mutateAsync: updateResourceAsync } = useUpdateResource();
   const { data: rolesData } = useQueryResourceRoles();
-  const { data: tracksData } = useQueryResourceTracks();
   const { data: typesData } = useQueryResourceTypes();
 
   useEffect(() => {
     setPage(1);
-  }, [search, uploader, trackId, order, resourceType]);
+  }, [search, uploader, order, resourceType]);
 
   useEffect(() => {
     if (!bulkMode) {
@@ -108,7 +102,6 @@ function ResourcePage() {
       setShowBatchVisibilityEditor(false);
       setSingleBatchEditor(null);
       setBatchVisibilityScope("role_based");
-      setBatchTrackId(null);
       setBatchRoleIds([]);
     }
   }, [bulkMode]);
@@ -173,7 +166,6 @@ function ResourcePage() {
     onDelete: handleDelete,
     onAccess: handleAccess,
     onDownload: handleDownload,
-    trackOptions: tracksData?.data ?? [],
   });
 
   const handleBatchDelete = async () => {
@@ -193,18 +185,12 @@ function ResourcePage() {
       return;
     }
 
-    if (batchVisibilityScope === "track_based" && batchTrackId === null) {
-      toast.error("Please select a track for track-based visibility.");
-      return;
-    }
-
     await Promise.all(
       selectedIds.map((id) =>
         updateResourceAsync({
           id,
           updates: {
             visibility_scope: batchVisibilityScope,
-            track_id: batchTrackId,
             role_ids: batchRoleIds,
           },
         }),
@@ -214,7 +200,6 @@ function ResourcePage() {
     setShowBatchVisibilityEditor(false);
     setSingleBatchEditor(null);
     setBatchVisibilityScope("role_based");
-    setBatchTrackId(null);
     setBatchRoleIds([]);
   };
 
@@ -226,27 +211,6 @@ function ResourcePage() {
           id,
           updates: {
             visibility_scope: batchVisibilityScope,
-          },
-        }),
-      ),
-    );
-    setSelectedIds([]);
-    setShowBatchVisibilityEditor(false);
-    setSingleBatchEditor(null);
-  };
-
-  const handleBatchApplyTrackOnly = async () => {
-    if (!selectedIds.length) return;
-    if (batchTrackId === null) {
-      toast.error("Please select a track.");
-      return;
-    }
-    await Promise.all(
-      selectedIds.map((id) =>
-        updateResourceAsync({
-          id,
-          updates: {
-            track_id: batchTrackId,
           },
         }),
       ),
@@ -284,13 +248,10 @@ function ResourcePage() {
         onSearchChange={setSearch}
         uploader={uploader}
         onUploaderChange={setUploader}
-        trackId={trackId}
-        onTrackIdChange={setTrackId}
         order={order}
         onOrderChange={setOrder}
         type={resourceType}
         onTypeChange={setResourceType}
-        trackOptions={tracksData?.data ?? []}
         typeOptions={typesData?.data}
         actionSlot={
           <div className="flex w-full flex-wrap items-center justify-start gap-2 xl:justify-end">
@@ -345,16 +306,6 @@ function ResourcePage() {
               Visibility Only
             </Button>
             <Button
-              variant={singleBatchEditor === "track" ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setShowBatchVisibilityEditor(false);
-                setSingleBatchEditor((prev) => (prev === "track" ? null : "track"));
-              }}
-            >
-              Track Only
-            </Button>
-            <Button
               variant={singleBatchEditor === "roles" ? "default" : "outline"}
               size="sm"
               onClick={() => {
@@ -376,7 +327,7 @@ function ResourcePage() {
       {bulkMode && selectedIds.length && showBatchVisibilityEditor ? (
         <div className="rounded-md border bg-background px-3 py-3 space-y-3">
           <p className="text-sm text-muted-foreground">
-            Batch update visibility, track, and roles for {selectedIds.length} selected resources
+            Batch update visibility and roles for {selectedIds.length} selected resources
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
@@ -384,36 +335,15 @@ function ResourcePage() {
               <Select
                 value={batchVisibilityScope}
                 onValueChange={(value) =>
-                  setBatchVisibilityScope(value as "track_based" | "role_based")
+                  setBatchVisibilityScope(value as "global" | "role_based")
                 }
               >
                 <SelectTrigger id="batch-visibility">
                   <SelectValue placeholder="Select visibility" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="track_based">track_based</SelectItem>
+                  <SelectItem value="global">global</SelectItem>
                   <SelectItem value="role_based">role_based</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="batch-track">Track</Label>
-              <Select
-                value={batchTrackId === null ? undefined : String(batchTrackId)}
-                onValueChange={(value) =>
-                  setBatchTrackId(Number(value))
-                }
-              >
-                <SelectTrigger id="batch-track">
-                  <SelectValue placeholder="Select track" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(tracksData?.data ?? []).map((track) => (
-                    <SelectItem key={track.id} value={String(track.id)}>
-                      {track.label}
-                    </SelectItem>
-                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -452,7 +382,6 @@ function ResourcePage() {
                 setShowBatchVisibilityEditor(false);
                 setSingleBatchEditor(null);
                 setBatchVisibilityScope("role_based");
-                setBatchTrackId(null);
                 setBatchRoleIds([]);
               }}
             >
@@ -472,14 +401,14 @@ function ResourcePage() {
             <Select
               value={batchVisibilityScope}
               onValueChange={(value) =>
-                setBatchVisibilityScope(value as "track_based" | "role_based")
+                setBatchVisibilityScope(value as "global" | "role_based")
               }
             >
               <SelectTrigger id="single-batch-visibility">
                 <SelectValue placeholder="Select visibility" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="track_based">track_based</SelectItem>
+                <SelectItem value="global">global</SelectItem>
                 <SelectItem value="role_based">role_based</SelectItem>
               </SelectContent>
             </Select>
@@ -487,42 +416,6 @@ function ResourcePage() {
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={handleBatchApplyVisibilityOnly}>
               Apply Visibility Only
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSingleBatchEditor(null)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {bulkMode && selectedIds.length && singleBatchEditor === "track" ? (
-        <div className="rounded-md border bg-background px-3 py-3 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Update track only for {selectedIds.length} selected resources
-          </p>
-          <div className="space-y-1.5 max-w-sm">
-            <Label htmlFor="single-batch-track">Track</Label>
-            <Select
-              value={batchTrackId === null ? undefined : String(batchTrackId)}
-              onValueChange={(value) =>
-                setBatchTrackId(Number(value))
-              }
-            >
-              <SelectTrigger id="single-batch-track">
-                <SelectValue placeholder="Select track" />
-              </SelectTrigger>
-              <SelectContent>
-                {(tracksData?.data ?? []).map((track) => (
-                  <SelectItem key={track.id} value={String(track.id)}>
-                    {track.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleBatchApplyTrackOnly}>
-              Apply Track Only
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setSingleBatchEditor(null)}>
               Cancel

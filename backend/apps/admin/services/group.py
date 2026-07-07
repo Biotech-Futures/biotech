@@ -7,10 +7,9 @@ from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 
-from apps.groups.models import Groups, GroupMembership, Tracks
+from apps.groups.models import Groups, GroupMembership
 from apps.chat.models import Messages
 from apps.users.models import User, MentorProfile, StudentProfile
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 
 
@@ -42,7 +41,6 @@ class GroupMessageDict(TypedDict):
 class GroupDict(TypedDict):
     id: str
     name: str
-    track: str
     members: List[GroupMemberDict]
     mentor: Optional[GroupMemberDict]
     createdAt: str
@@ -52,7 +50,6 @@ class GroupDict(TypedDict):
 class GroupBaseRow(TypedDict):
     id: int
     name: str
-    track: str
     created_at: datetime
 
 
@@ -132,7 +129,6 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
         result.append({
             "id": str(group_id),
             "name": row["name"],
-            "track": row["track"],
             "members": members_by_group_id.get(group_id, []),
             "mentor": mentor_by_group_id.get(group_id, None),
             "createdAt": row["created_at"].isoformat(),
@@ -145,26 +141,21 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
 def _build_group_where(
     search_name: Optional[str] = None,
     search_group: Optional[str] = None,
-    track: Optional[str] = None,
     mentor_status: Optional[str] = None,
 ) -> Q:
     """
     Build query conditions for filtering groups.
-    
+
     Args:
         search_name: Search by member name
         search_group: Search by group name
-        track: Filter by track name
         mentor_status: Filter by mentor status ("matched" or "unmatched")
-        
+
     Returns:
         Q object with combined conditions
     """
     conditions = [Q(deleted_at__isnull=True)]
-    
-    if track:
-        conditions.append(Q(track__track_name=track))
-    
+
     if search_group:
         conditions.append(Q(group_name__icontains=search_group))
     
@@ -212,14 +203,13 @@ def _fetch_group_base_by_id(group_id: int) -> Optional[GroupBaseRow]:
         GroupBaseRow if found, None otherwise
     """
     try:
-        group = Groups.objects.select_related("track").get(
+        group = Groups.objects.get(
             id=group_id,
             deleted_at__isnull=True
         )
         return {
             "id": group.id,
             "name": group.group_name,
-            "track": group.track.track_name,
             "created_at": group.created_at,
         }
     except Groups.DoesNotExist:
@@ -231,7 +221,6 @@ def query_groups(
     limit: int = 10,
     search_name: Optional[str] = None,
     search_group: Optional[str] = None,
-    track: Optional[str] = None,
     mentor_status: Optional[str] = None,
     requesting_user=None,
     sort_by: str = "createdAt",
@@ -245,26 +234,19 @@ def query_groups(
         limit: Items per page
         search_name: Search by member name
         search_group: Search by group name
-        track: Filter by track name
         mentor_status: Filter by mentor status
-        
+
     Returns:
         Dictionary with groups, pagination, and metadata
     """
     offset = (page - 1) * limit
-    where = _build_group_where(search_name, search_group, track, mentor_status)
-
-    where = where & (Q(track__isnull=True) | Q(track__is_archived=False))
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        where = where & (Q(track_id__in=track_ids) | Q(track__isnull=True))
+    where = _build_group_where(search_name, search_group, mentor_status)
 
     # Get total count
     total = Groups.objects.filter(where).count()
-    
+
     sort_map = {
         "name": ["group_name", "id"],
-        "track": ["track__track_name", "group_name", "id"],
         "members": ["member_count", "group_name", "id"],
         "mentor": ["mentor_name", "group_name", "id"],
         "createdAt": ["created_at", "id"],
@@ -276,7 +258,6 @@ def query_groups(
     # Fetch paginated base rows
     base_rows = list(
         Groups.objects
-        .select_related("track")
         .filter(where)
         .annotate(
             member_count=Count(
@@ -301,15 +282,14 @@ def query_groups(
             ),
         )
         .order_by(*order_by)
-        .values("id", "group_name", "track__track_name", "created_at")[offset:offset + limit]
+        .values("id", "group_name", "created_at")[offset:offset + limit]
     )
-    
+
     # Convert to GroupBaseRow format
     formatted_rows = [
         {
             "id": row["id"],
             "name": row["group_name"],
-            "track": row["track__track_name"],
             "created_at": row["created_at"],
         }
         for row in base_rows
@@ -461,15 +441,14 @@ def query_group_messages(
 
 
 @transaction.atomic
-def update_group(group_id: str, name: Optional[str] = None, track: Optional[str] = None) -> dict:
+def update_group(group_id: str, name: Optional[str] = None) -> dict:
     """
     Update group information.
     
     Args:
         group_id: The group ID as string
         name: New group name
-        track: New track name
-        
+
     Returns:
         Dictionary with updated group data or error message
     """
@@ -487,14 +466,7 @@ def update_group(group_id: str, name: Optional[str] = None, track: Optional[str]
     
     if name is not None:
         updates["group_name"] = name
-    
-    if track is not None:
-        try:
-            track_obj = Tracks.objects.get(track_name=track)
-            updates["track"] = track_obj
-        except Tracks.DoesNotExist:
-            return {"msg": f'Track "{track}" not found', "data": None}
-    
+
     if updates:
         for key, value in updates.items():
             setattr(group, key, value)

@@ -16,9 +16,7 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   LayoutDashboardIcon,
-  RouteIcon,
 } from "lucide-react";
-import { useAdminScope } from "@/query/track";
 
 const NAV_ITEMS = [
   {
@@ -78,19 +76,8 @@ const NAV_ITEMS = [
   },
 ];
 
-const GLOBAL_ONLY_NAV_ITEMS = [
-  {
-    title: "Tracks",
-    url: "/track",
-    icon: <RouteIcon />,
-  },
-];
-
 export function NavMain() {
-  const { data: scope } = useAdminScope();
-  const items = scope?.isGlobal
-    ? [...NAV_ITEMS, ...GLOBAL_ONLY_NAV_ITEMS]
-    : NAV_ITEMS;
+  const items = NAV_ITEMS;
   return (
     <SidebarGroup>
       <SidebarGroupContent className="flex flex-col gap-2">

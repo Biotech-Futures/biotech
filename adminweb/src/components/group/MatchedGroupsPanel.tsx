@@ -43,7 +43,7 @@ import { AxiosError } from "axios";
 
 type MatchedGroupSortKey =
   | "group"
-  | "track"
+  | "country"
   | "students"
   | "mentor"
   | "status";
@@ -76,8 +76,8 @@ export function MatchedGroupsPanel() {
       switch (key) {
         case "group":
           return group.groupName;
-        case "track":
-          return group.trackCode;
+        case "country":
+          return group.countryName;
         case "students":
           return group.studentCount;
         case "mentor":
@@ -219,8 +219,8 @@ export function MatchedGroupsPanel() {
                 </TableHead>
                 <TableHead>
                   <SortableTableHead
-                    label="Track"
-                    sortKey="track"
+                    label="Country"
+                    sortKey="country"
                     sortState={sortState}
                     onSortChange={setSortState}
                   />
@@ -268,7 +268,7 @@ export function MatchedGroupsPanel() {
                     </TableCell>
                     <TableCell className="font-medium">{group.groupName}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{group.trackCode}</Badge>
+                      <Badge variant="outline">{group.countryName}</Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {group.studentCount}
@@ -387,7 +387,7 @@ export function MatchedGroupsPanel() {
                                 <p className="text-xs text-muted-foreground">{group.mentor.institution}</p>
                               )}
                               <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">{group.mentor.trackCode}</Badge>
+                                <Badge variant="outline" className="text-xs">{group.mentor.countryName}</Badge>
                                 {group.mentor.isActive ? (
                                   <span className="text-xs text-green-600">Active</span>
                                 ) : (

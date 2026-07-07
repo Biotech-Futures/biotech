@@ -7,16 +7,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { StudentTrack, TrackOption } from "@/type/user";
-import { STUDENT_TRACKS } from "@/type/user";
+import type { StudentStateOption } from "@/query/student";
 
 interface StudentFiltersProps {
   search: string;
   onSearchChange: (value: string) => void;
-  track: StudentTrack | undefined;
-  onTrackChange: (value: StudentTrack | undefined) => void;
-  tracks?: TrackOption[];
-  isLoadingTracks?: boolean;
+  state: string | undefined;
+  onStateChange: (value: string | undefined) => void;
+  states?: StudentStateOption[];
+  isLoadingStates?: boolean;
   inGroup: "yes" | "no" | "all";
   onInGroupChange: (value: "yes" | "no" | "all") => void;
 }
@@ -24,16 +23,13 @@ interface StudentFiltersProps {
 export function StudentFilters({
   search,
   onSearchChange,
-  track,
-  onTrackChange,
-  tracks = [],
-  isLoadingTracks = false,
+  state,
+  onStateChange,
+  states = [],
+  isLoadingStates = false,
   inGroup,
   onInGroupChange,
 }: StudentFiltersProps) {
-  const trackOptions =
-    tracks.length > 0 ? tracks.map((item) => item.trackName) : STUDENT_TRACKS;
-
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <div className="space-y-1">
@@ -47,26 +43,28 @@ export function StudentFilters({
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="student-track">Track</Label>
+        <Label htmlFor="student-state">State</Label>
         <Select
-          value={track ?? "all"}
+          value={state ?? "all"}
           onValueChange={(value) =>
-            onTrackChange(value === "all" ? undefined : (value as StudentTrack))
+            onStateChange(value === "all" ? undefined : value)
           }
         >
-          <SelectTrigger id="student-track">
-            <SelectValue placeholder="All tracks" />
+          <SelectTrigger id="student-state">
+            <SelectValue placeholder="All states" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All tracks</SelectItem>
-            {isLoadingTracks && tracks.length === 0 && (
+            <SelectItem value="all">All states</SelectItem>
+            {isLoadingStates && states.length === 0 && (
               <SelectItem value="loading" disabled>
-                Loading tracks...
+                Loading states...
               </SelectItem>
             )}
-            {trackOptions.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
+            {states.map((item) => (
+              <SelectItem key={item.id} value={item.stateName}>
+                {item.countryName
+                  ? `${item.stateName} · ${item.countryName}`
+                  : item.stateName}
               </SelectItem>
             ))}
           </SelectContent>

@@ -18,7 +18,7 @@ class AdminEventApiTests(APITestCase):
             first_name="Event",
             last_name="Admin",
         )
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
         self.url = "/api/v1/admin/event/"
 
     def test_admin_can_create_event_without_host_user_id(self):

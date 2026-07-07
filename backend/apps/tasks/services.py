@@ -1,6 +1,7 @@
 from django.db.models import Max
 from django.utils import timezone
 
+from apps.common.rbac import is_admin
 from apps.groups.models import GroupMembership, Groups
 
 from .models import Task
@@ -20,6 +21,10 @@ def get_current_week_label(group_created_at) -> str:
 
 
 def get_allowed_group_ids(user):
+    if is_admin(user):
+        return Groups.objects.filter(
+            deleted_at__isnull=True,
+        ).values_list("id", flat=True)
     is_mentor = hasattr(user, "mentorprofile")
     if is_mentor:
         # Progress scope follows active mentor memberships only.
@@ -29,10 +34,11 @@ def get_allowed_group_ids(user):
             left_at__isnull=True,
             group__deleted_at__isnull=True,
         ).values_list("group_id", flat=True)
-    return Groups.objects.filter(
-        track=user.track,
-        deleted_at__isnull=True,
-    ).values_list("id", flat=True)
+    return GroupMembership.objects.filter(
+        user=user,
+        left_at__isnull=True,
+        group__deleted_at__isnull=True,
+    ).values_list("group_id", flat=True)
 
 
 def build_progress_snapshot(group_id=None, allowed_group_ids=None):

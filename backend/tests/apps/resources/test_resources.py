@@ -57,31 +57,21 @@ class RoleAssignmentsApiTests(TestCase):
         self.client.force_authenticate(self.me)
 
         User = dj_apps.get_model('users', 'User')
-        Countries = dj_apps.get_model('groups', 'Countries')
-        CountryStates = dj_apps.get_model('groups', 'CountryStates')
-        Tracks = dj_apps.get_model('groups', 'Tracks')
-
-        # Step 1: Minimal chain to satisfy FKs
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data Science", state=state)
 
         self.r_admin = Roles.objects.create(role_name="admin")
         self.r_view  = Roles.objects.create(role_name="viewer")
 
-        # Step 2: Create Users with required fields
+        # Users no longer carry geography inline; state is optional and unused here.
         self.u1 = User.objects.create(
             first_name="Alice",
             last_name="Tester",
             email="u1@example.com",
-            track=track,
         )
 
         self.u2 = User.objects.create(
             first_name="Bob",
             last_name="Tester",
             email="u2@example.com",
-            track=track,
         )
 
         # Step 3: Create role assignment history (with timezone-aware datetimes)
@@ -213,7 +203,7 @@ class RoleManagementApiTests(TestCase):
         self.user = get_user_model().objects.create_user(password="pw12345", email = "test_email@gmail.com")
         # Admin
         self.admin = get_user_model().objects.create_user(password="pw123456", email = "admin_test_email@gmail.com", is_staff = True)
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
     def test_create_requires_admin(self):
         self.client.force_authenticate(self.user)
@@ -249,19 +239,11 @@ class RoleAssignmentPatchApiTests(TestCase):
         # admin vs non-admin
         self.non_admin = AuthUser.objects.create_user(email="reader@example.com", password="pw")
         self.admin = AuthUser.objects.create_user(email="admin@example.com", password="pw", is_staff=True)
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
-        # FK chain for Users
-        Countries = dj_apps.get_model('groups', 'Countries')
-        CountryStates = dj_apps.get_model('groups', 'CountryStates')
-        Tracks = dj_apps.get_model('groups', 'Tracks')
         Users = dj_apps.get_model('users', 'User')
 
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data Science", state=state)
-
-        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com", track=track)
+        self.u1 = Users.objects.create(first_name="A", last_name="U", email="u1@example.com")
 
         self.r_admin = Roles.objects.create(role_name="admin")
         self.r_view  = Roles.objects.create(role_name="viewer")
@@ -314,34 +296,16 @@ class RoleAssignmentPatchApiTests(TestCase):
 class TestRevokeUserRole(TestCase):
     def setUp(self):  # Changed from setup_users_and_roles
         """Set up test data for revoke_user_role tests"""
-        # Create FK chain for Users
-        Countries = dj_apps.get_model('groups', 'Countries')
-        CountryStates = dj_apps.get_model('groups', 'CountryStates')
-        Tracks = dj_apps.get_model('groups', 'Tracks')
         Users = dj_apps.get_model('users', 'User')
 
-        # Create required FK objects
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="Data Science", state=self.state)
-
-        # Create test user 
+        # Create test user (geography no longer required)
         self.user = Users.objects.create(
             first_name="John",
             last_name="Doe",
             email="user@test.com",
-            track=self.track,
         )
 
         # Create test roles
-        self.student = Roles.objects.create(role_name="student")
-        self.mentor = Roles.objects.create(role_name="mentor")
-        self.basic = Roles.objects.create(role_name="basic_user")
-
-    def setup_users_and_roles(self, db):
-        # Users
-        self.user = User.objects.create(email="user@test.com", password="pw12345")
-        # Roles
         self.student = Roles.objects.create(role_name="student")
         self.mentor = Roles.objects.create(role_name="mentor")
         self.basic = Roles.objects.create(role_name="basic_user")
@@ -426,7 +390,7 @@ class GrantRoleComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -538,7 +502,7 @@ class ResourcesCRUDComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -735,7 +699,7 @@ class PaginationComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         
         # Create multiple resources for pagination testing
         for i in range(25):
@@ -831,7 +795,7 @@ class ResourceRolesComprehensiveTests(TestCase):
             last_name='User',
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -1059,7 +1023,7 @@ class CreateRoleAPITests(TestCase):
             password="adminpass123",
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
     def test_create_role_unauthenticated_fails(self):
         """Test that unauthenticated requests are rejected"""
@@ -1210,25 +1174,16 @@ class CreateRoleIntegrationTests(TestCase):
             password="adminpass123",
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
     def test_created_role_can_be_assigned_to_user(self):
         """Test that a newly created role can be assigned to users"""
-        # Create FK chain for Users
-        Countries = dj_apps.get_model('groups', 'Countries')
-        CountryStates = dj_apps.get_model('groups', 'CountryStates')
-        Tracks = dj_apps.get_model('groups', 'Tracks')
         Users = dj_apps.get_model('users', 'User')
-
-        country = Countries.objects.create(country_name="Australia")
-        state = CountryStates.objects.create(country=country, state_name="NSW")
-        track = Tracks.objects.create(track_name="Data Science", state=state)
 
         user = Users.objects.create(
             first_name="Test",
             last_name="User",
             email="testuser@test.com",
-            track=track
         )
 
         # Create role via API
@@ -1324,7 +1279,7 @@ class ResourceTypeAPITests(TestCase):
             last_name='User',
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
         self.regular_user = get_user_model().objects.create_user(
             email='user@test.com',
             password='testpass123',
@@ -1546,7 +1501,7 @@ class ResourceTypeIntegrationTests(TestCase):
             last_name='User',
             is_staff=True
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
         # Get or create all 4 resource types (migration may have already created them)
         self.document_type, _ = ResourceType.objects.get_or_create(

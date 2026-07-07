@@ -4,7 +4,7 @@
       <div>
         <h1 style="margin-bottom:0.35rem;">Admin Dashboard</h1>
         <p style="margin:0;color:#6c757d;">
-          {{ scopeSummary }}
+          {{ loading ? 'Loading admin data...' : 'Global admin' }}
         </p>
       </div>
       <button class="btn btn-outline" @click="loadAdminData" :disabled="loading">
@@ -66,15 +66,6 @@
       <p style="margin:0 0 1rem;color:#6c757d;line-height:1.6;">
         This page now loads live operational summary data from the backend. The detailed user table has been hidden because the current backend user list endpoint is HTML-only and not consumable as JSON from the SPA.
       </p>
-      <div v-if="scopeLabels.length" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-        <span
-          v-for="label in scopeLabels"
-          :key="label"
-          class="status-badge status-info"
-        >
-          {{ label }}
-        </span>
-      </div>
     </div>
   </div>
 </template>
@@ -89,10 +80,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 const loading = ref(false)
 const error = ref('')
-const tracksById = ref(new Map())
 
 const summary = ref({
-  track_scope: [],
   active_users: 0,
   invited_or_pending_users: 0,
   suspended_or_deactivated_users: 0,
@@ -106,19 +95,6 @@ const totalUsers = computed(() => {
   return Number(summary.value.active_users || 0)
     + Number(summary.value.invited_or_pending_users || 0)
     + Number(summary.value.suspended_or_deactivated_users || 0)
-})
-
-const scopeLabels = computed(() => {
-  const scopeIds = Array.isArray(summary.value.track_scope) ? summary.value.track_scope : []
-  if (!scopeIds.length) return ['All assigned tracks']
-
-  return scopeIds.map((trackId) => tracksById.value.get(Number(trackId)) || `Track ${trackId}`)
-})
-
-const scopeSummary = computed(() => {
-  if (loading.value) return 'Loading admin scope...'
-  if (!scopeLabels.value.length) return 'Scope unavailable'
-  return `Current scope: ${scopeLabels.value.join(', ')}`
 })
 
 async function fetchJson(path) {
@@ -147,13 +123,9 @@ async function loadAdminData() {
   error.value = ''
 
   try {
-    const [summaryData, tracksData] = await Promise.all([
-      fetchJson('/api/v1/admin/summary/'),
-      fetchJson('/groups/tracks/?page_size=100')
-    ])
+    const summaryData = await fetchJson('/api/v1/admin/summary/')
 
     summary.value = {
-      track_scope: Array.isArray(summaryData?.track_scope) ? summaryData.track_scope : [],
       active_users: Number(summaryData?.active_users || 0),
       invited_or_pending_users: Number(summaryData?.invited_or_pending_users || 0),
       suspended_or_deactivated_users: Number(summaryData?.suspended_or_deactivated_users || 0),
@@ -162,13 +134,6 @@ async function loadAdminData() {
       unassigned_match_recommendations: Number(summaryData?.unassigned_match_recommendations || 0),
       upcoming_events: Number(summaryData?.upcoming_events || 0)
     }
-
-    const trackItems = Array.isArray(tracksData?.results) ? tracksData.results : (Array.isArray(tracksData) ? tracksData : [])
-    tracksById.value = new Map(
-      trackItems
-        .map((track) => [Number(track?.id), track?.track_name])
-        .filter((entry) => entry[0] && entry[1])
-    )
   } catch (loadError) {
     error.value = loadError instanceof Error
       ? loadError.message

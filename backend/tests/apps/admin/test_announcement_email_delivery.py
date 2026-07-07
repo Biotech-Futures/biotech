@@ -172,21 +172,19 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
     # No recipients: skip cleanly, do NOT persist a delivery row.
     #
     # We target the announcement at an audience that resolves to zero
-    # users (an empty track) rather than flipping every ``User`` to
+    # users (an empty group) rather than flipping every ``User`` to
     # inactive — that approach in earlier revisions deactivated the
     # author itself and accidentally exercised the auth/admin model.
-    # The empty-track path is the same one ``test_no_recipients_returns_400``
+    # The empty-group path is the same one ``test_no_recipients_returns_400``
     # uses for the HTTP layer.
     # ------------------------------------------------------------------
     def test_no_recipients_skipped_and_no_delivery_row(self):
-        from apps.groups.models import Countries, CountryStates, Tracks
-        country = Countries.objects.create(country_name="ServiceC")
-        state = CountryStates.objects.create(country=country, state_name="ServiceS")
-        empty_track = Tracks.objects.create(track_name="SERVICE_EMPTY", state=state)
+        from apps.groups.models import Groups
+        empty_group = Groups.objects.create(group_name="SERVICE_EMPTY")
         AnnouncementAudience.objects.create(
-            announcement=self.announcement, track=empty_track,
+            announcement=self.announcement, group=empty_group,
         )
-        self.announcement.visibility_scope = "track_based"
+        self.announcement.visibility_scope = "role_based"
         self.announcement.save(update_fields=["visibility_scope"])
 
         result = send_announcement_email(self.announcement.id)
@@ -307,7 +305,7 @@ class AnnouncementNotifyViewTests(TestCase):
             first_name="Admin",
             last_name="User",
         )
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         self.recipient = User.objects.create_user(
             email="recip@example.com",
@@ -378,21 +376,17 @@ class AnnouncementNotifyViewTests(TestCase):
         self.assertGreaterEqual(body["failed"], 1)
 
     def test_no_recipients_returns_400(self):
-        # Deactivate every non-admin so the global-scope audience is empty.
-        # We deliberately leave the admin active so the authenticated request
-        # still passes IsAdminScoped — the response should still be 400 because
-        # an audience of one (just the admin) is fine; we want a *true* empty
-        # audience, so target a track that has no users.
-        from apps.groups.models import Countries, CountryStates, Tracks
-        country = Countries.objects.create(country_name="C")
-        state = CountryStates.objects.create(country=country, state_name="S")
-        empty_track = Tracks.objects.create(track_name="EMPTY", state=state)
-        # Re-target the announcement to a track with zero active users.
+        # We want a *true* empty audience: the admin stays active so the
+        # authenticated request still passes IsAdminScoped, but we target a
+        # group that has no members, so the resolved recipient set is empty.
+        from apps.groups.models import Groups
+        empty_group = Groups.objects.create(group_name="EMPTY")
+        # Re-target the announcement to a group with zero active members.
         from apps.announcements.models import AnnouncementAudience
         AnnouncementAudience.objects.create(
-            announcement=self.announcement, track=empty_track,
+            announcement=self.announcement, group=empty_group,
         )
-        self.announcement.visibility_scope = "track_based"
+        self.announcement.visibility_scope = "role_based"
         self.announcement.save(update_fields=["visibility_scope"])
 
         response = self.client.post(self.url)

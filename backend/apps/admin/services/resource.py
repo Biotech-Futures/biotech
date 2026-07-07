@@ -14,7 +14,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
 from apps.resources.services.storage import RESOURCE_FILE_SERVICE
-from apps.groups.models import Tracks, Groups
+from apps.groups.models import Groups
 from apps.users.models import User
 from azure_blob_utils import (
     upload_file,
@@ -22,7 +22,6 @@ from azure_blob_utils import (
     download_file_bytes,
 )
 from azure.storage.blob import BlobServiceClient
-from apps.admin.scope_utils import get_admin_track_ids
 from apps.audit.services import log_audit_event
 
 
@@ -31,7 +30,6 @@ ADMIN_ROLE_SLUG = "admin"
 RESOURCE_KIND_FILE = "file"
 RESOURCE_KIND_PAGE = "page"
 VISIBILITY_GLOBAL = "global"
-VISIBILITY_TRACK_BASED = "track_based"
 VISIBILITY_ROLE_BASED = "role_based"
 
 
@@ -58,7 +56,6 @@ class AuthUploaderDict(TypedDict):
 class ResourceRowDict(TypedDict):
     id: int
     uploader_user_id: int
-    track_id: Optional[int]
     visibility_scope: str
     uploaded_at: str
     deleted_at: Optional[str]
@@ -79,7 +76,6 @@ class ResourceAudienceDict(TypedDict):
     id: int
     resource_id: int
     role_id: Optional[int]
-    track_id: Optional[int]
     role: Optional[RoleDict]
 
 
@@ -96,7 +92,6 @@ class QueryResourcesInput(TypedDict):
     resource_kind: Optional[str]
     resource_type_id: Optional[int]
     resource_type: Optional[str]
-    track_id: Optional[int]
     search: Optional[str]
     order: str
     sort_by: Optional[str]
@@ -112,7 +107,6 @@ class CreateResourceInput(TypedDict):
     resource_type: Optional[str]
     resource_type_id: Optional[int]
     visibility_scope: Optional[str]
-    track_id: Optional[int]
     group_id: Optional[int]
     role_ids: Optional[List[int]]
     content_html: Optional[str]
@@ -125,7 +119,6 @@ class UpdateResourceInput(TypedDict):
     resource_type: Optional[str]
     resource_type_id: Optional[int]
     visibility_scope: Optional[str]
-    track_id: Optional[int]
     group_id: Optional[int]
     role_ids: Optional[List[int]]
     content_html: Optional[str]
@@ -167,26 +160,22 @@ def normalize_role_ids(
 
 
 def resolve_visibility_scope(
-    track_id: Optional[int] = None,
     role_ids: Optional[List[int]] = None,
 ) -> str:
-    """Determine visibility scope based on track and role assignments."""
+    """Determine visibility scope based on role assignments."""
     if role_ids:
         return VISIBILITY_ROLE_BASED
-    if track_id is not None:
-        return VISIBILITY_TRACK_BASED
     return VISIBILITY_GLOBAL
 
 
 def normalize_visibility_scope(
     value: Optional[str],
-    track_id: Optional[int],
     role_ids: Optional[List[int]] = None,
 ) -> str:
     """Normalize visibility scope value."""
-    if value in (VISIBILITY_GLOBAL, VISIBILITY_TRACK_BASED, VISIBILITY_ROLE_BASED):
+    if value in (VISIBILITY_GLOBAL, VISIBILITY_ROLE_BASED):
         return value
-    return resolve_visibility_scope(track_id, role_ids)
+    return resolve_visibility_scope(role_ids)
 
 
 def build_storage_key(resource_id: int, file_name: Optional[str] = None) -> str:
@@ -280,15 +269,10 @@ def get_page_content_html(resource: Resources) -> Optional[str]:
 
 
 def resource_to_row(resource: Resources, include_page_content: bool = False) -> ResourceRowDict:
-    track_id = resource.track_id
-    if not track_id and resource.group:
-        track_id = resource.group.track_id
-
     return {
         'id': resource.id,
         'uploader_user_id': resource.uploaded_by_id,
         'group_id': resource.group_id,
-        'track_id': track_id,
         'visibility_scope': resource.visibility_scope,
         'uploaded_at': resource.uploaded_at.isoformat(),
         'deleted_at': resource.deleted_at.isoformat() if resource.deleted_at else None,
@@ -363,16 +347,9 @@ def resolve_uploader_for_db(
 def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -> List[ResourceRowDict]:
     """Fetch resources from database with filters and pagination."""
     queryset = Resources.objects.select_related(
-        'type', 'track', 'group', 'uploaded_by'
+        'type', 'group', 'uploaded_by'
     ).filter(deleted_at__isnull=True)
 
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        queryset = queryset.filter(
-            Q(track_id__in=track_ids) | Q(track__isnull=True, group__track_id__in=track_ids) |
-            Q(track__isnull=True, group__isnull=True)
-        )
-    
     # Apply filters
     if params.get('uploader_user_id'):
         queryset = queryset.filter(uploaded_by_id=params['uploader_user_id'])
@@ -388,13 +365,6 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     
     if params.get('resource_type'):
         queryset = queryset.filter(type__type_name=params['resource_type'])
-    
-    if params.get('track_id'):
-        # Use COALESCE-like logic: resource track or group track
-        queryset = queryset.filter(
-            Q(track_id=params['track_id']) |
-            Q(group__track_id=params['track_id'])
-        )
     
     if params.get('search'):
         pattern = params['search']
@@ -417,7 +387,7 @@ def fetch_resource_by_id_from_db(resource_id: int) -> Optional[ResourceRowDict]:
     """Fetch single resource from database by ID."""
     try:
         resource = Resources.objects.select_related(
-            'type', 'track', 'group', 'uploaded_by'
+            'type', 'group', 'uploaded_by'
         ).get(id=resource_id, deleted_at__isnull=True)
     except Resources.DoesNotExist:
         return None
@@ -447,7 +417,7 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
     resource_ids = [row['id'] for row in resource_rows]
     audiences_qs = ResourceAudience.objects.filter(
         resource_id__in=resource_ids
-    ).select_related('role', 'track')
+    ).select_related('role')
     
     audience_map: Dict[int, List[ResourceAudienceDict]] = {}
     for audience in audiences_qs:
@@ -467,7 +437,6 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
             'id': audience.id,
             'resource_id': resource_id,
             'role_id': audience.role_id,
-            'track_id': audience.track_id,
             'role': role_data,
         })
 
@@ -499,7 +468,6 @@ def hydrate_resources(resource_rows: List[ResourceRowDict]) -> List[ResourceDict
         role_ids = [a['role_id'] for a in audiences if a['role_id']]
         visibility = normalize_visibility_scope(
             row['visibility_scope'],
-            row['track_id'],
             role_ids,
         )
         
@@ -587,15 +555,11 @@ def query_resources(params: QueryResourcesInput, requesting_user=None) -> Dict[s
             )
         )
 
-    def get_track_label(resource: ResourceDict) -> str:
-        return str(resource.get("track_id") or "")
-
     sort_getters = {
         "name": lambda r: r["resource_name"] or "",
         "type_name": lambda r: r["resource_type"] or "",
         "visibility": lambda r: r["visibility_scope"] or "",
         "role": get_role_label,
-        "track": get_track_label,
         "uploader": lambda r: f"{r['uploader']['first_name']} {r['uploader']['last_name']} {r['uploader']['email']}",
         "uploaded_at": lambda r: get_timestamp(r),
     }
@@ -672,7 +636,6 @@ def create_resource(
     
     visibility_scope = normalize_visibility_scope(
         payload.get('visibility_scope'),
-        payload.get('track_id'),
         requested_role_ids,
     )
     
@@ -683,7 +646,6 @@ def create_resource(
         type_id=resource_type_id,
         uploaded_by_id=uploader_profile['id'],
         visibility_scope=visibility_scope,
-        track_id=payload.get('track_id'),
         group_id=payload.get('group_id'),
         uploaded_at=timezone.now(),
     )
@@ -706,7 +668,6 @@ def create_resource(
             ResourceAudience(
                 resource_id=resource.id,
                 role_id=role_id,
-                track_id=payload.get('track_id'),
             )
             for role_id in role_ids
         ])
@@ -746,7 +707,6 @@ def upload_resource(payload: Dict[str, Any]) -> Dict[str, Any]:
     
     visibility_scope = normalize_visibility_scope(
         payload.get('visibility_scope'),
-        payload.get('track_id'),
         requested_role_ids,
     )
     
@@ -757,7 +717,6 @@ def upload_resource(payload: Dict[str, Any]) -> Dict[str, Any]:
         type_id=resource_type_id,
         uploaded_by_id=uploader_profile['id'],
         visibility_scope=visibility_scope,
-        track_id=payload.get('track_id'),
         group_id=payload.get('group_id'),
         file_mime_type=file_mime_type,
         file_size=payload.get('file_size', 0),
@@ -788,7 +747,6 @@ def upload_resource(payload: Dict[str, Any]) -> Dict[str, Any]:
             ResourceAudience(
                 resource_id=resource.id,
                 role_id=role_id,
-                track_id=payload.get('track_id'),
             )
             for role_id in role_ids
         ])
@@ -966,8 +924,6 @@ def update_resource(
         resource.description = updates['resource_description'] or ''
     if 'visibility_scope' in updates:
         resource.visibility_scope = updates['visibility_scope']
-    if 'track_id' in updates:
-        resource.track_id = updates['track_id']
     if 'group_id' in updates:
         resource.group_id = updates['group_id']
     if 'resource_kind' in updates:
@@ -1010,7 +966,6 @@ def update_resource(
                 ResourceAudience(
                     resource_id=resource_id,
                     role_id=role_id,
-                    track_id=updates.get('track_id') or resource_data['track_id'],
                 )
                 for role_id in role_ids
             ])
@@ -1136,22 +1091,3 @@ def list_resource_types() -> Dict[str, Any]:
     }
 
 
-def list_resource_tracks(requesting_user=None) -> Dict[str, Any]:
-    """List all resource tracks. Archived tracks are excluded."""
-    qs = Tracks.objects.filter(is_archived=False)
-    track_ids = get_admin_track_ids(requesting_user)
-    if track_ids is not None:
-        qs = qs.filter(id__in=track_ids)
-    tracks = qs.order_by('track_name')
-
-    return {
-        'msg': 'Tracks retrieved successfully',
-        'data': [
-            {
-                'id': track.id,
-                'code': track.track_name,
-                'label': track.track_name,
-            }
-            for track in tracks
-        ],
-    }

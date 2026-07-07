@@ -33,13 +33,7 @@ from apps.chat.og_extractor import (
     parse_og_metadata,
 )
 from apps.chat.tasks import fetch_og_data
-from apps.groups.models import (
-    Countries,
-    CountryStates,
-    GroupMembership,
-    Groups,
-    Tracks,
-)
+from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -93,13 +87,10 @@ def _build_chat_fixtures(test):
         valid_to=future,
     )
 
-    test.country = Countries.objects.create(country_name="Australia")
-    test.state = CountryStates.objects.create(
-        country=test.country, state_name="NSW"
-    )
-    test.track = Tracks.objects.create(track_name="AUS-NSW", state=test.state)
-
-    test.group = Groups.objects.create(group_name="LP-G1", track=test.track)
+    # Geography (Countries/CountryStates) is no longer wired into groups and
+    # nothing here asserts on it, so the fixture drops it entirely. Group
+    # names are globally unique among active groups now (no per-track scope).
+    test.group = Groups.objects.create(group_name="LP-G1")
     GroupMembership.objects.create(user=test.student, group=test.group)
 
     test.client_student = APIClient()

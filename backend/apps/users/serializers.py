@@ -7,7 +7,6 @@ from .models import (
     UserInterest,
 )
 from apps.resources.models import RoleAssignmentHistory
-from apps.groups.models import Tracks
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
 from django.db.models import Q
 from django.utils import timezone
@@ -77,6 +76,10 @@ class UserSerializer(serializers.ModelSerializer):
     # flow before they're allowed into the dashboard. See `get_must_change_password`.
     must_change_password = serializers.SerializerMethodField()
 
+    # Region/geography for matching + profile display. Read-only nested shape;
+    # writes go through the admin user service (stateId).
+    state = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -85,7 +88,7 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "account_status",
-            "track",
+            "state",
             "current_role_id",
             "current_role_name",
             "pg_firstname",
@@ -120,6 +123,17 @@ class UserSerializer(serializers.ModelSerializer):
         self._cache_mentor: dict[int, object] = {}
         self._cache_supervisor: dict[int, object] = {}
         self._cache_interests: dict[int, list[str]] = {}
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_state(self, obj):
+        if not obj.state_id:
+            return None
+        state = obj.state
+        return {
+            "id": state.id,
+            "stateName": state.state_name,
+            "countryName": state.country.country_name if state.country_id else None,
+        }
 
     def validate_timezone(self, value):
         if value not in available_timezones():
@@ -315,20 +329,7 @@ class BulkUserStatusSerializer(serializers.Serializer):
     account_status = serializers.ChoiceField(choices=User.AccountStatus.choices)
 
 
-class BulkUserTrackSerializer(serializers.Serializer):
-    user_ids = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
-        allow_empty=False,
-    )
-    track_id = serializers.PrimaryKeyRelatedField(queryset=Tracks.objects.all(), source="track")
-
-
 class AdminOperationsSummarySerializer(serializers.Serializer):
-    track_scope = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
-        allow_empty=True,
-        required=False,
-    )
     active_users = serializers.IntegerField()
     invited_or_pending_users = serializers.IntegerField()
     suspended_or_deactivated_users = serializers.IntegerField()

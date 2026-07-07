@@ -300,7 +300,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
     pagination_class = ResourcesPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
-    queryset = Resources.objects.select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track', 'labels').all()
+    queryset = Resources.objects.select_related('uploaded_by').prefetch_related('audiences__role', 'labels').all()
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -317,7 +317,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
         queryset = Resources.objects.filter(
             deleted_at__isnull=True
-        ).select_related('uploaded_by', 'track').prefetch_related('audiences__role', 'audiences__track', 'labels')
+        ).select_related('uploaded_by').prefetch_related('audiences__role', 'labels')
 
         if self.action == 'list':
             queryset = filter_resources_for_user(queryset, user)
@@ -335,12 +335,6 @@ class ResourcesViewSet(mixins.ListModelMixin,
         role = params.get('role')
         if role:
             queryset = queryset.filter(audiences__role__role_name__icontains=role)
-
-        track_id = self._parse_int_param(params, 'track_id')
-        if track_id is not None:
-            queryset = queryset.filter(
-                Q(track_id=track_id) | Q(audiences__track_id=track_id)
-            )
 
         resource_type = params.get('type')
         if resource_type:
@@ -406,9 +400,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
-        track = self._requested_track_for_write()
-        if not can_manage_resource_file(self.request.user, track=track):
-            raise PermissionDenied("You do not have permission to manage resource files in this scope.")
+        if not can_manage_resource_file(self.request.user):
+            raise PermissionDenied("You do not have permission to manage resource files.")
         resource = serializer.save(uploaded_by=self.request.user)
         log_audit_event(
             actor=self.request.user,
@@ -420,9 +413,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
     def perform_update(self, serializer):
         resource = self.get_object()
-        track = self._requested_track_for_write(instance=resource)
-        if not can_manage_resource_file(self.request.user, resource=resource, track=track):
-            raise PermissionDenied("You do not have permission to manage resource files in this scope.")
+        if not can_manage_resource_file(self.request.user):
+            raise PermissionDenied("You do not have permission to manage resource files.")
         before_state = ResourcesSerializer(resource).data
         resource = serializer.save()
         log_audit_event(
@@ -651,28 +643,6 @@ class ResourcesViewSet(mixins.ListModelMixin,
             on_open_failure_detail="The stored file could not be opened for download.",
         )
 
-    def _requested_track_for_write(self, instance=None):
-        track_id = self.request.data.get("track")
-        group_id = self.request.data.get("group")
-
-        if track_id not in (None, ""):
-            return track_id
-
-        if group_id not in (None, ""):
-            from apps.groups.models import Groups
-
-            group = Groups.objects.only("id", "track_id").filter(pk=group_id).first()
-            if group is not None:
-                return group.track_id
-
-        if instance is not None:
-            if instance.track_id:
-                return instance.track_id
-            if instance.group_id:
-                return instance.group.track_id
-
-        return None
-
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, IsResourceAdmin])
     def assign_role(self, request, pk=None):
         resource = self.get_object()
@@ -687,7 +657,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         try:
             role = Roles.objects.get(id=role_id)
 
-            if ResourceAudience.objects.filter(resource=resource, role=role, track__isnull=True).exists():
+            if ResourceAudience.objects.filter(resource=resource, role=role).exists():
                 return Response(
                     {"error": "Role is already assigned to this resource"},
                     status=status.HTTP_400_BAD_REQUEST
@@ -721,7 +691,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
 
         try:
             role = Roles.objects.get(id=role_id)
-            resource_role = ResourceAudience.objects.get(resource=resource, role=role, track__isnull=True)
+            resource_role = ResourceAudience.objects.get(resource=resource, role=role)
             role_name = role.role_name
             resource_role.delete()
 

@@ -173,7 +173,6 @@ export async function fetchResources(params?: {
   uploader_id?: number
   type?: string
   label_id?: number
-  track_id?: number
   since?: string
   until?: string
   order?: 'newest' | 'oldest' | 'name'
@@ -187,7 +186,6 @@ export async function fetchResources(params?: {
   if (params?.uploader_id) queryParams.append('uploader_id', params.uploader_id.toString())
   if (params?.type) queryParams.append('type', params.type)
   if (params?.label_id) queryParams.append('label_id', params.label_id.toString())
-  if (params?.track_id) queryParams.append('track_id', params.track_id.toString())
   if (params?.since) queryParams.append('since', params.since)
   if (params?.until) queryParams.append('until', params.until)
   if (params?.order) queryParams.append('order', params.order)

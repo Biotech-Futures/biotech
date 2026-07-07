@@ -49,7 +49,6 @@ export const Route = createFileRoute("/_auth/announcement")({
 
 function scopeLabel(scope: string) {
   if (scope === "global") return "All users";
-  if (scope === "track_based") return "By track";
   if (scope === "role_based") return "By role";
   return scope;
 }
@@ -243,11 +242,6 @@ function AnnouncementPage() {
                     <Badge variant="outline">
                       {scopeLabel(item.visibilityScope)}
                     </Badge>
-                    {item.trackName && (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        {item.trackName}
-                      </span>
-                    )}
                     {item.visibilityScope === "role_based" &&
                       item.audiences.length > 0 && (
                         <span className="ml-1 text-xs text-muted-foreground">

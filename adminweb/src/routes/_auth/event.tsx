@@ -66,7 +66,6 @@ import {
   useQueryEventRsvps,
   useQueryGroups,
   useQueryRoles,
-  useQueryTracks,
   useQueryEventTargets,
 } from "@/query/event";
 import { useQueryUsers } from "@/query/user";
@@ -212,15 +211,12 @@ interface EventFormProps {
   errors: any;
   eventFormat: EventFormat;
   currentHostName: string;
-  groups: { id: number; groupName: string; trackId: number | null; trackName: string | null }[];
+  groups: { id: number; groupName: string }[];
   roles: { id: number; roleName: string }[];
-  tracks: { id: number; trackName: string }[];
   watchedGroupIds: number[];
   watchedRoleIds: number[];
-  watchedTrackIds: number[];
   onToggleGroup: (id: number) => void;
   onToggleRole: (id: number) => void;
-  onToggleTrack: (id: number) => void;
   onSubmit: (e: React.FormEvent) => void;
   // image props
   existingImageUrl?: string | null;
@@ -276,13 +272,10 @@ function EventForm({
   currentHostName,
   groups,
   roles,
-  tracks,
   watchedGroupIds,
   watchedRoleIds,
-  watchedTrackIds,
   onToggleGroup,
   onToggleRole,
-  onToggleTrack,
   onSubmit,
   existingImageUrl,
   imagePreviewUrl,
@@ -422,33 +415,19 @@ function EventForm({
 
       {groups.length > 0 && (
         <EventFormRow label="Target Groups">
-          <div className="space-y-3">
-            {Object.entries(
-              groups.reduce<Record<string, typeof groups>>((acc, g) => {
-                const key = g.trackName ?? "No Track";
-                if (!acc[key]) acc[key] = [];
-                acc[key].push(g);
-                return acc;
-              }, {})
-            ).map(([trackName, trackGroups]) => (
-              <div key={trackName}>
-                <p className="text-xs font-medium text-muted-foreground mb-1">{trackName}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {trackGroups.map((g) => (
-                    <label
-                      key={g.id}
-                      className="flex items-center gap-2 text-sm cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={watchedGroupIds.includes(g.id)}
-                        onChange={() => onToggleGroup(g.id)}
-                      />
-                      {g.groupName}
-                    </label>
-                  ))}
-                </div>
-              </div>
+          <div className="grid grid-cols-2 gap-2">
+            {groups.map((g) => (
+              <label
+                key={g.id}
+                className="flex items-center gap-2 text-sm cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={watchedGroupIds.includes(g.id)}
+                  onChange={() => onToggleGroup(g.id)}
+                />
+                {g.groupName}
+              </label>
             ))}
           </div>
         </EventFormRow>
@@ -468,26 +447,6 @@ function EventForm({
                   onChange={() => onToggleRole(r.id)}
                 />
                 {r.roleName}
-              </label>
-            ))}
-          </div>
-        </EventFormRow>
-      )}
-
-      {tracks.length > 0 && (
-        <EventFormRow label="Target Tracks">
-          <div className="grid grid-cols-2 gap-2">
-            {tracks.map((t) => (
-              <label
-                key={t.id}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-              >
-                <input
-                  type="checkbox"
-                  checked={watchedTrackIds.includes(t.id)}
-                  onChange={() => onToggleTrack(t.id)}
-                />
-                {t.trackName}
               </label>
             ))}
           </div>
@@ -616,7 +575,6 @@ function EventPage() {
   const { data: usersData } = useQueryUsers();
   const { data: groupsData } = useQueryGroups();
   const { data: rolesData } = useQueryRoles();
-  const { data: tracksData } = useQueryTracks();
   const { data: eventTargetsData } = useQueryEventTargets(
     editingEvent?.id ?? null,
   );
@@ -639,7 +597,6 @@ function EventPage() {
   );
   const groups = groupsData?.data ?? [];
   const roles = rolesData?.data ?? [];
-  const tracks = tracksData?.data ?? [];
 
   const authUserId = Number(currentUser?.id);
   const currentAdminEmail = currentUser?.email ?? "";
@@ -676,7 +633,6 @@ function EventPage() {
       endsAt: "",
       targetGroupIds: [],
       targetRoleIds: [],
-      targetTrackIds: [],
     },
     resolver: zodResolver(createEventSchema),
   });
@@ -684,7 +640,6 @@ function EventPage() {
   const createEventFormat = (watch("eventFormat") ?? "in_person") as EventFormat;
   const createGroupIds = watch("targetGroupIds") ?? [];
   const createRoleIds = watch("targetRoleIds") ?? [];
-  const createTrackIds = watch("targetTrackIds") ?? [];
 
   useEffect(() => {
     if (currentUserId) {
@@ -707,7 +662,6 @@ function EventPage() {
   const editEventFormat = (watchEdit("eventFormat") ?? "in_person") as EventFormat;
   const editGroupIds = watchEdit("targetGroupIds") ?? [];
   const editRoleIds = watchEdit("targetRoleIds") ?? [];
-  const editTrackIds = watchEdit("targetTrackIds") ?? [];
 
   useEffect(() => {
     setPage(1);
@@ -730,7 +684,6 @@ function EventPage() {
         endsAt: toDatetimeLocalInTz(editingEvent.endsDatetime, tz),
         targetGroupIds: targets?.groupIds ?? [],
         targetRoleIds: targets?.roleIds ?? [],
-        targetTrackIds: targets?.trackIds ?? [],
       });
       // Reset image state when switching events
       setEditImageFile(null);
@@ -828,7 +781,6 @@ function EventPage() {
             endsAt: "",
             targetGroupIds: [],
             targetRoleIds: [],
-            targetTrackIds: [],
           });
         }
       },
@@ -1225,20 +1177,6 @@ function EventPage() {
                 </div>
               </EventDetailRow>
             )}
-            {(viewTargetsData?.data?.trackIds?.length ?? 0) > 0 && (
-              <EventDetailRow label="Target Tracks">
-                <div className="flex flex-wrap gap-1.5">
-                  {viewTargetsData!.data!.trackIds.map((id) => {
-                    const t = tracks.find((x) => x.id === id);
-                    return t ? (
-                      <Badge key={id} variant="secondary">
-                        {t.trackName}
-                      </Badge>
-                    ) : null;
-                  })}
-                </div>
-              </EventDetailRow>
-            )}
           </div>
           <DialogFooter>
             <Button
@@ -1271,7 +1209,6 @@ function EventPage() {
               endsAt: "",
               targetGroupIds: [],
               targetRoleIds: [],
-              targetTrackIds: [],
             });
           }
         }}
@@ -1292,18 +1229,13 @@ function EventPage() {
             currentHostName={currentHostName}
             groups={groups}
             roles={roles}
-            tracks={tracks}
             watchedGroupIds={createGroupIds}
             watchedRoleIds={createRoleIds}
-            watchedTrackIds={createTrackIds}
             onToggleGroup={(id) =>
               toggleId(createGroupIds, id, (v) => setValue("targetGroupIds", v))
             }
             onToggleRole={(id) =>
               toggleId(createRoleIds, id, (v) => setValue("targetRoleIds", v))
-            }
-            onToggleTrack={(id) =>
-              toggleId(createTrackIds, id, (v) => setValue("targetTrackIds", v))
             }
             onSubmit={handleSubmit(onSubmit)}
             existingImageUrl={null}
@@ -1484,10 +1416,8 @@ function EventPage() {
             }
             groups={groups}
             roles={roles}
-            tracks={tracks}
             watchedGroupIds={editGroupIds}
             watchedRoleIds={editRoleIds}
-            watchedTrackIds={editTrackIds}
             onToggleGroup={(id) =>
               toggleId(editGroupIds, id, (v) =>
                 setEditValue("targetGroupIds", v),
@@ -1495,11 +1425,6 @@ function EventPage() {
             }
             onToggleRole={(id) =>
               toggleId(editRoleIds, id, (v) => setEditValue("targetRoleIds", v))
-            }
-            onToggleTrack={(id) =>
-              toggleId(editTrackIds, id, (v) =>
-                setEditValue("targetTrackIds", v),
-              )
             }
             onSubmit={handleEditSubmit(onEditSubmit)}
             existingImageUrl={editingEvent?.eventImage ?? null}

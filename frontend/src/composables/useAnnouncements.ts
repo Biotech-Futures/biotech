@@ -18,9 +18,8 @@ export interface Announcement {
   audience: string
   // Normalized role set (e.g. ['student','mentor']) used by chip filters.
   audienceRoles: string[]
-  // True when scope is public or no specific role/track/group audience exists.
+  // True when scope is public or no specific role/group audience exists.
   isPublic: boolean
-  trackIds: number[]
   // Group ids this announcement is scoped to via audience rules.
   groupIds: number[]
   images: AnnouncementImage[]
@@ -40,8 +39,6 @@ const ANNOUNCEMENT_AUTHOR_LABEL = 'Administrator'
 
 interface AnnouncementAudience {
   role_name?: string | null
-  track_name?: string | null
-  track?: number | null
   group?: number | null
   group_name?: string | null
 }
@@ -53,7 +50,6 @@ interface AnnouncementApiItem {
   content?: string | null
   summary?: string | null
   visibility_scope?: string | null
-  track?: number | null
   published_at?: string | null
   archived_at?: string | null
   sender_name?: string | null
@@ -260,20 +256,6 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
   const rawRoles = Array.isArray(a?.audiences)
     ? a.audiences.map(r => r?.role_name).filter(Boolean)
     : []
-  const trackNames = Array.isArray(a?.audiences)
-    ? a.audiences.map(r => r?.track_name).filter(Boolean)
-    : []
-  const audienceTrackIds = Array.isArray(a?.audiences)
-    ? (a.audiences
-        .map((r) => (typeof r?.track === 'number' ? r.track : null))
-        .filter((v): v is number => v !== null))
-    : []
-  const directTrackId = typeof (a as { track?: number | null })?.track === 'number'
-    ? ((a as { track: number }).track)
-    : null
-  const trackIds = Array.from(
-    new Set([...(directTrackId !== null ? [directTrackId] : []), ...audienceTrackIds]),
-  )
   const groupIds = Array.isArray(a?.audiences)
     ? Array.from(
         new Set(
@@ -292,7 +274,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
   const audience =
     scope === 'public'
       ? 'all'
-      : normalizeAudienceValue(rawRoles[0] || trackNames[0] || scope || 'all')
+      : normalizeAudienceValue(rawRoles[0] || scope || 'all')
 
   return {
     id: a?.id,
@@ -305,8 +287,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
     audienceRoles,
     isPublic:
       scope === 'public' ||
-      (audienceRoles.length === 0 && trackIds.length === 0 && groupIds.length === 0),
-    trackIds,
+      (audienceRoles.length === 0 && groupIds.length === 0),
     groupIds,
     images: extractImages(a),
     link: normalizeRichTextUrl(a?.link),
@@ -462,7 +443,6 @@ const AUDIENCE_LABELS: Record<string, string> = {
   admin: 'Admin',
   administrator: 'Admin',
   role: 'Role-based',
-  track: 'Track-based',
   scoped: 'Scoped'
 }
 
@@ -478,7 +458,6 @@ const AUDIENCE_CLASSES: Record<string, string> = {
   admin: 'status-danger',
   administrator: 'status-danger',
   role: 'status-info',
-  track: 'status-pending',
   scoped: 'status-warning'
 }
 

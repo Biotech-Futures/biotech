@@ -20,14 +20,10 @@ from rest_framework.test import APITestCase
 
 from apps.events.models import (
     EventRsvp,
-    EventTargetTrack,
+    EventTargetGroup,
     Events,
 )
-from apps.groups.models import (
-    Countries,
-    CountryStates,
-    Tracks,
-)
+from apps.groups.models import Groups
 
 User = get_user_model()
 
@@ -126,18 +122,17 @@ class InviteListScopeTests(APITestCase):
     """A non-host mentor can't fish for rosters outside their visibility."""
 
     def setUp(self):
-        country = Countries.objects.create(country_name="Test Country")
-        state = CountryStates.objects.create(country=country, state_name="Test State")
-        self.track_a = Tracks.objects.create(track_name="Track A", state=state)
-        self.track_b = Tracks.objects.create(track_name="Track B", state=state)
-        # A user with no track membership: can only see untargeted events.
-        # Make them staff so the IsNotStudent permission lets them through
-        # the gate; visible_events_queryset then narrows scope.
+        # An event targeted to a group the mentor doesn't belong to sits
+        # outside their scope. Targeting is group + role only now, so a
+        # non-member with no matching role can't see it — the surviving
+        # equivalent of the old cross-track visibility boundary.
+        self.group_b = Groups.objects.create(group_name="Group B")
+        # A user with no group membership: can only see untargeted events.
+        # visible_events_queryset narrows scope once IsNotStudent lets them
+        # past the gate.
         self.mentor = User.objects.create_user(
-            email="mentor@test.com", password="x", is_staff=False
+            email="mentor@test.com", password="x"
         )
-        self.mentor.is_staff = False
-        self.mentor.save()
 
         # Force the IsNotStudent role check via mentor role assignment.
         from apps.resources.models import RoleAssignmentHistory, Roles
@@ -148,9 +143,9 @@ class InviteListScopeTests(APITestCase):
             valid_from=timezone.now() - timedelta(days=1),
         )
 
-        # An event targeted to Track B (out of mentor's scope).
-        self.event_b = _make_event("Track B Event")
-        EventTargetTrack.objects.create(event=self.event_b, track=self.track_b)
+        # An event targeted to Group B (out of the mentor's scope).
+        self.event_b = _make_event("Group B Event")
+        EventTargetGroup.objects.create(event=self.event_b, group=self.group_b)
         EventRsvp.objects.create(
             event=self.event_b,
             user=self.mentor,  # any non-target user — won't affect visibility

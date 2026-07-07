@@ -267,7 +267,7 @@ class TaskBulkToggleView(generics.GenericAPIView):
 class TaskStatusUpdateView(generics.GenericAPIView):
     """POST /api/v1/tasks/<id>/status/ — change task status without entering
     full edit. Permission gate mirrors CanToggleTask: assignee, mentor of
-    group, supervisor of assignee, track admin, or task creator can change.
+    group, supervisor of assignee, admin, or task creator can change.
     Setting status to "done" also flips `completed=True`; any other status
     flips `completed=False`."""
 

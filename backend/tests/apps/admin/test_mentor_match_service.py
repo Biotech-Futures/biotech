@@ -8,7 +8,7 @@ from apps.admin.services.mentor_match import (
     confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
     unassign_mentors,
 )
-from apps.groups.models import Countries, CountryStates, Groups, GroupMembership, Tracks
+from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.users.models import MentorProfile, StudentProfile, User
 from apps.users.models.admin_scope import AdminScope
 from apps.matching_runtime.models import MatchRun
@@ -18,25 +18,24 @@ class MentorMatchServiceTests(TestCase):
     def setUp(self):
         country = Countries.objects.create(country_name="Australia")
         self.state = CountryStates.objects.create(country=country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="TRACK-1", state=self.state)
 
         self.admin_user = User.objects.create_user(
             email="admin@example.com", first_name="Admin", password="testpass",
         )
-        AdminScope.objects.create(user=self.admin_user, is_global=True)
+        AdminScope.objects.create(user=self.admin_user)
 
         self.mentor = User.objects.create_user(
             email="mentor@example.com", first_name="Mina", last_name="Mentor",
-            track=self.track, password="testpass", is_active=True,
+            state=self.state, password="testpass", is_active=True,
         )
         MentorProfile.objects.create(
             user=self.mentor, institution="UNSW", mentor_reason="Testing", max_group_count=3,
         )
 
-        self.group = Groups.objects.create(group_name="Group A", track=self.track)
+        self.group = Groups.objects.create(group_name="Group A")
         self.student = User.objects.create_user(
             email="student@example.com", first_name="Stud", last_name="Ent",
-            track=self.track, password="testpass",
+            state=self.state, password="testpass",
         )
         StudentProfile.objects.create(
             user=self.student, pg_first_name="P", pg_last_name="E",
@@ -115,7 +114,7 @@ class MentorMatchServiceTests(TestCase):
     def test_replace_mentor(self):
         new_mentor = User.objects.create_user(
             email="new@example.com", first_name="New", last_name="Mentor",
-            track=self.track, password="testpass", is_active=True,
+            state=self.state, password="testpass", is_active=True,
         )
         MentorProfile.objects.create(
             user=new_mentor, institution="UAT", mentor_reason="Volunteer", max_group_count=3,
@@ -178,7 +177,7 @@ class MentorMatchServiceTests(TestCase):
         self.assertEqual(result, {"unassignedCount": 0})
 
     def test_match_mentor_saves_run(self):
-        existing_mentor_group = Groups.objects.create(group_name="With Mentor", track=self.track)
+        existing_mentor_group = Groups.objects.create(group_name="With Mentor")
         GroupMembership.objects.create(
             user=self.mentor, group=existing_mentor_group,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,

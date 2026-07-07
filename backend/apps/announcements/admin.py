@@ -18,5 +18,5 @@ class AnnouncementAdmin(admin.ModelAdmin):
 
 @admin.register(AnnouncementAudience)
 class AnnouncementAudienceAdmin(admin.ModelAdmin):
-    list_display = ("id", "announcement", "role", "track")
-    list_filter = ("role", "track")
+    list_display = ("id", "announcement", "role", "group")
+    list_filter = ("role", "group")

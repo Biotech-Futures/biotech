@@ -8,15 +8,14 @@ from rest_framework.test import APITestCase
 from apps.events.models import (
     EventRsvp,
     EventTargetGroup,
+    EventTargetRole,
     Events,
 )
 from apps.groups.models import (
-    Countries,
-    CountryStates,
     GroupMembership,
     Groups,
-    Tracks,
 )
+from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope
 
 User = get_user_model()
@@ -26,7 +25,7 @@ class EventAPITests(APITestCase):
     Minimal test suite for /events/v1 endpoints.
     Covers:
     - GET returns only upcoming events
-    - POST works for operational admins only
+    - POST works for admins only
     - POST rejected for regular user
     - Validation rules (end time after start time)
     """
@@ -35,7 +34,7 @@ class EventAPITests(APITestCase):
         # Create regular and admin users
         self.user = User.objects.create_user(email="user2@gmail.com", password="pass123")
         self.admin = User.objects.create_user(email="test_admin@gmail.com", password="admin123")
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         # Base URL (adjust if prefix changed)
         self.url = "/events/v1/"
@@ -71,7 +70,7 @@ class EventAPITests(APITestCase):
     # --- POST TESTS ---
 
     def test_admin_can_create_event(self):
-        """Operational admin user can POST successfully"""
+        """Admin user can POST successfully"""
         self.client.force_authenticate(user=self.admin)
         data = {
             "event_name": "Admin Created Event",
@@ -366,29 +365,23 @@ class EventListFiltersAndSearchTests(APITestCase):
 class EventRsvpVisibilityGateTests(APITestCase):
     """Permission-gate behavior for ``POST /events/v1/{id}/rsvp/``.
 
-    The fixture builds two tracks, two groups (one per track), and a
-    user who is a member of *only* the first group. We then create
-    several events with different targeting axes and verify the gate
-    permits / forbids correctly.
+    The fixture builds two groups and a user who is a member of *only*
+    the first group. We then create several events with different
+    targeting axes and verify the gate permits / forbids correctly.
     """
 
     def setUp(self):
         self.user = User.objects.create_user(email="member@test.com", password="pw")
         self.outsider = User.objects.create_user(email="outsider@test.com", password="pw")
 
-        # Tracks require a state (country → state → track), so build
-        # the chain. Mirrors the dashboard test fixtures.
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
-        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
-
-        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
-        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
+        # Group targeting only — no track concept. Group names are
+        # globally unique among active groups.
+        self.group_a = Groups.objects.create(group_name="Group A")
+        self.group_b = Groups.objects.create(group_name="Group B")
 
         # ``self.user`` is a student member of group_a only. Both
         # ``self.user`` and ``self.outsider`` have no GroupMembership
-        # in group_b and no track on the User row.
+        # in group_b.
         GroupMembership.objects.create(
             group=self.group_a,
             user=self.user,
@@ -651,10 +644,7 @@ class EventRsvpSetActionTests(APITestCase):
     def test_rsvp_endpoint_blocks_non_targets(self):
         # Seed a targeted event the user is NOT a member of, then try
         # ``/rsvp/`` — must be 403.
-        country = Countries.objects.create(country_name="Locked Country")
-        state = CountryStates.objects.create(country=country, state_name="Locked State")
-        track = Tracks.objects.create(track_name="Locked Track", state=state)
-        group = Groups.objects.create(group_name="Locked Group", track=track)
+        group = Groups.objects.create(group_name="Locked Group")
         targeted_event = Events.objects.create(
             event_name="Closed Doors",
             description="Members only.",
@@ -674,62 +664,29 @@ class EventRsvpSetActionTests(APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# Gap 1: write-side admin-scope enforcement on ``POST /events/v1/``.
+# Write-side admin enforcement on ``POST /events/v1/``.
 #
-# The role spec says Track Administrators have access *only* to their
-# assigned tracks. The previous ``IsAdminOrReadOnly`` permission checked
-# Django's staff flag only, so Track Admins defined by ``AdminScope`` rows
-# were locked out of event creation
-# entirely. The new ``EventManagePermission`` + ``perform_create``
-# track-scope check open the door for Track Admins while keeping the
-# scope narrow:
-#
-#   * Track Admin → may create events whose ``track`` FK is in their
-#     scope. Cannot create untargeted events (those reach every user
-#     and would be a privilege escalation past their assigned tracks).
-#   * Global Admin (``AdminScope.is_global`` row) → unrestricted
-#     (any track or untargeted).
+# Events are admin-pushed, not user-created. Under the single global
+# admin tier, any user with an ``AdminScope`` row may create any event —
+# targeted (group/role) or untargeted (org-wide). A user with no
+# ``AdminScope`` row is blocked at the permission layer.
 # ---------------------------------------------------------------------------
 
 
 class EventCreatePermissionTests(APITestCase):
-    """Tests for write-side admin-scope enforcement on POST /events/v1/."""
+    """Tests for write-side admin enforcement on POST /events/v1/."""
 
     url = "/events/v1/"
 
     def setUp(self):
-        # Track Admin scoped to track_a; another Track Admin scoped
-        # to track_b; a Global Admin via ``AdminScope.is_global``;
-        # and a regular user as the negative case.
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
-        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
-
         self.regular = User.objects.create_user(email="reg@test.com", password="pw")
 
-        self.track_admin_a = User.objects.create_user(
-            email="track-admin-a@test.com", password="pw"
-        )
-        AdminScope.objects.create(
-            user=self.track_admin_a, track=self.track_a, is_global=False
-        )
+        self.admin = User.objects.create_user(email="admin@test.com", password="pw")
+        AdminScope.objects.create(user=self.admin)
 
-        self.track_admin_b = User.objects.create_user(
-            email="track-admin-b@test.com", password="pw"
-        )
-        AdminScope.objects.create(
-            user=self.track_admin_b, track=self.track_b, is_global=False
-        )
+        self.group_a = Groups.objects.create(group_name="Group A")
 
-        self.global_admin = User.objects.create_user(
-            email="global-admin@test.com", password="pw"
-        )
-        AdminScope.objects.create(
-            user=self.global_admin, track=None, is_global=True
-        )
-
-    def _payload(self, *, name="Created Event", track_id=None):
+    def _payload(self, *, name="Created Event", target_group_ids=None):
         body = {
             "event_name": name,
             "description": "fixture",
@@ -738,81 +695,57 @@ class EventCreatePermissionTests(APITestCase):
             "location": "Sydney",
             "event_format": "in_person",
         }
-        if track_id is not None:
-            body["track"] = track_id
+        if target_group_ids is not None:
+            body["target_group_ids"] = target_group_ids
         return body
 
-    # ----- Track Admin happy path -------------------------------------
+    # ----- Admin happy path -------------------------------------------
 
-    def test_track_admin_can_create_event_in_their_track(self):
-        # The whole point of Gap 1: Track Admin A creates a Track A
-        # event, no Django staff flag required.
-        self.client.force_authenticate(user=self.track_admin_a)
+    def test_admin_can_create_targeted_event(self):
+        # An admin creates a group-targeted event; the through row is
+        # persisted alongside the event.
+        self.client.force_authenticate(user=self.admin)
         response = self.client.post(
-            self.url, self._payload(name="A Event", track_id=self.track_a.id), format="json"
+            self.url,
+            self._payload(name="Group A Event", target_group_ids=[self.group_a.id]),
+            format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        event = Events.objects.get(event_name="A Event")
-        self.assertEqual(event.track_id, self.track_a.id)
-
-    # ----- Track Admin restrictions -----------------------------------
-
-    def test_track_admin_cannot_create_event_in_other_track(self):
-        # Track Admin A has no scope on Track B, so a B-targeted event
-        # is forbidden. The 403 + no-row guarantees the failure is
-        # total (no half-saved Event).
-        self.client.force_authenticate(user=self.track_admin_a)
-        response = self.client.post(
-            self.url, self._payload(name="B Event", track_id=self.track_b.id), format="json"
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        event = Events.objects.get(event_name="Group A Event")
+        self.assertEqual(
+            list(
+                EventTargetGroup.objects.filter(event=event).values_list(
+                    "group_id", flat=True
+                )
+            ),
+            [self.group_a.id],
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(Events.objects.filter(event_name="B Event").exists())
 
-    def test_track_admin_cannot_create_untargeted_event(self):
-        # An untargeted event is org-wide and reaches every user,
-        # which would let Track Admin A push to Track B's audience.
-        # Reserved for Global Admins only.
-        self.client.force_authenticate(user=self.track_admin_a)
-        response = self.client.post(
-            self.url, self._payload(name="No-Track Event"), format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(Events.objects.filter(event_name="No-Track Event").exists())
-
-    # ----- Global Admin freedom ---------------------------------------
-
-    def test_global_admin_scope_can_create_untargeted_event(self):
-        # ``AdminScope(is_global=True)`` ⇒ ``get_admin_track_ids``
-        # returns ``None`` ⇒ no track-scope clamp on POST.
-        self.client.force_authenticate(user=self.global_admin)
+    def test_admin_can_create_untargeted_event(self):
+        # An untargeted event is org-wide and reaches every user. Under
+        # the single admin tier this is allowed for any admin.
+        self.client.force_authenticate(user=self.admin)
         response = self.client.post(
             self.url, self._payload(name="Org-wide Event"), format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(Events.objects.filter(event_name="Org-wide Event").exists())
 
-    def test_global_admin_scope_can_create_event_in_any_track(self):
-        self.client.force_authenticate(user=self.global_admin)
-        response = self.client.post(
-            self.url, self._payload(name="Cross-Track Event", track_id=self.track_b.id), format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     # ----- Regular user remains 403 -----------------------------------
 
-    def test_regular_user_still_cannot_create_event(self):
-        # Defense in depth: the new permission must not have widened
-        # write access to non-admins. The previous test already covers
-        # non-staff users; this covers a user with no AdminScope row.
+    def test_regular_user_cannot_create_event(self):
+        # Defense in depth: the permission must not widen write access to
+        # non-admins. A user with no AdminScope row is rejected.
         self.client.force_authenticate(user=self.regular)
         response = self.client.post(
-            self.url, self._payload(name="Should Fail", track_id=self.track_a.id), format="json"
+            self.url, self._payload(name="Should Fail"), format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Events.objects.filter(event_name="Should Fail").exists())
 
 
 # ---------------------------------------------------------------------------
-# Gap 2: read-side scoping on ``GET /events/v1/``.
+# Read-side scoping on ``GET /events/v1/``.
 #
 # Per the "events are pushed by admin" model, a non-admin user must
 # only see events they're a target of. The visibility queryset
@@ -825,24 +758,20 @@ class EventCreatePermissionTests(APITestCase):
 class EventListVisibilityScopingTests(APITestCase):
     """Tests for ``visible_events_queryset`` wired into the list view.
 
-    Fixture: two tracks, two groups (one per track). One event per
-    targeting axis (untargeted, targets group_a, targets group_b,
-    targets track_a directly via FK, targets track_b directly via FK).
-    Members and admins should each see a different subset of these.
+    Fixture: two groups and one role. One event per targeting axis
+    (untargeted, targets group_a, targets group_b, targets a role).
+    Members, outsiders, and admins should each see a different subset
+    of these.
     """
 
     url = "/events/v1/"
 
     def setUp(self):
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
-        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
+        self.group_a = Groups.objects.create(group_name="Group A")
+        self.group_b = Groups.objects.create(group_name="Group B")
+        self.role = Roles.objects.create(role_name="Programme Mentor")
 
-        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
-        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
-
-        # Member of group_a only.
+        # Member of group_a only, and holder of ``self.role``.
         self.member_a = User.objects.create_user(
             email="member-a@test.com", password="pw"
         )
@@ -851,25 +780,22 @@ class EventListVisibilityScopingTests(APITestCase):
             user=self.member_a,
             membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         )
+        RoleAssignmentHistory.objects.create(
+            user=self.member_a,
+            role=self.role,
+            valid_from=timezone.now() - timezone.timedelta(days=1),
+        )
 
-        # Outsider — no group, no track.
+        # Outsider — no group, no role.
         self.outsider = User.objects.create_user(
             email="outsider@test.com", password="pw"
         )
 
-        # Track Admin scoped to track_a.
-        self.track_admin_a = User.objects.create_user(
-            email="track-admin-a@test.com", password="pw"
+        # Admin via AdminScope (single global tier — sees everything).
+        self.admin = User.objects.create_user(
+            email="admin@test.com", password="pw"
         )
-        AdminScope.objects.create(
-            user=self.track_admin_a, track=self.track_a, is_global=False
-        )
-
-        # Global admin via AdminScope.
-        self.global_admin = User.objects.create_user(
-            email="global-admin@test.com", password="pw"
-        )
-        AdminScope.objects.create(user=self.global_admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
 
         now = timezone.now()
         self.untargeted = Events.objects.create(
@@ -899,22 +825,14 @@ class EventListVisibilityScopingTests(APITestCase):
         EventTargetGroup.objects.create(
             event=self.event_for_group_b, group=self.group_b
         )
-        self.event_for_track_a = Events.objects.create(
-            event_name="Track A Webinar",
-            description="Track A direct FK.",
+        self.event_for_role = Events.objects.create(
+            event_name="Role Webinar",
+            description="Role-targeted.",
             start_datetime=now + timezone.timedelta(days=4),
             ends_datetime=now + timezone.timedelta(days=4, hours=1),
             location="Online",
-            track=self.track_a,
         )
-        self.event_for_track_b = Events.objects.create(
-            event_name="Track B Webinar",
-            description="Track B direct FK.",
-            start_datetime=now + timezone.timedelta(days=5),
-            ends_datetime=now + timezone.timedelta(days=5, hours=1),
-            location="Online",
-            track=self.track_b,
-        )
+        EventTargetRole.objects.create(event=self.event_for_role, role=self.role)
 
     def _list(self, user=None):
         if user is not None:
@@ -927,30 +845,27 @@ class EventListVisibilityScopingTests(APITestCase):
 
     # ----- Non-admin member -------------------------------------------
 
-    def test_member_sees_untargeted_and_their_group_and_track(self):
-        # Member of group_a + Track A (via group's parent track):
+    def test_member_sees_untargeted_and_their_group_and_role(self):
+        # Member of group_a holding ``self.role``:
         #   ✓ untargeted (open to all)
         #   ✓ event_for_group_a (group target matches)
-        #   ✓ event_for_track_a (track target matches via group's track)
+        #   ✓ event_for_role (role target matches)
         #   ✗ event_for_group_b (group mismatch)
-        #   ✗ event_for_track_b (track mismatch)
         names = self._list(user=self.member_a)
         self.assertIn("Org Town Hall", names)
         self.assertIn("Group A Workshop", names)
-        self.assertIn("Track A Webinar", names)
+        self.assertIn("Role Webinar", names)
         self.assertNotIn("Group B Workshop", names)
-        self.assertNotIn("Track B Webinar", names)
 
     def test_outsider_sees_only_untargeted(self):
-        # No groups, no tracks → only events with no targeting on any
+        # No groups, no roles → only events with no targeting on any
         # axis. Locks the "events are pushed" model: outsiders can't
         # browse the targeted catalog.
         names = self._list(user=self.outsider)
         self.assertIn("Org Town Hall", names)
         self.assertNotIn("Group A Workshop", names)
         self.assertNotIn("Group B Workshop", names)
-        self.assertNotIn("Track A Webinar", names)
-        self.assertNotIn("Track B Webinar", names)
+        self.assertNotIn("Role Webinar", names)
 
     def test_invited_user_sees_targeted_event_regardless_of_membership(self):
         # Outsider is not in group_b, but an admin invited them. The
@@ -973,62 +888,39 @@ class EventListVisibilityScopingTests(APITestCase):
         names = self._list(user=None)
         self.assertIn("Org Town Hall", names)
         self.assertNotIn("Group A Workshop", names)
-        self.assertNotIn("Track B Webinar", names)
+        self.assertNotIn("Role Webinar", names)
 
-    # ----- Track Admin scope ------------------------------------------
+    # ----- Admin -------------------------------------------------------
 
-    def test_track_admin_sees_their_tracks_events_and_untargeted(self):
-        # Track Admin A:
-        #   ✓ untargeted (admins still see org-wide announcements)
-        #   ✓ event_for_group_a (group's parent track is track_a)
-        #   ✓ event_for_track_a (direct FK)
-        #   ✗ event_for_group_b (different track scope)
-        #   ✗ event_for_track_b (different track scope)
-        names = self._list(user=self.track_admin_a)
-        self.assertIn("Org Town Hall", names)
-        self.assertIn("Group A Workshop", names)
-        self.assertIn("Track A Webinar", names)
-        self.assertNotIn("Group B Workshop", names)
-        self.assertNotIn("Track B Webinar", names)
-
-    # ----- Global Admin -----------------------------------------------
-
-    def test_global_admin_sees_every_event(self):
-        # Sanity: ``AdminScope(is_global=True)`` gets
-        # ``admin_track_ids=None`` and therefore no clamp at all.
-        names = self._list(user=self.global_admin)
+    def test_admin_sees_every_event(self):
+        # ``AdminScope`` ⇒ no clamp at all; the admin sees every event.
+        names = self._list(user=self.admin)
         self.assertEqual(
             names,
             {
                 "Org Town Hall",
                 "Group A Workshop",
                 "Group B Workshop",
-                "Track A Webinar",
-                "Track B Webinar",
+                "Role Webinar",
             },
         )
 
 
 # ---------------------------------------------------------------------------
-# Scoped id filters: ?user= / ?group= / ?track= on GET /events/v1/.
+# Scoped id filters: ?user= / ?group= on GET /events/v1/.
 # Each filter is permission-checked against the caller; an unauthorised
 # id returns an empty result, never a wider list.
 # ---------------------------------------------------------------------------
 
 
 class EventScopedIdFilterTests(APITestCase):
-    """Tests for the user/group/track id filters."""
+    """Tests for the user/group id filters."""
 
     url = "/events/v1/"
 
     def setUp(self):
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
-        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
-
-        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
-        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
+        self.group_a = Groups.objects.create(group_name="Group A")
+        self.group_b = Groups.objects.create(group_name="Group B")
 
         self.member_a = User.objects.create_user(email="ma@test.com", password="pw")
         GroupMembership.objects.create(
@@ -1039,11 +931,8 @@ class EventScopedIdFilterTests(APITestCase):
 
         self.outsider = User.objects.create_user(email="out@test.com", password="pw")
 
-        self.track_admin_a = User.objects.create_user(email="taa@test.com", password="pw")
-        AdminScope.objects.create(user=self.track_admin_a, track=self.track_a, is_global=False)
-
-        self.global_admin = User.objects.create_user(email="ga@test.com", password="pw")
-        AdminScope.objects.create(user=self.global_admin, is_global=True)
+        self.admin = User.objects.create_user(email="ga@test.com", password="pw")
+        AdminScope.objects.create(user=self.admin)
 
         now = timezone.now()
         self.event_for_group_a = Events.objects.create(
@@ -1062,14 +951,6 @@ class EventScopedIdFilterTests(APITestCase):
         )
         EventTargetGroup.objects.create(event=self.event_for_group_b, group=self.group_b)
 
-        self.event_for_track_a = Events.objects.create(
-            event_name="Track A Webinar",
-            start_datetime=now + timezone.timedelta(days=3),
-            ends_datetime=now + timezone.timedelta(days=3, hours=1),
-            location="Online",
-            track=self.track_a,
-        )
-
     # ----- ?user= filter ---------------------------------------------
 
     def test_user_filter_self_returns_own_rsvps(self):
@@ -1087,27 +968,27 @@ class EventScopedIdFilterTests(APITestCase):
         self.assertEqual(ids, [self.event_for_group_a.id])
 
     def test_user_filter_other_user_blocked_for_non_admin(self):
-        # member_a tries to query the global admin's RSVPs — must be
-        # silently empty, not 403, not the full list.
+        # member_a tries to query the admin's RSVPs — must be silently
+        # empty, not 403, not the full list.
         EventRsvp.objects.create(
             event=self.event_for_group_a,
-            user=self.global_admin,
+            user=self.admin,
             rsvp_status=EventRsvp.RsvpStatus.ACCEPTED,
             responded_at=timezone.now(),
         )
         self.client.force_authenticate(user=self.member_a)
-        response = self.client.get(self.url + f"?user={self.global_admin.id}")
+        response = self.client.get(self.url + f"?user={self.admin.id}")
         self.assertEqual(response.data["results"], [])
 
     def test_user_filter_admin_can_audit_any_user(self):
-        # Global admin queries member_a's RSVPs — allowed.
+        # Admin queries member_a's RSVPs — allowed.
         EventRsvp.objects.create(
             event=self.event_for_group_a,
             user=self.member_a,
             rsvp_status=EventRsvp.RsvpStatus.TENTATIVE,
             responded_at=timezone.now(),
         )
-        self.client.force_authenticate(user=self.global_admin)
+        self.client.force_authenticate(user=self.admin)
         response = self.client.get(self.url + f"?user={self.member_a.id}")
         ids = [row["id"] for row in response.data["results"]]
         self.assertEqual(ids, [self.event_for_group_a.id])
@@ -1136,49 +1017,9 @@ class EventScopedIdFilterTests(APITestCase):
         response = self.client.get(self.url + f"?group={self.group_b.id}")
         self.assertEqual(response.data["results"], [])
 
-    def test_group_filter_track_admin_limited_to_own_tracks(self):
-        # track_admin_a may query group_a (in track_a) but not group_b.
-        self.client.force_authenticate(user=self.track_admin_a)
-        ok_response = self.client.get(self.url + f"?group={self.group_a.id}")
-        self.assertEqual(
-            [row["id"] for row in ok_response.data["results"]],
-            [self.event_for_group_a.id],
-        )
-        blocked_response = self.client.get(self.url + f"?group={self.group_b.id}")
-        self.assertEqual(blocked_response.data["results"], [])
-
-    def test_group_filter_global_admin_any_group(self):
-        self.client.force_authenticate(user=self.global_admin)
+    def test_group_filter_admin_any_group(self):
+        self.client.force_authenticate(user=self.admin)
         response = self.client.get(self.url + f"?group={self.group_b.id}")
-        ids = [row["id"] for row in response.data["results"]]
-        self.assertEqual(ids, [self.event_for_group_b.id])
-
-    # ----- ?track= filter --------------------------------------------
-
-    def test_track_filter_member_can_query_own_track(self):
-        # member_a is in group_a (track_a). Track filter returns events
-        # touching track_a: the direct-FK one and the group-targeted one.
-        self.client.force_authenticate(user=self.member_a)
-        response = self.client.get(self.url + f"?track={self.track_a.id}")
-        ids = {row["id"] for row in response.data["results"]}
-        self.assertEqual(
-            ids,
-            {self.event_for_group_a.id, self.event_for_track_a.id},
-        )
-
-    def test_track_filter_outsider_blocked(self):
-        self.client.force_authenticate(user=self.outsider)
-        response = self.client.get(self.url + f"?track={self.track_a.id}")
-        self.assertEqual(response.data["results"], [])
-
-    def test_track_filter_track_admin_blocked_from_other_track(self):
-        self.client.force_authenticate(user=self.track_admin_a)
-        response = self.client.get(self.url + f"?track={self.track_b.id}")
-        self.assertEqual(response.data["results"], [])
-
-    def test_track_filter_global_admin_any_track(self):
-        self.client.force_authenticate(user=self.global_admin)
-        response = self.client.get(self.url + f"?track={self.track_b.id}")
         ids = [row["id"] for row in response.data["results"]]
         self.assertEqual(ids, [self.event_for_group_b.id])
 
@@ -1187,25 +1028,20 @@ class EventScopedIdFilterTests(APITestCase):
 # Supervisor scope on the scoped id filters.
 #
 # A supervisor's view scope = self ∪ supervisees ∪ mentors of those
-# supervisees' groups. Tested across ?user= / ?group= / ?track=.
+# supervisees' groups. Tested across ?user= / ?group=.
 # ---------------------------------------------------------------------------
 
 
 class EventSupervisorScopeFilterTests(APITestCase):
-    """Supervisor scope on ?user= / ?group= / ?track=."""
+    """Supervisor scope on ?user= / ?group=."""
 
     url = "/events/v1/"
 
     def setUp(self):
         from apps.users.models import StudentProfile, SupervisorProfile
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track_a = Tracks.objects.create(track_name="Track A", state=self.state)
-        self.track_b = Tracks.objects.create(track_name="Track B", state=self.state)
-
-        self.group_a = Groups.objects.create(group_name="Group A", track=self.track_a)
-        self.group_b = Groups.objects.create(group_name="Group B", track=self.track_b)
+        self.group_a = Groups.objects.create(group_name="Group A")
+        self.group_b = Groups.objects.create(group_name="Group B")
 
         # Supervisor and a profile row so StudentProfile.supervisor FK resolves.
         self.supervisor = User.objects.create_user(email="sup@test.com", password="pw")
@@ -1340,19 +1176,6 @@ class EventSupervisorScopeFilterTests(APITestCase):
         response = self.client.get(self.url + f"?group={self.group_b.id}")
         self.assertEqual(response.data["results"], [])
 
-    # ----- ?track= ---------------------------------------------------
-
-    def test_supervisor_can_query_track_of_supervisee_group(self):
-        self.client.force_authenticate(user=self.supervisor)
-        response = self.client.get(self.url + f"?track={self.track_a.id}")
-        ids = [row["id"] for row in response.data["results"]]
-        self.assertEqual(ids, [self.event_for_group_a.id])
-
-    def test_supervisor_blocked_from_unrelated_track(self):
-        self.client.force_authenticate(user=self.supervisor)
-        response = self.client.get(self.url + f"?track={self.track_b.id}")
-        self.assertEqual(response.data["results"], [])
-
 
 # ---------------------------------------------------------------------------
 # Detail / update / destroy on EventViewSet, the ?when= filter, targeting
@@ -1367,7 +1190,7 @@ class EventDetailAndDestroyTests(APITestCase):
 
     def setUp(self):
         self.admin = User.objects.create_user(email="d-admin@t.com", password="pw")
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
         self.user = User.objects.create_user(email="d-user@t.com", password="pw")
         now = timezone.now()
         self.event = Events.objects.create(
@@ -1499,16 +1322,13 @@ class EventWhenFilterTests(APITestCase):
 
 
 class EventTargetingTests(APITestCase):
-    """target_group_ids / target_track_ids on create + PATCH."""
+    """target_group_ids / target_role_ids on create + PATCH."""
 
     def setUp(self):
         self.admin = User.objects.create_user(email="t-admin@t.com", password="pw")
-        AdminScope.objects.create(user=self.admin, is_global=True)
-        country = Countries.objects.create(country_name="X")
-        state = CountryStates.objects.create(country=country, state_name="Y")
-        self.track_a = Tracks.objects.create(track_name="A", state=state)
-        self.track_b = Tracks.objects.create(track_name="B", state=state)
-        self.group_a = Groups.objects.create(group_name="GA", track=self.track_a)
+        AdminScope.objects.create(user=self.admin)
+        self.group_a = Groups.objects.create(group_name="GA")
+        self.role = Roles.objects.create(role_name="Targeted Role")
         self.client.force_authenticate(user=self.admin)
 
     def _payload(self, **overrides):
@@ -1532,6 +1352,18 @@ class EventTargetingTests(APITestCase):
         self.assertEqual(
             list(EventTargetGroup.objects.filter(event_id=r.data["id"]).values_list("group_id", flat=True)),
             [self.group_a.id],
+        )
+
+    def test_create_with_target_roles_persists_rows(self):
+        r = self.client.post(
+            "/events/v1/",
+            self._payload(target_role_ids=[self.role.id]),
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+        self.assertEqual(
+            list(EventTargetRole.objects.filter(event_id=r.data["id"]).values_list("role_id", flat=True)),
+            [self.role.id],
         )
 
     def test_patch_replaces_target_set(self):
@@ -1572,7 +1404,7 @@ class EventBulkInviteTests(APITestCase):
 
     def setUp(self):
         self.admin = User.objects.create_user(email="bi-admin@t.com", password="pw")
-        AdminScope.objects.create(user=self.admin, is_global=True)
+        AdminScope.objects.create(user=self.admin)
         self.u1 = User.objects.create_user(email="bi1@t.com", password="pw")
         self.u2 = User.objects.create_user(email="bi2@t.com", password="pw")
         now = timezone.now()

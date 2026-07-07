@@ -427,8 +427,6 @@ const auth = useAuthStore()
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const RESEND_SECONDS = 30
 const REQUEST_TIMEOUT_MS = 15000
-const TRACK_ARCHIVED_MESSAGE =
-  'Your track has been archived. Please contact an administrator if you think this is a mistake.'
 
 /*
   Shared page data.
@@ -758,7 +756,6 @@ const parseApiError = async (response, fallbackText) => {
 }
 
 const loginErrorMessage = (apiError) => {
-  if (apiError?.code === 'track_archived') return TRACK_ARCHIVED_MESSAGE
   return apiError?.message || t('errorNetworkLogin')
 }
 

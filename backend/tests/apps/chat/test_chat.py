@@ -24,7 +24,7 @@ except ImportError:
 from apps.chat.models import Messages
 from apps.chat.utils import reset_pattern_cache
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources
-from apps.groups.models import Groups, GroupMembership, Countries, CountryStates, Tracks
+from apps.groups.models import Groups, GroupMembership
 from apps.common.storage import get_chat_storage
 from apps.users.models import AdminScope
 from tests.apps._helpers import StorageCleanupMixin, assert_public_message_shape
@@ -47,7 +47,11 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
       - GET  /chat/groups/{id}/messages/?after=&limit=
       - DELETE /chat/groups/{id}/messages/{mid}/  (soft delete)
       - WebSocket broadcasts (message.created / message.deleted)
-      - Permissions by role: mentor (group-scoped), supervisor (group-scoped), admin (global)
+      - Permissions by role: mentor (group-scoped), supervisor
+        (group-scoped), admin (single global tier)
+
+    Moderation power now flows solely from an ``AdminScope`` row (one
+    global tier); the former track-scoped admin distinction is gone.
     """
     storage_attr = "chat_storage"
     storage_keys_attr = "created_chat_storage_keys"
@@ -60,7 +64,6 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.mentor = User.objects.create_user(email="mentor@test.com", password="pw")
         self.supervisor = User.objects.create_user(email="supervisor@test.com", password="pw")
         self.admin = User.objects.create_user(email="admin@test.com", password="pw")
-        self.track_admin = User.objects.create_user(email="track_admin@test.com", password="pw")
 
         # --- roles --- (kept for unrelated chat features; moderation power
         # comes from AdminScope, not from these role assignments)
@@ -85,25 +88,15 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
             user=self.admin, role=self.role_admin, valid_from=now, valid_to=future
         )
 
-        # --- geo / track prerequisites for Groups ---
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-        self.other_state = CountryStates.objects.create(country=self.country, state_name="VIC")
-        self.other_track = Tracks.objects.create(track_name="AUS-VIC", state=self.other_state)
-
         # --- groups & membership ---
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
+        self.group = Groups.objects.create(group_name="G1")
         GroupMembership.objects.create(user=self.student, group=self.group)
         GroupMembership.objects.create(user=self.mentor, group=self.group)
         GroupMembership.objects.create(user=self.supervisor, group=self.group)
-        # admin / track_admin reach groups via AdminScope, not membership.
+        # admin reaches groups via AdminScope, not membership.
 
-        # --- admin scopes (operational admin model) ---
-        AdminScope.objects.create(user=self.admin, is_global=True)
-        AdminScope.objects.create(
-            user=self.track_admin, track=self.track, is_global=False
-        )
+        # --- admin scope (single global tier: any row == admin) ---
+        AdminScope.objects.create(user=self.admin)
 
         # --- resources ---
         self.res1 = Resources.objects.create(
@@ -128,7 +121,6 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_admin = APIClient(); self.client_admin.force_authenticate(user=self.admin)
-        self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
         self.chat_storage = get_chat_storage()
         self.created_chat_storage_keys = []
 
@@ -266,28 +258,16 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         resp = self.client_supervisor.delete(self._detail_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_allowed_for_global_admin_anywhere(self):
-        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
-        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="global admin")
+    def test_delete_allowed_for_admin_anywhere(self):
+        # A single-tier admin can moderate in any group, including groups
+        # they are not a member of.
+        other_group = Groups.objects.create(group_name="G-VIC")
+        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="admin anywhere")
         url = reverse("group-messages-detail", kwargs={"group_pk": other_group.id, "pk": msg.id})
         resp = self.client_admin.delete(url)
         self.assertEqual(resp.status_code, 204)
         msg.refresh_from_db()
         self.assertIsNotNone(msg.deleted_at)
-
-    def test_delete_allowed_for_track_admin_within_track(self):
-        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="track admin in")
-        resp = self.client_track_admin.delete(self._detail_url(msg.id))
-        self.assertEqual(resp.status_code, 204)
-        msg.refresh_from_db()
-        self.assertIsNotNone(msg.deleted_at)
-
-    def test_delete_forbidden_for_track_admin_outside_track(self):
-        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
-        msg = Messages.objects.create(group=other_group, sender_user=self.student, message_text="track admin out")
-        url = reverse("group-messages-detail", kwargs={"group_pk": other_group.id, "pk": msg.id})
-        resp = self.client_track_admin.delete(url)
-        self.assertEqual(resp.status_code, 403)
 
     def test_soft_deleted_messages_are_listed_as_tombstones(self):
         m1 = Messages.objects.create(group=self.group, sender_user=self.student, message_text="keep")
@@ -309,13 +289,13 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         self.assertTrue(by_id[m2.id]["is_deleted"])
         self.assertEqual(by_id[m2.id]["deleted_by"], self.student.id)
 
-    def test_track_admin_can_restore_soft_deleted_message(self):
+    def test_admin_can_restore_soft_deleted_message(self):
         # Restore is moderator-only and clears the message tombstone.
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="restore me")
         msg.soft_delete()
         url = reverse("group-messages-restore", kwargs={"group_pk": self.group.id, "pk": msg.id})
 
-        resp = self.client_track_admin.post(url)
+        resp = self.client_admin.post(url)
 
         self.assertEqual(resp.status_code, 200, resp.content)
         msg.refresh_from_db()
@@ -342,7 +322,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         url = reverse("group-messages-deleted", kwargs={"group_pk": self.group.id})
 
         peer_resp = self.client_student.get(url)
-        admin_resp = self.client_track_admin.get(url)
+        admin_resp = self.client_admin.get(url)
 
         self.assertEqual(peer_resp.status_code, 403)
         self.assertEqual(admin_resp.status_code, 200, admin_resp.content)
@@ -361,7 +341,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         c = Client()
         c.force_login(user)
         return c.cookies[settings.SESSION_COOKIE_NAME].value
-    
+
     def _ws_connect_with_session(self, user):
         """
         Helper: create a Django session for 'user' and connect a WebsocketCommunicator
@@ -433,7 +413,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         )
 
         api = APIClient()
-        # Global admin has unconditional moderation rights under the new contract.
+        # Admin has unconditional moderation rights under the new contract.
         api.force_authenticate(self.admin)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -649,7 +629,7 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         Messages.objects.create(group=self.group, sender_user=self.student, message_text="Hello biotech world")
         Messages.objects.create(group=self.group, sender_user=self.student, message_text="unrelated note")
         # Leak guard: a message in another group containing the term must not appear.
-        other_group = Groups.objects.create(group_name="G-VIC", track=self.other_track)
+        other_group = Groups.objects.create(group_name="G-VIC")
         GroupMembership.objects.create(user=self.student, group=other_group)
         Messages.objects.create(group=other_group, sender_user=self.student, message_text="biotech elsewhere")
 
@@ -724,24 +704,19 @@ class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
         User = get_user_model()
         self.client = APIClient()
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.primary_track = Tracks.objects.create(track_name="Primary", state=self.state)
-        self.secondary_track = Tracks.objects.create(track_name="Secondary", state=self.state)
-
-        self.primary_group = Groups.objects.create(group_name="Primary Group", track=self.primary_track)
-        self.secondary_group = Groups.objects.create(group_name="Secondary Group", track=self.secondary_track)
+        # Two independent groups; membership (not geography) scopes access.
+        self.primary_group = Groups.objects.create(group_name="Primary Group")
+        self.secondary_group = Groups.objects.create(group_name="Secondary Group")
 
         self.global_admin = User.objects.create_user(email="global-admin@test.com", password="pw")
-        self.track_admin = User.objects.create_user(email="track-admin@test.com", password="pw")
         self.mentor = User.objects.create_user(email="mentor@test.com", password="pw")
         self.supervisor = User.objects.create_user(email="supervisor@test.com", password="pw")
         self.student = User.objects.create_user(email="student@test.com", password="pw")
         self.secondary_student = User.objects.create_user(email="secondary-student@test.com", password="pw")
         self.outsider = User.objects.create_user(email="outsider@test.com", password="pw")
 
-        AdminScope.objects.create(user=self.global_admin, is_global=True)
-        AdminScope.objects.create(user=self.track_admin, track=self.primary_track, is_global=False)
+        # Single global admin tier: an AdminScope row grants cross-group reach.
+        AdminScope.objects.create(user=self.global_admin)
 
         self.role_admin = Roles.objects.create(role_name="admin")
         self.role_mentor = Roles.objects.create(role_name="mentor")
@@ -762,7 +737,6 @@ class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
         GroupMembership.objects.create(user=self.secondary_student, group=self.secondary_group, membership_role="student")
 
         self.client_global_admin = APIClient(); self.client_global_admin.force_authenticate(user=self.global_admin)
-        self.client_track_admin = APIClient(); self.client_track_admin.force_authenticate(user=self.track_admin)
         self.client_mentor = APIClient(); self.client_mentor.force_authenticate(user=self.mentor)
         self.client_supervisor = APIClient(); self.client_supervisor.force_authenticate(user=self.supervisor)
         self.client_student = APIClient(); self.client_student.force_authenticate(user=self.student)
@@ -818,26 +792,16 @@ class ChatAttachmentRBACTests(StorageCleanupMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b"".join(response.streaming_content), b"group plan bytes")
 
-    def test_track_admin_can_download_chat_attachment_within_assigned_track(self):
-        _, message, attachment = self._upload_attachment(self.client_student, self.primary_group)
+    def test_admin_can_upload_chat_attachment_in_any_group(self):
+        # A single-tier admin can upload into any group regardless of
+        # membership — there is no per-group/per-track admin boundary.
+        primary_response, _, _ = self._upload_attachment(self.client_global_admin, self.primary_group)
+        self.assertEqual(primary_response.status_code, 201)
+        self.assertIn("download_url", primary_response.data["attachments"][0])
 
-        response = self.client_track_admin.get(self._download_url(self.primary_group, message, attachment))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(b"".join(response.streaming_content), b"group plan bytes")
-
-    def test_track_admin_cannot_download_chat_attachment_outside_assigned_track(self):
-        _, message, attachment = self._upload_attachment(self.client_secondary_student, self.secondary_group)
-
-        response = self.client_track_admin.get(self._download_url(self.secondary_group, message, attachment))
-        self.assertEqual(response.status_code, 403)
-
-    def test_track_admin_can_upload_chat_attachment_only_within_assigned_track(self):
-        allowed_response, _, _ = self._upload_attachment(self.client_track_admin, self.primary_group)
-        self.assertEqual(allowed_response.status_code, 201)
-        self.assertIn("download_url", allowed_response.data["attachments"][0])
-
-        blocked_response, _, _ = self._upload_attachment(self.client_track_admin, self.secondary_group)
-        self.assertEqual(blocked_response.status_code, 403)
+        secondary_response, _, _ = self._upload_attachment(self.client_global_admin, self.secondary_group)
+        self.assertEqual(secondary_response.status_code, 201)
+        self.assertIn("download_url", secondary_response.data["attachments"][0])
 
     @override_settings(CHAT_ATTACHMENT_MAX_UPLOAD_SIZE=4)
     def test_chat_attachment_upload_rejects_files_above_max_size(self):
@@ -1041,11 +1005,7 @@ class ChatProfanitySanitisationTests(TestCase):
             user=self.mentor, role=self.role_mentor, valid_from=now, valid_to=future,
         )
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW", state=self.state)
-
-        self.group = Groups.objects.create(group_name="G1", track=self.track)
+        self.group = Groups.objects.create(group_name="G1")
         GroupMembership.objects.create(user=self.student, group=self.group)
         GroupMembership.objects.create(user=self.mentor, group=self.group)
 
@@ -1204,12 +1164,8 @@ class ChatQuotedReplyTests(TestCase):
             user=self.student, role=self.role_student, valid_from=now, valid_to=future,
         )
 
-        self.country = Countries.objects.create(country_name="Australia")
-        self.state = CountryStates.objects.create(country=self.country, state_name="NSW")
-        self.track = Tracks.objects.create(track_name="AUS-NSW-QR", state=self.state)
-
-        self.group = Groups.objects.create(group_name="QR-G1", track=self.track)
-        self.other_group = Groups.objects.create(group_name="QR-G2", track=self.track)
+        self.group = Groups.objects.create(group_name="QR-G1")
+        self.other_group = Groups.objects.create(group_name="QR-G2")
         GroupMembership.objects.create(user=self.student, group=self.group)
         GroupMembership.objects.create(user=self.student, group=self.other_group)
 

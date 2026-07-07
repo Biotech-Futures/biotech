@@ -35,7 +35,6 @@ export default function ManualAssignDialog({
   const { data: groupsData } = useQueryGroups({
     page: 1,
     limit: 100,
-    track: student?.track || undefined,
   });
   const groups = useMemo(() => {
     const groups = groupsData?.data?.items ?? [];
@@ -44,7 +43,6 @@ export default function ManualAssignDialog({
       .map((group) => ({
         id: group.id,
         name: group.name,
-        track: group.track,
         studentCount: group.members.filter(
           (member) => member.role === "student",
         ).length,
@@ -94,8 +92,8 @@ export default function ManualAssignDialog({
                 .filter(Boolean)
                 .join(" ")}
             </span>
-            {student?.track ? (
-              <span className="ml-1 text-xs">({student.track})</span>
+            {student?.state?.stateName ? (
+              <span className="ml-1 text-xs">({student.state.stateName})</span>
             ) : null}
           </DialogDescription>
         </DialogHeader>
@@ -114,7 +112,7 @@ export default function ManualAssignDialog({
                 ) : (
                   groups.map((group) => (
                     <SelectItem key={group.id} value={String(group.id)}>
-                      {group.name} · {group.track}{" "}
+                      {group.name} · {group.studentCount}/{DEFAULT_GROUP_MAX_SIZE}
                     </SelectItem>
                   ))
                 )}

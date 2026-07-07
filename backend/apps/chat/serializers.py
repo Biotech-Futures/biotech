@@ -7,7 +7,7 @@ from apps.common.upload_validation import validate_uploaded_file
 from apps.groups.models import GroupMembership
 from apps.resources.models import Resources
 from apps.resources.rbac import can_access_resource_file
-from apps.users.utils.admin_scope import is_operational_admin
+from apps.common.rbac import is_admin
 
 from .models import (
     MessageAttachment,
@@ -23,7 +23,7 @@ from .utils import sanitize_text
 
 
 def is_admin_actor(user) -> bool:
-    return bool(user is not None and is_operational_admin(user))
+    return bool(user is not None and is_admin(user))
 
 
 def _group_members_blocked_from_resource(group_id, resource) -> bool:
@@ -88,14 +88,14 @@ class MessageResourceSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("You do not have access to this resource.")
         # Reject resources that some active group members cannot open —
         # otherwise the link is born broken (and reviewer-reported as "broken
-        # click") for any member whose role/track is outside the resource's
+        # click") for any member whose role is outside the resource's
         # audience. Posting users keep the option to widen the resource's
         # visibility on the resource management page, then re-attach.
         group_pk = view.kwargs.get("group_pk") if view is not None else None
         if group_pk and _group_members_blocked_from_resource(group_pk, value):
             raise serializers.ValidationError(
                 "This resource isn't visible to every member of this group. "
-                "Share a resource scoped to this group, this group's track, "
+                "Share a resource scoped to this group, to a role, "
                 "or one shared publicly."
             )
         return value

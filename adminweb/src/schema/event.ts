@@ -20,7 +20,6 @@ export const createEventSchema = z
     endsAt: dateTimeInput,
     targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
     targetRoleIds: z.array(z.number().int().positive()).optional().default([]),
-    targetTrackIds: z.array(z.number().int().positive()).optional().default([]),
   })
   .refine((data) => new Date(data.endsAt) > new Date(data.startAt), {
     message: "End time must be after start time",
@@ -44,7 +43,6 @@ export const updateEventSchema = z
     endsAt: dateTimeInput.optional(),
     targetGroupIds: z.array(z.number().int().positive()).optional(),
     targetRoleIds: z.array(z.number().int().positive()).optional(),
-    targetTrackIds: z.array(z.number().int().positive()).optional(),
   })
   .refine(
     (data) =>

@@ -12,7 +12,7 @@ export const groupStudentSchema = z.object({
 export const unmatchedGroupSchema = z.object({
   groupId: z.number(),
   groupName: z.string(),
-  trackCode: z.string(),
+  countryName: z.string(),
   studentInterests: z.array(z.string()),
   studentCount: z.number(),
   students: z.array(groupStudentSchema).optional(),
@@ -26,7 +26,7 @@ export const unmatchedGroupsResponseSchema = z.object({
 
 export const mentorScoreBreakdownSchema = z.object({
   baseScore: z.number(),
-  trackPenalty: z.number(),
+  countryPenalty: z.number(),
   interestBonus: z.number(),
   timezonePenalty: z.number(),
   capacityBonus: z.number(),
@@ -36,7 +36,7 @@ export const mentorScoreBreakdownSchema = z.object({
 export const recommendedMentorSchema = z.object({
   mentorId: z.number(),
   name: z.string(),
-  trackCode: z.string(),
+  countryName: z.string(),
   institution: z.string().nullable(),
   interests: z.array(z.string()),
   remainingCapacity: z.number(),
@@ -46,7 +46,7 @@ export const mentorGroupRecommendationSchema = z.object({
   group: z.object({
     groupId: z.number(),
     groupName: z.string(),
-    trackCode: z.string(),
+    countryName: z.string(),
     studentInterests: z.array(z.string()),
     studentCount: z.number(),
     students: z.array(groupStudentSchema).optional(),
@@ -66,7 +66,7 @@ export const mentorMatchResponseSchema = z.object({
 export const mentorListItemSchema = z.object({
   mentorId: z.number(),
   name: z.string(),
-  trackCode: z.string(),
+  countryName: z.string(),
   institution: z.string().nullable(),
   interests: z.array(z.string()),
   maxGroupCount: z.number(),
@@ -93,7 +93,7 @@ export const matchedGroupMentorSchema = z.object({
   mentorId: z.number(),
   name: z.string(),
   isActive: z.boolean(),
-  trackCode: z.string(),
+  countryName: z.string(),
   institution: z.string().nullable(),
 });
 
@@ -101,7 +101,7 @@ export const matchedGroupSchema = z.object({
   membershipId: z.number(),
   groupId: z.number(),
   groupName: z.string(),
-  trackCode: z.string(),
+  countryName: z.string(),
   studentCount: z.number().default(0),
   students: z.array(groupStudentSchema).default([]),
   mentor: matchedGroupMentorSchema,

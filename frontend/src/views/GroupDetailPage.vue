@@ -2868,7 +2868,7 @@ const canToggleTask = (task) => {
 
   if (isAssigneeSelf(task)) return true
 
-  if (['global_admin', 'track_admin', 'student'].includes(task.creatorRole)) {
+  if (['global_admin', 'student'].includes(task.creatorRole)) {
     return isMentorOfTaskGroup(task) || isSupervisorInTaskGroup(task)
   }
   if (task.creatorRole === 'mentor') return isMentorOfTaskGroup(task)

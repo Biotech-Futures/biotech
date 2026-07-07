@@ -1,10 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import {
-  getResourceTrackLabel,
-  getResourceTypeLabel,
-  type Resource,
-  type ResourceTrackOption,
-} from "@/type/resource";
+import { getResourceTypeLabel, type Resource } from "@/type/resource";
 import { Button } from "@/components/ui/button";
 import { MoreHorizontal } from "lucide-react";
 import {
@@ -20,7 +15,6 @@ interface ResourceColumnsOptions {
   onDelete?: (resource: Resource) => void;
   onAccess?: (resource: Resource) => void;
   onDownload?: (resource: Resource) => void;
-  trackOptions?: ResourceTrackOption[];
 }
 
 const truncatingCellClassName = "truncate";
@@ -52,12 +46,7 @@ export function createResourceColumns({
   onEdit,
   onDelete,
   onDownload,
-  trackOptions,
 }: ResourceColumnsOptions = {}): ColumnDef<Resource>[] {
-  const trackLabelById = new Map(
-    (trackOptions ?? []).map((item) => [item.id, item.label]),
-  );
-
   return [
     {
       accessorKey: "name",
@@ -116,32 +105,6 @@ export function createResourceColumns({
           return <span className="text-muted-foreground text-sm">-</span>;
         }
         return <span>{roleSlugs.join(", ")}</span>;
-      },
-    },
-    {
-      id: "track",
-      accessorFn: (row) => {
-        const trackId = Number(row.track_id);
-        return Number.isFinite(trackId)
-          ? (trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId))
-          : "Unassigned";
-      },
-      header: "Track",
-      meta: {
-        headClassName: "",
-        cellClassName: truncatingCellClassName,
-      },
-      cell: ({ row }) => {
-        const rawTrackId = row.original.track_id;
-        if (rawTrackId === null || rawTrackId === undefined)
-          return <span>Unassigned</span>;
-        const trackId = Number(rawTrackId);
-        if (!Number.isFinite(trackId)) return <span>Unassigned</span>;
-        return (
-          <span>
-            {trackLabelById.get(trackId) ?? getResourceTrackLabel(trackId)}
-          </span>
-        );
       },
     },
     {

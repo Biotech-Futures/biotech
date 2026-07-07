@@ -75,20 +75,9 @@ def group_participant_qs(user, group_id=None, *, include_deleted_groups=False):
     return queryset
 
 
-def is_global_admin(user) -> bool:
+def is_admin(user) -> bool:
+    """Single-tier admin check: an AdminScope row means the user is an admin."""
     if not user or not user.is_authenticated:
         return False
     AdminScope = apps.get_model("users", "AdminScope")
-    return AdminScope.objects.filter(user=user, is_global=True).exists()
-
-
-def track_admin_track_ids(user) -> set[int]:
-    if not user or not user.is_authenticated or is_global_admin(user):
-        return set()
-    AdminScope = apps.get_model("users", "AdminScope")
-    return {
-        int(track_id)
-        for track_id in AdminScope.objects.filter(
-            user=user, is_global=False, track__isnull=False
-        ).values_list("track_id", flat=True)
-    }
+    return AdminScope.objects.filter(user=user).exists()
