@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         ("announcements", "0007_remove_announcementaudience_announcement_audience_requires_role_track_or_group_and_more"),
         ("resources", "0010_remove_resourceaudience_resource_audience_requires_role_or_track_and_more"),
         ("events", "0015_remove_eventtargettrack_event_and_more"),
-        ("tasks", "0010_delete_track_tasks"),
+        ("tasks", "0011_remove_task_track"),
         ("matching_runtime", "0003_remove_matchrun_match_run_track_i_060ec1_idx_and_more"),
     ]
 
