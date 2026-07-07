@@ -367,18 +367,13 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 # QUERY FUNCTIONS (query.ts logic)
 # ============================================================================
 
-def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
-               role: Optional[str] = None, state: Optional[str] = None,
-               active: Optional[bool] = None, in_group: Optional[str] = None,
-               sort_by: str = "createdAt", sort_order: str = "desc",
-               requesting_user=None) -> Dict[str, Any]:
-    """
-    Query users with pagination and filters.
-    """
-    offset = (page - 1) * limit
+def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
+                                state: Optional[str] = None, active: Optional[bool] = None,
+                                in_group: Optional[str] = None):
+    """Filtered (unpaginated) user queryset shared by the list view and
+    filter-based bulk actions, so 'select all matching' hits exactly the rows
+    the list would show for the same filters."""
     now = timezone.now()
-
-    # Build filter conditions
     filters = Q()
 
     if search:
@@ -402,9 +397,24 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     if active is not None:
         filters &= Q(is_active=active)
 
-    queryset = _filter_by_active_group_membership(
+    return _filter_by_active_group_membership(
         User.objects.filter(filters),
         in_group,
+    )
+
+
+def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
+               role: Optional[str] = None, state: Optional[str] = None,
+               active: Optional[bool] = None, in_group: Optional[str] = None,
+               sort_by: str = "createdAt", sort_order: str = "desc",
+               requesting_user=None) -> Dict[str, Any]:
+    """
+    Query users with pagination and filters.
+    """
+    offset = (page - 1) * limit
+
+    queryset = _build_user_filter_queryset(
+        search=search, role=role, state=state, active=active, in_group=in_group,
     )
 
     # Get total count
@@ -1329,6 +1339,46 @@ def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) 
             "skippedSelf": skipped_self,
         },
     }
+
+
+def bulk_update_status_by_filter(filters: Dict[str, Any], is_active: bool,
+                                 exclude_ids=None, initiated_by=None) -> Dict[str, Any]:
+    """
+    Activate or deactivate every user matching the given list filters
+    ("select all matching"). Mirrors query_users' filter semantics so the action
+    hits exactly the rows the admin was viewing; exclude_ids drops any rows they
+    unchecked before confirming.
+    """
+    filters = filters or {}
+    active_filter = filters.get("active")
+    queryset = _build_user_filter_queryset(
+        search=filters.get("search"),
+        role=filters.get("role"),
+        state=filters.get("state"),
+        active=active_filter if isinstance(active_filter, bool) else None,
+        in_group=filters.get("inGroup"),
+    )
+    ids = list(queryset.values_list("id", flat=True).distinct())
+
+    if exclude_ids:
+        try:
+            excluded = {int(x) for x in exclude_ids}
+        except (TypeError, ValueError):
+            return {"msg": "excludeIds must be a list of integer ids", "data": None}
+        ids = [uid for uid in ids if uid not in excluded]
+
+    if not ids:
+        return {
+            "msg": "No matching users to update",
+            "data": {
+                "updatedIds": [],
+                "unchangedIds": [],
+                "notFoundIds": [],
+                "skippedSelf": False,
+            },
+        }
+
+    return bulk_update_status(ids, is_active, initiated_by=initiated_by)
 
 
 def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
