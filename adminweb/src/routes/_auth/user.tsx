@@ -45,19 +45,21 @@ import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 25;
 type UserStatusFilter = "all" | "active" | "inactive";
-type SortOption =
-  | "createdAt_desc"
-  | "createdAt_asc"
-  | "name_asc"
-  | "name_desc"
-  | "email_asc"
-  | "email_desc"
-  | "role_asc"
-  | "role_desc"
-  | "state_asc"
-  | "state_desc"
-  | "status_asc"
-  | "status_desc";
+const SORT_OPTIONS = [
+  "createdAt_desc",
+  "createdAt_asc",
+  "name_asc",
+  "name_desc",
+  "email_asc",
+  "email_desc",
+  "role_asc",
+  "role_desc",
+  "state_asc",
+  "state_desc",
+  "status_asc",
+  "status_desc",
+] as const;
+type SortOption = (typeof SORT_OPTIONS)[number];
 type UserSearchParams = {
   page: number;
   limit?: number;
@@ -120,12 +122,10 @@ export const Route = createFileRoute("/_auth/user")({
     }
 
     if (
-      search.sort === "createdAt_desc" ||
-      search.sort === "createdAt_asc" ||
-      search.sort === "name_asc" ||
-      search.sort === "name_desc"
+      typeof search.sort === "string" &&
+      (SORT_OPTIONS as readonly string[]).includes(search.sort)
     ) {
-      params.sort = search.sort;
+      params.sort = search.sort as SortOption;
     }
 
     return params;
