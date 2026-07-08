@@ -231,6 +231,9 @@ def update_admin_task(requesting_user, task_id: int, input_data: dict) -> TaskRe
         task.due_date = input_data["due_date"] or None
     if "status" in input_data:
         task.status = input_data["status"]
+        # Keep the derived completion flag in lockstep with status so the admin
+        # status control is the single source of truth for "done".
+        task.completed = input_data["status"] == TaskStatus.DONE
     if "parent" in input_data:
         task.parent_id = input_data["parent"] or None
 

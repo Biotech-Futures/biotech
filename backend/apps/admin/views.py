@@ -16,7 +16,7 @@ from apps.admin.services.user import (
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages,
-    update_group, remove_group_member, remove_group_message,
+    create_group, update_group, remove_group_member, remove_group_message,
 )
 from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
@@ -227,6 +227,14 @@ class GroupListView(APIView):
             sort_order=request.query_params.get("sortOrder", "desc"),
         )
         return Response(result)
+
+    """POST /api/v1/group - Create a new group"""
+
+    def post(self, request):
+        result = create_group(name=request.data.get("name"))
+        code = status.HTTP_201_CREATED if result.get(
+            "data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class GroupDetailView(APIView):

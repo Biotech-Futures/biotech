@@ -5,7 +5,7 @@ from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanFi
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 from apps.groups.models import Groups, GroupMembership
 from apps.chat.models import Messages
@@ -441,6 +441,36 @@ def query_group_messages(
 
 
 @transaction.atomic
+def create_group(name: Optional[str]) -> dict:
+    """
+    Create a new (empty) group with the given name.
+
+    Args:
+        name: The group name (required, must be unique among active groups)
+
+    Returns:
+        Dictionary with the created group data or an error message
+    """
+    cleaned = (name or "").strip()
+    if not cleaned:
+        return {"msg": "Group name is required", "data": None}
+
+    if Groups.objects.filter(group_name=cleaned, deleted_at__isnull=True).exists():
+        return {"msg": "A group with this name already exists", "data": None}
+
+    try:
+        group = Groups.objects.create(group_name=cleaned)
+    except IntegrityError:
+        return {"msg": "A group with this name already exists", "data": None}
+
+    base_row = _fetch_group_base_by_id(group.id)
+    groups = _build_groups([base_row]) if base_row else []
+    return {
+        "msg": "Group created successfully",
+        "data": groups[0] if groups else None,
+    }
+
+
 def update_group(group_id: str, name: Optional[str] = None) -> dict:
     """
     Update group information.

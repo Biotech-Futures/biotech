@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -86,17 +88,157 @@ function AnnouncementPage() {
     sortState,
   );
   const { data: editingAnn } = useGetAnnouncement(editingId);
-  const { mutateAsync: archive } = useArchiveAnnouncement();
-  const { mutateAsync: deleteAnnouncement } = useDeleteAnnouncement();
+  const { mutateAsync: archive, isPending: isArchiving } =
+    useArchiveAnnouncement();
+  const { mutateAsync: deleteAnnouncement, isPending: isDeleting } =
+    useDeleteAnnouncement();
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  // Selected announcements, keyed by id, so the selection persists across pages
+  // and we keep each row's archived state for the bulk-action counts.
+  const [selected, setSelected] = useState<Map<number, AnnouncementListItem>>(
+    new Map(),
+  );
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const isBusy = isArchiving || isDeleting;
+
+  // Keep selected snapshots in sync with refetched page data so status changes
+  // (e.g. after a single archive) are reflected in the bulk-action counts.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const item of items) {
+        if (next.has(item.id) && next.get(item.id) !== item) {
+          next.set(item.id, item);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [items]);
+
+  const clearSelection = useCallback(() => setSelected(new Map()), []);
+
+  const selectedList = useMemo(() => [...selected.values()], [selected]);
+  const archivableCount = useMemo(
+    () => selectedList.filter((a) => !a.archivedAt).length,
+    [selectedList],
+  );
+
+  const selectedOnPage = items.filter((item) => selected.has(item.id));
+  const headerState: boolean | "indeterminate" =
+    items.length > 0 && selectedOnPage.length === items.length
+      ? true
+      : selectedOnPage.length > 0
+        ? "indeterminate"
+        : false;
+
+  const toggleRow = useCallback((item: AnnouncementListItem) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.set(item.id, item);
+      return next;
+    });
+  }, []);
+
+  const toggleAllOnPage = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      const allSelected =
+        items.length > 0 && items.every((i) => next.has(i.id));
+      if (allSelected) {
+        items.forEach((i) => next.delete(i.id));
+      } else {
+        items.forEach((i) => next.set(i.id, i));
+      }
+      return next;
+    });
+  }, [items]);
 
   function handlePageSizeChange(size: number) {
     setPageSize(size);
     setPage(1);
+  }
+
+  async function handleBulkArchive() {
+    const targets = selectedList.filter((a) => !a.archivedAt);
+    if (!targets.length) return;
+    // Settle every archive independently so one failure doesn't strand the rest.
+    const outcomes = await Promise.allSettled(
+      targets.map((a) => archive(a.id).then(() => a.id)),
+    );
+    const doneIds = outcomes
+      .filter(
+        (o): o is PromiseFulfilledResult<number> => o.status === "fulfilled",
+      )
+      .map((o) => o.value);
+    const failed = targets.length - doneIds.length;
+
+    if (doneIds.length) {
+      setSelected((prev) => {
+        const next = new Map(prev);
+        doneIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+
+    if (failed === 0) {
+      toast.success(
+        `Archived ${doneIds.length} announcement${doneIds.length === 1 ? "" : "s"}.`,
+      );
+    } else if (doneIds.length) {
+      toast.error(
+        `Archived ${doneIds.length}, but ${failed} could not be archived.`,
+      );
+    } else {
+      toast.error("Unable to archive the selected announcements.");
+    }
+  }
+
+  async function handleBulkDelete() {
+    const targets = selectedList;
+    if (!targets.length) {
+      setBulkDeleteOpen(false);
+      return;
+    }
+    // Settle every delete independently so one failure doesn't strand the rest.
+    const outcomes = await Promise.allSettled(
+      targets.map((a) => deleteAnnouncement(a.id).then(() => a.id)),
+    );
+    const doneIds = outcomes
+      .filter(
+        (o): o is PromiseFulfilledResult<number> => o.status === "fulfilled",
+      )
+      .map((o) => o.value);
+    const failed = targets.length - doneIds.length;
+
+    if (doneIds.length) {
+      setSelected((prev) => {
+        const next = new Map(prev);
+        doneIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+
+    if (failed === 0) {
+      toast.success(
+        `Deleted ${doneIds.length} announcement${doneIds.length === 1 ? "" : "s"}.`,
+      );
+    } else if (doneIds.length) {
+      toast.error(
+        `Deleted ${doneIds.length}, but ${failed} could not be deleted.`,
+      );
+    } else {
+      toast.error("Unable to delete the selected announcements.");
+    }
+    setBulkDeleteOpen(false);
   }
 
   function openCreate() {
@@ -152,6 +294,7 @@ function AnnouncementPage() {
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(1);
+            setSelected(new Map());
           }}
           className="max-w-sm"
         />
@@ -161,16 +304,52 @@ function AnnouncementPage() {
           onClick={() => {
             setShowArchived((v) => !v);
             setPage(1);
+            setSelected(new Map());
           }}
         >
           {showArchived ? "Show Active" : "Show Archived"}
         </Button>
       </div>
 
+      {selected.size > 0 && (
+        <BulkActionsBar
+          count={selected.size}
+          noun="announcement"
+          onClear={clearSelection}
+          disabled={isBusy}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBulkArchive}
+            disabled={isBusy || archivableCount === 0}
+          >
+            Archive ({archivableCount})
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setBulkDeleteOpen(true)}
+            disabled={isBusy}
+          >
+            Delete
+          </Button>
+        </BulkActionsBar>
+      )}
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={headerState}
+                  onCheckedChange={toggleAllOnPage}
+                  aria-label="Select all on this page"
+                  disabled={isPending || items.length === 0}
+                />
+              </TableHead>
               <TableHead>
                 <SortableTableHead
                   label="Title"
@@ -222,7 +401,7 @@ function AnnouncementPage() {
             {isPending ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   Loading...
@@ -231,7 +410,7 @@ function AnnouncementPage() {
             ) : items.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No announcements found.
@@ -239,7 +418,20 @@ function AnnouncementPage() {
               </TableRow>
             ) : (
               items.map((item) => (
-                <TableRow key={item.id}>
+                <TableRow
+                  key={item.id}
+                  data-state={selected.has(item.id) ? "selected" : undefined}
+                >
+                  <TableCell
+                    className="w-10"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Checkbox
+                      checked={selected.has(item.id)}
+                      onCheckedChange={() => toggleRow(item)}
+                      aria-label={`Select ${item.title}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <button
                       className="font-medium text-left hover:underline"
@@ -345,6 +537,34 @@ function AnnouncementPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size}{" "}
+              {selected.size === 1 ? "announcement" : "announcements"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes them and their delivery history. This
+              can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkDelete();
+              }}
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

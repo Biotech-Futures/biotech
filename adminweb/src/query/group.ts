@@ -87,6 +87,23 @@ export function useQueryGroupMessages(
   });
 }
 
+// Create group mutation
+export function useCreateGroup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { name: string }) => {
+      const res = await myFetch.post<{ msg: string; data: Group | null }>(
+        `/group`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["groups"] });
+    },
+  });
+}
+
 // Update group mutation
 export function useUpdateGroup() {
   const queryClient = useQueryClient();
