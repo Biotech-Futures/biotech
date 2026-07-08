@@ -73,19 +73,3 @@ export function useDeleteTask() {
     },
   });
 }
-
-export function useToggleTask() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, completed }: { id: number; completed: boolean }) => {
-      const res = await myFetch.post<{ msg: string; data: Task }>(
-        `/task/${id}/toggle/`,
-        { completed },
-      );
-      return res.data;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
-    },
-  });
-}

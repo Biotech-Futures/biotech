@@ -44,6 +44,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   SortableTableHead,
   useSortableRows,
@@ -88,6 +100,7 @@ import {
   ChevronsUpDownIcon,
 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
+import { toast } from "sonner";
 import {
   useCallback,
   useEffect,
@@ -555,6 +568,10 @@ function EventPage() {
   const [eventSortState, setEventSortState] =
     useState<SortState<EventSortKey>>(initialEventSort);
   const [viewingEvent, setViewingEvent] = useState<Event | null>(null);
+  // Selected events, keyed by id, so the selection persists across pages and
+  // we keep each event snapshot for the bulk delete action.
+  const [selected, setSelected] = useState<Map<number, Event>>(new Map());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // image state for create dialog
   const [createImageFile, setCreateImageFile] = useState<File | null>(null);
@@ -592,7 +609,11 @@ function EventPage() {
   );
 
   const { mutate: createEvent, isPending: isCreating } = useCreateEvent();
-  const { mutate: deleteEvent, isPending: isDeleting } = useDeleteEvent();
+  const {
+    mutate: deleteEvent,
+    mutateAsync: deleteEventAsync,
+    isPending: isDeleting,
+  } = useDeleteEvent();
   const { mutate: updateEvent, isPending: isUpdating } = useUpdateEvent();
   const { mutateAsync: uploadEventImage, isPending: isUploading } =
     useUploadEventImage();
@@ -672,8 +693,10 @@ function EventPage() {
   const editGroupIds = watchEdit("targetGroupIds") ?? [];
   const editRoleIds = watchEdit("targetRoleIds") ?? [];
 
+  // The upcoming/all toggle changes the matching set, so drop the selection.
   useEffect(() => {
     setPage(1);
+    setSelected(new Map());
   }, [upcoming]);
 
   useEffect(() => {
@@ -725,9 +748,105 @@ function EventPage() {
     setEditImagePreviewUrl(file ? URL.createObjectURL(file) : null);
   };
 
-  const eventsList = data?.data.items ?? [];
+  const eventsList = useMemo(
+    () => data?.data.items ?? [],
+    [data?.data.items],
+  );
   const total = data?.data.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Keep selected snapshots in sync with refetched page data so per-row edits
+  // are reflected in the bulk-action selection.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const event of eventsList) {
+        if (next.has(event.id) && next.get(event.id) !== event) {
+          next.set(event.id, event);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [eventsList]);
+
+  const clearSelection = useCallback(() => setSelected(new Map()), []);
+
+  const toggleRow = useCallback((event: Event) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(event.id)) next.delete(event.id);
+      else next.set(event.id, event);
+      return next;
+    });
+  }, []);
+
+  const toggleAllOnPage = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      const allSelected =
+        eventsList.length > 0 && eventsList.every((e) => next.has(e.id));
+      if (allSelected) {
+        eventsList.forEach((e) => next.delete(e.id));
+      } else {
+        eventsList.forEach((e) => next.set(e.id, e));
+      }
+      return next;
+    });
+  }, [eventsList]);
+
+  const selectedOnPage = eventsList.filter((event) => selected.has(event.id));
+  const headerState: boolean | "indeterminate" =
+    eventsList.length > 0 && selectedOnPage.length === eventsList.length
+      ? true
+      : selectedOnPage.length > 0
+        ? "indeterminate"
+        : false;
+
+  const handleBulkDelete = async () => {
+    const targets = [...selected.values()];
+    if (!targets.length) {
+      setDeleteConfirmOpen(false);
+      return;
+    }
+    // Settle every delete independently so one failure doesn't strand the rest.
+    const outcomes = await Promise.allSettled(
+      targets.map((event) => deleteEventAsync(event.id).then(() => event.id)),
+    );
+    const deletedIds = outcomes
+      .filter(
+        (o): o is PromiseFulfilledResult<number> => o.status === "fulfilled",
+      )
+      .map((o) => o.value);
+    const failed = targets.length - deletedIds.length;
+
+    if (deletedIds.length) {
+      // Drop only the events we actually deleted; keep other selections.
+      setSelected((prev) => {
+        const next = new Map(prev);
+        deletedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (rsvpEventId !== null && deletedIds.includes(rsvpEventId)) {
+        setRsvpEventId(null);
+      }
+    }
+
+    if (failed === 0) {
+      toast.success(
+        `Deleted ${deletedIds.length} event${deletedIds.length === 1 ? "" : "s"}.`,
+      );
+    } else if (deletedIds.length) {
+      toast.error(
+        `Deleted ${deletedIds.length}, but ${failed} could not be deleted.`,
+      );
+    } else {
+      toast.error("Unable to delete the selected events.");
+    }
+    setDeleteConfirmOpen(false);
+  };
   const rsvps: EventRsvp[] = rsvpData?.data ?? [];
   const rsvpEvent = eventsList.find((event) => event.id === rsvpEventId);
   const getRsvpSortValue = useCallback(
@@ -855,10 +974,37 @@ function EventPage() {
         </Button>
       </div>
 
+      {selected.size > 0 && (
+        <BulkActionsBar
+          count={selected.size}
+          noun="event"
+          onClear={clearSelection}
+          disabled={isDeleting}
+        >
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setDeleteConfirmOpen(true)}
+            disabled={isDeleting}
+          >
+            <Trash2Icon className="size-4" />
+            Delete
+          </Button>
+        </BulkActionsBar>
+      )}
+
       <div className="min-w-0 overflow-hidden rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={headerState}
+                  onCheckedChange={toggleAllOnPage}
+                  aria-label="Select all on this page"
+                  disabled={isPending || eventsList.length === 0}
+                />
+              </TableHead>
               <TableHead>
                 <SortableTableHead
                   label="Event Name"
@@ -930,8 +1076,19 @@ function EventPage() {
                 return (
                 <TableRow
                   key={event.id}
+                  data-state={selected.has(event.id) ? "selected" : undefined}
                   className={isPast ? "text-muted-foreground bg-muted/30" : ""}
                 >
+                  <TableCell
+                    className="w-10"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Checkbox
+                      checked={selected.has(event.id)}
+                      onCheckedChange={() => toggleRow(event)}
+                      aria-label={`Select ${event.eventName}`}
+                    />
+                  </TableCell>
                   <TableCell
                     className={`border-l-4 ${isPast ? "border-l-gray-400" : "border-l-green-500"}`}
                   >
@@ -1447,6 +1604,33 @@ function EventPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Bulk Delete Confirm ──────────────────────────────────────────── */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size} {selected.size === 1 ? "event" : "events"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              All RSVPs will also be deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkDelete();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

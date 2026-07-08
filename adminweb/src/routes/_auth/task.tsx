@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -8,20 +8,36 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
 import { PlusIcon } from "lucide-react";
 import {
   useQueryTasks,
   useCreateTask,
   useUpdateTask,
   useDeleteTask,
-  useToggleTask,
 } from "@/query/task";
 import { useQueryUsers } from "@/query/user";
 import { useQuery } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import { TaskTable, type TaskSortKey } from "@/components/task/TaskTable";
 import { TaskEditorSheet } from "@/components/task/TaskEditorSheet";
-import type { Task, TaskCreateValues, TaskUpdateValues } from "@/type/task";
+import type {
+  Task,
+  TaskCreateValues,
+  TaskStatus,
+  TaskUpdateValues,
+} from "@/type/task";
+import { TASK_STATUSES, TASK_STATUS_LABELS } from "@/type/task";
 import { toast } from "sonner";
 import type { SortState } from "@/components/ui/sortable-table";
 
@@ -52,6 +68,10 @@ function TaskManagementPage() {
     key: "due",
     direction: "asc",
   });
+  // Selected tasks, keyed by id, so the selection persists across pages and we
+  // keep each task snapshot for the bulk status/delete actions.
+  const [selected, setSelected] = useState<Map<number, Task>>(new Map());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const typeFilter: TaskTypeFilter = task_type ?? "all";
 
@@ -80,11 +100,60 @@ function TaskManagementPage() {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
-  const toggleTask = useToggleTask();
 
-  const tasks = taskData?.data?.items ?? [];
+  const tasks = useMemo(
+    () => taskData?.data?.items ?? [],
+    [taskData?.data?.items],
+  );
   const total = taskData?.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Keep selected snapshots in sync with refetched page data so a single-row
+  // edit/status change is reflected in the bulk-action payloads.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const task of tasks) {
+        if (next.has(task.id) && next.get(task.id) !== task) {
+          next.set(task.id, task);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  const clearSelection = useCallback(() => setSelected(new Map()), []);
+
+  const toggleRow = useCallback((task: Task) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(task.id)) next.delete(task.id);
+      else next.set(task.id, task);
+      return next;
+    });
+  }, []);
+
+  const toggleAllOnPage = useCallback(() => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      const allSelected =
+        tasks.length > 0 && tasks.every((t) => next.has(t.id));
+      if (allSelected) tasks.forEach((t) => next.delete(t.id));
+      else tasks.forEach((t) => next.set(t.id, t));
+      return next;
+    });
+  }, [tasks]);
+
+  const selectedOnPage = tasks.filter((t) => selected.has(t.id));
+  const headerState: boolean | "indeterminate" =
+    tasks.length > 0 && selectedOnPage.length === tasks.length
+      ? true
+      : selectedOnPage.length > 0
+        ? "indeterminate"
+        : false;
 
   const groups = useMemo(
     () => groupsData?.data?.items ?? [],
@@ -96,6 +165,8 @@ function TaskManagementPage() {
   );
 
   const updateFilters = (filters: Partial<{ task_type: TaskTypeFilter }>) => {
+    // Filters change the matching set, so drop the current selection with them.
+    setSelected(new Map());
     void navigate({
       to: "/task",
       search: { page: 1, ...filters },
@@ -157,19 +228,91 @@ function TaskManagementPage() {
     }
   };
 
-  const handleToggle = async (task: Task) => {
-    try {
-      await toggleTask.mutateAsync({ id: task.id, completed: !task.completed });
-    } catch {
-      toast.error("Failed to update task.");
+  const isMutating =
+    createTask.isPending || updateTask.isPending || deleteTask.isPending;
+
+  const handleBulkStatus = async (status: TaskStatus) => {
+    const targets = [...selected.values()];
+    if (!targets.length) return;
+    // Settle every update independently so one failure doesn't strand the rest.
+    const outcomes = await Promise.allSettled(
+      targets.map((task) =>
+        updateTask
+          .mutateAsync({
+            id: task.id,
+            updates: {
+              name: task.name,
+              description: task.description,
+              due_date: task.due_date,
+              status,
+              parent: task.parent,
+            },
+          })
+          .then(() => task.id),
+      ),
+    );
+    const doneIds = outcomes
+      .filter(
+        (o): o is PromiseFulfilledResult<number> => o.status === "fulfilled",
+      )
+      .map((o) => o.value);
+    const failed = targets.length - doneIds.length;
+
+    if (doneIds.length) {
+      // Drop only the tasks we actually updated; keep other selections.
+      setSelected((prev) => {
+        const next = new Map(prev);
+        doneIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+
+    if (failed === 0) {
+      toast.success(
+        `Updated ${doneIds.length} task${doneIds.length === 1 ? "" : "s"}.`,
+      );
+    } else if (doneIds.length) {
+      toast.error(`Updated ${doneIds.length}, but ${failed} could not be updated.`);
+    } else {
+      toast.error("Unable to update the selected tasks.");
     }
   };
 
-  const isMutating =
-    createTask.isPending ||
-    updateTask.isPending ||
-    deleteTask.isPending ||
-    toggleTask.isPending;
+  const handleBulkDelete = async () => {
+    const targets = [...selected.values()];
+    if (!targets.length) {
+      setDeleteConfirmOpen(false);
+      return;
+    }
+    const outcomes = await Promise.allSettled(
+      targets.map((task) => deleteTask.mutateAsync(task.id).then(() => task.id)),
+    );
+    const doneIds = outcomes
+      .filter(
+        (o): o is PromiseFulfilledResult<number> => o.status === "fulfilled",
+      )
+      .map((o) => o.value);
+    const failed = targets.length - doneIds.length;
+
+    if (doneIds.length) {
+      setSelected((prev) => {
+        const next = new Map(prev);
+        doneIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+
+    if (failed === 0) {
+      toast.success(
+        `Deleted ${doneIds.length} task${doneIds.length === 1 ? "" : "s"}.`,
+      );
+    } else if (doneIds.length) {
+      toast.error(`Deleted ${doneIds.length}, but ${failed} could not be deleted.`);
+    } else {
+      toast.error("Unable to delete the selected tasks.");
+    }
+    setDeleteConfirmOpen(false);
+  };
 
   return (
     <div className="p-4 space-y-6">
@@ -198,6 +341,39 @@ function TaskManagementPage() {
         </Button>
       </div>
 
+      {selected.size > 0 && (
+        <BulkActionsBar
+          count={selected.size}
+          noun="task"
+          onClear={clearSelection}
+          disabled={isMutating}
+        >
+          <Select
+            value=""
+            onValueChange={(v) => void handleBulkStatus(v as TaskStatus)}
+          >
+            <SelectTrigger className="w-36" disabled={isMutating}>
+              <SelectValue placeholder="Set status" />
+            </SelectTrigger>
+            <SelectContent>
+              {TASK_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {TASK_STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={isMutating}
+            onClick={() => setDeleteConfirmOpen(true)}
+          >
+            Delete
+          </Button>
+        </BulkActionsBar>
+      )}
+
       <TaskTable
         data={tasks}
         page={page}
@@ -207,7 +383,6 @@ function TaskManagementPage() {
         onPageSizeChange={handlePageSizeChange}
         onEdit={openEdit}
         onDelete={handleDelete}
-        onToggle={handleToggle}
         sortState={sortState}
         onSortChange={(nextSort) => {
           setSortState(nextSort);
@@ -216,6 +391,12 @@ function TaskManagementPage() {
         isPending={isPending || isMutating}
         groups={groups}
         users={users}
+        selection={{
+          isSelected: (id) => selected.has(id),
+          onToggleRow: toggleRow,
+          headerState,
+          onToggleAll: toggleAllOnPage,
+        }}
       />
 
       <TaskEditorSheet
@@ -228,6 +409,32 @@ function TaskManagementPage() {
         onSubmit={handleSubmit}
         isPending={isMutating}
       />
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size} {selected.size === 1 ? "task" : "tasks"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isMutating}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isMutating}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkDelete();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -51,7 +51,7 @@ export const individualStudentSchema = z.preprocess(
     firstName: z.string(),
     lastName: z.string(),
     yearLevel: z.number().int().nullable(),
-    countryName: z.string(),
+    countryName: z.string().nullable(),
     interests: z.array(z.string()).default([]),
   }),
 );

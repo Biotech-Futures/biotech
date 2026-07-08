@@ -10,12 +10,25 @@ import {
   GroupMessagesDialog,
   createColumns,
 } from "@/components/group";
-import { useQueryGroup, useQueryGroups } from "@/query/group";
+import { useCreateGroup, useQueryGroup, useQueryGroups } from "@/query/group";
 import {
   MAX_PAGE_SIZE,
   MIN_PAGE_SIZE,
 } from "@/components/user/PageSizeSelect";
 import type { Group, MentorStatusFilter } from "@/type/group";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { PlusIcon } from "lucide-react";
+import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -82,6 +95,9 @@ function GroupPage() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "createdAt", desc: true },
   ]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const createGroup = useCreateGroup();
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -182,6 +198,23 @@ function GroupPage() {
     setMessagesOpen(true);
   };
 
+  const handleCreateGroup = async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    try {
+      const res = await createGroup.mutateAsync({ name });
+      if (!res.data) {
+        toast.error(res.msg || "Failed to create group.");
+        return;
+      }
+      toast.success(res.msg || "Group created.");
+      setNewGroupName("");
+      setCreateOpen(false);
+    } catch {
+      toast.error("Failed to create group.");
+    }
+  };
+
   // Columns with handlers
   const columns = createColumns({
     onViewDetail: handleViewDetail,
@@ -203,6 +236,13 @@ function GroupPage() {
           found.
         </div>
       )}
+
+      <div className="flex items-center justify-end">
+        <Button onClick={() => setCreateOpen(true)}>
+          <PlusIcon className="size-4" />
+          New Group
+        </Button>
+      </div>
 
       {/* Filters */}
       <GroupFilters
@@ -250,6 +290,54 @@ function GroupPage() {
         open={messagesOpen}
         onOpenChange={setMessagesOpen}
       />
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setNewGroupName("");
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create group</DialogTitle>
+            <DialogDescription>
+              Creates an empty group. Add students and a mentor afterwards from
+              the matching tools.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="new-group-name">Group name</Label>
+            <Input
+              id="new-group-name"
+              value={newGroupName}
+              onChange={(event) => setNewGroupName(event.target.value)}
+              placeholder="e.g. Genomics Team A"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleCreateGroup();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={createGroup.isPending}
+              onClick={() => setCreateOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!newGroupName.trim() || createGroup.isPending}
+              onClick={() => void handleCreateGroup()}
+            >
+              {createGroup.isPending ? "Creating..." : "Create group"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

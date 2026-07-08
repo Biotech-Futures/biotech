@@ -25,6 +25,13 @@ interface GroupOption {
   name: string;
 }
 
+export interface TaskTableSelection {
+  isSelected: (id: number) => boolean;
+  onToggleRow: (task: Task) => void;
+  headerState: boolean | "indeterminate";
+  onToggleAll: () => void;
+}
+
 interface TaskTableProps {
   data: Task[];
   page: number;
@@ -34,12 +41,12 @@ interface TaskTableProps {
   onPageSizeChange: (size: number) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
-  onToggle: (task: Task) => void;
   isPending?: boolean;
   groups?: GroupOption[];
   users?: UserAccount[];
   sortState: SortState<TaskSortKey>;
   onSortChange: (sortState: SortState<TaskSortKey>) => void;
+  selection?: TaskTableSelection;
 }
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -49,7 +56,7 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   blocked: "destructive",
 };
 
-export type TaskSortKey = "completed" | "name" | "type" | "target" | "status" | "due";
+export type TaskSortKey = "name" | "type" | "target" | "status" | "due";
 
 export function TaskTable({
   data,
@@ -60,12 +67,12 @@ export function TaskTable({
   onPageSizeChange,
   onEdit,
   onDelete,
-  onToggle,
   isPending,
   groups = [],
   users = [],
   sortState,
   onSortChange,
+  selection,
 }: TaskTableProps) {
   const groupMap = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups]);
   const userMap = useMemo(() => new Map(users.map((u) => [Number(u.id), u.name])), [users]);
@@ -90,12 +97,14 @@ export function TaskTable({
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">
-                <SortableTableHead
-                  label="Completed"
-                  sortKey="completed"
-                  sortState={sortState}
-                  onSortChange={onSortChange}
-                />
+                {selection && (
+                  <Checkbox
+                    checked={selection.headerState}
+                    onCheckedChange={selection.onToggleAll}
+                    aria-label="Select all on this page"
+                    disabled={isPending || data.length === 0}
+                  />
+                )}
               </TableHead>
               <TableHead>
                 <SortableTableHead
@@ -155,12 +164,22 @@ export function TaskTable({
               </TableRow>
             ) : (
               data.map((task) => (
-                <TableRow key={task.id} className={task.completed ? "opacity-60" : ""}>
-                  <TableCell>
-                    <Checkbox
-                      checked={task.completed}
-                      onCheckedChange={() => onToggle(task)}
-                    />
+                <TableRow
+                  key={task.id}
+                  className={task.status === "done" ? "opacity-60" : ""}
+                  data-state={selection?.isSelected(task.id) ? "selected" : undefined}
+                >
+                  <TableCell
+                    className="w-10"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {selection && (
+                      <Checkbox
+                        checked={selection.isSelected(task.id)}
+                        onCheckedChange={() => selection.onToggleRow(task)}
+                        aria-label={`Select ${task.name}`}
+                      />
+                    )}
                   </TableCell>
                   <TableCell className="font-medium max-w-48 truncate">
                     {task.name}
