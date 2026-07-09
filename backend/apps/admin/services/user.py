@@ -14,7 +14,7 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
-from apps.groups.models import CountryStates, Groups, GroupMembership
+from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.audit.services import log_audit_event
 
 
@@ -872,17 +872,30 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 })
                 continue
         
-        # Resolve state ID
+        # Resolve state ID. When a country is supplied (registration-export
+        # imports), get_or_create the Country + CountryState so international
+        # registrants without a pre-seeded state still import.
         state_id = None
         if state_name:
-            state_obj = CountryStates.objects.filter(state_name=state_name).first()
-            if state_obj is None:
-                results.append({
-                    "input": input_data,
-                    "msg": f'State "{state_name}" not found',
-                    "data": None
-                })
-                continue
+            country_name = (input_data.get("country") or "").strip()
+            if country_name:
+                country_obj, _ = Countries.objects.get_or_create(
+                    country_name=country_name
+                )
+                state_obj, _ = CountryStates.objects.get_or_create(
+                    country=country_obj, state_name=state_name
+                )
+            else:
+                state_obj = CountryStates.objects.filter(
+                    state_name=state_name
+                ).first()
+                if state_obj is None:
+                    results.append({
+                        "input": input_data,
+                        "msg": f'State "{state_name}" not found',
+                        "data": None
+                    })
+                    continue
             state_id = state_obj.id
         
         # Resolve role ID
@@ -1023,7 +1036,10 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
         if result["data"]:
             created.append(result["data"])
         else:
-            skipped.append(result["input"].get("email", "unknown"))
+            skipped.append({
+                "email": result["input"].get("email", "unknown"),
+                "reason": result.get("msg", "Skipped"),
+            })
 
     # Second pass: fix supervisor links for students where the supervisor was also
     # created in this same batch and may not have existed when the student was processed.
