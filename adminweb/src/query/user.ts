@@ -21,6 +21,8 @@ type CreateUserPayload = {
   role: UserRole;
   // Backend create resolves the state by name (add_users_by_role reads `state`).
   state?: string;
+  // Country lets the backend get_or_create the state for registration-export imports.
+  country?: string;
   schoolName?: string;
   supervisorSchoolName?: string;
   mentorBackground?: string | null;
@@ -195,7 +197,10 @@ export function useBulkCreateUsers() {
   return useMutation({
     mutationFn: async (payload: CreateUserPayload[]) => {
       const res = await myFetch.post<
-        MutationResponse<{ created: UserAccount[]; skipped: string[] }>
+        MutationResponse<{
+          created: UserAccount[];
+          skipped: { email: string; reason: string }[];
+        }>
       >("/user/bulk", payload);
       return res.data;
     },
@@ -598,4 +603,171 @@ function parseCsvRows(text: string) {
   }
 
   return rows;
+}
+
+// ── Mentor registration-export import ──────────────────────────────────────────
+
+export type MentorImportRow = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  country: string;
+  state: string;
+  interests: string[];
+  mentorReason: string;
+  mentorInstitution: string;
+  mentorBackground: string | null;
+  mentorMaxGroupCount: number;
+  /** Set when the raw Background value couldn't be mapped to the enum. */
+  backgroundNote?: string;
+};
+
+export type ImportRowError = { rowNumber: number; email: string; reason: string };
+
+/** Map the export's Background text to the MentorProfile enum; null = leave unset. */
+function mapMentorBackground(raw: string): string | null {
+  const v = raw.trim().toLowerCase();
+  if (!v) return null;
+  if (v === "industry") return "industry";
+  if (v.includes("undergraduate")) return "undergraduate";
+  if (v.includes("postgraduate")) return "postgraduate";
+  if (v.includes("hdr")) return "hdr";
+  return null; // "Academic" / anything unrecognised → leave background unset
+}
+
+function normalizeHeader(header: string): string {
+  return header.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Registration-export header (space/case tolerant) → canonical key.
+const MENTOR_HEADER_ALIASES: Record<string, string> = {
+  "email address": "email",
+  email: "email",
+  "first name": "firstName",
+  firstname: "firstName",
+  surname: "lastName",
+  "last name": "lastName",
+  lastname: "lastName",
+  country: "country",
+  region: "region",
+  state: "region",
+  "mentor reason": "mentorReason",
+  capacity: "capacity",
+  "max group count": "capacity",
+  "area(s) of interest": "interests",
+  "areas of interest": "interests",
+  interests: "interests",
+  background: "background",
+  "institution or company": "institution",
+  institution: "institution",
+};
+
+/**
+ * Parse a Mentors registration export. Never throws per-row: valid rows are
+ * returned for import, invalid rows are collected with a human reason. Throws
+ * only for a wrong/empty file (missing required columns) so the UI can show an
+ * actionable "this doesn't look like a Mentors export" message.
+ */
+export function parseMentorCsv(text: string): {
+  valid: MentorImportRow[];
+  invalid: ImportRowError[];
+} {
+  const rows = parseCsvRows(text);
+  if (!rows.length) {
+    throw new Error("The CSV file is empty.");
+  }
+
+  const [headerRow, ...dataRows] = rows;
+  const colIndex: Record<string, number> = {};
+  headerRow.forEach((header, index) => {
+    const canonical = MENTOR_HEADER_ALIASES[normalizeHeader(header)];
+    if (canonical && colIndex[canonical] === undefined) {
+      colIndex[canonical] = index;
+    }
+  });
+
+  const required: Array<[string, string]> = [
+    ["email", "Email Address"],
+    ["firstName", "First Name"],
+    ["lastName", "Surname"],
+    ["country", "Country"],
+    ["interests", "Area(s) of Interest"],
+    ["mentorReason", "Mentor Reason"],
+    ["institution", "Institution or Company"],
+    ["capacity", "Capacity"],
+  ];
+  const missing = required
+    .filter(([key]) => colIndex[key] === undefined)
+    .map(([, label]) => label);
+  if (missing.length) {
+    throw new Error(
+      `This doesn't look like a Mentors export — missing columns: ${missing.join(", ")}.`,
+    );
+  }
+
+  const cell = (row: string[], key: string) =>
+    colIndex[key] !== undefined ? (row[colIndex[key]] ?? "").trim() : "";
+
+  const valid: MentorImportRow[] = [];
+  const invalid: ImportRowError[] = [];
+
+  dataRows
+    .filter((row) => row.some((value) => value.trim()))
+    .forEach((row, index) => {
+      const rowNumber = index + 2; // account for the header row
+      const email = cell(row, "email").toLowerCase();
+      const firstName = cell(row, "firstName");
+      const lastName = cell(row, "lastName");
+      const country = cell(row, "country");
+      const region = cell(row, "region");
+      const interests = parseInterestList(cell(row, "interests"));
+      const mentorReason = cell(row, "mentorReason");
+      const institution = cell(row, "institution");
+      const capacityRaw = cell(row, "capacity");
+      const backgroundRaw = cell(row, "background");
+
+      const state = country === "Australia" ? region : country;
+      const capacity = Number(capacityRaw);
+
+      const problems: string[] = [];
+      if (!email) problems.push("missing email");
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        problems.push("invalid email");
+      if (!firstName || !lastName) problems.push("missing first or last name");
+      if (!state) problems.push("missing country/region");
+      if (!interests.length) problems.push("no interests");
+      if (!mentorReason) problems.push("missing mentor reason");
+      if (!institution) problems.push("missing institution");
+      if (!capacityRaw || !Number.isFinite(capacity) || capacity <= 0)
+        problems.push("invalid capacity");
+
+      if (problems.length) {
+        invalid.push({
+          rowNumber,
+          email: email || "(no email)",
+          reason: problems.join(", "),
+        });
+        return;
+      }
+
+      const mentorBackground = mapMentorBackground(backgroundRaw);
+      valid.push({
+        firstName,
+        lastName,
+        email,
+        country,
+        state,
+        interests,
+        mentorReason,
+        mentorInstitution: institution,
+        mentorBackground,
+        mentorMaxGroupCount: capacity,
+        backgroundNote:
+          backgroundRaw && !mentorBackground
+            ? `background "${backgroundRaw}" not recognised — left unset`
+            : undefined,
+      });
+    });
+
+  return { valid, invalid };
 }

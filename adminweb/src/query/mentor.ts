@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
+import type { MentorImportRow } from "@/query/user";
+import type { UserAccount } from "@/type/user";
 
 const availabilitySchema = z.object({
   weekday: z.number(),
@@ -80,6 +82,44 @@ export function useMutationSetMentorActive() {
           ? ((error.response?.data as { msg?: string } | undefined)?.msg ?? error.message)
           : "Failed to update mentor status.";
       toast.error(msg);
+    },
+  });
+}
+
+export type BulkImportResult = {
+  created: UserAccount[];
+  skipped: { email: string; reason: string }[];
+};
+
+/** Bulk-import mentors from a parsed registration export (POST /user/bulk). */
+export function useImportMentors() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (rows: MentorImportRow[]) => {
+      const payload = rows.map((row) => ({
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        role: "mentor" as const,
+        state: row.state,
+        country: row.country,
+        interests: row.interests,
+        mentorReason: row.mentorReason,
+        mentorInstitution: row.mentorInstitution,
+        mentorBackground: row.mentorBackground ?? undefined,
+        mentorMaxGroupCount: row.mentorMaxGroupCount,
+        active: true,
+      }));
+      const res = await myFetch.post<{ msg: string; data: BulkImportResult }>(
+        "/user/bulk",
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["mentorDetail"] });
+      void queryClient.invalidateQueries({ queryKey: ["mentorList"] });
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }

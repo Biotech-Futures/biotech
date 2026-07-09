@@ -12,6 +12,7 @@ import {
   useMutationUnassignMentors,
 } from "@/query/mentorMatch";
 import { BulkReplaceDialog } from "@/components/match/BulkReplaceDialog";
+import { MentorImportSheet } from "@/components/user/MentorImportSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
   ClockIcon,
+  UploadIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -83,6 +85,7 @@ function MentorPage() {
   const [inactiveDays, setInactiveDays] = useState(30);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   const { data: mentorDetailData, isPending: isLoadingMentors } =
     useQueryMentorDetail();
@@ -191,6 +194,14 @@ function MentorPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBulkImportOpen(true)}
+          >
+            <UploadIcon className="mr-1.5 size-3.5" />
+            Import Mentors CSV
+          </Button>
           {/* Inactive days threshold */}
           <div className="flex items-center gap-2">
             <label className="text-sm text-muted-foreground whitespace-nowrap">
@@ -561,6 +572,11 @@ function MentorPage() {
         mentors={mentorListItems}
         onConfirm={handleBulkConfirm}
         isPending={confirmAssignments.isPending}
+      />
+
+      <MentorImportSheet
+        open={bulkImportOpen}
+        onOpenChange={setBulkImportOpen}
       />
     </div>
   );
