@@ -294,19 +294,42 @@ export function useDeleteUser() {
 
 export type BulkDeleteResult = {
   deletedIds: number[];
+  failedIds?: number[];
   notFoundIds: number[];
   skippedSelf: boolean;
+  skippedAdmins?: number;
 };
 
-/** Permanently delete the given users (hard delete) in one request. */
+export type BulkDeleteVars =
+  | { ids: string[] }
+  | {
+      selectAll: true;
+      filters: BulkStatusFilters;
+      excludeIds: string[];
+      /** Count the admin reviewed; the server refuses if the live set grew past it. */
+      expectedCount: number;
+    };
+
+/** Permanently delete users (hard delete) in one request — explicit ids or
+ *  "select all matching" (resolved server-side from the same list filters). */
 export function useBulkDeleteUsers() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (ids: string[]) => {
-      const res = await myFetch.post<MutationResponse<BulkDeleteResult>>(
+    mutationFn: async (payload: BulkDeleteVars) => {
+      const body =
+        "selectAll" in payload
+          ? {
+              selectAll: true,
+              filters: payload.filters,
+              excludeIds: payload.excludeIds.map(Number),
+              expectedCount: payload.expectedCount,
+            }
+          : { userIds: payload.ids.map(Number) };
+
+      const res = await myFetch.post<MutationResponse<BulkDeleteResult | null>>(
         "/user/bulk-delete",
-        { userIds: ids.map(Number) },
+        body,
       );
       return res.data;
     },

@@ -4,7 +4,7 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction, IntegrityError
 from django.utils import timezone
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, ProtectedError
 from typing import List, Dict, Any, Optional
 
 # Import models
@@ -1564,20 +1564,29 @@ def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
         return {"msg": "User not found", "data": None}
 
     before_user = fetch_user_by_id(user_id)
-    with transaction.atomic():
-        log_audit_event(
-            actor=initiated_by,
-            entity_type="user",
-            entity_id=user_id,
-            action="delete",
-            before_state=before_user,
-        )
-        RoleAssignmentHistory.objects.filter(user_id=user_id).delete()
-        UserInterest.objects.filter(user_id=user_id).delete()
-        MentorProfile.objects.filter(user_id=user_id).delete()
-        SupervisorProfile.objects.filter(user_id=user_id).delete()
-        StudentProfile.objects.filter(user_id=user_id).delete()
-        User.objects.filter(id=user_id).delete()
+    try:
+        with transaction.atomic():
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="delete",
+                before_state=before_user,
+            )
+            RoleAssignmentHistory.objects.filter(user_id=user_id).delete()
+            UserInterest.objects.filter(user_id=user_id).delete()
+            MentorProfile.objects.filter(user_id=user_id).delete()
+            SupervisorProfile.objects.filter(user_id=user_id).delete()
+            StudentProfile.objects.filter(user_id=user_id).delete()
+            User.objects.filter(id=user_id).delete()
+    except ProtectedError:
+        # Chat messages, uploaded resources, match runs, etc. reference the user
+        # with on_delete=PROTECT. Fail cleanly (the atomic block rolls back) instead
+        # of a 500 that would strand a bulk delete mid-loop.
+        return {
+            "msg": "User cannot be deleted because other records reference them",
+            "data": None,
+        }
 
     return {"msg": "User deleted successfully", "data": None}
 
@@ -1605,16 +1614,23 @@ def bulk_delete_users(user_ids: List[int], initiated_by=None) -> Dict[str, Any]:
         User.objects.filter(id__in=ids).values_list("id", flat=True)
     )
     deleted_ids: List[int] = []
+    failed_ids: List[int] = []
     not_found_ids = [uid for uid in ids if uid not in existing_ids]
     for uid in ids:
         if uid not in existing_ids:
             continue
+        # Each delete_user runs in its own transaction, so a protected/undeletable
+        # user is reported in failed_ids rather than aborting the whole batch.
         if delete_user(uid, initiated_by=initiated_by).get("msg") == "User deleted successfully":
             deleted_ids.append(uid)
+        else:
+            failed_ids.append(uid)
 
     msg_parts = [f"{len(deleted_ids)} user(s) deleted"]
     if skipped_self:
         msg_parts.append("your own account was skipped")
+    if failed_ids:
+        msg_parts.append(f"{len(failed_ids)} could not be deleted (referenced by other records)")
     if not_found_ids:
         msg_parts.append(f"{len(not_found_ids)} not found")
 
@@ -1622,10 +1638,91 @@ def bulk_delete_users(user_ids: List[int], initiated_by=None) -> Dict[str, Any]:
         "msg": "; ".join(msg_parts),
         "data": {
             "deletedIds": deleted_ids,
+            "failedIds": failed_ids,
             "notFoundIds": not_found_ids,
             "skippedSelf": skipped_self,
         },
     }
+
+
+def _empty_delete_result(msg: str, skipped_admins: int = 0) -> Dict[str, Any]:
+    return {
+        "msg": msg,
+        "data": {
+            "deletedIds": [], "failedIds": [], "notFoundIds": [],
+            "skippedSelf": False, "skippedAdmins": skipped_admins,
+        },
+    }
+
+
+def bulk_delete_users_by_filter(filters: Dict[str, Any], exclude_ids=None,
+                                initiated_by=None, expected_count=None) -> Dict[str, Any]:
+    """
+    Permanently delete every user matching the given list filters
+    ("select all matching"). Mirrors query_users' filter semantics so the action
+    hits exactly the rows the admin was viewing; exclude_ids drops any rows they
+    unchecked before confirming.
+
+    Safeguards for this mass-destructive path:
+    - admin accounts are never mass-deleted (only the individual delete can),
+    - the initiator's own account is skipped,
+    - expected_count guards against the set growing between preview and confirm
+      (users created in that window are not silently swept into a hard delete).
+    """
+    filters = filters or {}
+    active_filter = filters.get("active")
+    queryset = _build_user_filter_queryset(
+        search=filters.get("search"),
+        role=filters.get("role"),
+        state=filters.get("state"),
+        active=active_filter if isinstance(active_filter, bool) else None,
+        in_group=filters.get("inGroup"),
+    )
+    ids = list(queryset.values_list("id", flat=True).distinct())
+
+    if exclude_ids:
+        try:
+            excluded = {int(x) for x in exclude_ids}
+        except (TypeError, ValueError):
+            return {"msg": "excludeIds must be a list of integer ids", "data": None}
+        ids = [uid for uid in ids if uid not in excluded]
+
+    # Refuse if the live set grew beyond what the admin reviewed — a hard delete
+    # must not reach rows created after the count was shown.
+    if expected_count is not None:
+        try:
+            expected = int(expected_count)
+        except (TypeError, ValueError):
+            expected = None
+        if expected is not None and len(ids) > expected:
+            return {
+                "msg": (
+                    f"The matching set changed (now {len(ids)}, was {expected}). "
+                    "Refresh and re-review before deleting."
+                ),
+                "data": None,
+            }
+
+    if not ids:
+        return _empty_delete_result("No matching users to delete")
+
+    # Never mass-delete admin accounts (other admins would otherwise be swept in).
+    admin_ids = set(
+        AdminScope.objects.filter(user_id__in=ids).values_list("user_id", flat=True)
+    )
+    skipped_admins = len(admin_ids)
+    if admin_ids:
+        ids = [uid for uid in ids if uid not in admin_ids]
+    if not ids:
+        return _empty_delete_result(
+            "No deletable users (admin accounts are protected)", skipped_admins
+        )
+
+    result = bulk_delete_users(ids, initiated_by=initiated_by)
+    if result.get("data") is not None and skipped_admins:
+        result["data"]["skippedAdmins"] = skipped_admins
+        result["msg"] += f"; {skipped_admins} admin account(s) skipped"
+    return result
 
 
 def has_ungrouped_students() -> bool:
