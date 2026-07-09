@@ -1,10 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PlusIcon, UploadIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 import {
   useQueryStates,
-  useBulkCreateUsers,
   useBulkUpdateUserStatus,
   useCreateUser,
   useDeleteUser,
@@ -29,7 +28,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   USER_ROLES,
-  type CsvUserRow,
   type UserAccount,
   type UserFormValues,
   type UserRole,
@@ -38,7 +36,6 @@ import { UserFilters } from "@/components/user/UserFilters";
 import { UserBulkActionsBar } from "@/components/user/UserBulkActionsBar";
 import { UserTable, type UserSortKey } from "@/components/user/UserTable";
 import { UserEditorSheet } from "@/components/user/UserEditorSheet";
-import { UserBulkUploadSheet } from "@/components/user/UserBulkUploadSheet";
 import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 import type { SortState } from "@/components/ui/sortable-table";
 import { toast } from "sonner";
@@ -152,7 +149,6 @@ function UserManagementPage() {
     direction: sortOrder,
   };
   const [editorOpen, setEditorOpen] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
@@ -200,7 +196,6 @@ function UserManagementPage() {
   const updateUserStatus = useUpdateUserStatus();
   const bulkUpdateUserStatus = useBulkUpdateUserStatus();
   const deleteUser = useDeleteUser();
-  const bulkCreateUsers = useBulkCreateUsers();
 
   const updateFilters = (
     filters: Partial<{
@@ -474,63 +469,9 @@ function UserManagementPage() {
     }
   };
 
-  const handleImportUsers = async (rows: CsvUserRow[]) => {
-    try {
-      const response = await bulkCreateUsers.mutateAsync(
-        rows.map((row) => ({
-          firstName: row.firstName,
-          lastName: row.lastName,
-          email: row.email,
-          role: row.role,
-          state: row.state ?? undefined,
-          schoolName: row.role === "student" ? row.schoolName : undefined,
-          supervisorSchoolName:
-            row.role === "supervisor" ? row.supervisorSchoolName : undefined,
-          mentorBackground:
-            row.role === "mentor" ? row.mentorBackground || null : undefined,
-          mentorInstitution:
-            row.role === "mentor" ? row.mentorInstitution : undefined,
-          mentorReason: row.role === "mentor" ? row.mentorReason : undefined,
-          mentorMaxGroupCount:
-            row.role === "mentor"
-              ? (row.mentorMaxGroupCount ?? undefined)
-              : undefined,
-          yearLevel:
-            row.role === "student" ? (row.yearLevel ?? undefined) : undefined,
-          interests:
-            row.role === "student" || row.role === "mentor"
-              ? row.interests
-              : undefined,
-          supervisorEmail:
-            row.role === "student" && row.supervisorEmail
-              ? row.supervisorEmail
-              : undefined,
-          active: row.active,
-        })),
-      );
-
-      const createdCount = response.data?.created?.length ?? 0;
-      // const skippedCount = response.data?.skipped?.length ?? 0;
-
-      // if (!createdCount && skippedCount) {
-      //   toast.error(response.msg || "No users were imported.");
-      //   return;
-      // }
-
-      toast.success(response.msg || `Imported ${createdCount} users.`);
-      setBulkOpen(false);
-    } catch {
-      toast.error("Bulk upload failed.");
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2 justify-end w-full">
-        <Button variant="outline" onClick={() => setBulkOpen(true)}>
-          <UploadIcon />
-          Bulk Upload CSV
-        </Button>
         <Button onClick={openCreate}>
           <PlusIcon />
           Add User
@@ -607,8 +548,7 @@ function UserManagementPage() {
           updateUser.isPending ||
           updateUserStatus.isPending ||
           bulkUpdateUserStatus.isPending ||
-          deleteUser.isPending ||
-          bulkCreateUsers.isPending
+          deleteUser.isPending
         }
       />
 
@@ -672,13 +612,6 @@ function UserManagementPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         user={selectedUser}
-      />
-
-      <UserBulkUploadSheet
-        open={bulkOpen}
-        onOpenChange={setBulkOpen}
-        onImport={handleImportUsers}
-        isPending={bulkCreateUsers.isPending}
       />
     </div>
   );

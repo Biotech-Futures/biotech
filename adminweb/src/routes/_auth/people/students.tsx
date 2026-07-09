@@ -26,6 +26,8 @@ import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import ManualAssignDialog from "@/components/student/ManualAssignDialog";
 import StudentBatchAssignDialog from "@/components/student/StudentBatchAssignDialog";
 import { StudentBulkActionsBar } from "@/components/student/StudentBulkActionsBar";
+import { StudentImportSheet } from "@/components/user/StudentImportSheet";
+import { UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -52,6 +54,7 @@ function StudentPage() {
   const [selected, setSelected] = useState<Map<number, StudentUser>>(new Map());
   const [batchAssignOpen, setBatchAssignOpen] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data, isPending } = useQueryStudents({
     page,
@@ -278,14 +281,18 @@ function StudentPage() {
 
   return (
     <div className="space-y-4">
-      {hasUngrouped && (
-        <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <UploadIcon className="size-4" />
+          Import Students CSV
+        </Button>
+        {hasUngrouped && (
           <Button onClick={handleMatchStudents}>
             <ShuffleIcon className="size-4" />
             Match Student
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       <StudentFilters
         search={search}
@@ -379,6 +386,8 @@ function StudentPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <StudentImportSheet open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
