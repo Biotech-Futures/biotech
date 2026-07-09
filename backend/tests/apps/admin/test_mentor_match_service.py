@@ -6,12 +6,18 @@ from rest_framework.exceptions import ValidationError
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
     confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
-    unassign_mentors,
+    unassign_mentors, recommend_mentors_for_group,
 )
+from apps.admin.services.match import recommend_students_for_group
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
-from apps.users.models import MentorProfile, StudentProfile, User
+from apps.users.models import (
+    MentorProfile, StudentProfile, User, AreasOfInterest, UserInterest,
+)
 from apps.users.models.admin_scope import AdminScope
 from apps.matching_runtime.models import MatchRun
+
+STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
+MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 
 
 class MentorMatchServiceTests(TestCase):
@@ -184,3 +190,64 @@ class MentorMatchServiceTests(TestCase):
         )
         result = match_mentor(str(self.admin_user.id))
         self.assertTrue(MatchRun.objects.filter(run_type="mentor-match").exists())
+
+
+class RecommendReplacementTests(TestCase):
+    def setUp(self):
+        country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=country, state_name="NSW")
+        self.interest = AreasOfInterest.objects.create(interest_desc="Biotech")
+
+        self.group = Groups.objects.create(group_name="Group A")
+        member = self._student("member@example.com")
+        UserInterest.objects.create(user=member, interest=self.interest)
+        GroupMembership.objects.create(
+            user=member, group=self.group, membership_role=STUDENT_ROLE
+        )
+        self.current_mentor = self._mentor("mentor@example.com")
+        GroupMembership.objects.create(
+            user=self.current_mentor, group=self.group, membership_role=MENTOR_ROLE
+        )
+
+    def _student(self, email):
+        user = User.objects.create_user(
+            email=email, first_name="S", last_name=email[:4],
+            state=self.state, password="x",
+        )
+        StudentProfile.objects.create(
+            user=user, pg_first_name="P", pg_last_name="G",
+            parent_guardian_flag=True, school_name="School", year_lvl="10",
+        )
+        return user
+
+    def _mentor(self, email):
+        user = User.objects.create_user(
+            email=email, first_name="M", last_name=email[:4],
+            state=self.state, is_active=True, password="x",
+        )
+        MentorProfile.objects.create(
+            user=user, institution="UNSW", mentor_reason="Help", max_group_count=3,
+        )
+        return user
+
+    def test_recommend_mentors_excludes_current_mentor(self):
+        other = self._mentor("other@example.com")
+        result = recommend_mentors_for_group(self.group.id)
+        ids = [s["mentorUserId"] for s in result["data"]["suggestions"]]
+        self.assertIn(other.id, ids)
+        self.assertNotIn(self.current_mentor.id, ids)
+
+    def test_recommend_mentors_group_not_found(self):
+        self.assertIsNone(recommend_mentors_for_group(999999)["data"])
+
+    def test_recommend_students_requires_shared_interest(self):
+        sharer = self._student("cand1@example.com")
+        UserInterest.objects.create(user=sharer, interest=self.interest)
+        self._student("cand2@example.com")  # no shared interest → not eligible
+        result = recommend_students_for_group(self.group.id)
+        ids = [s["studentUserId"] for s in result["data"]["suggestions"]]
+        self.assertIn(sharer.id, ids)
+        self.assertEqual(len(ids), 1)
+
+    def test_recommend_students_group_not_found(self):
+        self.assertIsNone(recommend_students_for_group(999999)["data"])

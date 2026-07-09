@@ -5,6 +5,7 @@ import {
   matchedGroupsResponseSchema,
   mentorListResponseSchema,
   mentorMatchResponseSchema,
+  mentorReplaceSuggestionsResponseSchema,
   replaceMentorResponseSchema,
   unmatchedGroupsResponseSchema,
 } from "@/schema/mentorMatch";
@@ -65,6 +66,23 @@ export function useQueryMatchedGroups() {
       return matchedGroupsResponseSchema.parse(res.data);
     },
     refetchOnMount: true,
+  });
+}
+
+/** Scored replacement-mentor suggestions for one group (best-first). */
+export function useQueryMentorReplaceSuggestions(
+  groupId: number | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["mentorReplaceSuggestions", groupId],
+    queryFn: async () => {
+      const res = await myFetch.get(
+        `mentor-match/replace-suggestions?groupId=${groupId}`,
+      );
+      return mentorReplaceSuggestionsResponseSchema.parse(res.data);
+    },
+    enabled: enabled && groupId != null,
   });
 }
 

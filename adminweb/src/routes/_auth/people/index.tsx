@@ -5,6 +5,7 @@ import { PlusIcon } from "lucide-react";
 import {
   useQueryStates,
   useBulkUpdateUserStatus,
+  useBulkDeleteUsers,
   useCreateUser,
   useDeleteUser,
   useQueryUsers,
@@ -163,6 +164,8 @@ function UserManagementPage() {
     action: "activate" | "deactivate";
     count: number;
   } | null>(null);
+  // Snapshot the count when the delete dialog opens so its copy stays stable.
+  const [bulkDelete, setBulkDelete] = useState<{ count: number } | null>(null);
 
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -195,6 +198,7 @@ function UserManagementPage() {
   const updateUser = useUpdateUser();
   const updateUserStatus = useUpdateUserStatus();
   const bulkUpdateUserStatus = useBulkUpdateUserStatus();
+  const bulkDeleteUsers = useBulkDeleteUsers();
   const deleteUser = useDeleteUser();
 
   const updateFilters = (
@@ -446,6 +450,27 @@ function UserManagementPage() {
     }
   };
 
+  const handleBulkDeleteConfirm = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      setBulkDelete(null);
+      return;
+    }
+    try {
+      const response = await bulkDeleteUsers.mutateAsync(ids);
+      if (!response.data) {
+        toast.error(response.msg || "Unable to delete users.");
+        return;
+      }
+      toast.success(response.msg);
+      clearSelection();
+    } catch {
+      toast.error("Unable to delete users right now.");
+    } finally {
+      setBulkDelete(null);
+    }
+  };
+
   const handleDeleteUser = async (user: UserAccount) => {
     const confirmed = window.confirm(
       `Delete user "${user.name}"? This cannot be undone.`,
@@ -507,8 +532,14 @@ function UserManagementPage() {
               count: effectiveSelectedCount,
             })
           }
+          // Permanent delete only for an explicit selection — never "all matching".
+          onDelete={
+            selectAllMatching
+              ? undefined
+              : () => setBulkDelete({ count: selectedIds.size })
+          }
           onClear={clearSelection}
-          isPending={bulkUpdateUserStatus.isPending}
+          isPending={bulkUpdateUserStatus.isPending || bulkDeleteUsers.isPending}
         />
       )}
 
@@ -585,6 +616,42 @@ function UserManagementPage() {
               }}
             >
               {bulkAction?.action === "activate" ? "Activate" : "Deactivate"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={bulkDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setBulkDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {bulkDelete?.count}{" "}
+              {bulkDelete?.count === 1 ? "user" : "users"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the selected{" "}
+              {bulkDelete?.count === 1 ? "account" : "accounts"} and all related
+              data. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteUsers.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={bulkDeleteUsers.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkDeleteConfirm();
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

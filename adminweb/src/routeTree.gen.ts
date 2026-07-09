@@ -29,10 +29,12 @@ import { Route as AuthPeopleRouteRouteImport } from './routes/_auth/people/route
 import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route'
 import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
 import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
+import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
 import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
 import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
 import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
 import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
+import { Route as AuthGroupsMatchedGroupsRouteImport } from './routes/_auth/groups/matched-groups'
 
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
@@ -133,6 +135,11 @@ const AuthGroupsIndexRoute = AuthGroupsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthGroupsRouteRoute,
 } as any)
+const AuthPeopleSupervisorsRoute = AuthPeopleSupervisorsRouteImport.update({
+  id: '/supervisors',
+  path: '/supervisors',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
 const AuthPeopleStudentsRoute = AuthPeopleStudentsRouteImport.update({
   id: '/students',
   path: '/students',
@@ -155,6 +162,11 @@ const AuthGroupsMentorMatchingRoute =
     path: '/mentor-matching',
     getParentRoute: () => AuthGroupsRouteRoute,
   } as any)
+const AuthGroupsMatchedGroupsRoute = AuthGroupsMatchedGroupsRouteImport.update({
+  id: '/matched-groups',
+  path: '/matched-groups',
+  getParentRoute: () => AuthGroupsRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
@@ -174,10 +186,12 @@ export interface FileRoutesByFullPath {
   '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
   '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
   '/people/mentors': typeof AuthPeopleMentorsRoute
   '/people/students': typeof AuthPeopleStudentsRoute
+  '/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/groups/': typeof AuthGroupsIndexRoute
   '/people/': typeof AuthPeopleIndexRoute
 }
@@ -197,10 +211,12 @@ export interface FileRoutesByTo {
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthIndexRoute
+  '/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
   '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
   '/people/mentors': typeof AuthPeopleMentorsRoute
   '/people/students': typeof AuthPeopleStudentsRoute
+  '/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/groups': typeof AuthGroupsIndexRoute
   '/people': typeof AuthPeopleIndexRoute
 }
@@ -224,10 +240,12 @@ export interface FileRoutesById {
   '/_auth/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/_auth/': typeof AuthIndexRoute
+  '/_auth/groups/matched-groups': typeof AuthGroupsMatchedGroupsRoute
   '/_auth/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
   '/_auth/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
   '/_auth/people/mentors': typeof AuthPeopleMentorsRoute
   '/_auth/people/students': typeof AuthPeopleStudentsRoute
+  '/_auth/people/supervisors': typeof AuthPeopleSupervisorsRoute
   '/_auth/groups/': typeof AuthGroupsIndexRoute
   '/_auth/people/': typeof AuthPeopleIndexRoute
 }
@@ -251,10 +269,12 @@ export interface FileRouteTypes {
     | '/task'
     | '/user'
     | '/auth/callback'
+    | '/groups/matched-groups'
     | '/groups/mentor-matching'
     | '/groups/student-matching'
     | '/people/mentors'
     | '/people/students'
+    | '/people/supervisors'
     | '/groups/'
     | '/people/'
   fileRoutesByTo: FileRoutesByTo
@@ -274,10 +294,12 @@ export interface FileRouteTypes {
     | '/user'
     | '/auth/callback'
     | '/'
+    | '/groups/matched-groups'
     | '/groups/mentor-matching'
     | '/groups/student-matching'
     | '/people/mentors'
     | '/people/students'
+    | '/people/supervisors'
     | '/groups'
     | '/people'
   id:
@@ -300,10 +322,12 @@ export interface FileRouteTypes {
     | '/_auth/user'
     | '/auth/callback'
     | '/_auth/'
+    | '/_auth/groups/matched-groups'
     | '/_auth/groups/mentor-matching'
     | '/_auth/groups/student-matching'
     | '/_auth/people/mentors'
     | '/_auth/people/students'
+    | '/_auth/people/supervisors'
     | '/_auth/groups/'
     | '/_auth/people/'
   fileRoutesById: FileRoutesById
@@ -458,6 +482,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsIndexRouteImport
       parentRoute: typeof AuthGroupsRouteRoute
     }
+    '/_auth/people/supervisors': {
+      id: '/_auth/people/supervisors'
+      path: '/supervisors'
+      fullPath: '/people/supervisors'
+      preLoaderRoute: typeof AuthPeopleSupervisorsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
     '/_auth/people/students': {
       id: '/_auth/people/students'
       path: '/students'
@@ -486,16 +517,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsMentorMatchingRouteImport
       parentRoute: typeof AuthGroupsRouteRoute
     }
+    '/_auth/groups/matched-groups': {
+      id: '/_auth/groups/matched-groups'
+      path: '/matched-groups'
+      fullPath: '/groups/matched-groups'
+      preLoaderRoute: typeof AuthGroupsMatchedGroupsRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
   }
 }
 
 interface AuthGroupsRouteRouteChildren {
+  AuthGroupsMatchedGroupsRoute: typeof AuthGroupsMatchedGroupsRoute
   AuthGroupsMentorMatchingRoute: typeof AuthGroupsMentorMatchingRoute
   AuthGroupsStudentMatchingRoute: typeof AuthGroupsStudentMatchingRoute
   AuthGroupsIndexRoute: typeof AuthGroupsIndexRoute
 }
 
 const AuthGroupsRouteRouteChildren: AuthGroupsRouteRouteChildren = {
+  AuthGroupsMatchedGroupsRoute: AuthGroupsMatchedGroupsRoute,
   AuthGroupsMentorMatchingRoute: AuthGroupsMentorMatchingRoute,
   AuthGroupsStudentMatchingRoute: AuthGroupsStudentMatchingRoute,
   AuthGroupsIndexRoute: AuthGroupsIndexRoute,
@@ -508,12 +548,14 @@ const AuthGroupsRouteRouteWithChildren = AuthGroupsRouteRoute._addFileChildren(
 interface AuthPeopleRouteRouteChildren {
   AuthPeopleMentorsRoute: typeof AuthPeopleMentorsRoute
   AuthPeopleStudentsRoute: typeof AuthPeopleStudentsRoute
+  AuthPeopleSupervisorsRoute: typeof AuthPeopleSupervisorsRoute
   AuthPeopleIndexRoute: typeof AuthPeopleIndexRoute
 }
 
 const AuthPeopleRouteRouteChildren: AuthPeopleRouteRouteChildren = {
   AuthPeopleMentorsRoute: AuthPeopleMentorsRoute,
   AuthPeopleStudentsRoute: AuthPeopleStudentsRoute,
+  AuthPeopleSupervisorsRoute: AuthPeopleSupervisorsRoute,
   AuthPeopleIndexRoute: AuthPeopleIndexRoute,
 }
 

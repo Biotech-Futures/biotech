@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
-import { UserMinusIcon, UsersIcon } from "lucide-react";
+import { Trash2Icon, UserMinusIcon, UsersIcon } from "lucide-react";
 
 interface StudentBulkActionsBarProps {
   count: number;
@@ -8,6 +8,8 @@ interface StudentBulkActionsBarProps {
   groupedCount: number;
   onAssign: () => void;
   onRemove: () => void;
+  /** When provided, shows a permanent-delete action. Omit to hide it. */
+  onDelete?: () => void;
   onClear: () => void;
   isPending?: boolean;
 }
@@ -17,6 +19,7 @@ export function StudentBulkActionsBar({
   groupedCount,
   onAssign,
   onRemove,
+  onDelete,
   onClear,
   isPending,
 }: StudentBulkActionsBarProps) {
@@ -55,6 +58,18 @@ export function StudentBulkActionsBar({
           Remove from group{groupedCount > 0 ? ` (${groupedCount})` : ""}
         </Button>
       </span>
+      {onDelete ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={onDelete}
+          disabled={isPending}
+        >
+          <Trash2Icon />
+          Delete
+        </Button>
+      ) : null}
     </BulkActionsBar>
   );
 }

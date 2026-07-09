@@ -12,7 +12,7 @@ from apps.admin.services.user import (
     query_users, query_user_by_id, query_states,
     create_user, bulk_create_users, update_user, update_status,
     bulk_update_status, bulk_update_status_by_filter, delete_user,
-    has_ungrouped_students,
+    bulk_delete_users, has_ungrouped_students,
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages,
@@ -20,6 +20,7 @@ from apps.admin.services.group import (
 )
 from apps.admin.services.match import (
     match_student, get_individual_students, confirm_student_assignments,
+    recommend_students_for_group,
 )
 from apps.admin.services.event import (
     query_events, query_event_by_id, create_event, update_event, delete_event,
@@ -48,7 +49,7 @@ from apps.admin.services.task import (
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
     confirm_mentor_assignments, replace_mentor, bulk_replace_inactive_mentors,
-    unassign_mentors,
+    unassign_mentors, recommend_mentors_for_group,
 )
 
 
@@ -159,6 +160,22 @@ class UserBulkStatusUpdateView(APIView):
             result = bulk_update_status(
                 user_ids, bool(is_active), initiated_by=request.user)
 
+        code = status.HTTP_200_OK if result.get(
+            "data") is not None else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class UserBulkDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request):
+        user_ids = request.data.get("userIds")
+        if not isinstance(user_ids, list) or not user_ids:
+            return Response(
+                {"msg": "userIds must be a non-empty array", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = bulk_delete_users(user_ids, initiated_by=request.user)
         code = status.HTTP_200_OK if result.get(
             "data") is not None else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -323,6 +340,30 @@ class MatchIndividualView(APIView):
     def get(self, request):
         result = get_individual_students()
         return Response({"msg": "Individual students retrieved successfully", "data": result})
+
+
+class MatchStudentSuggestionsView(APIView):
+    """GET /api/v1/match/student-suggestions?groupId= - Ranked students to fill a group seat"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        group_id = request.query_params.get("groupId")
+        if not group_id:
+            return Response(
+                {"msg": "groupId is required", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            gid = int(group_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"msg": "groupId must be an integer", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = recommend_students_for_group(gid)
+        code = status.HTTP_200_OK if result.get(
+            "data") is not None else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
 
 
 class MatchConfirmView(APIView):
@@ -924,6 +965,30 @@ class MentorMatchReplaceView(APIView):
     def post(self, request):
         result = replace_mentor(request.data)
         return Response({"msg": "Mentor replaced successfully", "data": result})
+
+
+class MentorMatchReplaceSuggestionsView(APIView):
+    """GET /api/v1/mentor-match/replace-suggestions?groupId= - Ranked replacement mentors"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        group_id = request.query_params.get("groupId")
+        if not group_id:
+            return Response(
+                {"msg": "groupId is required", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            gid = int(group_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"msg": "groupId must be an integer", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = recommend_mentors_for_group(gid)
+        code = status.HTTP_200_OK if result.get(
+            "data") is not None else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
 
 
 class MentorMatchBulkReplaceInactiveView(APIView):

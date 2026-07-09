@@ -239,6 +239,28 @@ export const confirmAssignmentsResponseSchema = z.object({
   ),
 });
 
+// ─── Suggested students for a group (scored) ─────────────────────────────────
+
+export const studentSuggestionSchema = z.object({
+  studentUserId: z.number(),
+  name: z.string(),
+  yearLevel: z.number().int().nullable(),
+  country: z.string().nullable(),
+  score: z.number(),
+  sharedInterests: z.array(z.string()),
+});
+
+export const studentSuggestionsResponseSchema = z.object({
+  data: z.object({
+    groupId: z.number(),
+    groupName: z.string(),
+    isFull: z.boolean(),
+    suggestions: z.array(studentSuggestionSchema),
+  }),
+});
+
+export type StudentSuggestion = z.infer<typeof studentSuggestionSchema>;
+
 export type IndividualStudent = z.infer<typeof individualStudentSchema>;
 export type IndividualStudentsResponse = z.infer<
   typeof individualStudentsResponseSchema

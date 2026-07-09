@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryMentorReplaceSuggestions } from "@/query/mentorMatch";
 import type { MatchedGroup, MentorListItem } from "@/type/mentorMatch";
 
 const UNASSIGN_VALUE = "__unassign__";
@@ -31,6 +32,88 @@ type BulkReplaceDialogProps = {
   ) => Promise<void>;
   isPending: boolean;
 };
+
+/**
+ * One group's replacement row. Fetches scored mentor suggestions for the group,
+ * defaults the selection to the best match, and lists mentors best-first with a
+ * score; falls back to the flat mentor list for anyone the matcher didn't score.
+ */
+function BulkReplaceRow({
+  group,
+  mentors,
+  open,
+  value,
+  onSelect,
+}: {
+  group: MatchedGroup;
+  mentors: MentorListItem[];
+  open: boolean;
+  value: string | undefined;
+  onSelect: (value: string) => void;
+}) {
+  const { data, isLoading } = useQueryMentorReplaceSuggestions(
+    group.groupId,
+    open,
+  );
+  const suggestions = data?.data.suggestions ?? [];
+  const top = suggestions[0];
+
+  // Pre-select the best match once suggestions load, unless the admin already chose.
+  useEffect(() => {
+    if (value === undefined && top) onSelect(String(top.mentorUserId));
+  }, [top, value, onSelect]);
+
+  const scoredIds = new Set(suggestions.map((s) => s.mentorUserId));
+  const extraMentors = mentors.filter((m) => !scoredIds.has(m.mentorId));
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium">{group.groupName}</p>
+        <p className="text-xs text-muted-foreground">
+          Current:{" "}
+          <span className="text-destructive">
+            {group.mentor.name} (inactive)
+          </span>
+        </p>
+        {top ? (
+          <p className="truncate text-xs text-primary">
+            ★ Suggested: {top.name} (score {Math.round(top.score)})
+          </p>
+        ) : isLoading ? (
+          <p className="text-xs text-muted-foreground">Scoring mentors…</p>
+        ) : null}
+      </div>
+      <Select value={value ?? ""} onValueChange={onSelect}>
+        <SelectTrigger className="h-8 w-48 shrink-0 text-xs">
+          <SelectValue placeholder="Select action" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={UNASSIGN_VALUE} className="text-muted-foreground">
+            — Unassign (leave unmatched)
+          </SelectItem>
+          {suggestions.map((s, index) => (
+            <SelectItem key={s.mentorUserId} value={String(s.mentorUserId)}>
+              {index === 0 ? "★ " : ""}
+              {s.name} · {Math.round(s.score)}
+              {s.atCapacity ? (
+                <span className="ml-1 text-muted-foreground">(full)</span>
+              ) : null}
+            </SelectItem>
+          ))}
+          {extraMentors.map((m) => (
+            <SelectItem key={m.mentorId} value={String(m.mentorId)}>
+              {m.name}
+              {m.remainingCapacity === 0 ? (
+                <span className="ml-1 text-muted-foreground">(full)</span>
+              ) : null}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
 export function BulkReplaceDialog({
   open,
@@ -75,53 +158,24 @@ export function BulkReplaceDialog({
           <DialogTitle>Replace Inactive Mentors</DialogTitle>
           <DialogDescription>
             {inactiveGroups.length} group{inactiveGroups.length === 1 ? "" : "s"}{" "}
-            {inactiveGroups.length === 1 ? "has" : "have"} an inactive mentor.
-            Select a replacement for each group, or choose "Unassign" to leave the
-            group unmatched.
+            {inactiveGroups.length === 1 ? "has" : "have"} an inactive mentor. The
+            best match from the matcher is pre-selected — adjust any, or choose
+            "Unassign" to leave a group unmatched.
           </DialogDescription>
         </DialogHeader>
 
         <div className="max-h-72 space-y-3 overflow-y-auto py-1">
           {inactiveGroups.map((g) => (
-            <div
+            <BulkReplaceRow
               key={g.groupId}
-              className="flex items-center justify-between gap-3 rounded-lg border p-3"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{g.groupName}</p>
-                <p className="text-xs text-muted-foreground">
-                  Current:{" "}
-                  <span className="text-destructive">
-                    {g.mentor.name} (inactive)
-                  </span>
-                </p>
-              </div>
-              <Select
-                value={selections[g.groupId] ?? ""}
-                onValueChange={(val) =>
-                  setSelections((prev) => ({ ...prev, [g.groupId]: val }))
-                }
-              >
-                <SelectTrigger className="h-8 w-44 shrink-0 text-xs">
-                  <SelectValue placeholder="Select action" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNASSIGN_VALUE} className="text-muted-foreground">
-                    — Unassign (leave unmatched)
-                  </SelectItem>
-                  {mentors.map((m) => (
-                    <SelectItem key={m.mentorId} value={String(m.mentorId)}>
-                      {m.name}
-                      {m.remainingCapacity === 0 && (
-                        <span className="ml-1 text-muted-foreground">
-                          (full)
-                        </span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              group={g}
+              mentors={mentors}
+              open={open}
+              value={selections[g.groupId]}
+              onSelect={(val) =>
+                setSelections((prev) => ({ ...prev, [g.groupId]: val }))
+              }
+            />
           ))}
         </div>
 

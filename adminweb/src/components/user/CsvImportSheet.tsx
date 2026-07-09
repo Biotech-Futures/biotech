@@ -17,6 +17,11 @@ import { toast } from "sonner";
 export type ImportResult = {
   created: number;
   skipped: { email: string; reason: string }[];
+  /** Set by the student importer: co-registered friends grouped at import time. */
+  coRegistration?: {
+    groupsCreated: { name: string; memberCount: number }[];
+    warnings: string[];
+  };
 };
 
 interface CsvImportSheetProps<TRow> {
@@ -101,11 +106,13 @@ export function CsvImportSheet<TRow>({
     try {
       const res = await onImport(valid);
       setResult(res);
+      const groupCount = res.coRegistration?.groupsCreated.length ?? 0;
       toast.success(
         `Imported ${res.created} ${noun}${res.created === 1 ? "" : "s"}${
           res.skipped.length ? `, ${res.skipped.length} skipped` : ""
-        }.`,
+        }${groupCount ? `, ${groupCount} co-registration group${groupCount === 1 ? "" : "s"} created` : ""}.`,
       );
+      res.coRegistration?.warnings.forEach((warning) => toast.warning(warning));
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -232,6 +239,11 @@ export function CsvImportSheet<TRow>({
             <div className="rounded-md border border-primary/30 bg-primary/5">
               <div className="border-b px-4 py-2 text-sm font-medium">
                 {result.created} created · {result.skipped.length} skipped
+                {result.coRegistration?.groupsCreated.length
+                  ? ` · ${result.coRegistration.groupsCreated.length} co-registration group${
+                      result.coRegistration.groupsCreated.length === 1 ? "" : "s"
+                    }`
+                  : ""}
               </div>
               {result.skipped.length ? (
                 <div className="max-h-40 space-y-1 overflow-auto px-4 py-3 text-sm">
@@ -247,6 +259,30 @@ export function CsvImportSheet<TRow>({
                         {skip.reason}
                       </span>
                     </div>
+                  ))}
+                </div>
+              ) : null}
+              {result.coRegistration?.groupsCreated.length ? (
+                <div className="space-y-1 border-t px-4 py-3 text-sm">
+                  {result.coRegistration.groupsCreated.map((group) => (
+                    <div
+                      key={group.name}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <span className="truncate font-medium">{group.name}</span>
+                      <span className="text-muted-foreground">
+                        {group.memberCount} student
+                        {group.memberCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  ))}
+                  {result.coRegistration.warnings.map((warning, index) => (
+                    <p
+                      key={index}
+                      className="text-xs text-amber-700 dark:text-amber-400"
+                    >
+                      {warning}
+                    </p>
                   ))}
                 </div>
               ) : null}

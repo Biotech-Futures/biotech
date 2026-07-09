@@ -35,6 +35,8 @@ interface UserEditorSheetProps {
   user: UserAccount | null;
   states?: StateOption[];
   supervisors?: Array<{ id: string; name: string; email: string }>;
+  /** Role to preselect when creating (e.g. "supervisor" on the Supervisors tab). */
+  defaultRole?: UserRole;
   onSubmit: (values: UserFormValues) => Promise<void> | void;
   onDelete?: (user: UserAccount) => Promise<void> | void;
   isPending?: boolean;
@@ -122,6 +124,7 @@ export function UserEditorSheet({
   user,
   states,
   supervisors,
+  defaultRole,
   onSubmit,
   onDelete,
   isPending,
@@ -162,8 +165,10 @@ export function UserEditorSheet({
       return;
     }
 
-    setValues(initialValues);
-  }, [mode, open, user]);
+    setValues(
+      defaultRole ? { ...initialValues, role: defaultRole } : initialValues,
+    );
+  }, [mode, open, user, defaultRole]);
 
   const handleSubmit = async () => {
     if (!values.firstName.trim()) {
