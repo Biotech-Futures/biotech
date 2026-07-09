@@ -771,3 +771,165 @@ export function parseMentorCsv(text: string): {
 
   return { valid, invalid };
 }
+
+// ── Student registration-export import ─────────────────────────────────────────
+
+export type StudentImportRow = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  country: string;
+  state: string;
+  schoolName: string;
+  yearLevel: number;
+  interests: string[];
+  guardianFirstName: string;
+  guardianLastName: string;
+  guardianEmail: string;
+  supervisorFirstName: string;
+  supervisorLastName: string;
+  supervisorEmail: string;
+  joinpermResponseId: string;
+  /** False when there's no approval ResponseID → import inactive. */
+  active: boolean;
+};
+
+const STUDENT_HEADER_ALIASES: Record<string, string> = {
+  "student email address": "email",
+  "email address": "email",
+  email: "email",
+  "first name": "firstName",
+  firstname: "firstName",
+  surname: "lastName",
+  "last name": "lastName",
+  lastname: "lastName",
+  "guardian first name": "guardianFirstName",
+  "guardian surname": "guardianLastName",
+  "guardian last name": "guardianLastName",
+  "guardian email": "guardianEmail",
+  "school name": "school",
+  school: "school",
+  schoolname: "school",
+  "year level": "yearLevel",
+  yearlevel: "yearLevel",
+  "area(s) of interest": "interests",
+  "areas of interest": "interests",
+  interests: "interests",
+  "supervisor first name": "supervisorFirstName",
+  "supervisor surname": "supervisorLastName",
+  "supervisor last name": "supervisorLastName",
+  "supervisor email": "supervisorEmail",
+  "parent/guardian approval responseid": "responseId",
+  "approval responseid": "responseId",
+  responseid: "responseId",
+  country: "country",
+  region: "region",
+  state: "region",
+};
+
+/**
+ * Parse a Students registration export. Supervisors are derived from the
+ * student row. Never throws per-row (valid/invalid split); throws only for a
+ * wrong/empty file so the UI can show a "missing columns" message.
+ */
+export function parseStudentCsv(text: string): {
+  valid: StudentImportRow[];
+  invalid: ImportRowError[];
+} {
+  const rows = parseCsvRows(text);
+  if (!rows.length) {
+    throw new Error("The CSV file is empty.");
+  }
+
+  const [headerRow, ...dataRows] = rows;
+  const colIndex: Record<string, number> = {};
+  headerRow.forEach((header, index) => {
+    const canonical = STUDENT_HEADER_ALIASES[normalizeHeader(header)];
+    if (canonical && colIndex[canonical] === undefined) {
+      colIndex[canonical] = index;
+    }
+  });
+
+  const required: Array<[string, string]> = [
+    ["email", "Student email address"],
+    ["firstName", "First Name"],
+    ["lastName", "Surname"],
+    ["country", "Country"],
+    ["school", "School Name"],
+    ["yearLevel", "Year Level"],
+    ["interests", "Area(s) of Interest"],
+  ];
+  const missing = required
+    .filter(([key]) => colIndex[key] === undefined)
+    .map(([, label]) => label);
+  if (missing.length) {
+    throw new Error(
+      `This doesn't look like a Students export — missing columns: ${missing.join(", ")}.`,
+    );
+  }
+
+  const cell = (row: string[], key: string) =>
+    colIndex[key] !== undefined ? (row[colIndex[key]] ?? "").trim() : "";
+
+  const valid: StudentImportRow[] = [];
+  const invalid: ImportRowError[] = [];
+
+  dataRows
+    .filter((row) => row.some((value) => value.trim()))
+    .forEach((row, index) => {
+      const rowNumber = index + 2;
+      const email = cell(row, "email").toLowerCase();
+      const firstName = cell(row, "firstName");
+      const lastName = cell(row, "lastName");
+      const country = cell(row, "country");
+      const region = cell(row, "region");
+      const schoolName = cell(row, "school");
+      const yearLevelRaw = cell(row, "yearLevel");
+      const interests = parseInterestList(cell(row, "interests"));
+      const responseId = cell(row, "responseId");
+
+      const state = country === "Australia" ? region : country;
+      const yearLevel = Number(yearLevelRaw);
+
+      const problems: string[] = [];
+      if (!email) problems.push("missing email");
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        problems.push("invalid email");
+      if (!firstName || !lastName) problems.push("missing first or last name");
+      if (!state) problems.push("missing country/region");
+      if (!schoolName) problems.push("missing school");
+      if (!yearLevelRaw || !Number.isInteger(yearLevel) || yearLevel < 9 || yearLevel > 12)
+        problems.push("year level must be 9–12");
+      if (!interests.length) problems.push("no interests");
+
+      if (problems.length) {
+        invalid.push({
+          rowNumber,
+          email: email || "(no email)",
+          reason: problems.join(", "),
+        });
+        return;
+      }
+
+      valid.push({
+        firstName,
+        lastName,
+        email,
+        country,
+        state,
+        schoolName,
+        yearLevel,
+        interests,
+        guardianFirstName: cell(row, "guardianFirstName"),
+        guardianLastName: cell(row, "guardianLastName"),
+        guardianEmail: cell(row, "guardianEmail").toLowerCase(),
+        supervisorFirstName: cell(row, "supervisorFirstName"),
+        supervisorLastName: cell(row, "supervisorLastName"),
+        supervisorEmail: cell(row, "supervisorEmail").toLowerCase(),
+        joinpermResponseId: responseId,
+        active: responseId.length > 0,
+      });
+    });
+
+  return { valid, invalid };
+}

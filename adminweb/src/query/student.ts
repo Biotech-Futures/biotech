@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myFetch } from "@/lib/myFetch";
 import type { StudentPaginatedResponse } from "@/type/user";
+import type { StudentImportRow } from "@/query/user";
 
 export interface StudentStateOption {
   id: number;
@@ -62,6 +63,47 @@ export function useQueryHasUngroupedStudents() {
     queryFn: async (): Promise<{ msg: string; data: { hasUngrouped: boolean } }> => {
       const res = await myFetch.get<{ msg: string; data: { hasUngrouped: boolean } }>("/user/ungrouped-check");
       return res.data;
+    },
+  });
+}
+
+/** Bulk-import students from a parsed registration export (POST /user/bulk). */
+export function useImportStudents() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (rows: StudentImportRow[]) => {
+      const payload = rows.map((row) => ({
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        role: "student" as const,
+        state: row.state,
+        country: row.country,
+        schoolName: row.schoolName,
+        yearLevel: row.yearLevel,
+        interests: row.interests,
+        guardianFirstName: row.guardianFirstName,
+        guardianLastName: row.guardianLastName,
+        guardianEmail: row.guardianEmail || undefined,
+        supervisorFirstName: row.supervisorFirstName,
+        supervisorLastName: row.supervisorLastName,
+        // Omit when blank so the backend leaves the supervisor link untouched.
+        supervisorEmail: row.supervisorEmail || undefined,
+        joinpermResponseId: row.joinpermResponseId,
+        active: row.active,
+      }));
+      const res = await myFetch.post<{
+        msg: string;
+        data: {
+          created: unknown[];
+          skipped: { email: string; reason: string }[];
+        };
+      }>("/user/bulk", payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["students"] });
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 }

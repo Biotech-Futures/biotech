@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 # Import models
 from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
-    AreasOfInterest, UserInterest
+    AreasOfInterest, UserInterest, StudentSupervisor
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
@@ -98,6 +98,48 @@ def sync_user_interests(user_id: int, interests: Optional[List[str]]) -> None:
     UserInterest.objects.bulk_create(bulk_interests)
 
 
+def _resolve_supervisor_id(
+    supervisor_email: Optional[str],
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    school_name: Optional[str] = None,
+) -> Optional[int]:
+    """
+    Resolve a student's supervisor to a SupervisorProfile id.
+
+    Looks up an existing user by email; when a name is supplied (registration
+    imports carry the supervisor's name) and no user exists, get_or_creates the
+    supervisor User + supervisor role + SupervisorProfile. Returns None when
+    there is nothing to link/create.
+    """
+    email = (supervisor_email or "").strip()
+    if not email:
+        return None
+
+    sup_user = User.objects.filter(email__iexact=email).first()
+    if sup_user is None:
+        if not (first_name or last_name):
+            return None  # lookup-only: no name to create a supervisor with
+        sup_user = User.objects.create_user(
+            email=email.lower(),
+            first_name=(first_name or "").strip(),
+            last_name=(last_name or "").strip(),
+            password=None,
+        )
+        RoleAssignmentHistory.objects.create(
+            user_id=sup_user.id,
+            role_id=resolve_role_id("supervisor"),
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
+    sup_profile, _ = SupervisorProfile.objects.get_or_create(
+        user_id=sup_user.id,
+        defaults={"school_name": (school_name or "").strip() or None},
+    )
+    return sup_profile.user_id
+
+
 def upsert_student_profile(
     user_id: int,
     first_name: str,
@@ -105,37 +147,60 @@ def upsert_student_profile(
     school_name: Optional[str],
     year_level: Optional[int],
     supervisor_email: Any = _UNSET,
+    supervisor_first_name: Optional[str] = None,
+    supervisor_last_name: Optional[str] = None,
+    guardian_first_name: Optional[str] = None,
+    guardian_last_name: Optional[str] = None,
+    guardian_email: Optional[str] = None,
+    joinperm_response_id: Any = _UNSET,
 ) -> None:
     """
     Create or update student profile.
-    supervisor_email=_UNSET means don't touch the existing supervisor link.
-    supervisor_email=None or "" clears the supervisor link.
-    supervisor_email="email@..." looks up the supervisor and sets the link.
+
+    Guardian names default to the student's own name when not supplied (keeps
+    the single-create behaviour). supervisor_email=_UNSET leaves the link
+    untouched; a value looks up — or, with a supervisor name, get_or_creates —
+    the supervisor and also records the StudentSupervisor join. joinperm_response_id
+    =_UNSET keeps the current consent state; a value (or blank) sets
+    joinperm_responseID + has_join_permission.
     """
     profile_data = {
-        "pg_first_name": first_name,
-        "pg_last_name": last_name,
+        "pg_first_name": (guardian_first_name or first_name),
+        "pg_last_name": (guardian_last_name or last_name),
         "parent_guardian_flag": True,
         "school_name": (school_name or "").strip(),
         "year_lvl": str(year_level or ""),
-        "has_join_permission": True,
-        "joinperm_responseID": None,
     }
+    if guardian_email is not None:
+        profile_data["pg_email"] = (guardian_email or "").strip() or None
+
+    if joinperm_response_id is not _UNSET:
+        response_id = (joinperm_response_id or "").strip() or None
+        profile_data["joinperm_responseID"] = response_id
+        profile_data["has_join_permission"] = response_id is not None
+    else:
+        profile_data["has_join_permission"] = True
+        profile_data["joinperm_responseID"] = None
 
     if supervisor_email is not _UNSET:
-        resolved_id = None
-        if supervisor_email:
-            sup_user = User.objects.filter(email__iexact=supervisor_email.strip()).first()
-            if sup_user:
-                sup_profile = SupervisorProfile.objects.filter(user_id=sup_user.id).first()
-                if sup_profile:
-                    resolved_id = sup_profile.user_id
-        profile_data["supervisor_id"] = resolved_id
+        profile_data["supervisor_id"] = _resolve_supervisor_id(
+            supervisor_email,
+            supervisor_first_name,
+            supervisor_last_name,
+            school_name,
+        )
 
-    StudentProfile.objects.update_or_create(
+    student_profile, _ = StudentProfile.objects.update_or_create(
         user_id=user_id,
-        defaults=profile_data
+        defaults=profile_data,
     )
+
+    supervisor_id = profile_data.get("supervisor_id")
+    if supervisor_id:
+        StudentSupervisor.objects.get_or_create(
+            student_user_id=student_profile.user_id,
+            supervisor_user_id=supervisor_id,
+        )
 
 
 def upsert_supervisor_profile(user_id: int, school_name: Optional[str] = None) -> None:
@@ -961,6 +1026,14 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         input_data.get("schoolName"),
                         input_data.get("yearLevel"),
                         supervisor_email=input_data.get("supervisorEmail") or _UNSET,
+                        supervisor_first_name=input_data.get("supervisorFirstName"),
+                        supervisor_last_name=input_data.get("supervisorLastName"),
+                        guardian_first_name=input_data.get("guardianFirstName"),
+                        guardian_last_name=input_data.get("guardianLastName"),
+                        guardian_email=input_data.get("guardianEmail"),
+                        joinperm_response_id=input_data.get(
+                            "joinpermResponseId", _UNSET
+                        ),
                     )
                 
                 if role == "supervisor":
