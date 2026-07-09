@@ -13,6 +13,7 @@ import type { Group, GroupMember } from "@/type/group";
 import type { StudentUser } from "@/type/user";
 import { Label } from "@/components/ui/label";
 import {
+  SparklesIcon,
   UserIcon,
   UsersIcon,
   UserMinusIcon,
@@ -25,6 +26,11 @@ import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { cn } from "@/lib/utils";
 import { useRemoveGroupMember } from "@/query/group";
+import {
+  useMutationConfirmAssignments,
+  useQueryStudentSuggestions,
+} from "@/query/match";
+import type { StudentSuggestion } from "@/schema/match";
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from "@/lib/group-capacity";
 import { GroupAddStudentsDialog } from "./GroupAddStudentsDialog";
 import {
@@ -61,6 +67,14 @@ export function GroupDetailModal({
   const assignMentor = useMutationConfirmMentorAssignments();
   const unassignMentor = useMutationUnassignMentors();
   const removeGroupMember = useRemoveGroupMember();
+  const confirmAssignments = useMutationConfirmAssignments();
+
+  const hasSeats = group
+    ? DEFAULT_GROUP_MAX_SIZE - studentCount(group) > 0
+    : false;
+  const { data: studentSuggestData, isLoading: isSuggestLoading } =
+    useQueryStudentSuggestions(group ? Number(group.id) : null, open && hasSeats);
+  const studentSuggestions = studentSuggestData?.data.suggestions ?? [];
 
   const isReplacing = !!group?.mentor;
   const isPending =
@@ -150,6 +164,37 @@ export function GroupDetailModal({
     }));
     onGroupChange?.({ ...group, members: [...group.members, ...appended] });
     await queryClient.invalidateQueries({ queryKey: ["group", group.id] });
+  }
+
+  async function handleAddSuggested(suggestion: StudentSuggestion) {
+    if (!group) return;
+    try {
+      await confirmAssignments.mutateAsync({
+        assignments: [
+          { studentId: suggestion.studentUserId, groupId: Number(group.id) },
+        ],
+      });
+      onGroupChange?.({
+        ...group,
+        members: [
+          ...group.members,
+          {
+            id: String(suggestion.studentUserId),
+            name: suggestion.name,
+            email: "",
+            role: "student",
+          },
+        ],
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["group", group.id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["studentSuggestions", Number(group.id)],
+        }),
+      ]);
+    } catch {
+      // useMutationConfirmAssignments surfaces its own error toast.
+    }
   }
 
   if (!group) return null;
@@ -259,6 +304,61 @@ export function GroupDetailModal({
                 ))}
               </div>
             </div>
+
+            {/* Suggested students — scored candidates to fill open seats */}
+            {hasSeats && (studentSuggestions.length > 0 || isSuggestLoading) ? (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1 text-muted-foreground">
+                    <SparklesIcon className="size-4" />
+                    Suggested students
+                  </Label>
+                  {isSuggestLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      Scoring students…
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {studentSuggestions.slice(0, 5).map((suggestion, index) => (
+                        <div
+                          key={suggestion.studentUserId}
+                          className="flex items-center justify-between gap-3 rounded-md border p-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">
+                              {index === 0 ? "★ " : ""}
+                              {suggestion.name}
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                score {Math.round(suggestion.score)}
+                              </span>
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {suggestion.sharedInterests.length
+                                ? `Shared: ${suggestion.sharedInterests.slice(0, 3).join(", ")}`
+                                : "No shared interests"}
+                              {suggestion.yearLevel
+                                ? ` · Yr ${suggestion.yearLevel}`
+                                : ""}
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 text-xs"
+                            disabled={confirmAssignments.isPending}
+                            onClick={() => void handleAddSuggested(suggestion)}
+                          >
+                            <UserPlusIcon className="size-4" />
+                            Add
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

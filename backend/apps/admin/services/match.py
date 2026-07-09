@@ -17,6 +17,7 @@ from apps.admin.algorithms.student import (
     build_groups,
     format_recommendation_input,
     recommend_groups_by_country,
+    score_student_for_existing_group,
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
 
@@ -639,8 +640,109 @@ def get_individual_students() -> List[Dict[str, Any]]:
     for student in individual_students:
         student['interests'] = interests_by_user.get(student['user_id'], [])
         result.append(student)
-    
+
     return result
+
+
+def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
+    """Rank standalone students to fill a seat in a given group.
+
+    Scores every student not in any active group against the target group with the
+    same criteria as auto-matching (a shared interest is required; year/country/
+    timezone proximity improve the score). Returns candidates best-first with their
+    score and shared interests. Empty when the group is full, has no student members
+    to compare against, or no standalone student shares an interest.
+    """
+    try:
+        group = Groups.objects.get(id=group_id, deleted_at__isnull=True)
+    except Groups.DoesNotExist:
+        return {"msg": "Group not found", "data": None}
+
+    member_rows = list(
+        GroupMembership.objects
+        .filter(group_id=group_id, left_at__isnull=True, user__studentprofile__isnull=False)
+        .select_related('user', 'user__state', 'user__state__country')
+        .values(
+            'user_id',
+            year_level=F('user__studentprofile__year_lvl'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
+        )
+    )
+
+    active_membership_subquery = GroupMembership.objects.filter(
+        user_id=OuterRef('user_id'), left_at__isnull=True
+    )
+    standalone = list(
+        StudentProfile.objects
+        .filter(~Exists(active_membership_subquery))
+        .select_related('user', 'user__state', 'user__state__country')
+        .values(
+            'user_id',
+            first_name=F('user__first_name'),
+            last_name=F('user__last_name'),
+            year_level=F('year_lvl'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
+        )
+    )
+
+    interests_by_user = _map_interests_by_user_id(
+        UserInterest.objects
+        .filter(user_id__in=[r['user_id'] for r in member_rows] + [s['user_id'] for s in standalone])
+        .select_related('interest')
+        .values('user_id', interest_desc=F('interest__interest_desc'))
+    )
+
+    group_input = {
+        'id': group.id,
+        'groupName': group.group_name,
+        'maxSize': DEFAULT_GROUP_MAX_SIZE,
+        'groupStudent': [
+            {
+                'id': r['user_id'],
+                'country': r['country_name'],
+                'timezoneOffsetHours': utc_offset_hours(r['user_tz']),
+                'yearLevel': _safe_int(r['year_level']),
+                'interests': interests_by_user.get(r['user_id'], []),
+            }
+            for r in member_rows
+        ],
+    }
+
+    suggestions = []
+    for s in standalone:
+        student_input = {
+            'id': s['user_id'],
+            'name': f"{s['first_name'] or ''} {s['last_name'] or ''}".strip(),
+            'country': s['country_name'],
+            'timezoneOffsetHours': utc_offset_hours(s['user_tz']),
+            'yearLevel': _safe_int(s['year_level']),
+            'interests': interests_by_user.get(s['user_id'], []),
+        }
+        candidate = score_student_for_existing_group(student_input, group_input)
+        if candidate is None:
+            continue
+        suggestions.append({
+            'studentUserId': s['user_id'],
+            'name': student_input['name'],
+            'yearLevel': student_input['yearLevel'],
+            'country': s['country_name'],
+            'score': candidate['scoreBreakdown']['objectiveScore'],
+            'sharedInterests': candidate['sharedInterests'],
+        })
+
+    suggestions.sort(key=lambda x: (-x['score'], x['name']))
+
+    return {
+        "msg": "Student suggestions computed",
+        "data": {
+            "groupId": group.id,
+            "groupName": group.group_name,
+            "isFull": len(member_rows) >= DEFAULT_GROUP_MAX_SIZE,
+            "suggestions": suggestions,
+        },
+    }
 
 
 def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:

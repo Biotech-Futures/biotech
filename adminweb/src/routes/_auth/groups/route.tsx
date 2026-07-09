@@ -6,6 +6,7 @@ const GROUPS_TABS: PageTab[] = [
   { label: "Groups", to: "/groups", exact: true },
   { label: "Student Matching", to: "/groups/student-matching" },
   { label: "Mentor Matching", to: "/groups/mentor-matching" },
+  { label: "Matched Groups", to: "/groups/matched-groups" },
 ];
 
 export const Route = createFileRoute("/_auth/groups")({

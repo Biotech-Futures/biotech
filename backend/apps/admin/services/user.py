@@ -2,7 +2,7 @@
 TypeScript User Module Conversion to Python
 Literal translation from admin/apps/server/src/module/user/
 """
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.utils import timezone
 from django.db.models import Exists, OuterRef, Q
 from typing import List, Dict, Any, Optional
@@ -15,6 +15,7 @@ from apps.users.models import (
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
+from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.audit.services import log_audit_event
 
 
@@ -22,6 +23,11 @@ from apps.audit.services import log_audit_event
 # CONSTANTS
 # ============================================================================
 ROLES = ["student", "mentor", "supervisor", "admin"]
+
+# Co-registration: friends who register together (same group number in the bulk
+# upload) are placed in one group. Beyond this size we keep them together but warn.
+CO_REGISTRATION_MAX_RECOMMENDED = 5
+_CO_REGISTRATION_BLANK = {"", "none", "unassigned", "n/a", "na"}
 
 _UNSET = object()  # sentinel: "not provided" vs explicit None/empty
 STATUS_INVITED = "invited"
@@ -1096,18 +1102,91 @@ def create_user(input_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"msg": result["msg"], "data": result["data"]}
 
 
+def _available_group_name(base: str) -> str:
+    """Return `base`, appending ' (2)', ' (3)'... until it is unique among active groups."""
+    name = base
+    suffix = 2
+    while Groups.objects.filter(group_name=name, deleted_at__isnull=True).exists():
+        name = f"{base} ({suffix})"
+        suffix += 1
+    return name
+
+
+def _apply_co_registration(
+    users_input: List[Dict[str, Any]], created_student_emails: set
+) -> Dict[str, Any]:
+    """Place students that share a group number (co-registered friends) into one group.
+
+    Only students created in this batch are grouped; a group number used by a single
+    student falls back to normal matching. Groups larger than the recommended size are
+    kept together with a warning. Creating the membership here also exempts these
+    students from auto-matching, whose pool excludes anyone with an active membership.
+    """
+    buckets: Dict[str, List[int]] = {}
+    for input_data in users_input:
+        if (input_data.get("role") or "student") != "student":
+            continue
+        group_number = (input_data.get("groupNumber") or "").strip()
+        if not group_number or group_number.lower() in _CO_REGISTRATION_BLANK:
+            continue
+        email = (input_data.get("email") or "").lower().strip()
+        if email not in created_student_emails:
+            continue
+        user = User.objects.filter(email=email).first()
+        if user:
+            buckets.setdefault(group_number, []).append(user.id)
+
+    groups_created: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    for group_number, user_ids in buckets.items():
+        # de-dupe while preserving order
+        member_ids = list(dict.fromkeys(user_ids))
+        if len(member_ids) < 2:
+            continue
+
+        with transaction.atomic():
+            group = Groups.objects.create(
+                group_name=_available_group_name(f"Co-registered Group {group_number}")
+            )
+            GroupMembership.objects.bulk_create([
+                GroupMembership(
+                    group=group,
+                    user_id=uid,
+                    membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                )
+                for uid in member_ids
+            ])
+        # Attach supervisors to the new group, mirroring the matching-confirm flow.
+        for uid in member_ids:
+            sync_supervisor_memberships_for_student(uid)
+
+        groups_created.append({"name": group.group_name, "memberCount": len(member_ids)})
+        if len(member_ids) > CO_REGISTRATION_MAX_RECOMMENDED:
+            warnings.append(
+                f'"{group.group_name}" has {len(member_ids)} members '
+                f'(over the recommended {CO_REGISTRATION_MAX_RECOMMENDED}).'
+            )
+
+    return {"groupsCreated": groups_created, "warnings": warnings}
+
+
 def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> Dict[str, Any]:
     """
     Bulk create users from list.
     """
     created = []
     skipped = []
+    created_student_emails = set()
 
     results = add_users_by_role(users_input)
 
     for result in results:
         if result["data"]:
             created.append(result["data"])
+            if (result["input"].get("role") or "student") == "student":
+                email = (result["input"].get("email") or "").lower().strip()
+                if email:
+                    created_student_emails.add(email)
         else:
             skipped.append({
                 "email": result["input"].get("email", "unknown"),
@@ -1132,13 +1211,18 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
                     supervisor_id=sup_profile.user_id
                 )
 
-    return {
-        "msg": f"Bulk import complete: {len(created)} created, {len(skipped)} skipped",
-        "data": {
-            "created": created,
-            "skipped": skipped
-        }
-    }
+    # Third pass: group co-registered students (shared group number) into one group.
+    # Runs after the supervisor pass so supervisor links are set before syncing them.
+    co_registration = _apply_co_registration(users_input, created_student_emails)
+
+    msg = f"Bulk import complete: {len(created)} created, {len(skipped)} skipped"
+    data = {"created": created, "skipped": skipped}
+    if co_registration["groupsCreated"]:
+        count = len(co_registration["groupsCreated"])
+        msg += f", {count} co-registration group{'s' if count != 1 else ''} created"
+        data["coRegistration"] = co_registration
+
+    return {"msg": msg, "data": data}
 
 
 def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> Dict[str, Any]:
@@ -1496,6 +1580,52 @@ def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
         User.objects.filter(id=user_id).delete()
 
     return {"msg": "User deleted successfully", "data": None}
+
+
+def bulk_delete_users(user_ids: List[int], initiated_by=None) -> Dict[str, Any]:
+    """
+    Permanently delete multiple users in one call (hard delete).
+
+    Dedupes ids and never deletes the initiator's own account. Each row is
+    removed via delete_user, so every deletion is individually audit-logged.
+    """
+    try:
+        ids = list(dict.fromkeys(int(uid) for uid in user_ids))
+    except (TypeError, ValueError):
+        return {"msg": "userIds must be a list of integer ids", "data": None}
+    if not ids:
+        return {"msg": "userIds must be a non-empty list", "data": None}
+
+    skipped_self = False
+    if initiated_by is not None and initiated_by.id in ids:
+        ids.remove(initiated_by.id)
+        skipped_self = True
+
+    existing_ids = set(
+        User.objects.filter(id__in=ids).values_list("id", flat=True)
+    )
+    deleted_ids: List[int] = []
+    not_found_ids = [uid for uid in ids if uid not in existing_ids]
+    for uid in ids:
+        if uid not in existing_ids:
+            continue
+        if delete_user(uid, initiated_by=initiated_by).get("msg") == "User deleted successfully":
+            deleted_ids.append(uid)
+
+    msg_parts = [f"{len(deleted_ids)} user(s) deleted"]
+    if skipped_self:
+        msg_parts.append("your own account was skipped")
+    if not_found_ids:
+        msg_parts.append(f"{len(not_found_ids)} not found")
+
+    return {
+        "msg": "; ".join(msg_parts),
+        "data": {
+            "deletedIds": deleted_ids,
+            "notFoundIds": not_found_ids,
+            "skippedSelf": skipped_self,
+        },
+    }
 
 
 def has_ungrouped_students() -> bool:

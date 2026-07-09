@@ -292,6 +292,31 @@ export function useDeleteUser() {
   });
 }
 
+export type BulkDeleteResult = {
+  deletedIds: number[];
+  notFoundIds: number[];
+  skippedSelf: boolean;
+};
+
+/** Permanently delete the given users (hard delete) in one request. */
+export function useBulkDeleteUsers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await myFetch.post<MutationResponse<BulkDeleteResult>>(
+        "/user/bulk-delete",
+        { userIds: ids.map(Number) },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+    },
+  });
+}
+
 export function loadLocalUsers() {
   return readStorage<UserAccount[]>(LOCAL_USERS_KEY, []);
 }
@@ -792,6 +817,8 @@ export type StudentImportRow = {
   joinpermResponseId: string;
   /** False when there's no approval ResponseID → import inactive. */
   active: boolean;
+  /** Co-registration: friends sharing this land in one group, skipping auto-matching. */
+  groupNumber?: string;
 };
 
 const STUDENT_HEADER_ALIASES: Record<string, string> = {
@@ -825,6 +852,13 @@ const STUDENT_HEADER_ALIASES: Record<string, string> = {
   country: "country",
   region: "region",
   state: "region",
+  "group number": "groupNumber",
+  "group no": "groupNumber",
+  "group no.": "groupNumber",
+  "group #": "groupNumber",
+  "group id": "groupNumber",
+  group: "groupNumber",
+  groupnumber: "groupNumber",
 };
 
 /**
@@ -928,6 +962,7 @@ export function parseStudentCsv(text: string): {
         supervisorEmail: cell(row, "supervisorEmail").toLowerCase(),
         joinpermResponseId: responseId,
         active: responseId.length > 0,
+        groupNumber: cell(row, "groupNumber") || undefined,
       });
     });
 

@@ -3,6 +3,7 @@ import {
   confirmAssignmentsResponseSchema,
   individualStudentsResponseSchema,
   matchRecommendationsResponseSchema,
+  studentSuggestionsResponseSchema,
 } from "@/schema/match";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
@@ -26,6 +27,23 @@ export function useQueryIndividualStudents() {
       const res = await myFetch.get("match/individual");
       return individualStudentsResponseSchema.parse(res.data);
     },
+  });
+}
+
+/** Scored standalone students to fill a seat in the given group (best-first). */
+export function useQueryStudentSuggestions(
+  groupId: number | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["studentSuggestions", groupId],
+    queryFn: async () => {
+      const res = await myFetch.get(
+        `match/student-suggestions?groupId=${groupId}`,
+      );
+      return studentSuggestionsResponseSchema.parse(res.data);
+    },
+    enabled: enabled && groupId != null,
   });
 }
 

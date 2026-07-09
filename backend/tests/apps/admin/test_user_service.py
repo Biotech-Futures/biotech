@@ -7,8 +7,8 @@ from unittest.mock import patch
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_states,
     create_user, update_user, update_status, bulk_update_status,
-    bulk_update_status_by_filter, delete_user,
-    has_ungrouped_students,
+    bulk_update_status_by_filter, delete_user, bulk_delete_users,
+    has_ungrouped_students, bulk_create_users,
 )
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory, Roles
@@ -609,3 +609,174 @@ class AdminUserServiceQueryTests(TestCase):
         result = query_users(search="unique-email", requesting_user=self.admin_user)
         self.assertEqual(result["data"]["total"], 1)
         self.assertEqual(result["data"]["items"][0]["email"], "unique-email@example.com")
+
+
+STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
+SUPERVISOR_ROLE = GroupMembership.MembershipRoleChoices.SUPERVISOR
+MENTOR_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
+
+
+class AdminUserServiceCoRegistrationTests(TestCase):
+    def setUp(self):
+        country = Countries.objects.create(country_name="Australia")
+        self.state = CountryStates.objects.create(country=country, state_name="NSW")
+
+    def _student(self, email, group_number=None, **overrides):
+        row = {
+            "email": email,
+            "firstName": "Test",
+            "lastName": email.split("@")[0],
+            "role": "student",
+            "state": "NSW",
+            "schoolName": "Test High School",
+            "yearLevel": 10,
+            "interests": ["Biotech"],
+        }
+        if group_number is not None:
+            row["groupNumber"] = group_number
+        row.update(overrides)
+        return row
+
+    def _mentor(self, email, group_number=None):
+        row = {
+            "email": email,
+            "firstName": "Mentor",
+            "lastName": email.split("@")[0],
+            "role": "mentor",
+            "state": "NSW",
+            "mentorInstitution": "UNSW",
+            "mentorReason": "Want to help",
+            "mentorMaxGroupCount": 3,
+            "interests": ["Biotech"],
+        }
+        if group_number is not None:
+            row["groupNumber"] = group_number
+        return row
+
+    def test_students_sharing_group_number_are_grouped(self):
+        result = bulk_create_users(
+            [self._student("a@example.com", "1"), self._student("b@example.com", "1")],
+            "",
+        )
+        co = result["data"]["coRegistration"]
+        self.assertEqual(len(co["groupsCreated"]), 1)
+        self.assertEqual(co["groupsCreated"][0]["name"], "Co-registered Group 1")
+        self.assertEqual(co["groupsCreated"][0]["memberCount"], 2)
+        group = Groups.objects.get(group_name="Co-registered Group 1")
+        self.assertEqual(
+            GroupMembership.objects.filter(
+                group=group, membership_role=STUDENT_ROLE, left_at__isnull=True
+            ).count(),
+            2,
+        )
+
+    def test_co_registered_students_leave_the_matching_pool(self):
+        self.assertFalse(has_ungrouped_students())
+        bulk_create_users(
+            [self._student("a@example.com", "1"), self._student("b@example.com", "1")],
+            "",
+        )
+        # Both now have an active membership, so the auto-matcher's pool excludes them.
+        self.assertFalse(has_ungrouped_students())
+
+    def test_blank_group_number_leaves_student_ungrouped(self):
+        result = bulk_create_users([self._student("solo@example.com")], "")
+        self.assertNotIn("coRegistration", result["data"])
+        self.assertFalse(Groups.objects.exists())
+        self.assertTrue(has_ungrouped_students())
+
+    def test_lone_group_number_creates_no_group(self):
+        result = bulk_create_users([self._student("solo@example.com", "9")], "")
+        self.assertNotIn("coRegistration", result["data"])
+        self.assertFalse(Groups.objects.exists())
+        self.assertTrue(has_ungrouped_students())
+
+    def test_oversized_group_kept_together_with_warning(self):
+        rows = [self._student(f"s{i}@example.com", "3") for i in range(6)]
+        result = bulk_create_users(rows, "")
+        co = result["data"]["coRegistration"]
+        self.assertEqual(len(co["groupsCreated"]), 1)
+        self.assertEqual(co["groupsCreated"][0]["memberCount"], 6)
+        self.assertEqual(len(co["warnings"]), 1)
+        self.assertIn("6 members", co["warnings"][0])
+
+    def test_group_number_ignored_for_non_student_rows(self):
+        # The mentor shares group "1" but must not be counted as a co-registered member.
+        result = bulk_create_users(
+            [
+                self._mentor("m@example.com", "1"),
+                self._student("a@example.com", "1"),
+                self._student("b@example.com", "1"),
+            ],
+            "",
+        )
+        self.assertEqual(result["data"]["coRegistration"]["groupsCreated"][0]["memberCount"], 2)
+        group = Groups.objects.get(group_name="Co-registered Group 1")
+        self.assertFalse(
+            GroupMembership.objects.filter(group=group, membership_role=MENTOR_ROLE).exists()
+        )
+
+    def test_group_name_collision_gets_unique_suffix(self):
+        Groups.objects.create(group_name="Co-registered Group 1")
+        result = bulk_create_users(
+            [self._student("a@example.com", "1"), self._student("b@example.com", "1")],
+            "",
+        )
+        self.assertEqual(
+            result["data"]["coRegistration"]["groupsCreated"][0]["name"],
+            "Co-registered Group 1 (2)",
+        )
+
+    def test_supervisor_synced_into_co_registration_group(self):
+        result = bulk_create_users(
+            [
+                {
+                    "email": "sup@example.com",
+                    "firstName": "Sam",
+                    "lastName": "Supervisor",
+                    "role": "supervisor",
+                    "state": "NSW",
+                    "supervisorSchoolName": "Test High School",
+                },
+                self._student("a@example.com", "1", supervisorEmail="sup@example.com"),
+                self._student("b@example.com", "1", supervisorEmail="sup@example.com"),
+            ],
+            "",
+        )
+        group = Groups.objects.get(group_name="Co-registered Group 1")
+        sup_user = User.objects.get(email="sup@example.com")
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=group,
+                user=sup_user,
+                membership_role=SUPERVISOR_ROLE,
+                left_at__isnull=True,
+            ).exists()
+        )
+
+
+class AdminUserServiceBulkDeleteTests(TestCase):
+    def setUp(self):
+        self.a = User.objects.create_user(email="a@example.com", first_name="A", password="x")
+        self.b = User.objects.create_user(email="b@example.com", first_name="B", password="x")
+        self.admin = User.objects.create_user(email="admin@example.com", first_name="Ad", password="x")
+
+    def test_bulk_delete_removes_users(self):
+        result = bulk_delete_users([self.a.id, self.b.id])
+        self.assertCountEqual(result["data"]["deletedIds"], [self.a.id, self.b.id])
+        self.assertFalse(User.objects.filter(id__in=[self.a.id, self.b.id]).exists())
+
+    def test_bulk_delete_skips_own_account(self):
+        result = bulk_delete_users([self.a.id, self.admin.id], initiated_by=self.admin)
+        self.assertTrue(result["data"]["skippedSelf"])
+        self.assertEqual(result["data"]["deletedIds"], [self.a.id])
+        self.assertTrue(User.objects.filter(id=self.admin.id).exists())
+
+    def test_bulk_delete_reports_not_found(self):
+        result = bulk_delete_users([self.a.id, 999999])
+        self.assertEqual(result["data"]["deletedIds"], [self.a.id])
+        self.assertEqual(result["data"]["notFoundIds"], [999999])
+
+    def test_bulk_delete_rejects_empty(self):
+        result = bulk_delete_users([])
+        self.assertIsNone(result["data"])

@@ -12,6 +12,7 @@ urlpatterns = [
     path('user/bulk/', views.UserBulkCreateView.as_view(), name='user-bulk-create'),
     path('user/bulk-csv/', views.UserBulkCsvView.as_view(), name='user-bulk-csv'),
     path('user/bulk-status/', views.UserBulkStatusUpdateView.as_view(), name='user-bulk-status-update'),
+    path('user/bulk-delete/', views.UserBulkDeleteView.as_view(), name='user-bulk-delete'),
     path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
@@ -30,6 +31,7 @@ urlpatterns = [
     # ========================================================================
     path('match/student/', views.MatchStudentView.as_view(), name='match-student'),
     path('match/individual/', views.MatchIndividualView.as_view(), name='match-individual'),
+    path('match/student-suggestions/', views.MatchStudentSuggestionsView.as_view(), name='match-student-suggestions'),
     path('match/confirm/', views.MatchConfirmView.as_view(), name='match-confirm'),
     
     # ========================================================================
@@ -96,6 +98,7 @@ urlpatterns = [
     path('mentor-match/matched-groups/', views.MentorMatchMatchedGroupsListView.as_view(), name='mentor-match-matched-groups-list'),
     path('mentor-match/confirm/', views.MentorMatchConfirmView.as_view(), name='mentor-match-confirm'),
     path('mentor-match/replace/', views.MentorMatchReplaceView.as_view(), name='mentor-match-replace'),
+    path('mentor-match/replace-suggestions/', views.MentorMatchReplaceSuggestionsView.as_view(), name='mentor-match-replace-suggestions'),
     path('mentor-match/bulk-replace-inactive/', views.MentorMatchBulkReplaceInactiveView.as_view(), name='mentor-match-bulk-replace-inactive'),
     path('mentor-match/unassign/', views.MentorMatchUnassignView.as_view(), name='mentor-match-unassign'),
 ]

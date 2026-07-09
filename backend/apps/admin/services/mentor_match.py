@@ -11,7 +11,7 @@ from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
 from apps.matching_runtime.models import MatchRun
 from apps.common.tz import utc_offset_hours
-from apps.admin.algorithms.mentor import match_mentors
+from apps.admin.algorithms.mentor import match_mentors, score_mentor_for_group
 from apps.admin.services.mentor import get_mentor_list
 
 
@@ -47,6 +47,131 @@ def _median(values: List[float]) -> float:
     if n % 2 == 1:
         return ordered[mid]
     return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _build_mentor_sources() -> List[Dict[str, Any]]:
+    """All active mentors as algorithm 'mentor sources', with their current load."""
+    accepted_count_rows = (
+        GroupMembership.objects
+        .filter(left_at__isnull=True, user__mentorprofile__isnull=False)
+        .values('user_id')
+        .annotate(count=Count('id'))
+    )
+    accepted_count_by_mentor = {row['user_id']: row['count'] for row in accepted_count_rows}
+
+    mentor_rows = (
+        MentorProfile.objects
+        .filter(user__is_active=True)
+        .select_related('user', 'user__state', 'user__state__country')
+        .values(
+            'institution',
+            mentor_id=F('user_id'),
+            first_name=F('user__first_name'),
+            last_name=F('user__last_name'),
+            max_grp_cnt=F('max_group_count'),
+            country_name=F('user__state__country__country_name'),
+            user_tz=F('user__timezone'),
+        )
+    )
+    mentor_ids = [m['mentor_id'] for m in mentor_rows]
+
+    mentor_interest_rows = (
+        UserInterest.objects
+        .filter(user_id__in=mentor_ids)
+        .select_related('interest')
+        .values(key=F('user_id'), interest_desc=F('interest__interest_desc'))
+    ) if mentor_ids else []
+    interests_by_mentor = _group_interests_by_key(mentor_interest_rows, 'key', 'interest_desc')
+
+    return [
+        {
+            'mentorId': m['mentor_id'],
+            'firstName': m['first_name'],
+            'lastName': m['last_name'],
+            'institution': m['institution'],
+            'countryName': m['country_name'],
+            'utcOffsetHours': utc_offset_hours(m['user_tz']),
+            'interests': interests_by_mentor.get(m['mentor_id'], []),
+            'maxGroupCount': m['max_grp_cnt'],
+            'currentAcceptedCount': accepted_count_by_mentor.get(m['mentor_id'], 0),
+        }
+        for m in mentor_rows
+    ]
+
+
+def _build_group_source(group) -> Dict[str, Any]:
+    """A single group's algorithm 'group source' from its active student members."""
+    geo_rows = list(
+        GroupMembership.objects
+        .filter(group_id=group.id, left_at__isnull=True, user__studentprofile__isnull=False)
+        .select_related('user', 'user__state', 'user__state__country')
+        .values('user_id', country_name=F('user__state__country__country_name'),
+                user_tz=F('user__timezone'))
+    )
+    student_ids = [r['user_id'] for r in geo_rows]
+    interest_rows = (
+        UserInterest.objects
+        .filter(user_id__in=student_ids)
+        .values(interest_desc=F('interest__interest_desc'))
+    ) if student_ids else []
+
+    return {
+        'groupId': group.id,
+        'groupName': group.group_name,
+        'countryName': _modal_country([r['country_name'] for r in geo_rows]),
+        'utcOffsetHours': _median([utc_offset_hours(r['user_tz']) for r in geo_rows]),
+        'studentInterests': [r['interest_desc'] for r in interest_rows if r['interest_desc']],
+        'studentCount': len(student_ids),
+    }
+
+
+def recommend_mentors_for_group(group_id: int) -> Dict[str, Any]:
+    """Rank replacement mentors for one group (even one that already has a mentor).
+
+    Reuses the same scoring as auto-matching, but for a single group that the auto
+    matcher would skip. The group's current active mentor(s) are excluded; the rest
+    are returned best-first with score, breakdown, reason, and remaining capacity.
+    """
+    try:
+        group = Groups.objects.get(id=group_id, deleted_at__isnull=True)
+    except Groups.DoesNotExist:
+        return {"msg": "Group not found", "data": None}
+
+    current_mentor_ids = set(
+        GroupMembership.objects
+        .filter(group_id=group_id, left_at__isnull=True, user__mentorprofile__isnull=False)
+        .values_list('user_id', flat=True)
+    )
+
+    group_source = _build_group_source(group)
+    suggestions = []
+    for mentor in _build_mentor_sources():
+        if mentor['mentorId'] in current_mentor_ids:
+            continue
+        score, breakdown, reason = score_mentor_for_group(mentor, group_source)
+        remaining = mentor['maxGroupCount'] - mentor['currentAcceptedCount']
+        suggestions.append({
+            'mentorUserId': mentor['mentorId'],
+            'name': f"{mentor['firstName']} {mentor['lastName']}".strip(),
+            'institution': mentor['institution'],
+            'remainingCapacity': remaining,
+            'atCapacity': remaining <= 0,
+            'score': score,
+            'reason': reason,
+            'scoreBreakdown': breakdown,
+        })
+
+    # Best first; push over-capacity mentors down; stable tiebreak on name.
+    suggestions.sort(key=lambda s: (-s['score'], s['atCapacity'], s['name']))
+
+    return {
+        "msg": "Mentor suggestions computed",
+        "data": {
+            "groupId": group.id,
+            "groupName": group.group_name,
+            "suggestions": suggestions,
+        },
+    }
 
 
 def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, Any]]:
@@ -154,64 +279,8 @@ def match_mentor(admin_user_id: str, mode: str = 'balanced') -> List[Dict[str, A
         for g in groups_without_mentor
     ]
     
-    # Get active mentors
-    accepted_count_rows = (
-        GroupMembership.objects
-        .filter(
-            left_at__isnull=True,
-            user__mentorprofile__isnull=False
-        )
-        .values('user_id')
-        .annotate(count=Count('id'))
-    )
-    
-    accepted_count_by_mentor = {row['user_id']: row['count'] for row in accepted_count_rows}
-    
-    mentor_rows = (
-        MentorProfile.objects
-        .filter(user__is_active=True)
-        .select_related('user', 'user__state', 'user__state__country')
-        .values(
-            'institution',
-            mentor_id=F('user_id'),
-            first_name=F('user__first_name'),
-            last_name=F('user__last_name'),
-            max_grp_cnt=F('max_group_count'),
-            country_name=F('user__state__country__country_name'),
-            user_tz=F('user__timezone'),
-        )
-    )
-    
-    mentor_ids = [m['mentor_id'] for m in mentor_rows]
-    
-    mentor_interest_rows = (
-        UserInterest.objects
-        .filter(user_id__in=mentor_ids)
-        .select_related('interest')
-        .values(
-            key=F('user_id'),
-            interest_desc=F('interest__interest_desc'),
-        )
-    ) if mentor_ids else []
-    
-    interests_by_mentor = _group_interests_by_key(mentor_interest_rows, 'key', 'interest_desc')
-    
-    # Build mentor sources
-    mentor_sources = [
-        {
-            'mentorId': m['mentor_id'],
-            'firstName': m['first_name'],
-            'lastName': m['last_name'],
-            'institution': m['institution'],
-            'countryName': m['country_name'],
-            'utcOffsetHours': utc_offset_hours(m['user_tz']),
-            'interests': interests_by_mentor.get(m['mentor_id'], []),
-            'maxGroupCount': m['max_grp_cnt'],
-            'currentAcceptedCount': accepted_count_by_mentor.get(m['mentor_id'], 0),
-        }
-        for m in mentor_rows
-    ]
-    
+    mentor_sources = _build_mentor_sources()
+
     # Run matching algorithm using the same data shape as admin/apps/server/src/algorithm/mentor.ts.
     recommendations = match_mentors(group_sources, mentor_sources, mode)
     

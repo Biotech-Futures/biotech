@@ -19,6 +19,7 @@ import {
   useQueryStates,
   useQueryHasUngroupedStudents,
 } from "@/query/student";
+import { useBulkDeleteUsers } from "@/query/user";
 import { useRemoveGroupMember } from "@/query/group";
 import type { StudentUser } from "@/type/user";
 import { ShuffleIcon, UserMinusIcon } from "lucide-react";
@@ -54,6 +55,7 @@ function StudentPage() {
   const [selected, setSelected] = useState<Map<number, StudentUser>>(new Map());
   const [batchAssignOpen, setBatchAssignOpen] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   const { data, isPending } = useQueryStudents({
@@ -77,6 +79,7 @@ function StudentPage() {
   const hasUngrouped = ungroupedData?.data?.hasUngrouped ?? false;
   const { mutateAsync: removeMemberAsync, isPending: isRemoving } =
     useRemoveGroupMember();
+  const bulkDeleteUsers = useBulkDeleteUsers();
 
   // Filters change the matching set, so drop the current selection with them.
   useEffect(() => {
@@ -272,6 +275,27 @@ function StudentPage() {
     setRemoveConfirmOpen(false);
   };
 
+  const handleBulkDelete = async () => {
+    const ids = [...selected.keys()].map(String);
+    if (!ids.length) {
+      setDeleteConfirmOpen(false);
+      return;
+    }
+    try {
+      const res = await bulkDeleteUsers.mutateAsync(ids);
+      if (!res.data) {
+        toast.error(res.msg || "Unable to delete students.");
+        return;
+      }
+      toast.success(res.msg);
+      clearSelection();
+    } catch {
+      toast.error("Unable to delete students right now.");
+    } finally {
+      setDeleteConfirmOpen(false);
+    }
+  };
+
   const handleMatchStudents = () => {
     navigate({
       to: "/groups/student-matching",
@@ -311,8 +335,9 @@ function StudentPage() {
           groupedCount={groupedSelected.length}
           onAssign={() => setBatchAssignOpen(true)}
           onRemove={() => setRemoveConfirmOpen(true)}
+          onDelete={() => setDeleteConfirmOpen(true)}
           onClear={clearSelection}
-          isPending={isRemoving}
+          isPending={isRemoving || bulkDeleteUsers.isPending}
         />
       )}
 
@@ -382,6 +407,37 @@ function StudentPage() {
               }}
             >
               Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selected.size}{" "}
+              {selected.size === 1 ? "student" : "students"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the selected{" "}
+              {selected.size === 1 ? "account" : "accounts"} and all related
+              data. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteUsers.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={bulkDeleteUsers.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkDelete();
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

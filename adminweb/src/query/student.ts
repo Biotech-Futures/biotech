@@ -91,12 +91,18 @@ export function useImportStudents() {
         supervisorEmail: row.supervisorEmail || undefined,
         joinpermResponseId: row.joinpermResponseId,
         active: row.active,
+        // Co-registration: friends sharing a number are grouped at import time.
+        groupNumber: row.groupNumber || undefined,
       }));
       const res = await myFetch.post<{
         msg: string;
         data: {
           created: unknown[];
           skipped: { email: string; reason: string }[];
+          coRegistration?: {
+            groupsCreated: { name: string; memberCount: number }[];
+            warnings: string[];
+          };
         };
       }>("/user/bulk", payload);
       return res.data;

@@ -1,26 +1,31 @@
 import { Button } from "@/components/ui/button";
 import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
-import { UserCheckIcon, UserXIcon } from "lucide-react";
+import { Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react";
 
 interface UserBulkActionsBarProps {
   count: number;
+  noun?: string;
   onActivate: () => void;
   onDeactivate: () => void;
+  /** When provided, shows a permanent-delete action. Omit to hide it. */
+  onDelete?: () => void;
   onClear: () => void;
   isPending?: boolean;
 }
 
 export function UserBulkActionsBar({
   count,
+  noun = "user",
   onActivate,
   onDeactivate,
+  onDelete,
   onClear,
   isPending,
 }: UserBulkActionsBarProps) {
   return (
     <BulkActionsBar
       count={count}
-      noun="user"
+      noun={noun}
       onClear={onClear}
       disabled={isPending}
     >
@@ -43,6 +48,18 @@ export function UserBulkActionsBar({
         <UserXIcon />
         Deactivate
       </Button>
+      {onDelete ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={onDelete}
+          disabled={isPending}
+        >
+          <Trash2Icon />
+          Delete
+        </Button>
+      ) : null}
     </BulkActionsBar>
   );
 }
