@@ -9,15 +9,24 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import type { Group } from "@/type/group";
+import type { Group, GroupMember } from "@/type/group";
+import type { StudentUser } from "@/type/user";
 import { Label } from "@/components/ui/label";
-import { UserIcon, UsersIcon, UserMinusIcon, UserXIcon } from "lucide-react";
+import {
+  UserIcon,
+  UsersIcon,
+  UserMinusIcon,
+  UserPlusIcon,
+  UserXIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
 import { cn } from "@/lib/utils";
 import { useRemoveGroupMember } from "@/query/group";
+import { DEFAULT_GROUP_MAX_SIZE, studentCount } from "@/lib/group-capacity";
+import { GroupAddStudentsDialog } from "./GroupAddStudentsDialog";
 import {
   useQueryMentorList,
   useMutationReplaceMentor,
@@ -43,6 +52,7 @@ export function GroupDetailModal({
   const queryClient = useQueryClient();
   const [mentorDialogOpen, setMentorDialogOpen] = useState(false);
   const [selectedMentorId, setSelectedMentorId] = useState("");
+  const [addStudentsOpen, setAddStudentsOpen] = useState(false);
 
   const { data: mentorListData } = useQueryMentorList();
   const mentors = mentorListData?.data ?? [];
@@ -129,7 +139,22 @@ export function GroupDetailModal({
     }
   }
 
+  async function handleStudentsAdded(students: StudentUser[]) {
+    if (!group) return;
+    // Optimistically show the new members; then refetch the authoritative group.
+    const appended: GroupMember[] = students.map((student) => ({
+      id: String(student.id),
+      name: `${student.firstName} ${student.lastName}`.trim() || student.email,
+      email: student.email,
+      role: "student",
+    }));
+    onGroupChange?.({ ...group, members: [...group.members, ...appended] });
+    await queryClient.invalidateQueries({ queryKey: ["group", group.id] });
+  }
+
   if (!group) return null;
+
+  const seatsLeft = DEFAULT_GROUP_MAX_SIZE - studentCount(group);
 
   return (
     <>
@@ -185,10 +210,24 @@ export function GroupDetailModal({
 
             {/* Members */}
             <div className="space-y-2">
-              <Label className="flex items-center gap-1 text-muted-foreground">
-                <UsersIcon className="size-4" />
-                Group Members ({group.members.length})
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-1 text-muted-foreground">
+                  <UsersIcon className="size-4" />
+                  Group Members ({group.members.length})
+                </Label>
+                <span title={seatsLeft <= 0 ? "Group is full" : undefined}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={seatsLeft <= 0}
+                    onClick={() => setAddStudentsOpen(true)}
+                  >
+                    <UserPlusIcon className="size-4" />
+                    Add students
+                  </Button>
+                </span>
+              </div>
               <div className="space-y-2">
                 {group.members.map((member) => (
                   <div
@@ -310,6 +349,13 @@ export function GroupDetailModal({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GroupAddStudentsDialog
+        group={group}
+        open={addStudentsOpen}
+        onOpenChange={setAddStudentsOpen}
+        onAdded={handleStudentsAdded}
+      />
     </>
   );
 }

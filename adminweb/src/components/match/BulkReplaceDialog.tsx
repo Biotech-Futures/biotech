@@ -141,7 +141,7 @@ export function BulkReplaceDialog({
             disabled={isPending}
             onClick={() => {
               onOpenChange(false);
-              void navigate({ to: "/mentorMatching" });
+              void navigate({ to: "/groups/mentor-matching" });
             }}
           >
             Go to Mentor Matching

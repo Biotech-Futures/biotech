@@ -19,8 +19,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-
-const DEFAULT_GROUP_MAX_SIZE = 5;
+import {
+  DEFAULT_GROUP_MAX_SIZE,
+  groupsWithFreeSeats,
+} from "@/lib/group-capacity";
 
 export default function StudentBatchAssignDialog({
   students,
@@ -37,26 +39,10 @@ export default function StudentBatchAssignDialog({
   const { mutate, isPending } = useMutationConfirmAssignments();
   const { data: groupsData } = useQueryGroups({ page: 1, limit: 100 });
 
-  const groups = useMemo(() => {
-    const items = groupsData?.data?.items ?? [];
-    return items
-      .map((group) => {
-        const studentCount = group.members.filter(
-          (member) => member.role === "student",
-        ).length;
-        return {
-          id: group.id,
-          name: group.name,
-          studentCount,
-          remaining: Math.max(0, DEFAULT_GROUP_MAX_SIZE - studentCount),
-        };
-      })
-      .filter((group) => group.remaining > 0)
-      .sort((a, b) => {
-        if (a.remaining !== b.remaining) return b.remaining - a.remaining;
-        return a.name.localeCompare(b.name);
-      });
-  }, [groupsData?.data?.items]);
+  const groups = useMemo(
+    () => groupsWithFreeSeats(groupsData?.data?.items ?? []),
+    [groupsData?.data?.items],
+  );
 
   const selectedGroup = groups.find(
     (group) => String(group.id) === selectedGroupId,
