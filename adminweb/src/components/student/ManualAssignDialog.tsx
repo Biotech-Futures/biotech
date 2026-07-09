@@ -19,7 +19,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "../ui/button";
-const DEFAULT_GROUP_MAX_SIZE = 5;
+import {
+  DEFAULT_GROUP_MAX_SIZE,
+  groupsWithFreeSeats,
+} from "@/lib/group-capacity";
 
 export default function ManualAssignDialog({
   student,
@@ -36,26 +39,10 @@ export default function ManualAssignDialog({
     page: 1,
     limit: 100,
   });
-  const groups = useMemo(() => {
-    const groups = groupsData?.data?.items ?? [];
-
-    return groups
-      .map((group) => ({
-        id: group.id,
-        name: group.name,
-        studentCount: group.members.filter(
-          (member) => member.role === "student",
-        ).length,
-      }))
-      .filter((group) => group.studentCount < DEFAULT_GROUP_MAX_SIZE)
-      .sort((a, b) => {
-        if (a.studentCount !== b.studentCount) {
-          return a.studentCount - b.studentCount;
-        }
-
-        return a.name.localeCompare(b.name);
-      });
-  }, [groupsData?.data?.items]);
+  const groups = useMemo(
+    () => groupsWithFreeSeats(groupsData?.data?.items ?? []),
+    [groupsData?.data?.items],
+  );
 
   async function handleConfirmAssignment(groupId: number) {
     if (!student) return;

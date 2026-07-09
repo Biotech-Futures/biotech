@@ -4,7 +4,9 @@ import {
   UsersIcon,
   CalendarIcon,
   GraduationCapIcon,
+  HandshakeIcon,
   Link2Icon,
+  ShuffleIcon,
   FileTextIcon,
   MegaphoneIcon,
   CheckSquareIcon,
@@ -17,16 +19,32 @@ export const Route = createFileRoute("/_auth/")({
   component: AdminHomePage,
 });
 
-const NAV_CARDS = [
-  { title: "Users", url: "/user", icon: UserIcon, desc: "Manage platform users" },
-  { title: "Groups", url: "/group", icon: UsersIcon, desc: "View and manage groups" },
-  { title: "Events", url: "/event", icon: CalendarIcon, desc: "Schedule and track events" },
-  { title: "Students", url: "/student", icon: GraduationCapIcon, desc: "Student management" },
-  { title: "Resources", url: "/resource", icon: FileTextIcon, desc: "Upload and manage resources" },
-  { title: "Mentor Matching", url: "/mentorMatching", icon: Link2Icon, desc: "Run mentor matching" },
-  { title: "Mentors", url: "/mentor", icon: GraduationCapIcon, desc: "Manage mentor accounts" },
-  { title: "Announcements", url: "/announcement", icon: MegaphoneIcon, desc: "Publish announcements" },
-  { title: "Tasks", url: "/task", icon: CheckSquareIcon, desc: "Assign and track tasks" },
+const NAV_SECTIONS = [
+  {
+    label: "People",
+    cards: [
+      { title: "Users", url: "/people", icon: UserIcon, desc: "Manage platform users" },
+      { title: "Students", url: "/people/students", icon: GraduationCapIcon, desc: "Assign students to groups" },
+      { title: "Mentors", url: "/people/mentors", icon: HandshakeIcon, desc: "Manage mentor accounts" },
+    ],
+  },
+  {
+    label: "Groups & Matching",
+    cards: [
+      { title: "Groups", url: "/groups", icon: UsersIcon, desc: "View and manage groups" },
+      { title: "Student Matching", url: "/groups/student-matching", icon: ShuffleIcon, desc: "Match students into groups" },
+      { title: "Mentor Matching", url: "/groups/mentor-matching", icon: Link2Icon, desc: "Match mentors to groups" },
+    ],
+  },
+  {
+    label: "Content",
+    cards: [
+      { title: "Events", url: "/event", icon: CalendarIcon, desc: "Schedule and track events" },
+      { title: "Resources", url: "/resource", icon: FileTextIcon, desc: "Upload and manage resources" },
+      { title: "Announcements", url: "/announcement", icon: MegaphoneIcon, desc: "Publish announcements" },
+      { title: "Tasks", url: "/task", icon: CheckSquareIcon, desc: "Assign and track tasks" },
+    ],
+  },
 ];
 
 function AdminHomePage() {
@@ -53,28 +71,30 @@ function AdminHomePage() {
         </div>
       </div>
 
-      <div>
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
-          Quick Navigation
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {NAV_CARDS.map(({ title, url, icon: Icon, desc }) => (
-            <Link key={url} to={url}>
-              <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
-                <CardHeader className="pb-2 pt-4">
-                  <CardTitle className="flex items-center gap-2 text-base font-medium">
-                    <Icon className="size-4 text-primary" />
-                    {title}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4">
-                  <p className="text-xs text-muted-foreground">{desc}</p>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+      {NAV_SECTIONS.map((section) => (
+        <div key={section.label}>
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
+            {section.label}
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {section.cards.map(({ title, url, icon: Icon, desc }) => (
+              <Link key={url} to={url}>
+                <Card className="hover:bg-accent/50 transition-colors cursor-pointer h-full">
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="flex items-center gap-2 text-base font-medium">
+                      <Icon className="size-4 text-primary" />
+                      {title}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pb-4">
+                    <p className="text-xs text-muted-foreground">{desc}</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   );
 }

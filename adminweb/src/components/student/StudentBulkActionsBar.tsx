@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { UserMinusIcon, UsersIcon, XIcon } from "lucide-react";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
+import { UserMinusIcon, UsersIcon } from "lucide-react";
 
 interface StudentBulkActionsBarProps {
   count: number;
@@ -20,56 +21,40 @@ export function StudentBulkActionsBar({
   isPending,
 }: StudentBulkActionsBarProps) {
   return (
-    <div
-      role="toolbar"
-      aria-label="Bulk actions"
-      className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2"
+    <BulkActionsBar
+      count={count}
+      noun="student"
+      onClear={onClear}
+      disabled={isPending}
     >
-      <div className="flex items-center gap-1">
-        <p className="text-sm font-medium" aria-live="polite">
-          {count} {count === 1 ? "student" : "students"} selected
-        </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClear}
-          disabled={isPending}
-          aria-label="Clear selection"
-        >
-          <XIcon />
-          Clear
-        </Button>
-      </div>
-      <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onAssign}
+        disabled={isPending}
+      >
+        <UsersIcon />
+        Assign to group
+      </Button>
+      {/* Wrapper carries the tooltip: a disabled button has no pointer events. */}
+      <span
+        title={
+          groupedCount === 0
+            ? "None of the selected students are in a group"
+            : undefined
+        }
+      >
         <Button
           variant="outline"
           size="sm"
-          onClick={onAssign}
-          disabled={isPending}
+          className="text-destructive hover:text-destructive"
+          onClick={onRemove}
+          disabled={isPending || groupedCount === 0}
         >
-          <UsersIcon />
-          Assign to group
+          <UserMinusIcon />
+          Remove from group{groupedCount > 0 ? ` (${groupedCount})` : ""}
         </Button>
-        {/* Wrapper carries the tooltip: a disabled button has no pointer events. */}
-        <span
-          title={
-            groupedCount === 0
-              ? "None of the selected students are in a group"
-              : undefined
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={onRemove}
-            disabled={isPending || groupedCount === 0}
-          >
-            <UserMinusIcon />
-            Remove from group{groupedCount > 0 ? ` (${groupedCount})` : ""}
-          </Button>
-        </span>
-      </div>
-    </div>
+      </span>
+    </BulkActionsBar>
   );
 }

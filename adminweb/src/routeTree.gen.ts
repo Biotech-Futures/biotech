@@ -25,6 +25,14 @@ import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
 import { Route as AuthGroupRouteImport } from './routes/_auth/group'
 import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthAnnouncementRouteImport } from './routes/_auth/announcement'
+import { Route as AuthPeopleRouteRouteImport } from './routes/_auth/people/route'
+import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route'
+import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
+import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
+import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
+import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
+import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
+import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
 
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
@@ -105,12 +113,56 @@ const AuthAnnouncementRoute = AuthAnnouncementRouteImport.update({
   path: '/announcement',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthPeopleRouteRoute = AuthPeopleRouteRouteImport.update({
+  id: '/people',
+  path: '/people',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthGroupsRouteRoute = AuthGroupsRouteRouteImport.update({
+  id: '/groups',
+  path: '/groups',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthPeopleIndexRoute = AuthPeopleIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
+const AuthGroupsIndexRoute = AuthGroupsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthGroupsRouteRoute,
+} as any)
+const AuthPeopleStudentsRoute = AuthPeopleStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
+const AuthPeopleMentorsRoute = AuthPeopleMentorsRouteImport.update({
+  id: '/mentors',
+  path: '/mentors',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
+const AuthGroupsStudentMatchingRoute =
+  AuthGroupsStudentMatchingRouteImport.update({
+    id: '/student-matching',
+    path: '/student-matching',
+    getParentRoute: () => AuthGroupsRouteRoute,
+  } as any)
+const AuthGroupsMentorMatchingRoute =
+  AuthGroupsMentorMatchingRouteImport.update({
+    id: '/mentor-matching',
+    path: '/mentor-matching',
+    getParentRoute: () => AuthGroupsRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthIndexRoute
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
+  '/groups': typeof AuthGroupsRouteRouteWithChildren
+  '/people': typeof AuthPeopleRouteRouteWithChildren
   '/announcement': typeof AuthAnnouncementRoute
   '/event': typeof AuthEventRoute
   '/group': typeof AuthGroupRoute
@@ -122,6 +174,12 @@ export interface FileRoutesByFullPath {
   '/task': typeof AuthTaskRoute
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
+  '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
+  '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
+  '/people/mentors': typeof AuthPeopleMentorsRoute
+  '/people/students': typeof AuthPeopleStudentsRoute
+  '/groups/': typeof AuthGroupsIndexRoute
+  '/people/': typeof AuthPeopleIndexRoute
 }
 export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
@@ -139,6 +197,12 @@ export interface FileRoutesByTo {
   '/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/': typeof AuthIndexRoute
+  '/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
+  '/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
+  '/people/mentors': typeof AuthPeopleMentorsRoute
+  '/people/students': typeof AuthPeopleStudentsRoute
+  '/groups': typeof AuthGroupsIndexRoute
+  '/people': typeof AuthPeopleIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -146,6 +210,8 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/signin': typeof SigninRoute
+  '/_auth/groups': typeof AuthGroupsRouteRouteWithChildren
+  '/_auth/people': typeof AuthPeopleRouteRouteWithChildren
   '/_auth/announcement': typeof AuthAnnouncementRoute
   '/_auth/event': typeof AuthEventRoute
   '/_auth/group': typeof AuthGroupRoute
@@ -158,6 +224,12 @@ export interface FileRoutesById {
   '/_auth/user': typeof AuthUserRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/_auth/': typeof AuthIndexRoute
+  '/_auth/groups/mentor-matching': typeof AuthGroupsMentorMatchingRoute
+  '/_auth/groups/student-matching': typeof AuthGroupsStudentMatchingRoute
+  '/_auth/people/mentors': typeof AuthPeopleMentorsRoute
+  '/_auth/people/students': typeof AuthPeopleStudentsRoute
+  '/_auth/groups/': typeof AuthGroupsIndexRoute
+  '/_auth/people/': typeof AuthPeopleIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -166,6 +238,8 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup-password'
     | '/signin'
+    | '/groups'
+    | '/people'
     | '/announcement'
     | '/event'
     | '/group'
@@ -177,6 +251,12 @@ export interface FileRouteTypes {
     | '/task'
     | '/user'
     | '/auth/callback'
+    | '/groups/mentor-matching'
+    | '/groups/student-matching'
+    | '/people/mentors'
+    | '/people/students'
+    | '/groups/'
+    | '/people/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/reset-password'
@@ -194,12 +274,20 @@ export interface FileRouteTypes {
     | '/user'
     | '/auth/callback'
     | '/'
+    | '/groups/mentor-matching'
+    | '/groups/student-matching'
+    | '/people/mentors'
+    | '/people/students'
+    | '/groups'
+    | '/people'
   id:
     | '__root__'
     | '/_auth'
     | '/reset-password'
     | '/setup-password'
     | '/signin'
+    | '/_auth/groups'
+    | '/_auth/people'
     | '/_auth/announcement'
     | '/_auth/event'
     | '/_auth/group'
@@ -212,6 +300,12 @@ export interface FileRouteTypes {
     | '/_auth/user'
     | '/auth/callback'
     | '/_auth/'
+    | '/_auth/groups/mentor-matching'
+    | '/_auth/groups/student-matching'
+    | '/_auth/people/mentors'
+    | '/_auth/people/students'
+    | '/_auth/groups/'
+    | '/_auth/people/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -336,10 +430,100 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthAnnouncementRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/people': {
+      id: '/_auth/people'
+      path: '/people'
+      fullPath: '/people'
+      preLoaderRoute: typeof AuthPeopleRouteRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/groups': {
+      id: '/_auth/groups'
+      path: '/groups'
+      fullPath: '/groups'
+      preLoaderRoute: typeof AuthGroupsRouteRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/people/': {
+      id: '/_auth/people/'
+      path: '/'
+      fullPath: '/people/'
+      preLoaderRoute: typeof AuthPeopleIndexRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
+    '/_auth/groups/': {
+      id: '/_auth/groups/'
+      path: '/'
+      fullPath: '/groups/'
+      preLoaderRoute: typeof AuthGroupsIndexRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/people/students': {
+      id: '/_auth/people/students'
+      path: '/students'
+      fullPath: '/people/students'
+      preLoaderRoute: typeof AuthPeopleStudentsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
+    '/_auth/people/mentors': {
+      id: '/_auth/people/mentors'
+      path: '/mentors'
+      fullPath: '/people/mentors'
+      preLoaderRoute: typeof AuthPeopleMentorsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
+    '/_auth/groups/student-matching': {
+      id: '/_auth/groups/student-matching'
+      path: '/student-matching'
+      fullPath: '/groups/student-matching'
+      preLoaderRoute: typeof AuthGroupsStudentMatchingRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/groups/mentor-matching': {
+      id: '/_auth/groups/mentor-matching'
+      path: '/mentor-matching'
+      fullPath: '/groups/mentor-matching'
+      preLoaderRoute: typeof AuthGroupsMentorMatchingRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
   }
 }
 
+interface AuthGroupsRouteRouteChildren {
+  AuthGroupsMentorMatchingRoute: typeof AuthGroupsMentorMatchingRoute
+  AuthGroupsStudentMatchingRoute: typeof AuthGroupsStudentMatchingRoute
+  AuthGroupsIndexRoute: typeof AuthGroupsIndexRoute
+}
+
+const AuthGroupsRouteRouteChildren: AuthGroupsRouteRouteChildren = {
+  AuthGroupsMentorMatchingRoute: AuthGroupsMentorMatchingRoute,
+  AuthGroupsStudentMatchingRoute: AuthGroupsStudentMatchingRoute,
+  AuthGroupsIndexRoute: AuthGroupsIndexRoute,
+}
+
+const AuthGroupsRouteRouteWithChildren = AuthGroupsRouteRoute._addFileChildren(
+  AuthGroupsRouteRouteChildren,
+)
+
+interface AuthPeopleRouteRouteChildren {
+  AuthPeopleMentorsRoute: typeof AuthPeopleMentorsRoute
+  AuthPeopleStudentsRoute: typeof AuthPeopleStudentsRoute
+  AuthPeopleIndexRoute: typeof AuthPeopleIndexRoute
+}
+
+const AuthPeopleRouteRouteChildren: AuthPeopleRouteRouteChildren = {
+  AuthPeopleMentorsRoute: AuthPeopleMentorsRoute,
+  AuthPeopleStudentsRoute: AuthPeopleStudentsRoute,
+  AuthPeopleIndexRoute: AuthPeopleIndexRoute,
+}
+
+const AuthPeopleRouteRouteWithChildren = AuthPeopleRouteRoute._addFileChildren(
+  AuthPeopleRouteRouteChildren,
+)
+
 interface AuthRouteRouteChildren {
+  AuthGroupsRouteRoute: typeof AuthGroupsRouteRouteWithChildren
+  AuthPeopleRouteRoute: typeof AuthPeopleRouteRouteWithChildren
   AuthAnnouncementRoute: typeof AuthAnnouncementRoute
   AuthEventRoute: typeof AuthEventRoute
   AuthGroupRoute: typeof AuthGroupRoute
@@ -354,6 +538,8 @@ interface AuthRouteRouteChildren {
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthGroupsRouteRoute: AuthGroupsRouteRouteWithChildren,
+  AuthPeopleRouteRoute: AuthPeopleRouteRouteWithChildren,
   AuthAnnouncementRoute: AuthAnnouncementRoute,
   AuthEventRoute: AuthEventRoute,
   AuthGroupRoute: AuthGroupRoute,
