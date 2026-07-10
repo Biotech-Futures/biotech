@@ -446,6 +446,10 @@ class PasswordResetAdminRedirectTest(TestCase):
             f"{settings.ADMIN_PASSWORD_RESET_REDIRECT_URL}?token=",
             ctx["RESET_PASSWORD_LINK"],
         )
+        # The admin SPA serves this page at /reset-password (no /auth prefix, unlike
+        # the Vue app and the /auth/callback magic-link route) — guard the link path.
+        self.assertIn("/reset-password?token=", ctx["RESET_PASSWORD_LINK"])
+        self.assertNotIn("/auth/reset-password", ctx["RESET_PASSWORD_LINK"])
         # Plaintext body must also use the admin portal base
         text_body = mock_email.call_args.kwargs["body"]
         self.assertIn(settings.ADMIN_PASSWORD_RESET_REDIRECT_URL, text_body)

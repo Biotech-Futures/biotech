@@ -433,7 +433,7 @@ ADMIN_FRONTEND_BASE_URL = _ADMIN_FRONTEND_BASE_URL_RAW.rstrip("/")
 MAGIC_LINK_REDIRECT_URL             = f"{FRONTEND_BASE_URL}/#/auth/callback"
 ADMIN_MAGIC_LINK_REDIRECT_URL       = f"{ADMIN_FRONTEND_BASE_URL}/auth/callback"
 PASSWORD_RESET_REDIRECT_URL         = f"{FRONTEND_BASE_URL}/#/auth/reset-password"
-ADMIN_PASSWORD_RESET_REDIRECT_URL   = f"{ADMIN_FRONTEND_BASE_URL}/auth/reset-password"
+ADMIN_PASSWORD_RESET_REDIRECT_URL   = f"{ADMIN_FRONTEND_BASE_URL}/reset-password"
 
 # Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
 # when no ?next= is present. Keep it on a Django-side URL so an engineer who
