@@ -198,7 +198,7 @@ function SupervisorsPage() {
       return;
     }
     try {
-      const response = await bulkDeleteUsers.mutateAsync(ids);
+      const response = await bulkDeleteUsers.mutateAsync({ ids });
       if (!response.data) {
         toast.error(response.msg || "Unable to delete supervisors.");
         return;

@@ -8,7 +8,7 @@ from apps.admin.services.user import (
     query_users, query_user_by_id, query_states,
     create_user, update_user, update_status, bulk_update_status,
     bulk_update_status_by_filter, delete_user, bulk_delete_users,
-    has_ungrouped_students, bulk_create_users,
+    bulk_delete_users_by_filter, has_ungrouped_students, bulk_create_users,
 )
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory, Roles
@@ -780,3 +780,58 @@ class AdminUserServiceBulkDeleteTests(TestCase):
     def test_bulk_delete_rejects_empty(self):
         result = bulk_delete_users([])
         self.assertIsNone(result["data"])
+
+    def test_bulk_delete_by_filter_deletes_all_matching(self):
+        result = bulk_delete_users_by_filter({"search": "example.com"})
+        self.assertCountEqual(
+            result["data"]["deletedIds"], [self.a.id, self.b.id, self.admin.id]
+        )
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_bulk_delete_by_filter_excludes_and_skips_self(self):
+        result = bulk_delete_users_by_filter(
+            {"search": "example.com"},
+            exclude_ids=[self.b.id],
+            initiated_by=self.admin,
+        )
+        self.assertEqual(result["data"]["deletedIds"], [self.a.id])
+        self.assertTrue(result["data"]["skippedSelf"])
+        self.assertTrue(User.objects.filter(id=self.b.id).exists())  # excluded
+        self.assertTrue(User.objects.filter(id=self.admin.id).exists())  # self
+
+    def test_bulk_delete_by_filter_empty_match(self):
+        result = bulk_delete_users_by_filter({"search": "no-such-user-zzz"})
+        self.assertEqual(result["data"]["deletedIds"], [])
+        self.assertEqual(User.objects.count(), 3)
+
+    def test_delete_user_referenced_by_protected_record_is_not_deleted(self):
+        from apps.chat.models.messages import Messages
+        group = Groups.objects.create(group_name="Protect G")
+        Messages.objects.create(sender_user=self.a, group=group, message_text="hi")
+        result = delete_user(self.a.id)
+        self.assertIsNone(result["data"])
+        self.assertIn("cannot be deleted", result["msg"])
+        self.assertTrue(User.objects.filter(id=self.a.id).exists())
+
+    def test_bulk_delete_reports_protected_as_failed(self):
+        from apps.chat.models.messages import Messages
+        group = Groups.objects.create(group_name="Protect G2")
+        Messages.objects.create(sender_user=self.a, group=group, message_text="hi")
+        result = bulk_delete_users([self.a.id, self.b.id])
+        self.assertEqual(result["data"]["deletedIds"], [self.b.id])
+        self.assertEqual(result["data"]["failedIds"], [self.a.id])
+        self.assertTrue(User.objects.filter(id=self.a.id).exists())
+        self.assertFalse(User.objects.filter(id=self.b.id).exists())
+
+    def test_bulk_delete_by_filter_protects_admins(self):
+        AdminScope.objects.create(user=self.admin)
+        result = bulk_delete_users_by_filter({"search": "example.com"})
+        self.assertCountEqual(result["data"]["deletedIds"], [self.a.id, self.b.id])
+        self.assertEqual(result["data"]["skippedAdmins"], 1)
+        self.assertTrue(User.objects.filter(id=self.admin.id).exists())
+
+    def test_bulk_delete_by_filter_refuses_when_set_grew(self):
+        # Admin reviewed fewer than now match -> refuse rather than sweep in extras.
+        result = bulk_delete_users_by_filter({"search": "example.com"}, expected_count=2)
+        self.assertIsNone(result["data"])
+        self.assertEqual(User.objects.count(), 3)

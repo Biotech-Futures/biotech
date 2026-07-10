@@ -282,7 +282,7 @@ function StudentPage() {
       return;
     }
     try {
-      const res = await bulkDeleteUsers.mutateAsync(ids);
+      const res = await bulkDeleteUsers.mutateAsync({ ids });
       if (!res.data) {
         toast.error(res.msg || "Unable to delete students.");
         return;

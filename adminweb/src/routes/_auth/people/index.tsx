@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PlusIcon } from "lucide-react";
 import {
   useQueryStates,
@@ -165,7 +167,12 @@ function UserManagementPage() {
     count: number;
   } | null>(null);
   // Snapshot the count when the delete dialog opens so its copy stays stable.
-  const [bulkDelete, setBulkDelete] = useState<{ count: number } | null>(null);
+  const [bulkDelete, setBulkDelete] = useState<{
+    count: number;
+    selectAll: boolean;
+  } | null>(null);
+  // Mass "select all matching" delete requires typing DELETE to confirm.
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -451,13 +458,21 @@ function UserManagementPage() {
   };
 
   const handleBulkDeleteConfirm = async () => {
-    const ids = [...selectedIds];
-    if (ids.length === 0) {
+    if (!selectAllMatching && selectedIds.size === 0) {
       setBulkDelete(null);
       return;
     }
     try {
-      const response = await bulkDeleteUsers.mutateAsync(ids);
+      const response = await bulkDeleteUsers.mutateAsync(
+        selectAllMatching
+          ? {
+              selectAll: true,
+              filters: currentFilters,
+              excludeIds: [...excludedIds],
+              expectedCount: effectiveSelectedCount,
+            }
+          : { ids: [...selectedIds] },
+      );
       if (!response.data) {
         toast.error(response.msg || "Unable to delete users.");
         return;
@@ -532,12 +547,13 @@ function UserManagementPage() {
               count: effectiveSelectedCount,
             })
           }
-          // Permanent delete only for an explicit selection — never "all matching".
-          onDelete={
-            selectAllMatching
-              ? undefined
-              : () => setBulkDelete({ count: selectedIds.size })
-          }
+          onDelete={() => {
+            setDeleteConfirmText("");
+            setBulkDelete({
+              count: effectiveSelectedCount,
+              selectAll: selectAllMatching,
+            });
+          }}
           onClear={clearSelection}
           isPending={bulkUpdateUserStatus.isPending || bulkDeleteUsers.isPending}
         />
@@ -624,7 +640,10 @@ function UserManagementPage() {
       <AlertDialog
         open={bulkDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setBulkDelete(null);
+          if (!open) {
+            setBulkDelete(null);
+            setDeleteConfirmText("");
+          }
         }}
       >
         <AlertDialogContent>
@@ -637,15 +656,39 @@ function UserManagementPage() {
               This permanently removes the selected{" "}
               {bulkDelete?.count === 1 ? "account" : "accounts"} and all related
               data. This cannot be undone.
+              {bulkDelete?.selectAll ? (
+                <>
+                  {" "}
+                  Every account matching the current filters will be deleted;
+                  admin accounts are protected and skipped.
+                </>
+              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {bulkDelete?.selectAll ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-delete-confirm">
+                Type <span className="font-semibold">DELETE</span> to confirm
+              </Label>
+              <Input
+                id="bulk-delete-confirm"
+                autoComplete="off"
+                value={deleteConfirmText}
+                onChange={(event) => setDeleteConfirmText(event.target.value)}
+                placeholder="DELETE"
+              />
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleteUsers.isPending}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={bulkDeleteUsers.isPending}
+              disabled={
+                bulkDeleteUsers.isPending ||
+                (bulkDelete?.selectAll === true && deleteConfirmText !== "DELETE")
+              }
               onClick={(event) => {
                 event.preventDefault();
                 void handleBulkDeleteConfirm();
