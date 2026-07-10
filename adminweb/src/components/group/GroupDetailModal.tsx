@@ -20,7 +20,7 @@ import {
   UserPlusIcon,
   UserXIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AxiosError } from "axios";
@@ -35,6 +35,7 @@ import { DEFAULT_GROUP_MAX_SIZE, studentCount } from "@/lib/group-capacity";
 import { GroupAddStudentsDialog } from "./GroupAddStudentsDialog";
 import {
   useQueryMentorList,
+  useQueryMentorReplaceSuggestions,
   useMutationReplaceMentor,
   useMutationConfirmMentorAssignments,
   useMutationUnassignMentors,
@@ -62,6 +63,33 @@ export function GroupDetailModal({
 
   const { data: mentorListData } = useQueryMentorList();
   const mentors = mentorListData?.data ?? [];
+
+  // Scored match suggestions for the picker — annotate the full mentor list so
+  // admins can still pick anyone, but the best match floats to the top.
+  const { data: mentorSuggestData, isLoading: isMentorSuggestLoading } =
+    useQueryMentorReplaceSuggestions(
+      group ? Number(group.id) : null,
+      mentorDialogOpen,
+    );
+  const mentorScores = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const s of mentorSuggestData?.data.suggestions ?? []) {
+      map.set(s.mentorUserId, s.score);
+    }
+    return map;
+  }, [mentorSuggestData]);
+  const sortedMentors = useMemo(
+    () =>
+      mentors
+        .map((m) => ({ ...m, score: mentorScores.get(m.mentorId) }))
+        .sort((a, b) => {
+          const sa = a.score ?? Number.NEGATIVE_INFINITY;
+          const sb = b.score ?? Number.NEGATIVE_INFINITY;
+          if (sb !== sa) return sb - sa;
+          return a.name.localeCompare(b.name);
+        }),
+    [mentors, mentorScores],
+  );
 
   const replaceMentor = useMutationReplaceMentor();
   const assignMentor = useMutationConfirmMentorAssignments();
@@ -306,7 +334,7 @@ export function GroupDetailModal({
             </div>
 
             {/* Suggested students — scored candidates to fill open seats */}
-            {hasSeats && (studentSuggestions.length > 0 || isSuggestLoading) ? (
+            {hasSeats ? (
               <>
                 <Separator />
                 <div className="space-y-2">
@@ -317,6 +345,10 @@ export function GroupDetailModal({
                   {isSuggestLoading ? (
                     <p className="text-sm text-muted-foreground">
                       Scoring students…
+                    </p>
+                  ) : studentSuggestions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No recommendations found.
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -375,6 +407,16 @@ export function GroupDetailModal({
           </DialogHeader>
 
           <div className="max-h-80 space-y-2 overflow-y-auto py-1 pr-1">
+            {isMentorSuggestLoading ? (
+              <p className="px-1 text-xs text-muted-foreground">
+                Scoring mentors…
+              </p>
+            ) : mentorScores.size === 0 ? (
+              <p className="px-1 text-xs text-muted-foreground">
+                No match recommendations — showing all mentors.
+              </p>
+            ) : null}
+
             {/* Unassign option — only shown when replacing */}
             {isReplacing && (
               <button
@@ -394,8 +436,9 @@ export function GroupDetailModal({
               </button>
             )}
 
-            {mentors.map((m) => {
+            {sortedMentors.map((m, index) => {
               const selected = selectedMentorId === String(m.mentorId);
+              const isTopMatch = index === 0 && m.score !== undefined;
               return (
                 <button
                   key={m.mentorId}
@@ -410,7 +453,15 @@ export function GroupDetailModal({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium">{m.name}</p>
+                      <p className="font-medium">
+                        {isTopMatch ? "★ " : ""}
+                        {m.name}
+                        {m.score !== undefined && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            score {Math.round(m.score)}
+                          </span>
+                        )}
+                      </p>
                       {m.institution && (
                         <p className="text-xs text-muted-foreground">{m.institution}</p>
                       )}

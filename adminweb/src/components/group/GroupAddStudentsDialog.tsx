@@ -13,7 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { useQueryStudents } from "@/query/student";
-import { useMutationConfirmAssignments } from "@/query/match";
+import {
+  useMutationConfirmAssignments,
+  useQueryStudentSuggestions,
+} from "@/query/match";
+import type { StudentSuggestion } from "@/schema/match";
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from "@/lib/group-capacity";
 import type { Group } from "@/type/group";
 import type { StudentUser } from "@/type/user";
@@ -51,6 +55,32 @@ export function GroupAddStudentsDialog({
     search: debouncedSearch || undefined,
   });
   const students = data?.data?.items ?? [];
+
+  // Scored match suggestions for this group — annotate the full ungrouped list
+  // so admins keep every candidate, but the best matches float to the top.
+  const { data: suggestData, isLoading: isSuggestLoading } =
+    useQueryStudentSuggestions(open ? Number(group.id) : null, open && remaining > 0);
+  const suggestionByStudent = useMemo(() => {
+    const map = new Map<number, StudentSuggestion>();
+    for (const s of suggestData?.data.suggestions ?? []) {
+      map.set(s.studentUserId, s);
+    }
+    return map;
+  }, [suggestData]);
+  const rankedStudents = useMemo(
+    () =>
+      students
+        .map((student) => ({
+          student,
+          suggestion: suggestionByStudent.get(student.id),
+        }))
+        .sort((a, b) => {
+          const sa = a.suggestion?.score ?? Number.NEGATIVE_INFINITY;
+          const sb = b.suggestion?.score ?? Number.NEGATIVE_INFINITY;
+          return sb - sa;
+        }),
+    [students, suggestionByStudent],
+  );
 
   const selectedList = useMemo(() => [...selected.values()], [selected]);
   const overflow = Math.max(0, selectedList.length - remaining);
@@ -119,39 +149,57 @@ export function GroupAddStudentsDialog({
               No ungrouped students found.
             </p>
           ) : (
-            students.map((student) => {
-              const checked = selected.has(student.id);
-              const name =
-                `${student.firstName} ${student.lastName}`.trim() ||
-                student.email;
-              return (
-                <button
-                  key={student.id}
-                  type="button"
-                  aria-pressed={checked}
-                  onClick={() => toggle(student)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors",
-                    checked
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted/50",
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    className="pointer-events-none"
-                    tabIndex={-1}
-                    aria-hidden
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {student.email}
-                    </p>
-                  </div>
-                </button>
-              );
-            })
+            <>
+              {!isSuggestLoading && suggestionByStudent.size === 0 && (
+                <p className="px-1 pb-1 text-xs text-muted-foreground">
+                  No match recommendations — showing all students.
+                </p>
+              )}
+              {rankedStudents.map(({ student, suggestion }, index) => {
+                const checked = selected.has(student.id);
+                const name =
+                  `${student.firstName} ${student.lastName}`.trim() ||
+                  student.email;
+                const isTopMatch = index === 0 && suggestion !== undefined;
+                return (
+                  <button
+                    key={student.id}
+                    type="button"
+                    aria-pressed={checked}
+                    onClick={() => toggle(student)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                      checked
+                        ? "border-primary bg-primary/5"
+                        : "hover:bg-muted/50",
+                    )}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      className="pointer-events-none"
+                      tabIndex={-1}
+                      aria-hidden
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {isTopMatch ? "★ " : ""}
+                        {name}
+                        {suggestion && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            score {Math.round(suggestion.score)}
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {suggestion && suggestion.sharedInterests.length
+                          ? `Shared: ${suggestion.sharedInterests.slice(0, 3).join(", ")}`
+                          : student.email}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </>
           )}
         </div>
 
