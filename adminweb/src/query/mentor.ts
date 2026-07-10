@@ -19,7 +19,9 @@ const certificateSchema = z.object({
   issuedAt: z.string(),
   expiresAt: z.string().nullable(),
   fileUrl: z.string().nullable(),
-  verifiedAt: z.string().nullable(),
+  // Backend maps this from MentorCertificate.verified — a boolean, despite the
+  // "At" name. Accept both so a single certified mentor can't blank the whole tab.
+  verifiedAt: z.union([z.boolean(), z.string()]).nullable(),
 });
 
 const mentorDetailSchema = z.object({
