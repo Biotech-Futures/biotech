@@ -273,17 +273,11 @@ EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-# Fall back to legacy DEFAULT_FROM_EMAIL during transition.
-_email_from_raw = config(
-    "EMAIL_FROM_ADDRESS",
-    default=config("DEFAULT_FROM_EMAIL", default="info@biotechfutures.org"),
-).strip()
-# Bare sender mailbox (no display name) for template copy like "add X to your address book".
-EMAIL_FROM_ADDRESS = _email_from_raw
-if _email_from_raw and "<" not in _email_from_raw:
-    DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{_email_from_raw}>"
-else:
-    DEFAULT_FROM_EMAIL = _email_from_raw
+# Sender mailbox is pinned here (not env-driven) so the From header is always
+# on-brand; the brand name comes from BRAND_NAME above. SMTP host/credentials
+# below still come from env.
+EMAIL_FROM_ADDRESS = "info@biotechfutures.org"
+DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{EMAIL_FROM_ADDRESS}>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
 SUPPORT_EMAIL = "support@biotechfutures.org"
