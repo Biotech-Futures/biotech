@@ -12,7 +12,7 @@ class MentorProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     background = models.CharField(max_length=50, choices=BackgroundChoices.choices, blank=True, null=True)
     institution = models.CharField(db_column='Institution', max_length=255)
-    mentor_reason = models.CharField(max_length=255)
+    mentor_reason = models.TextField()
     max_group_count = models.PositiveIntegerField(default=3)
 
     class Meta:
