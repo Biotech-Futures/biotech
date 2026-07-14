@@ -3,16 +3,18 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import type { Group } from "@/type/group";
 import { Button } from "@/components/ui/button";
-import { UsersIcon, UserIcon } from "lucide-react";
+import { UsersIcon, UserIcon, Trash2Icon } from "lucide-react";
 
 interface ColumnsOptions {
   onViewDetail?: (group: Group) => void;
   onViewMessages?: (group: Group) => void;
+  onDelete?: (group: Group) => void;
 }
 
 export function createColumns({
   onViewDetail,
   onViewMessages,
+  onDelete,
 }: ColumnsOptions = {}): ColumnDef<Group>[] {
   return [
     {
@@ -71,18 +73,31 @@ export function createColumns({
     },
     {
       id: "messages",
-      header: "Messages",
+      header: "Actions",
       cell: ({ row }) => {
         const group = row.original;
 
         return (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onViewMessages?.(group)}
-          >
-            View Messages
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onViewMessages?.(group)}
+            >
+              View Messages
+            </Button>
+            {onDelete ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                aria-label={`Delete ${group.name}`}
+                onClick={() => onDelete(group)}
+              >
+                <Trash2Icon className="size-4" />
+              </Button>
+            ) : null}
+          </div>
         );
       },
     },

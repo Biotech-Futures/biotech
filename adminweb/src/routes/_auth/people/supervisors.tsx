@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PlusIcon } from "lucide-react";
 import {
   AlertDialog,
@@ -21,6 +22,7 @@ import {
   useUpdateUserStatus,
   useBulkUpdateUserStatus,
   useBulkDeleteUsers,
+  type BulkStatusFilters,
 } from "@/query/user";
 import { UserTable, type UserSortKey } from "@/components/user/UserTable";
 import { UserBulkActionsBar } from "@/components/user/UserBulkActionsBar";
@@ -45,6 +47,10 @@ function SupervisorsPage() {
     direction: "asc",
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // "Select all matching" mode: every supervisor matching the current search is
+  // selected except the ids the admin explicitly unchecked (excludedIds).
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
@@ -53,7 +59,15 @@ function SupervisorsPage() {
     action: "activate" | "deactivate";
     count: number;
   } | null>(null);
-  const [bulkDelete, setBulkDelete] = useState<{ count: number } | null>(null);
+  const [bulkDelete, setBulkDelete] = useState<{
+    count: number;
+    selectAll: boolean;
+  } | null>(null);
+  // Mass "select all matching" delete requires typing DELETE to confirm.
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  // Force delete also purges records that PROTECT the user (chat messages,
+  // resources, workshops, match runs) — needed to remove accounts with activity.
+  const [forceDelete, setForceDelete] = useState(false);
 
   const { data, isPending } = useQueryUsers({
     page,
@@ -80,7 +94,21 @@ function SupervisorsPage() {
     return map;
   }, [statesData]);
 
-  const clearSelection = () => setSelectedIds(new Set());
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+    setExcludedIds(new Set());
+  };
+
+  // Filters shared by the list query and "select all matching" bulk actions.
+  const currentFilters: BulkStatusFilters = {
+    search: search.trim() || undefined,
+    role: "supervisor",
+  };
+
+  const effectiveSelectedCount = selectAllMatching
+    ? Math.max(0, total - excludedIds.size)
+    : selectedIds.size;
 
   const openCreate = () => {
     setSelectedUser(null);
@@ -168,16 +196,25 @@ function SupervisorsPage() {
 
   const handleBulkStatusConfirm = async () => {
     if (!bulkAction) return;
-    const ids = [...selectedIds];
-    if (ids.length === 0) {
+    if (!selectAllMatching && selectedIds.size === 0) {
       setBulkAction(null);
       return;
     }
+
+    const isActive = bulkAction.action === "activate";
+
     try {
-      const response = await bulkUpdateUserStatus.mutateAsync({
-        ids,
-        isActive: bulkAction.action === "activate",
-      });
+      const response = selectAllMatching
+        ? await bulkUpdateUserStatus.mutateAsync({
+            selectAll: true,
+            filters: currentFilters,
+            excludeIds: [...excludedIds],
+            isActive,
+          })
+        : await bulkUpdateUserStatus.mutateAsync({
+            ids: [...selectedIds],
+            isActive,
+          });
       if (!response.data) {
         toast.error(response.msg || "Unable to update account statuses.");
         return;
@@ -192,13 +229,22 @@ function SupervisorsPage() {
   };
 
   const handleBulkDeleteConfirm = async () => {
-    const ids = [...selectedIds];
-    if (ids.length === 0) {
+    if (!selectAllMatching && selectedIds.size === 0) {
       setBulkDelete(null);
       return;
     }
     try {
-      const response = await bulkDeleteUsers.mutateAsync({ ids });
+      const response = await bulkDeleteUsers.mutateAsync(
+        selectAllMatching
+          ? {
+              selectAll: true,
+              filters: currentFilters,
+              excludeIds: [...excludedIds],
+              expectedCount: effectiveSelectedCount,
+              force: forceDelete,
+            }
+          : { ids: [...selectedIds], force: forceDelete },
+      );
       if (!response.data) {
         toast.error(response.msg || "Unable to delete supervisors.");
         return;
@@ -221,6 +267,9 @@ function SupervisorsPage() {
           onChange={(event) => {
             setSearch(event.target.value);
             setPage(1);
+            // Search redefines the matching set, so any selection (including
+            // "all matching") no longer maps to what's on screen.
+            clearSelection();
           }}
           className="max-w-sm"
         />
@@ -230,17 +279,27 @@ function SupervisorsPage() {
         </Button>
       </div>
 
-      {selectedIds.size > 0 && (
+      {effectiveSelectedCount > 0 && (
         <UserBulkActionsBar
-          count={selectedIds.size}
+          count={effectiveSelectedCount}
           noun="supervisor"
           onActivate={() =>
-            setBulkAction({ action: "activate", count: selectedIds.size })
+            setBulkAction({ action: "activate", count: effectiveSelectedCount })
           }
           onDeactivate={() =>
-            setBulkAction({ action: "deactivate", count: selectedIds.size })
+            setBulkAction({
+              action: "deactivate",
+              count: effectiveSelectedCount,
+            })
           }
-          onDelete={() => setBulkDelete({ count: selectedIds.size })}
+          onDelete={() => {
+            setDeleteConfirmText("");
+            setForceDelete(false);
+            setBulkDelete({
+              count: effectiveSelectedCount,
+              selectAll: selectAllMatching,
+            });
+          }}
           onClear={clearSelection}
           isPending={bulkUpdateUserStatus.isPending || bulkDeleteUsers.isPending}
         />
@@ -266,13 +325,16 @@ function SupervisorsPage() {
         }}
         selection={{
           selectedIds,
-          // The Supervisors tab uses explicit selection only (no "select all matching").
-          selectAllMatching: false,
-          excludedIds: new Set(),
-          total: pageItems.length,
+          selectAllMatching,
+          excludedIds,
+          total,
           onSelectionChange: setSelectedIds,
-          onExcludedChange: () => {},
-          onSelectAllMatching: () => {},
+          onExcludedChange: setExcludedIds,
+          onSelectAllMatching: () => {
+            setSelectedIds(new Set());
+            setExcludedIds(new Set());
+            setSelectAllMatching(true);
+          },
           onClear: clearSelection,
         }}
         isPending={isPending}
@@ -320,7 +382,11 @@ function SupervisorsPage() {
       <AlertDialog
         open={bulkDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setBulkDelete(null);
+          if (!open) {
+            setBulkDelete(null);
+            setDeleteConfirmText("");
+            setForceDelete(false);
+          }
         }}
       >
         <AlertDialogContent>
@@ -333,15 +399,65 @@ function SupervisorsPage() {
               This permanently removes the selected{" "}
               {bulkDelete?.count === 1 ? "account" : "accounts"} and all related
               data. This cannot be undone.
+              {bulkDelete?.selectAll ? (
+                <>
+                  {" "}
+                  Every supervisor matching the current search will be deleted;
+                  admin accounts are protected and skipped.
+                </>
+              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-3">
+            <label
+              htmlFor="bulk-delete-supervisor-force"
+              className="flex items-start gap-2 text-sm"
+            >
+              <input
+                id="bulk-delete-supervisor-force"
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={forceDelete}
+                onChange={(event) => setForceDelete(event.target.checked)}
+              />
+              <span>
+                Force delete — also permanently delete each supervisor's chat
+                messages, uploaded resources, workshops, and match runs. Required
+                to remove accounts that have any activity.
+              </span>
+            </label>
+            {forceDelete ? (
+              <p className="text-sm font-medium text-destructive">
+                This destroys their content for everyone, not just the account,
+                and cannot be undone.
+              </p>
+            ) : null}
+            {bulkDelete?.selectAll || forceDelete ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="bulk-delete-supervisor-confirm">
+                  Type <span className="font-semibold">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="bulk-delete-supervisor-confirm"
+                  autoComplete="off"
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                />
+              </div>
+            ) : null}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleteUsers.isPending}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={bulkDeleteUsers.isPending}
+              disabled={
+                bulkDeleteUsers.isPending ||
+                ((bulkDelete?.selectAll === true || forceDelete) &&
+                  deleteConfirmText !== "DELETE")
+              }
               onClick={(event) => {
                 event.preventDefault();
                 void handleBulkDeleteConfirm();

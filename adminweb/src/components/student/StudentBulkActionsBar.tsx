@@ -12,6 +12,9 @@ interface StudentBulkActionsBarProps {
   onDelete?: () => void;
   onClear: () => void;
   isPending?: boolean;
+  /** True in "select all matching" mode: group actions need loaded rows, so
+   *  only Delete (resolved server-side by filter) is available. */
+  disableGroupActions?: boolean;
 }
 
 export function StudentBulkActionsBar({
@@ -22,7 +25,11 @@ export function StudentBulkActionsBar({
   onDelete,
   onClear,
   isPending,
+  disableGroupActions,
 }: StudentBulkActionsBarProps) {
+  const groupActionsHint = disableGroupActions
+    ? "Select students individually to assign or remove from groups"
+    : undefined;
   return (
     <BulkActionsBar
       count={count}
@@ -30,21 +37,24 @@ export function StudentBulkActionsBar({
       onClear={onClear}
       disabled={isPending}
     >
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onAssign}
-        disabled={isPending}
-      >
-        <UsersIcon />
-        Assign to group
-      </Button>
       {/* Wrapper carries the tooltip: a disabled button has no pointer events. */}
+      <span title={groupActionsHint}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onAssign}
+          disabled={isPending || disableGroupActions}
+        >
+          <UsersIcon />
+          Assign to group
+        </Button>
+      </span>
       <span
         title={
-          groupedCount === 0
+          groupActionsHint ??
+          (groupedCount === 0
             ? "None of the selected students are in a group"
-            : undefined
+            : undefined)
         }
       >
         <Button
@@ -52,7 +62,7 @@ export function StudentBulkActionsBar({
           size="sm"
           className="text-destructive hover:text-destructive"
           onClick={onRemove}
-          disabled={isPending || groupedCount === 0}
+          disabled={isPending || disableGroupActions || groupedCount === 0}
         >
           <UserMinusIcon />
           Remove from group{groupedCount > 0 ? ` (${groupedCount})` : ""}

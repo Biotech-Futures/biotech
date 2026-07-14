@@ -835,3 +835,49 @@ class AdminUserServiceBulkDeleteTests(TestCase):
         result = bulk_delete_users_by_filter({"search": "example.com"}, expected_count=2)
         self.assertIsNone(result["data"])
         self.assertEqual(User.objects.count(), 3)
+
+    def test_force_delete_purges_protecting_records_and_deletes_user(self):
+        from datetime import timedelta
+        from apps.chat.models import Messages
+        from apps.resources.models import Resources
+        from apps.workshops.models import Workshops
+        from apps.admin.models import MatchRun
+
+        group = Groups.objects.create(group_name="Force G")
+        Messages.objects.create(sender_user=self.a, group=group, message_text="hi")
+        Resources.objects.create(name="R", description="d", uploaded_by=self.a)
+        Workshops.objects.create(
+            workshop_name="W", start_datetime=timezone.now(),
+            duration=timedelta(hours=1), location="Zoom",
+            host_user=self.a, group=group,
+        )
+        MatchRun.objects.create(admin_user=self.a, run_type="auto", payload={}, result={})
+
+        result = delete_user(self.a.id, force=True)
+
+        self.assertEqual(result["msg"], "User deleted successfully")
+        self.assertFalse(User.objects.filter(id=self.a.id).exists())
+        self.assertFalse(Messages.objects.filter(sender_user_id=self.a.id).exists())
+        self.assertFalse(Resources.objects.filter(uploaded_by_id=self.a.id).exists())
+        self.assertFalse(Workshops.objects.filter(host_user_id=self.a.id).exists())
+        self.assertFalse(MatchRun.objects.filter(admin_user_id=self.a.id).exists())
+
+    def test_bulk_delete_force_deletes_protected_users(self):
+        from apps.chat.models import Messages
+        group = Groups.objects.create(group_name="Force G2")
+        Messages.objects.create(sender_user=self.a, group=group, message_text="hi")
+        result = bulk_delete_users([self.a.id, self.b.id], force=True)
+        self.assertCountEqual(result["data"]["deletedIds"], [self.a.id, self.b.id])
+        self.assertEqual(result["data"]["failedIds"], [])
+        self.assertFalse(User.objects.filter(id__in=[self.a.id, self.b.id]).exists())
+
+    def test_force_delete_by_filter_still_protects_admins(self):
+        # force purges PROTECT blockers but must NOT override the admin-protection guard.
+        from apps.chat.models import Messages
+        AdminScope.objects.create(user=self.admin)
+        group = Groups.objects.create(group_name="Force G3")
+        Messages.objects.create(sender_user=self.admin, group=group, message_text="hi")
+        result = bulk_delete_users_by_filter({"search": "example.com"}, force=True)
+        self.assertCountEqual(result["data"]["deletedIds"], [self.a.id, self.b.id])
+        self.assertEqual(result["data"]["skippedAdmins"], 1)
+        self.assertTrue(User.objects.filter(id=self.admin.id).exists())

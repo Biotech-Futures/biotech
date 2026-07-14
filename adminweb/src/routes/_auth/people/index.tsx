@@ -173,6 +173,9 @@ function UserManagementPage() {
   } | null>(null);
   // Mass "select all matching" delete requires typing DELETE to confirm.
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  // Force delete also purges records that PROTECT the user (chat messages,
+  // resources, workshops, match runs) — needed to remove accounts with activity.
+  const [forceDelete, setForceDelete] = useState(false);
 
   const clearSelection = () => {
     setSelectedIds(new Set());
@@ -470,8 +473,9 @@ function UserManagementPage() {
               filters: currentFilters,
               excludeIds: [...excludedIds],
               expectedCount: effectiveSelectedCount,
+              force: forceDelete,
             }
-          : { ids: [...selectedIds] },
+          : { ids: [...selectedIds], force: forceDelete },
       );
       if (!response.data) {
         toast.error(response.msg || "Unable to delete users.");
@@ -549,6 +553,7 @@ function UserManagementPage() {
           }
           onDelete={() => {
             setDeleteConfirmText("");
+            setForceDelete(false);
             setBulkDelete({
               count: effectiveSelectedCount,
               selectAll: selectAllMatching,
@@ -643,6 +648,7 @@ function UserManagementPage() {
           if (!open) {
             setBulkDelete(null);
             setDeleteConfirmText("");
+            setForceDelete(false);
           }
         }}
       >
@@ -665,20 +671,45 @@ function UserManagementPage() {
               ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {bulkDelete?.selectAll ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="bulk-delete-confirm">
-                Type <span className="font-semibold">DELETE</span> to confirm
-              </Label>
-              <Input
-                id="bulk-delete-confirm"
-                autoComplete="off"
-                value={deleteConfirmText}
-                onChange={(event) => setDeleteConfirmText(event.target.value)}
-                placeholder="DELETE"
+          <div className="space-y-3">
+            <label
+              htmlFor="bulk-delete-force"
+              className="flex items-start gap-2 text-sm"
+            >
+              <input
+                id="bulk-delete-force"
+                type="checkbox"
+                className="mt-0.5 size-4"
+                checked={forceDelete}
+                onChange={(event) => setForceDelete(event.target.checked)}
               />
-            </div>
-          ) : null}
+              <span>
+                Force delete — also permanently delete each user's chat messages,
+                uploaded resources, workshops, and match runs. Required to remove
+                accounts that have any activity.
+              </span>
+            </label>
+            {forceDelete ? (
+              <p className="text-sm font-medium text-destructive">
+                This destroys their content for everyone, not just the account,
+                and cannot be undone.
+              </p>
+            ) : null}
+            {bulkDelete?.selectAll || forceDelete ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="bulk-delete-confirm">
+                  Type <span className="font-semibold">DELETE</span> to confirm
+                </Label>
+                <Input
+                  id="bulk-delete-confirm"
+                  autoComplete="off"
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                />
+              </div>
+            ) : null}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleteUsers.isPending}>
               Cancel
@@ -687,7 +718,8 @@ function UserManagementPage() {
               variant="destructive"
               disabled={
                 bulkDeleteUsers.isPending ||
-                (bulkDelete?.selectAll === true && deleteConfirmText !== "DELETE")
+                ((bulkDelete?.selectAll === true || forceDelete) &&
+                  deleteConfirmText !== "DELETE")
               }
               onClick={(event) => {
                 event.preventDefault();

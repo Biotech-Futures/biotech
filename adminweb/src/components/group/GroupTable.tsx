@@ -16,10 +16,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { TablePaginationBar } from "@/components/ui/table-pagination";
 import type { Group } from "@/type/group";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import { useState } from "react";
+
+export interface GroupTableSelection {
+  isSelected: (id: string) => boolean;
+  onToggleRow: (id: string) => void;
+  headerState: boolean | "indeterminate";
+  onToggleAll: () => void;
+}
 
 interface GroupTableProps {
   columns: ColumnDef<Group>[];
@@ -34,6 +42,7 @@ interface GroupTableProps {
   onSortingChange?: (sorting: SortingState) => void;
   manualSorting?: boolean;
   isPending?: boolean;
+  selection?: GroupTableSelection;
 }
 
 export function GroupTable({
@@ -48,6 +57,7 @@ export function GroupTable({
   onSortingChange,
   manualSorting,
   isPending,
+  selection,
 }: GroupTableProps) {
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const sorting = controlledSorting ?? internalSorting;
@@ -65,6 +75,8 @@ export function GroupTable({
     getSortedRowModel: getSortedRowModel(),
   });
 
+  const spanCount = columns.length + (selection ? 1 : 0);
+
   return (
     <div className="space-y-4">
       <div className="rounded-md border">
@@ -72,6 +84,16 @@ export function GroupTable({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
+                {selection && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={selection.headerState}
+                      onCheckedChange={selection.onToggleAll}
+                      disabled={isPending || data.length === 0}
+                      aria-label="Select all groups on this page"
+                    />
+                  </TableHead>
+                )}
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -108,7 +130,7 @@ export function GroupTable({
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={spanCount} className="h-24 text-center">
                   Loading...
                 </TableCell>
               </TableRow>
@@ -116,8 +138,24 @@ export function GroupTable({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
+                  data-state={
+                    selection?.isSelected(row.original.id) ? "selected" : undefined
+                  }
                 >
+                  {selection && (
+                    <TableCell
+                      className="w-10"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={selection.isSelected(row.original.id)}
+                        onCheckedChange={() =>
+                          selection.onToggleRow(row.original.id)
+                        }
+                        aria-label={`Select ${row.original.name}`}
+                      />
+                    </TableCell>
+                  )}
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -127,7 +165,7 @@ export function GroupTable({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
+                <TableCell colSpan={spanCount} className="h-24 text-center">
                   No groups found.
                 </TableCell>
               </TableRow>

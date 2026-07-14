@@ -13,9 +13,22 @@ import {
 } from "@/query/mentorMatch";
 import { BulkReplaceDialog } from "@/components/match/BulkReplaceDialog";
 import { MentorImportSheet } from "@/components/user/MentorImportSheet";
+import { UserBulkActionsBar } from "@/components/user/UserBulkActionsBar";
+import { useBulkUpdateUserStatus } from "@/query/user";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -86,10 +99,18 @@ function MentorPage() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  // Selected mentor account ids (mentorId is the user id). The tab loads every
+  // mentor at once (no pagination), so "select all" naturally covers them all.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkAction, setBulkAction] = useState<{
+    action: "activate" | "deactivate";
+    count: number;
+  } | null>(null);
 
   const { data: mentorDetailData, isPending: isLoadingMentors } =
     useQueryMentorDetail();
   const setMentorActive = useMutationSetMentorActive();
+  const bulkUpdateUserStatus = useBulkUpdateUserStatus();
   const { data: matchedData, refetch: refetchMatched } =
     useQueryMatchedGroups();
   const { data: mentorListData } = useQueryMentorList();
@@ -99,6 +120,56 @@ function MentorPage() {
   const mentors = mentorDetailData?.data ?? [];
   const matchedGroups = matchedData?.data ?? [];
   const mentorListItems = mentorListData?.data ?? [];
+
+  const clearSelection = () => setSelectedIds(new Set());
+  const allMentorIds = mentors.map((m) => m.mentorId);
+  const headerChecked: boolean | "indeterminate" =
+    selectedIds.size === 0
+      ? false
+      : allMentorIds.length > 0 && allMentorIds.every((id) => selectedIds.has(id))
+        ? true
+        : "indeterminate";
+
+  const toggleAll = () => {
+    setSelectedIds((prev) =>
+      allMentorIds.length > 0 && allMentorIds.every((id) => prev.has(id))
+        ? new Set()
+        : new Set(allMentorIds),
+    );
+  };
+
+  const toggleOne = (mentorId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(mentorId)) next.delete(mentorId);
+      else next.add(mentorId);
+      return next;
+    });
+  };
+
+  const handleBulkStatusConfirm = async () => {
+    if (!bulkAction || selectedIds.size === 0) {
+      setBulkAction(null);
+      return;
+    }
+    try {
+      const response = await bulkUpdateUserStatus.mutateAsync({
+        ids: [...selectedIds].map(String),
+        isActive: bulkAction.action === "activate",
+      });
+      if (!response.data) {
+        toast.error(response.msg || "Unable to update mentor statuses.");
+        return;
+      }
+      toast.success(response.msg);
+      void queryClient.invalidateQueries({ queryKey: ["mentorDetail"] });
+      clearSelection();
+    } catch {
+      toast.error("Unable to update mentor statuses right now.");
+    } finally {
+      setBulkAction(null);
+    }
+  };
   const getMentorSortValue = useCallback(
     (mentor: MentorDetail, key: MentorSortKey) => {
       switch (key) {
@@ -234,6 +305,21 @@ function MentorPage() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <UserBulkActionsBar
+          count={selectedIds.size}
+          noun="mentor"
+          onActivate={() =>
+            setBulkAction({ action: "activate", count: selectedIds.size })
+          }
+          onDeactivate={() =>
+            setBulkAction({ action: "deactivate", count: selectedIds.size })
+          }
+          onClear={clearSelection}
+          isPending={bulkUpdateUserStatus.isPending}
+        />
+      )}
+
       {/* Table */}
       {mentors.length === 0 ? (
         <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -244,6 +330,14 @@ function MentorPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={headerChecked}
+                    onCheckedChange={toggleAll}
+                    disabled={isLoadingMentors || mentors.length === 0}
+                    aria-label="Select all mentors"
+                  />
+                </TableHead>
                 <TableHead className="w-8" />
                 <TableHead>
                   <SortableTableHead
@@ -304,12 +398,22 @@ function MentorPage() {
                 return [
                   <TableRow
                     key={mentor.mentorId}
+                    data-state={
+                      selectedIds.has(mentor.mentorId) ? "selected" : undefined
+                    }
                     className={cn(
                       "cursor-pointer",
                       inactive && "bg-destructive/5",
                     )}
                     onClick={() => toggleExpand(mentor.mentorId)}
                   >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedIds.has(mentor.mentorId)}
+                        onCheckedChange={() => toggleOne(mentor.mentorId)}
+                        aria-label={`Select ${mentor.name}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <button
                         onClick={(e) => {
@@ -400,7 +504,7 @@ function MentorPage() {
                       key={`detail-${mentor.mentorId}`}
                       className="hover:bg-transparent"
                     >
-                      <TableCell colSpan={7} className="p-0">
+                      <TableCell colSpan={8} className="p-0">
                         <div className="border-t bg-muted/20 px-6 py-4 space-y-4">
                           {/* Basic Info */}
                           <div>
@@ -564,6 +668,45 @@ function MentorPage() {
           </Table>
         </div>
       )}
+
+      <AlertDialog
+        open={bulkAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setBulkAction(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkAction?.action === "activate" ? "Activate" : "Deactivate"}{" "}
+              {bulkAction?.count}{" "}
+              {bulkAction?.count === 1 ? "mentor" : "mentors"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkAction?.action === "activate"
+                ? "The selected mentors will be able to sign in again."
+                : "The selected mentors will no longer be able to sign in. You can reactivate them at any time."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkUpdateUserStatus.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant={
+                bulkAction?.action === "activate" ? "default" : "destructive"
+              }
+              disabled={bulkUpdateUserStatus.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkStatusConfirm();
+              }}
+            >
+              {bulkAction?.action === "activate" ? "Activate" : "Deactivate"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <BulkReplaceDialog
         open={bulkDialogOpen}

@@ -1554,9 +1554,34 @@ def bulk_update_status_by_filter(filters: Dict[str, Any], is_active: bool,
     return bulk_update_status(ids, is_active, initiated_by=initiated_by)
 
 
-def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
+def _purge_protecting_records(user_id: int) -> None:
+    """Delete the four record types that reference a user with on_delete=PROTECT,
+    so a subsequent User delete succeeds instead of raising ProtectedError.
+
+    Their children (message reactions/attachments, resource audiences, workshop
+    attendance, match recommendations) all cascade, so no ordering is needed. The
+    external blob store is intentionally left untouched — the app's normal
+    resource/message deletion is a soft delete that never purges blobs either.
+    """
+    from apps.chat.models import Messages
+    from apps.resources.models import Resources
+    from apps.workshops.models import Workshops
+    from apps.admin.models import MatchRun
+
+    Messages.objects.filter(sender_user_id=user_id).delete()
+    Resources.objects.filter(uploaded_by_id=user_id).delete()
+    Workshops.objects.filter(host_user_id=user_id).delete()
+    MatchRun.objects.filter(admin_user_id=user_id).delete()
+
+
+def delete_user(user_id: int, initiated_by=None, force: bool = False) -> Dict[str, Any]:
     """
     Delete a user and all related data.
+
+    force=True first purges the records that reference the user with
+    on_delete=PROTECT (chat messages, uploaded resources, hosted workshops, match
+    runs). This permanently destroys that content — callers must gate it behind an
+    explicit, confirmed admin action.
     """
     try:
         user = User.objects.get(id=user_id)
@@ -1570,7 +1595,7 @@ def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
                 actor=initiated_by,
                 entity_type="user",
                 entity_id=user_id,
-                action="delete",
+                action="force_delete" if force else "delete",
                 before_state=before_user,
             )
             RoleAssignmentHistory.objects.filter(user_id=user_id).delete()
@@ -1578,11 +1603,14 @@ def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
             MentorProfile.objects.filter(user_id=user_id).delete()
             SupervisorProfile.objects.filter(user_id=user_id).delete()
             StudentProfile.objects.filter(user_id=user_id).delete()
+            if force:
+                _purge_protecting_records(user_id)
             User.objects.filter(id=user_id).delete()
     except ProtectedError:
         # Chat messages, uploaded resources, match runs, etc. reference the user
         # with on_delete=PROTECT. Fail cleanly (the atomic block rolls back) instead
-        # of a 500 that would strand a bulk delete mid-loop.
+        # of a 500 that would strand a bulk delete mid-loop. force=True purges these
+        # first, so this path is only reached for a normal (non-force) delete.
         return {
             "msg": "User cannot be deleted because other records reference them",
             "data": None,
@@ -1591,12 +1619,15 @@ def delete_user(user_id: int, initiated_by=None) -> Dict[str, Any]:
     return {"msg": "User deleted successfully", "data": None}
 
 
-def bulk_delete_users(user_ids: List[int], initiated_by=None) -> Dict[str, Any]:
+def bulk_delete_users(user_ids: List[int], initiated_by=None,
+                      force: bool = False) -> Dict[str, Any]:
     """
     Permanently delete multiple users in one call (hard delete).
 
     Dedupes ids and never deletes the initiator's own account. Each row is
     removed via delete_user, so every deletion is individually audit-logged.
+    force=True also purges the records that PROTECT each user (chat messages,
+    resources, workshops, match runs) — see delete_user.
     """
     try:
         ids = list(dict.fromkeys(int(uid) for uid in user_ids))
@@ -1621,7 +1652,7 @@ def bulk_delete_users(user_ids: List[int], initiated_by=None) -> Dict[str, Any]:
             continue
         # Each delete_user runs in its own transaction, so a protected/undeletable
         # user is reported in failed_ids rather than aborting the whole batch.
-        if delete_user(uid, initiated_by=initiated_by).get("msg") == "User deleted successfully":
+        if delete_user(uid, initiated_by=initiated_by, force=force).get("msg") == "User deleted successfully":
             deleted_ids.append(uid)
         else:
             failed_ids.append(uid)
@@ -1656,7 +1687,8 @@ def _empty_delete_result(msg: str, skipped_admins: int = 0) -> Dict[str, Any]:
 
 
 def bulk_delete_users_by_filter(filters: Dict[str, Any], exclude_ids=None,
-                                initiated_by=None, expected_count=None) -> Dict[str, Any]:
+                                initiated_by=None, expected_count=None,
+                                force: bool = False) -> Dict[str, Any]:
     """
     Permanently delete every user matching the given list filters
     ("select all matching"). Mirrors query_users' filter semantics so the action
@@ -1718,7 +1750,7 @@ def bulk_delete_users_by_filter(filters: Dict[str, Any], exclude_ids=None,
             "No deletable users (admin accounts are protected)", skipped_admins
         )
 
-    result = bulk_delete_users(ids, initiated_by=initiated_by)
+    result = bulk_delete_users(ids, initiated_by=initiated_by, force=force)
     if result.get("data") is not None and skipped_admins:
         result["data"]["skippedAdmins"] = skipped_admins
         result["msg"] += f"; {skipped_admins} admin account(s) skipped"

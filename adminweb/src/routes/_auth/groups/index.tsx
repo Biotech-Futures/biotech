@@ -10,7 +10,12 @@ import {
   GroupMessagesDialog,
   createColumns,
 } from "@/components/group";
-import { useCreateGroup, useQueryGroup, useQueryGroups } from "@/query/group";
+import {
+  useCreateGroup,
+  useDeleteGroup,
+  useQueryGroup,
+  useQueryGroups,
+} from "@/query/group";
 import {
   MAX_PAGE_SIZE,
   MIN_PAGE_SIZE,
@@ -19,6 +24,17 @@ import type { Group, MentorStatusFilter } from "@/type/group";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BulkActionsBar } from "@/components/ui/bulk-actions-bar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -97,7 +113,12 @@ function GroupPage() {
   ]);
   const [createOpen, setCreateOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  // Page-level bulk selection, keyed by group id.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deletingGroup, setDeletingGroup] = useState<Group | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const createGroup = useCreateGroup();
+  const deleteGroup = useDeleteGroup();
 
   // Query with pagination and filters
   const { data, isPending } = useQueryGroups({
@@ -121,6 +142,79 @@ function GroupPage() {
 
   const groups = data?.data.items ?? [];
   const totalPages = Math.max(1, Math.ceil((data?.data.total ?? 0) / pageSize));
+
+  const clearSelection = () => setSelectedIds(new Set());
+  const selectedOnPage = groups.filter((g) => selectedIds.has(g.id));
+  const headerState: boolean | "indeterminate" =
+    groups.length > 0 && selectedOnPage.length === groups.length
+      ? true
+      : selectedOnPage.length > 0
+        ? "indeterminate"
+        : false;
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const allSelected =
+        groups.length > 0 && groups.every((g) => next.has(g.id));
+      if (allSelected) groups.forEach((g) => next.delete(g.id));
+      else groups.forEach((g) => next.add(g.id));
+      return next;
+    });
+  };
+
+  // Delete returns 204 (no body), so a resolved request means success.
+  const handleDeleteGroup = async () => {
+    if (!deletingGroup) return;
+    const { id, name } = deletingGroup;
+    try {
+      await deleteGroup.mutateAsync(id);
+      toast.success(`Deleted "${name}".`);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch {
+      toast.error("Unable to delete the group right now.");
+    } finally {
+      setDeletingGroup(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) {
+      setBulkDeleteOpen(false);
+      return;
+    }
+    // Settle each delete independently so one failure doesn't strand the rest.
+    const outcomes = await Promise.allSettled(
+      ids.map((id) => deleteGroup.mutateAsync(id)),
+    );
+    const failed = outcomes.filter((o) => o.status === "rejected").length;
+    const deleted = ids.length - failed;
+
+    if (deleted > 0) {
+      toast.success(`Deleted ${deleted} group${deleted === 1 ? "" : "s"}.`);
+    }
+    if (failed > 0) {
+      toast.error(
+        `${failed} group${failed === 1 ? "" : "s"} could not be deleted.`,
+      );
+    }
+    clearSelection();
+    setBulkDeleteOpen(false);
+  };
 
   const updateFilters = (
     filters: Partial<{
@@ -219,6 +313,7 @@ function GroupPage() {
   const columns = createColumns({
     onViewDetail: handleViewDetail,
     onViewMessages: handleViewMessages,
+    onDelete: setDeletingGroup,
   });
 
   return (
@@ -260,6 +355,26 @@ function GroupPage() {
         }}
       />
 
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          count={selectedIds.size}
+          noun="group"
+          onClear={clearSelection}
+          disabled={deleteGroup.isPending}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setBulkDeleteOpen(true)}
+            disabled={deleteGroup.isPending}
+          >
+            <Trash2Icon />
+            Delete
+          </Button>
+        </BulkActionsBar>
+      )}
+
       {/* Table */}
       <GroupTable
         columns={columns}
@@ -276,6 +391,12 @@ function GroupPage() {
         }}
         manualSorting
         isPending={isPending}
+        selection={{
+          isSelected: (id) => selectedIds.has(id),
+          onToggleRow: toggleRow,
+          headerState,
+          onToggleAll: toggleAllOnPage,
+        }}
       />
 
       <GroupDetailModal
@@ -290,6 +411,71 @@ function GroupPage() {
         open={messagesOpen}
         onOpenChange={setMessagesOpen}
       />
+
+      <AlertDialog
+        open={deletingGroup !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingGroup(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete &ldquo;{deletingGroup?.name}&rdquo;?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the group from the platform. Its students become
+              ungrouped and can be reassigned at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteGroup.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteGroup.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteGroup();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.size}{" "}
+              {selectedIds.size === 1 ? "group" : "groups"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the selected{" "}
+              {selectedIds.size === 1 ? "group" : "groups"} from the platform.
+              Their students become ungrouped and can be reassigned at any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteGroup.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteGroup.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleBulkDelete();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={createOpen}
